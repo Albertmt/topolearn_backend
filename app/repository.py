@@ -1,20 +1,49 @@
-"""All SQL lives here. Every query is index-backed and bounded."""
+"""All concept-graph SQL lives here. Every query is index-backed and bounded."""
+import heapq
 import re
-import sqlite3
+import unicodedata
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
-from .db import has_fts
+from .db import Conn, Row
 
-_CONCEPT_COLS = "pk, slug, name, type, domain, description, example, wiki_url, difficulty, prereq_count"
-_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
-_CHUNK = 900  # stay under SQLite's host-parameter limit on old builds
+_COLS = ["pk", "slug", "name", "type", "domain", "description", "example", "wiki_url", "difficulty", "prereq_count"]
+_CONCEPT_COLS = ", ".join(_COLS)
+_C_COLS = ", ".join("c." + c for c in _COLS)
+_WORD = re.compile(r"[^\W_]+", re.UNICODE)
 
 
 def normalize(text: str) -> str:
+    """Lower-case, single-spaced (exact name/alias matching)."""
     return " ".join(text.lower().split())
 
 
-def _concept(row: sqlite3.Row) -> dict:
+# Letters that don't decompose into "base letter + accent".
+_SPECIAL = str.maketrans({"ß": "ss", "œ": "oe", "æ": "ae", "ø": "o", "ł": "l", "đ": "d", "ı": "i", "þ": "th"})
+
+
+def fold(text: str) -> str:
+    """Lower-case and strip accents: "Gödel" -> "godel", "Straße" -> "strasse"."""
+    decomposed = unicodedata.normalize("NFKD", text.lower().translate(_SPECIAL))
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+
+
+def words(text: str) -> List[str]:
+    """Accent-free words, the unit search matches on."""
+    return _WORD.findall(fold(text))
+
+
+def search_words(text: str) -> List[str]:
+    """`words`, plus joined forms of punctuated words, so "tsne" finds "t-SNE"
+    and "godels" finds "Gödel's"."""
+    out = words(text)
+    for chunk in fold(text).split():
+        parts = _WORD.findall(chunk)
+        if len(parts) > 1:
+            out.append("".join(parts))
+    return out
+
+
+def _concept(row: Row) -> dict:
     return {
         "id": row["slug"],
         "name": row["name"],
@@ -28,115 +57,106 @@ def _concept(row: sqlite3.Row) -> dict:
     }
 
 
-def _chunks(items: List[int]) -> Iterable[List[int]]:
-    for i in range(0, len(items), _CHUNK):
-        yield items[i : i + _CHUNK]
+def count_concepts(conn: Conn) -> int:
+    return conn.execute("SELECT COUNT(*) FROM graph.concepts").fetchone()[0]
 
 
-def count_concepts(conn: sqlite3.Connection) -> int:
-    return conn.execute("SELECT COUNT(*) FROM concepts").fetchone()[0]
+def get_concept_row(conn: Conn, slug: str) -> Optional[Row]:
+    return conn.execute(f"SELECT {_CONCEPT_COLS} FROM graph.concepts WHERE slug = ?", (slug,)).fetchone()
 
 
-def get_concept_row(conn: sqlite3.Connection, slug: str) -> Optional[sqlite3.Row]:
-    return conn.execute(
-        f"SELECT {_CONCEPT_COLS} FROM concepts WHERE slug = ?", (slug,)
-    ).fetchone()
-
-
-def get_concept(conn: sqlite3.Connection, slug: str) -> Optional[dict]:
+def get_concept(conn: Conn, slug: str) -> Optional[dict]:
     row = get_concept_row(conn, slug)
     return _concept(row) if row else None
+
+
+def concepts_by_slug(conn: Conn, slugs: Iterable[str]) -> Dict[str, dict]:
+    """Several concepts in one query: {slug: concept} (unknown slugs are left out)."""
+    wanted = list(dict.fromkeys(slugs))
+    if not wanted:
+        return {}
+    rows = conn.execute(f"SELECT {_CONCEPT_COLS} FROM graph.concepts WHERE slug = ANY(?)", (wanted,))
+    return {r["slug"]: _concept(r) for r in rows}
+
+
+def _rows_by_pk(conn: Conn, pks: List[int]) -> Dict[int, Row]:
+    if not pks:
+        return {}
+    return {r["pk"]: r for r in conn.execute(f"SELECT {_CONCEPT_COLS} FROM graph.concepts WHERE pk = ANY(?)", (pks,))}
 
 
 # --------------------------------------------------------------------------- search
 
 
-def search(conn: sqlite3.Connection, query: str, limit: int) -> List[dict]:
+def _like_prefix(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+def search(conn: Conn, query: str, limit: int) -> List[dict]:
+    """Ranked: exact name/alias, then names starting with the query, then names
+    or aliases containing all its words (the last one as a prefix). Within a
+    bucket the more popular concept wins (pk order). Accents and case are ignored."""
     q = normalize(query)
     if not q:
         return []
+    ranked: Dict[int, Tuple[int, int]] = {}  # pk -> (bucket, pk); lower is better
 
-    # pk -> (bucket, score); lower is better.
-    ranked: Dict[int, Tuple[int, float]] = {}
-
-    def offer(pk: int, bucket: int, score: float = 0.0) -> None:
-        if pk not in ranked or (bucket, score) < ranked[pk]:
-            ranked[pk] = (bucket, score)
+    def offer(pk: int, bucket: int) -> None:
+        if pk not in ranked or (bucket, pk) < ranked[pk]:
+            ranked[pk] = (bucket, pk)
 
     # 1) exact name / alias
-    for (pk,) in conn.execute("SELECT pk FROM concepts WHERE name_norm = ?", (q,)):
-        offer(pk, 0)
-    for (pk,) in conn.execute("SELECT concept_pk FROM aliases WHERE alias_norm = ?", (q,)):
+    for (pk,) in conn.execute(
+        """SELECT pk FROM graph.concepts WHERE name_norm = ?
+           UNION SELECT concept_pk FROM graph.aliases WHERE alias_norm = ?""",
+        (q, q),
+    ):
         offer(pk, 0)
 
-    # 2) prefix / full-text.
-    # Concept pks are assigned in popularity order at build time, and FTS5 yields
-    # rows in rowid order, so "LIMIT n" returns the n most popular matches
-    # without scoring every hit (keeps 1-letter prefixes fast at 1M+ rows).
-    candidates = limit * 2
-    if has_fts(conn):
-        tokens = _TOKEN_RE.findall(q)
-        if tokens:
-            starts_with = f'name : ^"{" ".join(tokens)}"*'
-            anywhere = " ".join(f'"{t}"' for t in tokens[:-1])
-            anywhere = (anywhere + f' "{tokens[-1]}"*').strip()
-            for bucket, match in ((1, starts_with), (2, anywhere)):
-                rows = conn.execute(
-                    "SELECT rowid FROM concepts_fts WHERE concepts_fts MATCH ? LIMIT ?",
-                    (match, candidates),
-                )
-                for (pk,) in rows:
-                    offer(pk, bucket, float(pk))
-    else:
-        like = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        rows = conn.execute(
-            """
-            SELECT pk, name_norm FROM concepts
-            WHERE name_norm LIKE ? ESCAPE '\\'
-            ORDER BY popularity DESC, length(name) LIMIT ?
-            """,
-            (f"%{like}%", candidates),
-        )
-        for pk, name_norm in rows:
-            offer(pk, 1 if name_norm.startswith(q) else 2, float(len(name_norm)))
+    tokens = words(q)
+    if tokens:
+        candidates = limit * 2
+        # 2) the name starts with the query
+        for (pk,) in conn.execute(
+            "SELECT pk FROM graph.concepts WHERE name_key LIKE ? ORDER BY pk LIMIT ?",
+            (_like_prefix(" ".join(tokens)), candidates),
+        ):
+            offer(pk, 1)
+        # 3) every word appears somewhere in the name or an alias
+        tsquery = " & ".join([f"'{t}'" for t in tokens[:-1]] + [f"'{tokens[-1]}':*"])
+        for (pk,) in conn.execute(
+            "SELECT pk FROM graph.concepts WHERE to_tsvector('simple', search_doc) @@ to_tsquery('simple', ?) "
+            "ORDER BY pk LIMIT ?",
+            (tsquery, candidates),
+        ):
+            offer(pk, 2)
 
     if not ranked:
         return []
     best = sorted(ranked, key=lambda pk: ranked[pk])[:limit]
-    rows_by_pk = {
-        r["pk"]: r
-        for r in conn.execute(
-            f"SELECT {_CONCEPT_COLS} FROM concepts WHERE pk IN ({','.join('?' * len(best))})",
-            best,
-        )
-    }
-    return [_concept(rows_by_pk[pk]) for pk in best if pk in rows_by_pk]
+    rows = _rows_by_pk(conn, best)  # may miss pks if the graph was reloaded meanwhile
+    return [_concept(rows[pk]) for pk in best if pk in rows]
 
 
 # ---------------------------------------------------------------------- prerequisites
 
 
-def _pks_for(conn: sqlite3.Connection, slugs: Iterable[str]) -> Set[int]:
-    out: Set[int] = set()
+def _pks_for(conn: Conn, slugs: Iterable[str]) -> Set[int]:
     slugs = list(slugs)
-    for i in range(0, len(slugs), _CHUNK):
-        chunk = slugs[i : i + _CHUNK]
-        out.update(
-            r[0] for r in conn.execute(
-                f"SELECT pk FROM concepts WHERE slug IN ({','.join('?' * len(chunk))})", chunk
-            )
-        )
-    return out
+    if not slugs:
+        return set()
+    return {r[0] for r in conn.execute("SELECT pk FROM graph.concepts WHERE slug = ANY(?)", (slugs,))}
 
 
 def prerequisite_graph(
-    conn: sqlite3.Connection,
+    conn: Conn,
     slug: str,
     max_depth: int,
     max_nodes: int,
     skip: Iterable[str] = (),
 ) -> Optional[dict]:
-    """Breadth-first walk over prerequisites, bounded by depth and node count.
+    """Breadth-first walk over prerequisites, bounded by depth and node count
+    (one query per level).
 
     Concepts in `skip` (a user's hidden concepts) are left out and not walked
     through, so their prerequisites only appear if something else needs them.
@@ -159,50 +179,45 @@ def prerequisite_graph(
         if not frontier:
             break
         next_frontier: List[int] = []
-        for chunk in _chunks(frontier):
-            rows = conn.execute(
-                f"""
-                SELECT p.concept_pk, p.prereq_pk, p.why FROM prerequisites p
-                JOIN concepts c ON c.pk = p.prereq_pk
-                WHERE p.concept_pk IN ({','.join('?' * len(chunk))})
-                ORDER BY p.concept_pk, c.popularity DESC, c.pk
-                """,
-                chunk,
-            ).fetchall()
-            for concept_pk, prereq_pk, why in rows:
-                if prereq_pk in skip_pks:
-                    skipped_out[concept_pk] = skipped_out.get(concept_pk, 0) + 1
+        rows = conn.execute(
+            """SELECT p.concept_pk, p.prereq_pk, p.why FROM graph.prerequisites p
+               WHERE p.concept_pk = ANY(?)
+               ORDER BY p.concept_pk, p.prereq_pk""",  # prereq pk order = popularity order
+            (frontier,),
+        ).fetchall()
+        for concept_pk, prereq_pk, why in rows:
+            if prereq_pk in skip_pks:
+                skipped_out[concept_pk] = skipped_out.get(concept_pk, 0) + 1
+                continue
+            if prereq_pk not in depth:
+                if len(depth) >= max_nodes:
+                    truncated = True
                     continue
-                if prereq_pk not in depth:
-                    if len(depth) >= max_nodes:
-                        truncated = True
-                        continue
-                    depth[prereq_pk] = level
-                    next_frontier.append(prereq_pk)
-                edges[(concept_pk, prereq_pk)] = why
+                depth[prereq_pk] = level
+                next_frontier.append(prereq_pk)
+            edges[(concept_pk, prereq_pk)] = why
         frontier = next_frontier
     # Nodes left unexpanded (depth limit) show up below via hidden_prereqs.
 
-    pks = list(depth)
-    rows: Dict[int, sqlite3.Row] = {}
-    for chunk in _chunks(pks):
-        for r in conn.execute(
-            f"SELECT {_CONCEPT_COLS} FROM concepts WHERE pk IN ({','.join('?' * len(chunk))})",
-            chunk,
-        ):
-            rows[r["pk"]] = r
+    rows_by_pk = _rows_by_pk(conn, list(depth))
+    if len(rows_by_pk) != len(depth):
+        # The graph was reloaded between our queries (pks are reassigned on each
+        # load): keep what's consistent rather than failing the request.
+        depth = {pk: d for pk, d in depth.items() if pk in rows_by_pk}
+        edges = {(a, b): w for (a, b), w in edges.items() if a in rows_by_pk and b in rows_by_pk}
+        if root["pk"] not in rows_by_pk:
+            return None
 
-    # Edges between nodes we include (also catches cross-links found at the last level).
     shown_out: Dict[int, int] = {}
     for a, _ in edges:
         shown_out[a] = shown_out.get(a, 0) + 1
 
     nodes = []
-    for pk in sorted(pks, key=lambda p: (depth[p], rows[p]["name"].lower())):
-        node = _concept(rows[pk])
+    for pk in sorted(depth, key=lambda p: (depth[p], rows_by_pk[p]["name"].lower())):
+        node = _concept(rows_by_pk[pk])
         node["depth"] = depth[pk]
         node["hidden_prereqs"] = max(
-            0, rows[pk]["prereq_count"] - shown_out.get(pk, 0) - skipped_out.get(pk, 0)
+            0, rows_by_pk[pk]["prereq_count"] - shown_out.get(pk, 0) - skipped_out.get(pk, 0)
         )
         if node["hidden_prereqs"]:
             truncated = True
@@ -212,25 +227,23 @@ def prerequisite_graph(
         "root": root["slug"],
         "nodes": nodes,
         "edges": [
-            {"concept": rows[a]["slug"], "requires": rows[b]["slug"], "why": why}
+            {"concept": rows_by_pk[a]["slug"], "requires": rows_by_pk[b]["slug"], "why": why}
             for (a, b), why in sorted(edges.items())
         ],
         "truncated": truncated,
     }
 
 
-def unlocks(conn: sqlite3.Connection, slug: str, limit: int) -> Optional[List[dict]]:
+def unlocks(conn: Conn, slug: str, limit: int) -> Optional[List[dict]]:
     """Concepts that list `slug` as a direct prerequisite."""
     root = get_concept_row(conn, slug)
     if root is None:
         return None
     rows = conn.execute(
-        f"""
-        SELECT {', '.join('c.' + c.strip() for c in _CONCEPT_COLS.split(','))}
-        FROM prerequisites p JOIN concepts c ON c.pk = p.concept_pk
-        WHERE p.prereq_pk = ?
-        ORDER BY c.popularity DESC, c.name LIMIT ?
-        """,
+        f"""SELECT {_C_COLS}
+            FROM graph.prerequisites p JOIN graph.concepts c ON c.pk = p.concept_pk
+            WHERE p.prereq_pk = ?
+            ORDER BY c.popularity DESC, c.name LIMIT ?""",
         (root["pk"], limit),
     )
     return [_concept(r) for r in rows]
@@ -245,26 +258,39 @@ def minutes_to_learn(difficulty: Optional[float]) -> int:
     return int(round((20 + 160 * d ** 1.5) / 5.0) * 5)
 
 
-def direct_prereqs(conn: sqlite3.Connection, slug: str) -> List[str]:
-    return [r[0] for r in conn.execute(
-        """SELECT c2.slug FROM concepts c1
-           JOIN prerequisites p ON p.concept_pk = c1.pk
-           JOIN concepts c2 ON c2.pk = p.prereq_pk
-           WHERE c1.slug = ?""", (slug,))]
+def direct_prereqs_many(conn: Conn, slugs: Iterable[str]) -> Dict[str, List[str]]:
+    """{slug: [its direct prerequisites]} for several concepts in one query."""
+    wanted = list(dict.fromkeys(slugs))
+    out: Dict[str, List[str]] = {s: [] for s in wanted}
+    if not wanted:
+        return out
+    for a, b in conn.execute(
+        """SELECT c1.slug, c2.slug FROM graph.concepts c1
+           JOIN graph.prerequisites p ON p.concept_pk = c1.pk
+           JOIN graph.concepts c2 ON c2.pk = p.prereq_pk
+           WHERE c1.slug = ANY(?)""",
+        (wanted,),
+    ):
+        out[a].append(b)
+    return out
 
 
-def direct_dependents(conn: sqlite3.Connection, slug: str, limit: int = 200) -> List[dict]:
+def direct_prereqs(conn: Conn, slug: str) -> List[str]:
+    return direct_prereqs_many(conn, [slug])[slug]
+
+
+def direct_dependents(conn: Conn, slug: str, limit: int = 200) -> List[dict]:
     rows = conn.execute(
-        f"""SELECT {', '.join('c.' + c.strip() for c in _CONCEPT_COLS.split(','))}
-            FROM concepts p0 JOIN prerequisites p ON p.prereq_pk = p0.pk
-            JOIN concepts c ON c.pk = p.concept_pk
-            WHERE p0.slug = ? ORDER BY c.popularity DESC LIMIT ?""", (slug, limit))
+        f"""SELECT {_C_COLS}
+            FROM graph.concepts p0 JOIN graph.prerequisites p ON p.prereq_pk = p0.pk
+            JOIN graph.concepts c ON c.pk = p.concept_pk
+            WHERE p0.slug = ? ORDER BY c.popularity DESC, c.pk LIMIT ?""",
+        (slug, limit),
+    )
     return [_concept(r) for r in rows]
 
 
-def learning_path(
-    conn: sqlite3.Connection, slug: str, skip: Iterable[str] = (), max_nodes: int = 1500
-) -> Optional[dict]:
+def learning_path(conn: Conn, slug: str, skip: Iterable[str] = (), max_nodes: int = 1500) -> Optional[dict]:
     """Every prerequisite of `slug` (whole closure, hidden ones pruned) in an
     order you could actually study them: each concept comes after all of its
     prerequisites; among concepts that are ready at the same time, easier first.
@@ -280,33 +306,27 @@ def learning_path(
     truncated = False
     while frontier:
         nxt: List[int] = []
-        for chunk in _chunks(frontier):
-            for a, b in conn.execute(
-                f"SELECT concept_pk, prereq_pk FROM prerequisites WHERE concept_pk IN ({','.join('?' * len(chunk))})",
-                chunk,
-            ):
-                if b in skip_pks:
+        for a, b in conn.execute(
+            "SELECT concept_pk, prereq_pk FROM graph.prerequisites WHERE concept_pk = ANY(?) ORDER BY 1, 2",
+            (frontier,),
+        ):
+            if b in skip_pks:
+                continue
+            if b not in seen:
+                if len(seen) >= max_nodes:
+                    truncated = True
                     continue
-                if b not in seen:
-                    if len(seen) >= max_nodes:
-                        truncated = True
-                        continue
-                    seen.add(b)
-                    nxt.append(b)
-                edges.append((a, b))
+                seen.add(b)
+                nxt.append(b)
+            edges.append((a, b))
         frontier = nxt
 
-    rows: Dict[int, sqlite3.Row] = {}
-    pks = list(seen)
-    for chunk in _chunks(pks):
-        for r in conn.execute(
-            f"SELECT {_CONCEPT_COLS} FROM concepts WHERE pk IN ({','.join('?' * len(chunk))})", chunk
-        ):
-            rows[r["pk"]] = r
+    rows = _rows_by_pk(conn, list(seen))
+    if root["pk"] not in rows:
+        return None  # the graph was reloaded mid-request
+    pks = [pk for pk in seen if pk in rows]
 
     # Kahn's algorithm over "prerequisite -> concept", easiest-first among ready ones.
-    import heapq
-
     needs: Dict[int, Set[int]] = {pk: set() for pk in pks}
     users: Dict[int, List[int]] = {pk: [] for pk in pks}
     for a, b in edges:

@@ -4,6 +4,7 @@ import random
 import time
 
 import pytest
+from fastapi.testclient import TestClient
 
 from conftest import concepts, edges, new_user
 
@@ -165,20 +166,16 @@ def test_concepts_with_minimal_data(make_client):
 
 
 def test_build_rejects_and_repairs_bad_input(make_client, tmp_path):
-    import json
-    import subprocess
-    import sys
+    pass
 
-    from conftest import ROOT
 
-    src = tmp_path / "bad.json"
-    src.write_text(json.dumps({
+    from conftest import run_loader
+
+    res = run_loader({
         "concepts": [{"id": "a", "name": "A"}, {"id": "", "name": "no id"}, {"id": "b"}],
         "prerequisites": [{"concept": "a", "requires": "a"}, {"concept": "a", "requires": "ghost"}],
-    }))
-    res = subprocess.run([sys.executable, str(ROOT / "scripts" / "build_db.py"), str(src),
-                          "--out", str(tmp_path / "x.db")], capture_output=True, text=True)
-    assert res.returncode == 0
+    }, tmp_path)
+    assert res.returncode == 0, res.stderr
     assert "self-loop" in res.stdout and "unknown concept" in res.stdout and "skipping concept" in res.stdout
 
 
@@ -228,8 +225,7 @@ def test_unicode_user_and_long_names(make_client):
 
 
 def test_user_data_pointing_at_removed_concepts(make_client, tmp_path):
-    users_db = tmp_path / "keep_users.db"
-    c = make_client({"concepts": concepts("a", "b", "gone"), "prerequisites": edges("a>b")}, users_db=users_db)
+    c = make_client({"concepts": concepts("a", "b", "gone"), "prerequisites": edges("a>b")})
     uid = new_user(c)
     c.patch(f"/api/v1/users/{uid}", json={"interests": ["gone", "a"]})
     c.put(f"/api/v1/users/{uid}/progress/gone", json={"understanding": 100})
@@ -238,7 +234,7 @@ def test_user_data_pointing_at_removed_concepts(make_client, tmp_path):
     c.post("/api/v1/reports", json={"user_id": uid, "kind": "other", "concept_id": "gone", "message": "x"})
 
     # Rebuild the concept DB without "gone"; user data stays.
-    c = make_client({"concepts": concepts("a", "b"), "prerequisites": edges("a>b")}, users_db=users_db)
+    c = make_client({"concepts": concepts("a", "b"), "prerequisites": edges("a>b")})
     user = c.get(f"/api/v1/users/{uid}").json()
     assert [i["id"] for i in user["interests"]] == ["a"]
     assert [g["concept"]["id"] for g in c.get(f"/api/v1/users/{uid}/goals").json()] == ["a"]
@@ -286,14 +282,37 @@ def test_unknown_user_on_personalised_reads_is_harmless(make_client):
 # -------------------------------------------------------------- missing DB
 
 
-def test_missing_concept_db_gives_clear_503(tmp_path, monkeypatch):
-    from fastapi.testclient import TestClient
+def test_graph_not_loaded_gives_clear_503():
+    from conftest import drop_graph
 
-    from app import config
-
-    monkeypatch.setattr(config, "DB_PATH", tmp_path / "missing.db")
-    monkeypatch.setattr(config, "USERS_DB_PATH", tmp_path / "users.db")
     from app.main import app
 
-    r = TestClient(app).get("/health")
+    drop_graph()
+    c = TestClient(app)
+    r = c.get("/health")
     assert r.status_code == 503 and "build_db.py" in r.json()["detail"]
+    r = c.get("/api/v1/search", params={"q": "a"})
+    assert r.status_code == 503 and "build_db.py" in r.json()["detail"]
+    # User endpoints that don't need concepts still work.
+    assert c.post("/api/v1/users", json={"name": "Ada"}).status_code == 201
+
+
+def test_no_database_configured_gives_clear_503(monkeypatch):
+    from app import config, db
+    from app.main import app
+
+    monkeypatch.setattr(config, "DATABASE_URL", "")
+    db.reset_connections()
+    r = TestClient(app).get("/health")
+    assert r.status_code == 503 and "DATABASE_URL" in r.json()["detail"]
+
+
+def test_unreachable_database_gives_503_not_a_crash(monkeypatch):
+    from app import config, userdb
+    from app.main import app
+
+    monkeypatch.setattr(config, "DATABASE_URL", "postgresql://nobody@127.0.0.1:1/nothing?connect_timeout=2")
+    userdb.forget_schema()
+    c = TestClient(app)
+    assert c.get("/health").status_code == 503
+    assert c.post("/api/v1/users", json={"name": "Ada"}).status_code == 503

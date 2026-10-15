@@ -1,9 +1,42 @@
 # topolearn_backend
 
-Read-only API that serves concept prerequisite graphs for the Topolearn app.
+API that serves concept prerequisite graphs, learning paths and per-user progress for the Topolearn app.
 
-**Stack:** FastAPI + a single SQLite file (`data/topolearn.db`) built offline from JSON.
-No database server, nothing to connect to, so it starts instantly. It scales out by running more copies.
+**Stack:** FastAPI + **PostgreSQL** (hosted on [Neon](https://neon.com)). Everything lives in one database:
+
+- **`graph` schema:** concepts, prerequisites and aliases, loaded from `data/concepts.json` by
+  `scripts/build_db.py`.
+- **`public` schema:** users, progress, goals, sources, votes and reports. These tables are created automatically
+  on first use (`app/userdb.py`).
+
+The server holds no state, so Cloud Run can start and stop copies freely.
+
+## Setup
+
+Connection strings live in a git-ignored `.env` file next to this README:
+
+```bash
+# What the server and loader use locally: the Neon `dev` branch.
+DATABASE_URL="postgresql://…"
+# A database the tests may wipe: `topolearn_test` on the dev branch.
+TOPOLEARN_TEST_DATABASE_URL="postgresql://…/topolearn_test?…"
+# Production, pooled (the "-pooler" host): what Cloud Run uses.
+PROD_DATABASE_URL="postgresql://…-pooler…"
+# Production, direct: for loading concepts.
+PROD_DATABASE_URL_DIRECT="postgresql://…"
+```
+
+Keep the values in **double quotes**: the connection strings contain `&`, which a shell would otherwise treat
+as "run in the background" when you `source .env`.
+
+`.env` is excluded from git and from what `gcloud` uploads, so the passwords stay on your machine.
+
+Create the test database once (on the `dev` branch):
+
+```bash
+set -a; source .env; set +a
+python -c "import os, psycopg; psycopg.connect(os.environ['DATABASE_URL'], autocommit=True).execute('CREATE DATABASE topolearn_test')"
+```
 
 ## Run locally
 
@@ -11,16 +44,29 @@ No database server, nothing to connect to, so it starts instantly. It scales out
 cd ~/Documents/src/topolearn_backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-python scripts/build_db.py                      # data/concepts.json -> data/topolearn.db
+python scripts/build_db.py                      # data/concepts.json -> the DATABASE_URL database
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
 ```
 
-`--host 0.0.0.0` lets a phone on your Wi-Fi reach it. Open http://localhost:8001/docs for the interactive API.
+- `--host 0.0.0.0` lets a phone on your Wi-Fi reach it. Open http://localhost:8001/docs for the interactive API.
+- Reloading the concepts (`build_db.py`) is safe while the server runs. It keeps serving the old graph until the
+  new one is fully in place.
 
-After rebuilding the DB you don't need to restart: the server notices the new file.
+## Tests
 
-Tests: `pytest` — about 80 tests, including an edge-case suite (`tests/test_edge_cases.py`: huge, very wide,
-very tall and single-node graphs, sparse data, odd text, stale ids after a rebuild, missing DB).
+```bash
+pytest            # reads TOPOLEARN_TEST_DATABASE_URL from .env
+```
+
+- **What runs:** about 100 tests against a real Postgres database, `TOPOLEARN_TEST_DATABASE_URL`.
+- **What they wipe:** before every test, the user tables in that database are dropped. Never point it at real
+  data; the test setup refuses to run if it equals `DATABASE_URL`.
+- **What they cover:**
+  - The API, users, learning features, sources, reports and the feed.
+  - Edge cases: huge, very wide, very tall and single-node graphs, sparse data, odd text and stale ids after a
+    reload.
+  - The database layer: transactions and savepoints, constraint errors, placeholders, dropped and stale
+    connections, reloads while serving, a missing or unreachable database.
 
 ## API
 
@@ -52,12 +98,14 @@ Every graph request is bounded by `depth` (default 20, max 30) and `max_nodes` (
 
 ## Users
 
-Learners, their progress marks, and community learning sources/votes live in a separate, writable
-`data/users.db` (created on first use; path via `TOPOLEARN_USERS_DB`; schema in `app/userdb.py`).
-Deleting a learner removes their marks and votes; links they added stay for everyone else.
-Login is a placeholder for now: the app lists users and you pick one. The `auth_provider` and `auth_subject`
-columns are there for Google sign-in later. On Cloud Run the disk is temporary, so before launch move users
-to a hosted DB (Firestore, Supabase or Turso) behind the same functions in `app/users.py`.
+- **What's stored:** learners, their progress marks, goals, and community learning sources, votes and reports, in
+  the `public` schema (`app/userdb.py`).
+- **References to concepts:** these tables store concept ids as plain text rather than linking to the concept
+  tables, so reloading the concept graph never breaks user data. Ids that disappear in a reload are skipped when
+  shown.
+- **Deleting a learner:** removes their marks, goals and votes. Links they added stay for everyone else.
+- **Login:** a placeholder for now; the app lists users and you pick one. The `auth_provider` and `auth_subject`
+  columns are there for Google sign-in later.
 
 ## Data
 
@@ -71,10 +119,12 @@ to a hosted DB (Firestore, Supabase or Turso) behind the same functions in `app/
 }
 ```
 
-The build rejects prerequisite cycles and drops edges that point at unknown ids.
+The load rejects prerequisite cycles and drops edges that point at unknown ids. It writes everything into a new
+schema and swaps it in for the live one in one transaction, so the API never sees a half-loaded graph and a failed
+load leaves the old data in place. User data is never touched.
 
 To fold duplicate concepts together, add `<keep> <drop>` lines to `data/merges.txt` and run
-`python scripts/merge_concepts.py`, then `python scripts/build_db.py`. It re-points edges, breaks any cycles the
+`python scripts/merge_concepts.py`, then load again with `python scripts/build_db.py`. It re-points edges, breaks any cycles the
 merge created, removes redundant links and re-smooths difficulty. Re-running it is safe.
 
 `data/concepts.json` holds about 4,920 concepts across math, statistics, optimization, CS algorithms, data
@@ -83,22 +133,90 @@ classical AI, and ML theory/trustworthy AI/graph ML. It has about 9,300 direct-p
 transitively redundant edges removed. Each concept has a description, a worked example/analogy, a difficulty (0–1) and a domain; every edge has a one-line
 `why` (what the prerequisite is used for).
 
-Measured on a synthetic 1M-concept / 3M-edge graph: DB is 414 MB, built in about 2.5 min.
-Graph queries take 4 ms p50 (150 nodes) and 10 ms p50 (400 nodes). Search takes under 1 ms p50 and 25 ms p95.
+### Scale
 
-## Deploy (free)
+Measured on Postgres 16 with a synthetic graph of 1M concepts and 3M prerequisite links:
 
-The DB is baked into the image (`Dockerfile`). Recommended host is **Google Cloud Run**. Its always-free tier gives
-2M requests, 180k vCPU-seconds and 360k GiB-seconds per month, and it scales to zero.
+| | Result |
+|---|---|
+| Database size | ~1.2 GB |
+| Load time | ~35 s |
+| Search (median) | 1–4 ms; slowest measured 17 ms (several words, no match) |
+| Map, 200 nodes | 5 ms |
+| Map, 500 nodes | 11 ms |
+| Full learning path (1,500-step cap) | 36 ms |
+
+- **Neon's free plan:** 1 GB per project. A reload briefly holds two copies of the graph (the new one is built
+  next to the live one, then swapped in), so on the free plan plan for about 400k concepts like these if you
+  want to keep reloading. Above that, Neon's pay-as-you-go plan charges $0.35/GB-month, so the same project
+  keeps working and nothing needs migrating.
+- **Network:** each map loads level by level, one query per level. Keep the server and the database in the same
+  region.
+
+## Deploy: Neon + Google Cloud Run
+
+### 1. Load the concepts into production (from your Mac)
 
 ```bash
-gcloud run deploy topolearn-api --source . --region us-central1 \
-  --allow-unauthenticated --memory 1Gi --max-instances 3
+source .venv/bin/activate
+set -a; source .env; set +a
+python scripts/build_db.py --database-url "$PROD_DATABASE_URL_DIRECT"
 ```
 
-Set `--max-instances` so a traffic spike can't run past the free tier.
+The direct (non-pooled) string is a little faster for loading, but either works. Run this again whenever
+`data/concepts.json` changes; no redeploy is needed. Without `--database-url`, the loader uses `DATABASE_URL`
+(your dev branch).
 
-## Security note
+### 2. One-time Google Cloud setup
 
-An older Neo4j version of this backend had its database password hard-coded, and that password is still
-in this repo's git history on GitHub, so **change that password** if the database still exists.
+```bash
+brew install --cask google-cloud-sdk
+gcloud auth login
+gcloud projects create topolearn-<something-unique>
+gcloud config set project topolearn-<something-unique>
+```
+
+Then link a billing account to the project in the Console (Billing → Link a billing account). Cloud Run requires
+this even on the free tier. Add a budget alert as well (Billing → Budgets & alerts, for example $1).
+
+```bash
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
+  artifactregistry.googleapis.com secretmanager.googleapis.com
+
+# Store the production (pooled) connection string as a secret Cloud Run can read.
+set -a; source .env; set +a
+printf %s "$PROD_DATABASE_URL" | gcloud secrets create database-url --data-file=-
+PROJECT_NUMBER=$(gcloud projects describe "$(gcloud config get-value project)" --format='value(projectNumber)')
+gcloud secrets add-iam-policy-binding database-url \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role=roles/secretmanager.secretAccessor
+```
+
+### 3. Deploy (and again after every backend change)
+
+```bash
+gcloud run deploy topolearn-api --source . --region us-west1 \
+  --allow-unauthenticated --memory 512Mi --max-instances 2 \
+  --set-secrets DATABASE_URL=database-url:latest
+```
+
+- The first deploy asks to create an Artifact Registry repository. Answer **Y**.
+- **Region:** `us-west1` is Oregon, the same area as the Neon database (AWS us-west-2), so queries stay local.
+- **Output:** it prints the service URL, `https://topolearn-api-….run.app`.
+
+Check it with `curl https://topolearn-api-….run.app/health`, which should return
+`{"status":"ok","concepts":4921,"search":"postgres"}`.
+
+Tips:
+- **Logs:** `gcloud run services logs read topolearn-api --region us-west1`.
+- **Cold starts:** an idle server scales to zero, and Neon suspends after 5 idle minutes. The first request after
+  a quiet period takes a second or two. A request that lands exactly as the database wakes can get a 503;
+  trying again works.
+- **Changing the database password:** `printf %s "$NEW_URL" | gcloud secrets versions add database-url --data-file=-`,
+  then redeploy.
+
+## Security notes
+
+- **Reports:** `GET /api/v1/reports` has no admin login yet. Add one before going public.
+- **Old password:** an older Neo4j version of this backend had its database password hard-coded, and that
+  password is still in this repo's git history on GitHub. **Change it** if that database still exists.

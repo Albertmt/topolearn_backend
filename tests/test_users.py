@@ -1,10 +1,6 @@
-import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -20,17 +16,8 @@ FIXTURE = {
 
 
 @pytest.fixture()
-def client(tmp_path, monkeypatch):
-    src, db = tmp_path / "src.json", tmp_path / "t.db"
-    src.write_text(json.dumps(FIXTURE))
-    subprocess.run([sys.executable, str(ROOT / "scripts" / "build_db.py"), str(src), "--out", str(db)], check=True)
-    from app import config
-
-    monkeypatch.setattr(config, "DB_PATH", db)
-    monkeypatch.setattr(config, "USERS_DB_PATH", tmp_path / "users.db")
-    from app.main import app
-
-    return TestClient(app)
+def client(make_client):
+    return make_client(FIXTURE)
 
 
 def test_user_lifecycle(client):

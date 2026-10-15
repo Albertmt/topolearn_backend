@@ -1,13 +1,15 @@
-# Small, stateless image: the SQLite DB is baked in, so every instance is self-sufficient.
+# Small, stateless API image. All data (concepts and user data) lives in Postgres
+# (Neon); the server only needs DATABASE_URL, so instances can come and go.
 FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /srv
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
-COPY scripts ./scripts
-COPY data ./data
-# Use a prebuilt data/topolearn.db if present, otherwise build from the JSON sources.
-RUN [ -f data/topolearn.db ] || python scripts/build_db.py
+# Files keep their permissions from the machine that deployed them (which may be
+# owner-only), so make the code readable before switching to the unprivileged user.
+RUN chmod -R a+rX /srv && useradd --system --no-create-home api
+USER api
 EXPOSE 8080
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers ${WORKERS:-2}"]
+# exec: uvicorn becomes PID 1 and gets Cloud Run's SIGTERM for a clean shutdown.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers ${WORKERS:-2}"]

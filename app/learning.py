@@ -9,7 +9,6 @@ Auth is still the placeholder login, so the acting user is passed as `user_id`.
 When real sign-in arrives, take it from the session token instead.
 """
 import html
-import sqlite3
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -20,9 +19,9 @@ from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, field_validator
 
-from . import repository
-from .db import get_conn
-from .userdb import session, user_exists
+from . import repository, userdb
+from .db import Conn, Row, get_conn
+from .userdb import reader, session, user_exists
 
 router = APIRouter(prefix="/api/v1", tags=["learning"])
 pages = APIRouter(tags=["share"])
@@ -44,7 +43,7 @@ HELPED_WEIGHT = 2  # a "this helped me" counts as two upvotes when ranking
 # --------------------------------------------------------------- helpers
 
 
-def _require_user(conn: sqlite3.Connection, user_id: str) -> None:
+def _require_user(conn: Conn, user_id: str) -> None:
     if not user_exists(conn, user_id):
         raise HTTPException(404, "User not found")
 
@@ -61,8 +60,14 @@ def _ref(concept_id: str) -> Optional[dict]:
     return {"id": c["id"], "name": c["name"]} if c else None
 
 
+def _refs(concept_ids: Iterable[str]) -> Dict[str, dict]:
+    """{id: {"id", "name"}} for many concepts in one query (unknown ids left out)."""
+    found = repository.concepts_by_slug(get_conn(), concept_ids)
+    return {cid: {"id": c["id"], "name": c["name"]} for cid, c in found.items()}
+
+
 def hidden_concepts(user_id: str) -> Set[str]:
-    with session() as conn:
+    with reader() as conn:
         rows = conn.execute(
             "SELECT concept_id FROM concept_progress WHERE user_id = ? AND status = 'hidden'",
             (user_id,),
@@ -75,15 +80,13 @@ def progress_for(user_id: str, concept_ids: Iterable[str]) -> Dict[str, dict]:
     out: Dict[str, dict] = {}
     if not ids:
         return out
-    with session() as conn:
-        for i in range(0, len(ids), 900):
-            chunk = ids[i : i + 900]
-            for r in conn.execute(
-                f"""SELECT concept_id, understanding, status FROM concept_progress
-                    WHERE user_id = ? AND concept_id IN ({','.join('?' * len(chunk))})""",
-                (user_id, *chunk),
-            ):
-                out[r["concept_id"]] = {"understanding": r["understanding"], "status": r["status"]}
+    with reader() as conn:
+        for r in conn.execute(
+            """SELECT concept_id, understanding, status FROM concept_progress
+               WHERE user_id = ? AND concept_id = ANY(?)""",
+            (user_id, ids),
+        ):
+            out[r["concept_id"]] = {"understanding": r["understanding"], "status": r["status"]}
     return out
 
 
@@ -116,7 +119,7 @@ class ProgressUpdate(BaseModel):
     status: Optional[Status] = None
 
 
-def _progress_row(conn, user_id: str, concept_id: str) -> Optional[sqlite3.Row]:
+def _progress_row(conn, user_id: str, concept_id: str) -> Optional[Row]:
     return conn.execute(
         "SELECT understanding, status FROM concept_progress WHERE user_id = ? AND concept_id = ?",
         (user_id, concept_id),
@@ -129,7 +132,7 @@ def _newly_ready(user_id: str, concept_id: str) -> List[dict]:
     dependents = repository.direct_dependents(concepts, concept_id)
     if not dependents:
         return []
-    needed: Dict[str, List[str]] = {d["id"]: repository.direct_prereqs(concepts, d["id"]) for d in dependents}
+    needed: Dict[str, List[str]] = repository.direct_prereqs_many(concepts, [d["id"] for d in dependents])
     all_ids = {concept_id} | set(needed) | {p for ps in needed.values() for p in ps}
     prog = progress_for(user_id, all_ids)
     ready = []
@@ -147,7 +150,7 @@ def list_progress(
     user_id: str,
     status: Optional[Status] = Query(None, description="Only rows with this status"),
 ):
-    with session() as conn:
+    with reader() as conn:
         _require_user(conn, user_id)
         sql = "SELECT concept_id, understanding, status FROM concept_progress WHERE user_id = ?"
         args: list = [user_id]
@@ -155,10 +158,10 @@ def list_progress(
             sql += " AND status = ?"
             args.append(status)
         rows = conn.execute(sql + " ORDER BY updated_at DESC", args).fetchall()
-    concepts = get_conn()
+    found = repository.concepts_by_slug(get_conn(), [r["concept_id"] for r in rows])
     out = []
     for r in rows:
-        c = repository.get_concept(concepts, r["concept_id"])
+        c = found.get(r["concept_id"])
         out.append({
             "concept_id": r["concept_id"],
             "name": c["name"] if c else None,
@@ -301,16 +304,15 @@ def _covering_sources(concept_ids: List[str], limit: int = 5) -> List[dict]:
     """Sources that teach the most of these concepts (at least two)."""
     if len(concept_ids) < 2:
         return []
-    ids = concept_ids[:900]
-    with session() as conn:
+    with reader() as conn:
         rows = conn.execute(
-            f"""SELECT s.id, s.title, s.url, s.kind, COUNT(DISTINCT sc.concept_id) AS covers,
-                       (SELECT COALESCE(SUM(v.value), 0) FROM source_votes v WHERE v.source_id = s.id) AS score
-                FROM source_concepts sc JOIN sources s ON s.id = sc.source_id
-                WHERE sc.concept_id IN ({','.join('?' * len(ids))})
-                GROUP BY s.id HAVING covers >= 2
-                ORDER BY covers DESC, score DESC LIMIT ?""",
-            (*ids, limit),
+            """SELECT s.id, s.title, s.url, s.kind, COUNT(DISTINCT sc.concept_id) AS covers,
+                      (SELECT COALESCE(SUM(v.value), 0) FROM source_votes v WHERE v.source_id = s.id) AS score
+               FROM source_concepts sc JOIN sources s ON s.id = sc.source_id
+               WHERE sc.concept_id = ANY(?)
+               GROUP BY s.id HAVING COUNT(DISTINCT sc.concept_id) >= 2
+               ORDER BY covers DESC, score DESC, s.id LIMIT ?""",
+            (list(concept_ids), limit),
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -352,7 +354,7 @@ def _goal(user_id: str, concept_id: str, created_at: float) -> Optional[dict]:
 
 @router.get("/users/{user_id}/goals", response_model=List[Goal])
 def list_goals(user_id: str):
-    with session() as conn:
+    with reader() as conn:
         _require_user(conn, user_id)
         rows = conn.execute(
             "SELECT concept_id, created_at FROM user_goals WHERE user_id = ? ORDER BY created_at",
@@ -365,7 +367,10 @@ def list_goals(user_id: str):
 def add_goal(user_id: str, concept_id: str):
     _require_concept(concept_id)
     with session() as conn:
-        _require_user(conn, user_id)
+        # Lock this learner's row: concurrent goal edits for the same person run
+        # one after another, so the limit holds and nothing is inserted twice.
+        if conn.execute("SELECT 1 FROM users WHERE id = ? FOR UPDATE", (user_id,)).fetchone() is None:
+            raise HTTPException(404, "User not found")
         existing = conn.execute(
             "SELECT created_at FROM user_goals WHERE user_id = ? AND concept_id = ?", (user_id, concept_id)
         ).fetchone()
@@ -374,8 +379,11 @@ def add_goal(user_id: str, concept_id: str):
             if count >= MAX_GOALS:
                 raise HTTPException(409, f"You can pin up to {MAX_GOALS} goals. Remove one first.")
             created = time.time()
-            conn.execute("INSERT INTO user_goals (user_id, concept_id, created_at) VALUES (?,?,?)",
-                         (user_id, concept_id, created))
+            conn.execute(
+                """INSERT INTO user_goals (user_id, concept_id, created_at) VALUES (?,?,?)
+                   ON CONFLICT (user_id, concept_id) DO NOTHING""",
+                (user_id, concept_id, created),
+            )
         else:
             created = existing["created_at"]
     return _goal(user_id, concept_id, created)
@@ -412,7 +420,7 @@ class Stats(BaseModel):
 def stats(user_id: str, tz_offset_minutes: int = Query(0, ge=-14 * 60, le=14 * 60)):
     """`tz_offset_minutes`: the device's UTC offset, so "today" matches the learner's day."""
     tz = timezone(timedelta(minutes=tz_offset_minutes))
-    with session() as conn:
+    with reader() as conn:
         _require_user(conn, user_id)
         counts = conn.execute(
             """SELECT
@@ -499,7 +507,7 @@ def feed(user_id: str):
     import json as _json
 
     week_ago = time.time() - 7 * 86400
-    with session() as conn:
+    with reader() as conn:
         _require_user(conn, user_id)
         in_progress = conn.execute(
             """SELECT concept_id, understanding, status FROM concept_progress
@@ -524,8 +532,10 @@ def feed(user_id: str):
             (week_ago, user_id),
         ).fetchall()
 
+    refs = _refs([r["concept_id"] for r in [*in_progress, *mastered, *popular_rows]])
+
     def item(cid: str, **extra) -> Optional[dict]:
-        ref = _ref(cid)
+        ref = refs.get(cid)
         return {**ref, **extra} if ref else None
 
     still_current = {r["concept_id"] for r in in_progress}
@@ -536,10 +546,11 @@ def feed(user_id: str):
 
     # Ready next: walk goal paths first, then interest paths, until we have 6.
     hidden = hidden_concepts(user_id)
+    known_targets = set(repository.concepts_by_slug(get_conn(), [*goals, *interests[:3]]))
     ready, seen = [], set(still_current)
     for source, label in [(goals, "For your goal"), (interests[:3], "In")]:
         for target in source:
-            if len(ready) >= 6 or repository.get_concept_row(get_conn(), target) is None:
+            if len(ready) >= 6 or target not in known_targets:
                 continue
             try:
                 p = build_path(target, user_id)
@@ -647,7 +658,7 @@ LEFT JOIN users u ON u.id = s.added_by
 """
 
 
-def _source(conn, r: sqlite3.Row, me: Optional[str]) -> dict:
+def _source(conn, r: Row, me: Optional[str]) -> dict:
     d = dict(r)
     added_by = d.pop("added_by", None)
     d["added_by_me"] = me is not None and added_by == me
@@ -656,7 +667,8 @@ def _source(conn, r: sqlite3.Row, me: Optional[str]) -> dict:
         "SELECT concept_id FROM source_concepts WHERE source_id = ?", (d["id"],))]
     # main concept first, then the rest
     covers.sort(key=lambda c: (c != d["concept_id"], c))
-    d["covers"] = [ref for ref in (_ref(c) for c in covers) if ref]
+    refs = _refs(covers)
+    d["covers"] = [refs[c] for c in covers if c in refs]
     return d
 
 
@@ -672,7 +684,7 @@ def list_sources(concept_id: str, user_id: Optional[str] = None, kind: Optional[
     """Sources that teach this concept (added here or tagged "also covers"),
     best first. Optional `kind` filter (video, course, …)."""
     _require_concept(concept_id)
-    with session() as conn:
+    with reader() as conn:
         sql = _SOURCE_SELECT + """
             WHERE s.id IN (SELECT source_id FROM source_concepts WHERE concept_id = :cid)"""
         params = {"me": user_id, "cid": concept_id}
@@ -689,7 +701,8 @@ def list_sources(concept_id: str, user_id: Optional[str] = None, kind: Optional[
 def add_source(concept_id: str, body: SourceCreate):
     _require_concept(concept_id)
     also = [c for c in dict.fromkeys(body.also_covers) if c != concept_id]
-    unknown = [c for c in also if repository.get_concept_row(get_conn(), c) is None]
+    known = repository.concepts_by_slug(get_conn(), also)
+    unknown = [c for c in also if c not in known]
     if unknown:
         raise HTTPException(422, f"Unknown concept id(s): {', '.join(unknown[:5])}")
     title = (body.title or "").strip() or (urlparse(body.url).hostname or body.url).removeprefix("www.")
@@ -708,7 +721,7 @@ def add_source(concept_id: str, body: SourceCreate):
             conn.execute("INSERT INTO source_votes (source_id, user_id, value) VALUES (?,?,1)",
                          (sid, body.user_id))
             return _get_source(conn, sid, body.user_id)
-    except sqlite3.IntegrityError:
+    except userdb.IntegrityError:
         raise HTTPException(409, "This link has already been added for this concept")
 
 
@@ -737,7 +750,8 @@ def helped(source_id: str, body: HelpedBody):
         _get_source(conn, source_id, body.user_id)
         if body.helped:
             conn.execute(
-                "INSERT OR IGNORE INTO source_helped (source_id, user_id, created_at) VALUES (?,?,?)",
+                """INSERT INTO source_helped (source_id, user_id, created_at) VALUES (?,?,?)
+                   ON CONFLICT (source_id, user_id) DO NOTHING""",
                 (source_id, body.user_id, time.time()),
             )
         else:
@@ -776,7 +790,7 @@ class Community(BaseModel):
 @router.get("/concepts/{concept_id}/community", response_model=Community)
 def community(concept_id: str, user_id: Optional[str] = None):
     _require_concept(concept_id)
-    with session() as conn:
+    with reader() as conn:
         learning, understood = conn.execute(
             """SELECT
                  SUM(CASE WHEN (understanding IS NOT NULL AND understanding < 100)
@@ -823,7 +837,7 @@ class Report(BaseModel):
     created_at: float
 
 
-def _report(r: sqlite3.Row) -> dict:
+def _report(r: Row) -> dict:
     return {
         "id": r["id"],
         "kind": r["kind"],
@@ -862,7 +876,7 @@ def create_report(body: ReportCreate):
 @router.get("/reports", response_model=List[Report])
 def list_reports(status: str = "open", limit: int = Query(100, ge=1, le=500)):
     """For reviewing data problems (no admin auth yet — add before going public)."""
-    with session() as conn:
+    with reader() as conn:
         rows = conn.execute(
             "SELECT * FROM reports WHERE status = ? ORDER BY created_at DESC LIMIT ?", (status, limit)
         ).fetchall()

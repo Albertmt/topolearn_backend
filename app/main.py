@@ -5,13 +5,14 @@ Run locally:
 """
 from typing import Optional
 
+import psycopg
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from . import config, learning, repository, users
-from .db import DatabaseMissing, get_conn, has_fts
+from .db import DatabaseMissing, get_conn, graph_loaded
 from .schemas import Concept, Health, PrereqGraph, SearchResponse, UnlocksResponse
 
 app = FastAPI(title="Topolearn API", version="1.0.0")
@@ -27,13 +28,34 @@ app.include_router(users.router)
 app.include_router(learning.router)
 app.include_router(learning.pages)
 
-# The data only changes when the DB is rebuilt, so let browsers/CDNs cache.
+# Concept data only changes when it's reloaded, so let browsers/CDNs cache it briefly.
 _CACHE = "public, max-age=300, stale-while-revalidate=3600"
+
+
+_NOT_LOADED = "The concept graph isn't loaded yet. Load it with: python scripts/build_db.py"
 
 
 @app.exception_handler(DatabaseMissing)
 def _db_missing(_, exc: DatabaseMissing):
     return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
+@app.exception_handler(psycopg.errors.UndefinedTable)
+def _graph_missing(_, exc: psycopg.errors.UndefinedTable):
+    detail = _NOT_LOADED if "graph." in str(exc) else "Database tables are missing; see the logs."
+    return JSONResponse(status_code=503, content={"detail": detail})
+
+
+@app.exception_handler(psycopg.DataError)
+def _bad_text(_, exc: psycopg.DataError):
+    # e.g. a NUL character in a query string or body, which Postgres text can't hold.
+    return JSONResponse(status_code=422, content={"detail": "The request contains characters that aren't allowed."})
+
+
+@app.exception_handler(psycopg.OperationalError)
+def _db_unreachable(_, exc: psycopg.OperationalError):
+    # Lost connection, Neon waking up too slowly, ... — safe for the app to retry.
+    return JSONResponse(status_code=503, content={"detail": "The database is temporarily unavailable. Try again."})
 
 
 @app.get("/", include_in_schema=False)
@@ -44,11 +66,9 @@ def root():
 @app.get("/health", response_model=Health)
 def health():
     conn = get_conn()
-    return {
-        "status": "ok",
-        "concepts": repository.count_concepts(conn),
-        "search": "fts5" if has_fts(conn) else "like",
-    }
+    if not graph_loaded(conn):
+        raise DatabaseMissing(_NOT_LOADED)
+    return {"status": "ok", "concepts": repository.count_concepts(conn), "search": "postgres"}
 
 
 @app.get("/api/v1/search", response_model=SearchResponse)

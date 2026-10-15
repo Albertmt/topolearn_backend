@@ -1,145 +1,190 @@
-"""The writable user-data database (users, their progress, learning sources).
+"""User data (accounts, progress, goals, sources, reports) in Postgres.
 
-Kept apart from the read-only concept DB. Tables are created on first use and
-new tables are added automatically to an existing file (CREATE ... IF NOT EXISTS).
+These tables live in the "public" schema next to the concept graph ("graph").
+They are created on first use, and new tables or indexes are added to an
+existing database automatically (CREATE ... IF NOT EXISTS). Concept ids are
+stored as slugs, not foreign keys, so reloading the concept graph never
+touches user data.
 """
-import sqlite3
 import threading
 from contextlib import contextmanager
 from typing import Iterator, Optional
 
-from . import config
+from . import config, db
+from .db import Conn
+
+# Constraint violations, e.g. a duplicate email: `except userdb.IntegrityError`.
+IntegrityError = db.IntegrityError
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
-    id              TEXT PRIMARY KEY,
-    name            TEXT NOT NULL,
-    email           TEXT UNIQUE,
-    auth_provider   TEXT NOT NULL DEFAULT 'dummy',
-    auth_subject    TEXT,
-    birth_year      INTEGER,
-    education_level TEXT,
-    interests       TEXT NOT NULL DEFAULT '[]',   -- JSON list of concept ids
-    onboarded       INTEGER NOT NULL DEFAULT 0,
-    created_at      REAL NOT NULL,
-    updated_at      REAL NOT NULL
+    id              text PRIMARY KEY,
+    name            text NOT NULL,
+    email           text UNIQUE,
+    auth_provider   text NOT NULL DEFAULT 'dummy',
+    auth_subject    text,
+    birth_year      integer,
+    education_level text,
+    interests       text NOT NULL DEFAULT '[]',   -- JSON list of concept ids
+    onboarded       integer NOT NULL DEFAULT 0,
+    created_at      double precision NOT NULL,
+    updated_at      double precision NOT NULL
 );
 
 -- How well a user knows a concept, and whether they flagged it.
 --   understanding: 0..100, NULL = not rated
 --   status: NULL | 'need_to_learn' | 'hidden'
 CREATE TABLE IF NOT EXISTS concept_progress (
-    user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    concept_id    TEXT NOT NULL,
-    understanding INTEGER CHECK (understanding BETWEEN 0 AND 100),
-    status        TEXT CHECK (status IN ('need_to_learn', 'hidden')),
-    updated_at    REAL NOT NULL,
+    user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    concept_id    text NOT NULL,
+    understanding integer CHECK (understanding BETWEEN 0 AND 100),
+    status        text CHECK (status IN ('need_to_learn', 'hidden')),
+    updated_at    double precision NOT NULL,
     PRIMARY KEY (user_id, concept_id)
-) WITHOUT ROWID;
+);
 CREATE INDEX IF NOT EXISTS concept_progress_status ON concept_progress(user_id, status);
+CREATE INDEX IF NOT EXISTS concept_progress_concept ON concept_progress(concept_id);
 
 -- Community "where to learn this" links, shared by all users.
 CREATE TABLE IF NOT EXISTS sources (
-    id          TEXT PRIMARY KEY,
-    concept_id  TEXT NOT NULL,
-    url         TEXT NOT NULL,
-    title       TEXT NOT NULL,
-    kind        TEXT NOT NULL DEFAULT 'other',
-    added_by    TEXT REFERENCES users(id) ON DELETE SET NULL,
-    created_at  REAL NOT NULL,
+    id          text PRIMARY KEY,
+    concept_id  text NOT NULL,
+    url         text NOT NULL,
+    title       text NOT NULL,
+    kind        text NOT NULL DEFAULT 'other',
+    added_by    text REFERENCES users(id) ON DELETE SET NULL,
+    created_at  double precision NOT NULL,
     UNIQUE (concept_id, url)
 );
 CREATE INDEX IF NOT EXISTS sources_concept ON sources(concept_id);
 
 -- A source can teach several concepts (the one it was added on, plus "also covers").
 CREATE TABLE IF NOT EXISTS source_concepts (
-    source_id  TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-    concept_id TEXT NOT NULL,
+    source_id  text NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    concept_id text NOT NULL,
     PRIMARY KEY (source_id, concept_id)
-) WITHOUT ROWID;
+);
 CREATE INDEX IF NOT EXISTS source_concepts_concept ON source_concepts(concept_id);
--- Sources added before "also covers" existed.
-INSERT OR IGNORE INTO source_concepts (source_id, concept_id) SELECT id, concept_id FROM sources;
 
 -- "This helped me understand it" — a stronger signal than a vote.
 CREATE TABLE IF NOT EXISTS source_helped (
-    source_id  TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    created_at REAL NOT NULL,
+    source_id  text NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    user_id    text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at double precision NOT NULL,
     PRIMARY KEY (source_id, user_id)
-) WITHOUT ROWID;
+);
 
 -- Concepts a learner is working towards.
 CREATE TABLE IF NOT EXISTS user_goals (
-    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    concept_id TEXT NOT NULL,
-    created_at REAL NOT NULL,
+    user_id    text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    concept_id text NOT NULL,
+    created_at double precision NOT NULL,
     PRIMARY KEY (user_id, concept_id)
-) WITHOUT ROWID;
+);
+CREATE INDEX IF NOT EXISTS user_goals_concept ON user_goals(concept_id);
 
 -- Every progress change, for streaks and "mastered this week".
 CREATE TABLE IF NOT EXISTS progress_events (
-    id            INTEGER PRIMARY KEY,
-    user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    concept_id    TEXT NOT NULL,
-    understanding INTEGER,
-    status        TEXT,
-    at            REAL NOT NULL
+    id            bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    concept_id    text NOT NULL,
+    understanding integer,
+    status        text,
+    at            double precision NOT NULL
 );
 CREATE INDEX IF NOT EXISTS progress_events_user ON progress_events(user_id, at);
+CREATE INDEX IF NOT EXISTS progress_events_at ON progress_events(at);
 
 -- "Something is wrong here" reports from learners, for review.
 CREATE TABLE IF NOT EXISTS reports (
-    id                 TEXT PRIMARY KEY,
-    user_id            TEXT REFERENCES users(id) ON DELETE SET NULL,
-    kind               TEXT NOT NULL,
-    concept_id         TEXT NOT NULL,
-    related_concept_id TEXT,
-    context_concept_id TEXT,
-    message            TEXT NOT NULL DEFAULT '',
-    suggestion         TEXT NOT NULL DEFAULT '',
-    status             TEXT NOT NULL DEFAULT 'open',
-    created_at         REAL NOT NULL
+    id                 text PRIMARY KEY,
+    user_id            text REFERENCES users(id) ON DELETE SET NULL,
+    kind               text NOT NULL,
+    concept_id         text NOT NULL,
+    related_concept_id text,
+    context_concept_id text,
+    message            text NOT NULL DEFAULT '',
+    suggestion         text NOT NULL DEFAULT '',
+    status             text NOT NULL DEFAULT 'open',
+    created_at         double precision NOT NULL
 );
 CREATE INDEX IF NOT EXISTS reports_status ON reports(status, created_at);
 
 CREATE TABLE IF NOT EXISTS source_votes (
-    source_id  TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    value      INTEGER NOT NULL CHECK (value IN (-1, 1)),
+    source_id  text NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    user_id    text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    value      integer NOT NULL CHECK (value IN (-1, 1)),
     PRIMARY KEY (source_id, user_id)
-) WITHOUT ROWID;
+);
 """
 
+# Bump when SCHEMA changes, so running servers add the new tables/indexes once.
+SCHEMA_VERSION = 1
+
+# Every table above, children first (for wiping a test database), plus the version marker.
+TABLES = [
+    "source_votes", "source_helped", "source_concepts", "user_goals", "progress_events",
+    "concept_progress", "reports", "sources", "users", "topolearn_schema",
+]
+
+_SCHEMA_LOCK_KEY = 7_405_301  # arbitrary pg_advisory lock id for schema setup
 _init_lock = threading.Lock()
-_initialised_for: Optional[str] = None
+_ready_for: Optional[str] = None
 
 
-def connect() -> sqlite3.Connection:
-    global _initialised_for
-    path = config.USERS_DB_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=5)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    if _initialised_for != str(path):
-        with _init_lock:
-            conn.execute("PRAGMA journal_mode = WAL")
-            conn.executescript(SCHEMA)
-            _initialised_for = str(path)
-    return conn
+def ensure_schema() -> None:
+    """Create missing tables once per process (and per database URL).
+    An advisory lock keeps several server processes from racing."""
+    global _ready_for
+    url = config.DATABASE_URL
+    if _ready_for == url:
+        return
+    with _init_lock:
+        if _ready_for == url:
+            return
+        conn = db.get_conn()
+        # Fast path, no locks: the tables are already at this version. (Running the
+        # DDL anyway would make CREATE INDEX IF NOT EXISTS wait behind open writes.)
+        if _current_version(conn) != SCHEMA_VERSION:
+            with db.transaction() as tx:
+                tx.execute("SELECT pg_advisory_xact_lock(?)", (_SCHEMA_LOCK_KEY,))
+                if _current_version(tx) != SCHEMA_VERSION:  # another process may have just done it
+                    tx.execute(SCHEMA)
+                    tx.execute("CREATE TABLE IF NOT EXISTS topolearn_schema (version integer NOT NULL)")
+                    tx.execute("DELETE FROM topolearn_schema")
+                    tx.execute("INSERT INTO topolearn_schema (version) VALUES (?)", (SCHEMA_VERSION,))
+        _ready_for = url
+
+
+def _current_version(conn: Conn) -> Optional[int]:
+    if conn.execute("SELECT to_regclass('public.topolearn_schema')").fetchone()[0] is None:
+        return None
+    row = conn.execute("SELECT max(version) FROM topolearn_schema").fetchone()
+    return row[0] if row else None
+
+
+def forget_schema() -> None:
+    """Make the next session re-check the tables (tests wipe the database)."""
+    global _ready_for
+    _ready_for = None
 
 
 @contextmanager
-def session() -> Iterator[sqlite3.Connection]:
-    """Commit on success, roll back on error, always close."""
-    conn = connect()
-    try:
-        with conn:
-            yield conn
-    finally:
-        conn.close()
+def session() -> Iterator[Conn]:
+    """A transaction on the user tables: commit on success, roll back on error.
+    Nested sessions (helpers calling helpers) become savepoints."""
+    ensure_schema()
+    with db.transaction() as conn:
+        yield conn
 
 
-def user_exists(conn: sqlite3.Connection, user_id: str) -> bool:
+@contextmanager
+def reader() -> Iterator[Conn]:
+    """For read-only work: no transaction (each query sees the latest data),
+    which saves the BEGIN/COMMIT round trips."""
+    ensure_schema()
+    yield db.get_conn()
+
+
+def user_exists(conn: Conn, user_id: str) -> bool:
     return conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone() is not None

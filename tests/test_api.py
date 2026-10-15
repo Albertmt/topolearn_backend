@@ -1,6 +1,3 @@
-import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -30,17 +27,10 @@ FIXTURE = {
 
 
 @pytest.fixture(scope="module")
-def client(tmp_path_factory, monkeypatch_module):
-    d = tmp_path_factory.mktemp("db")
-    src, db = d / "src.json", d / "test.db"
-    src.write_text(json.dumps(FIXTURE))
-    subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "build_db.py"), str(src), "--out", str(db)],
-        check=True,
-    )
-    from app import config
+def client():
+    from conftest import load_graph
 
-    monkeypatch_module.setattr(config, "DB_PATH", db)
+    load_graph(FIXTURE)
     from app.main import app
 
     return TestClient(app)
@@ -125,11 +115,8 @@ def test_cycle_rejected(tmp_path):
         "concepts": [{"id": "a", "name": "A"}, {"id": "b", "name": "B"}],
         "prerequisites": [{"concept": "a", "requires": "b"}, {"concept": "b", "requires": "a"}],
     }
-    src = tmp_path / "bad.json"
-    src.write_text(json.dumps(bad))
-    res = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "build_db.py"), str(src), "--out", str(tmp_path / "x.db")],
-        capture_output=True, text=True,
-    )
+    from conftest import run_loader
+
+    res = run_loader(bad, tmp_path)
     assert res.returncode != 0
     assert "cycle" in res.stderr.lower()

@@ -1,6 +1,6 @@
 import time
 
-from conftest import concepts, edges, new_user
+from conftest import concepts, new_user
 
 # Diamond-ish: target needs mid_easy (0.2) and mid_hard (0.6); both need base.
 DATA = {

@@ -4,6 +4,31 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def _load_dotenv(path: Path) -> None:
+    """Read KEY=value lines from a local .env file (git-ignored) into the
+    environment, without overriding variables that are already set."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip().removeprefix("export ").strip()
+        value = value.strip()
+        if value[:1] in ('"', "'") and value[0] in value[1:]:
+            value = value[1 : value.index(value[0], 1)]  # quoted: take what's inside, drop any comment after
+        else:
+            value = value.split(" #", 1)[0].strip()  # unquoted: a " #" starts a comment
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_dotenv(ROOT / ".env")
+
+
 def _int(name: str, default: int) -> int:
     try:
         return int(os.environ.get(name, default))
@@ -11,9 +36,11 @@ def _int(name: str, default: int) -> int:
         return default
 
 
-DB_PATH = Path(os.environ.get("TOPOLEARN_DB", ROOT / "data" / "topolearn.db"))
-# Writable user accounts (kept apart from the read-only concept DB).
-USERS_DB_PATH = Path(os.environ.get("TOPOLEARN_USERS_DB", ROOT / "data" / "users.db"))
+# Postgres connection string. In production this is the Neon *pooled* URL
+# (host contains "-pooler"); locally any Postgres, e.g. a Neon `dev` branch.
+# Everything lives there: concepts and prerequisites (schema "graph", loaded by
+# scripts/build_db.py) and user data (schema "public", created on first use).
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 
 # Comma-separated list of allowed browser origins.
 CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()]
