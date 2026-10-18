@@ -1,0 +1,533 @@
+{
+ "tool": {
+  "id": "py-subprocess",
+  "name": "subprocess",
+  "category": "library",
+  "tagline": "Run external programs from Python and talk to their input and output",
+  "description": "subprocess is the standard way to start other programs from Python, pass them arguments and input, capture their output and react to their exit status. It replaces os.system and shell scripts in build tools, deployment scripts, test harnesses and automation. Learning it well means scripts that are safe from shell injection, never hang, and fail loudly.",
+  "icon": "sp",
+  "color": "#35556F",
+  "official_docs": "https://docs.python.org/3/library/subprocess.html",
+  "version": "Python 3.13",
+  "aliases": [
+   "python subprocess",
+   "popen",
+   "run command python",
+   "os.system"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Running commands"
+  },
+  {
+   "id": "io",
+   "name": "Input, output and environment"
+  },
+  {
+   "id": "popen",
+   "name": "Popen and long-running processes"
+  },
+  {
+   "id": "systems",
+   "name": "Processes at the OS level"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "py-subprocess.run-basics",
+   "name": "Running a command with run()",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Start a program with subprocess.run, passing the command as a list of arguments, and read its exit code.",
+   "why": "Almost every automation script needs to call git, a compiler, ffmpeg or another tool.",
+   "body": "`subprocess.run(args)` starts a program, waits for it to finish, and returns a `CompletedProcess` object. Pass the command as a **list**: the program name first, then each argument as its own element.\n\n```python\nsubprocess.run([\"git\", \"status\", \"--short\"])\n```\n\nEach list element reaches the program exactly as written, with no shell in between, so spaces, quotes and `$` in arguments need no escaping. The program is looked up on `PATH`.\n\nThe result has:\n\n- `returncode`: 0 means success by convention; anything else means failure.\n- `args`: what you ran.\n- `stdout` / `stderr`: `None` unless you asked to capture them (next lesson).\n\nBy default the child inherits your terminal, so its output appears directly on screen, and `run` blocks until it exits.\n\n`run` is the recommended high-level API and covers most needs. Older functions such as `call`, `check_call` and `check_output` still exist and are thin wrappers around it. Avoid `os.system` in new code: it always goes through the shell and only gives you an encoded exit status.\n\nTo run another Python script portably, use `sys.executable` (the current interpreter) as the program instead of a hardcoded `\"python\"`.",
+   "code": "import subprocess, sys\n\nr = subprocess.run([\"echo\", \"hello\", \"world with spaces\"])\n# hello world with spaces\nprint(r.returncode)          # 0\nprint(r.args)                # ['echo', 'hello', 'world with spaces']\n\nr = subprocess.run([sys.executable, \"-c\", \"import sys; sys.exit(3)\"])\nprint(r.returncode)          # 3\nprint(r.stdout)              # None (not captured)",
+   "code_lang": "python",
+   "takeaways": [
+    "run() starts a program, waits, and returns a CompletedProcess",
+    "Pass the command as a list of separate arguments",
+    "returncode 0 means success"
+   ],
+   "pitfalls": [
+    "Passing one string like 'ls -l' without shell=True; on POSIX it looks for a program literally named 'ls -l'."
+   ],
+   "quiz": [
+    {
+     "q": "What does subprocess.run(['ls', '-l', 'my file']) pass to ls?",
+     "options": [
+      "Three arguments: -l, my, file",
+      "Two arguments: -l and 'my file'",
+      "One string 'ls -l my file' to the shell",
+      "It raises because of the space"
+     ],
+     "answer": 1,
+     "explain": "Each list element is passed as exactly one argument, spaces included."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/subprocess.html#subprocess.run",
+   "requires": [
+    "python.functions",
+    "python.lists"
+   ]
+  },
+  {
+   "id": "py-subprocess.capture-output",
+   "name": "Capturing output",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Capture a command's stdout and stderr as text with capture_output=True and text=True.",
+   "why": "Most scripts need to use what a command prints, such as a git hash or a JSON listing.",
+   "body": "To get the output into Python instead of the terminal, pass `capture_output=True`. Then `result.stdout` and `result.stderr` hold what the program wrote.\n\nBy default they are `bytes`. Add `text=True` to decode them into `str` using the locale encoding (normally UTF-8), or pass `encoding=\"utf-8\"` to be explicit, which also implies text mode. `text=True` also normalises line endings to `\\n`.\n\n```python\nout = subprocess.run([\"git\", \"rev-parse\", \"HEAD\"],\n                     capture_output=True, text=True).stdout.strip()\n```\n\nRemember `.strip()`: command output usually ends with a newline.\n\nFiner control comes from the `stdout=` and `stderr=` parameters:\n\n- `subprocess.PIPE`: capture (that's what `capture_output` sets for both).\n- `subprocess.DEVNULL`: discard.\n- `stderr=subprocess.STDOUT`: merge stderr into stdout, preserving interleaving.\n- An open file object: write straight to a file.\n\nYou can't combine `capture_output=True` with `stdout=` or `stderr=`. Captured output is held in memory until the process exits, which is fine for normal commands but not for something that prints gigabytes; stream those with `Popen` instead.",
+   "code": "import subprocess, sys\n\ncode = \"import sys; print('to out'); print('to err', file=sys.stderr)\"\nr = subprocess.run([sys.executable, \"-c\", code], capture_output=True)\nprint(r.stdout)                         # b'to out\\n'\n\nr = subprocess.run([sys.executable, \"-c\", code], capture_output=True, text=True)\nprint(repr(r.stdout), repr(r.stderr))   # 'to out\\n' 'to err\\n'\n\nr = subprocess.run([sys.executable, \"-c\", code], text=True,\n                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\nprint(r.stdout.splitlines())            # ['to out', 'to err']\n\nsubprocess.run([sys.executable, \"-c\", code], stdout=subprocess.DEVNULL,\n               stderr=subprocess.DEVNULL)  # prints nothing",
+   "code_lang": "python",
+   "takeaways": [
+    "capture_output=True fills result.stdout and result.stderr",
+    "text=True (or encoding=) gives str instead of bytes",
+    "PIPE, DEVNULL, STDOUT and file objects route each stream"
+   ],
+   "pitfalls": [
+    "Forgetting text=True and then comparing bytes output with a str."
+   ],
+   "quiz": [
+    {
+     "q": "Which call merges a command's errors into result.stdout?",
+     "options": [
+      "run(cmd, capture_output=True)",
+      "run(cmd, stderr=DEVNULL)",
+      "run(cmd, text=True)",
+      "run(cmd, stdout=PIPE, stderr=STDOUT)"
+     ],
+     "answer": 3,
+     "explain": "stderr=STDOUT redirects the error stream into the captured stdout pipe."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/subprocess.html#subprocess.CompletedProcess",
+   "requires": [
+    "py-subprocess.run-basics"
+   ]
+  },
+  {
+   "id": "py-subprocess.errors",
+   "name": "Failing loudly with check=True",
+   "module": "basics",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Turn non-zero exit codes into exceptions with check=True and handle CalledProcessError and FileNotFoundError.",
+   "why": "Scripts that ignore failed commands carry on with bad state; exceptions stop them at the real problem.",
+   "body": "`run` does **not** raise when a command fails: a non-zero `returncode` is just a number on the result, and it's easy to forget to check. Pass `check=True` and a non-zero exit raises `subprocess.CalledProcessError`, which carries `returncode`, `cmd`, and the captured `stdout` / `stderr` (if you captured them).\n\n```python\ntry:\n    subprocess.run([\"make\", \"test\"], check=True, capture_output=True, text=True)\nexcept subprocess.CalledProcessError as e:\n    print(e.returncode, e.stderr)\n```\n\nUse `check=True` by default in scripts. Leave it off only when a non-zero code is an expected answer, for example `grep` returns 1 for \"no match\" and `diff` returns 1 for \"files differ\"; then inspect `returncode` yourself, or call `result.check_returncode()` later.\n\nA different failure happens before the program even runs: if the executable doesn't exist, you get `FileNotFoundError`; if it isn't executable, `PermissionError`. Both are `OSError`s. `shutil.which(\"git\")` lets you check for a tool up front and give a friendly message.\n\nBoth `CalledProcessError` and `TimeoutExpired` inherit from `subprocess.SubprocessError`, handy for one except clause.",
+   "code": "import subprocess, sys\n\ntry:\n    subprocess.run([sys.executable, \"-c\", \"import sys; print('boom', file=sys.stderr); sys.exit(2)\"],\n                   check=True, capture_output=True, text=True)\nexcept subprocess.CalledProcessError as e:\n    print(\"exit\", e.returncode, \"stderr:\", e.stderr.strip())   # exit 2 stderr: boom\n\ntry:\n    subprocess.run([\"no-such-tool\", \"--version\"])\nexcept FileNotFoundError as e:\n    print(\"missing:\", e.filename)                             # missing: no-such-tool\n\nr = subprocess.run([\"grep\", \"x\"], input=\"abc\\n\", text=True, capture_output=True)\nprint(\"grep found nothing\" if r.returncode == 1 else \"match\")  # grep found nothing",
+   "code_lang": "python",
+   "takeaways": [
+    "run() never raises on non-zero exit unless check=True",
+    "CalledProcessError carries returncode, stdout and stderr",
+    "A missing program raises FileNotFoundError before anything runs"
+   ],
+   "pitfalls": [
+    "Running a build step without check=True and continuing after it failed."
+   ],
+   "quiz": [
+    {
+     "q": "subprocess.run(['false']) (exit code 1) is called without check. What happens?",
+     "options": [
+      "CalledProcessError is raised",
+      "It returns None",
+      "It returns a CompletedProcess with returncode 1",
+      "It retries once"
+     ],
+     "answer": 2,
+     "explain": "Without check=True, failure is only visible in returncode."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/subprocess.html#subprocess.CalledProcessError",
+   "requires": [
+    "py-subprocess.run-basics",
+    "python.errors-basics"
+   ]
+  },
+  {
+   "id": "py-subprocess.shell",
+   "name": "shell=True and safe quoting",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Know what shell=True does, why it enables command injection, and how shlex.quote and shlex.split help.",
+   "why": "Shell injection through user-supplied file names is one of the most common security bugs in scripts.",
+   "body": "With `shell=True`, you pass a **single string** and Python runs it via `/bin/sh -c` (or `cmd.exe` on Windows). That gives you shell features: pipes `|`, redirection `>`, globbing `*.txt`, `&&`, environment variable expansion.\n\nIt also means the shell interprets every character in the string. If any part comes from a user, a file name or a web request, an attacker can inject commands:\n\n```python\nname = \"x; rm -rf ~\"\nsubprocess.run(f\"cat {name}\", shell=True)   # runs rm!\n```\n\nPrefer the list form without a shell. Usually you can replace the shell feature in Python: `glob` or `pathlib` for wildcards, `stdout=open(...)` for redirection, `env=` for variables, chaining two `run` calls for `&&`.\n\nIf you truly need the shell, quote every untrusted piece with `shlex.quote(value)`, which makes it a single literal word for POSIX shells.\n\n`shlex.split(\"cmd 'two words' x\")` turns a command-line string into a list the way a POSIX shell would, useful for config files that store commands as strings. `shlex.join(list)` does the reverse for logging.\n\n`shlex` follows POSIX rules; Windows quoting is different.",
+   "code": "import shlex, subprocess\n\nevil = \"notes.txt; echo INJECTED\"\nsubprocess.run(f\"echo cat {evil}\", shell=True)\n# cat notes.txt\n# INJECTED                          <- second command ran\n\nsubprocess.run(f\"echo cat {shlex.quote(evil)}\", shell=True)\n# cat notes.txt; echo INJECTED      <- one literal argument\n\nsubprocess.run([\"echo\", \"cat\", evil])  # list form: no shell, always safe\n# cat notes.txt; echo INJECTED\n\nargs = shlex.split(\"grep -n 'two words' file.txt\")\nprint(args)              # ['grep', '-n', 'two words', 'file.txt']\nprint(shlex.join(args))  # grep -n 'two words' file.txt",
+   "code_lang": "python",
+   "takeaways": [
+    "shell=True runs a string through /bin/sh with all its parsing",
+    "Untrusted text in a shell string allows command injection",
+    "Prefer list args; if a shell is unavoidable, shlex.quote every value"
+   ],
+   "pitfalls": [
+    "Building shell strings with f-strings from user input."
+   ],
+   "quiz": [
+    {
+     "q": "Which is safe for a user-supplied filename fn?",
+     "options": [
+      "run(f'wc -l {fn}', shell=True)",
+      "run('wc -l ' + fn, shell=True)",
+      "os.system('wc -l ' + fn)",
+      "run(['wc', '-l', fn])"
+     ],
+     "answer": 3,
+     "explain": "The list form passes fn as one argument with no shell to interpret it."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/subprocess.html#security-considerations",
+   "requires": [
+    "py-subprocess.run-basics",
+    "python.strings"
+   ]
+  },
+  {
+   "id": "py-subprocess.stdin",
+   "name": "Sending input and chaining commands",
+   "module": "io",
+   "level": 2,
+   "minutes": 9,
+   "summary": "Feed data to a command with input=, avoid accidental terminal reads, and chain programs without a shell.",
+   "why": "Many tools (jq, sort, grep, compilers) read from stdin, and pipelines are common in scripts.",
+   "body": "`input=` sends data to the child's standard input and closes it, so the program sees end-of-file. Use a `str` with `text=True`, or `bytes` otherwise.\n\n```python\nr = subprocess.run([\"sort\"], input=\"b\\na\\n\", capture_output=True, text=True)\n```\n\nIf you don't pass `input` or `stdin`, the child inherits your stdin. A command that unexpectedly waits for input (a password prompt, `cat` with no file) then hangs your script. In scripts and services, pass `stdin=subprocess.DEVNULL` so such reads see EOF immediately.\n\n`stdin=` also accepts an open file, so `stdin=open(\"data.csv\")` streams a file without loading it into memory.\n\nTo build a pipeline like `ps aux | grep python` without `shell=True`, the simplest way is to pass the first command's output as the second's input:\n\n```python\nps = subprocess.run([\"ps\", \"aux\"], capture_output=True, text=True, check=True)\nhits = subprocess.run([\"grep\", \"python\"], input=ps.stdout, capture_output=True, text=True)\n```\n\nThis holds the intermediate data in memory, which is fine for most outputs. For large streams, connect processes directly with `Popen` (a later lesson). Often the simplest pipeline is no pipeline at all: filter the output in Python.",
+   "code": "import subprocess, sys\n\nr = subprocess.run([\"sort\", \"-r\"], input=\"apple\\ncherry\\nbanana\\n\",\n                   capture_output=True, text=True, check=True)\nprint(r.stdout.split())                   # ['cherry', 'banana', 'apple']\n\nwords = subprocess.run([\"printf\", \"a b\\nc\\n\"], capture_output=True, text=True).stdout\ncount = subprocess.run([\"wc\", \"-w\"], input=words, capture_output=True, text=True)\nprint(count.stdout.strip())               # 3\n\nr = subprocess.run([sys.executable, \"-c\", \"print(repr(input('name? ')))\"],\n                   stdin=subprocess.DEVNULL, capture_output=True, text=True)\nprint(r.stderr.strip().splitlines()[-1])  # EOFError: EOF when reading a line",
+   "code_lang": "python",
+   "takeaways": [
+    "input= writes data to stdin and closes it",
+    "stdin=DEVNULL prevents hangs on unexpected prompts",
+    "Chain commands by passing one result's stdout as the next input"
+   ],
+   "pitfalls": [
+    "Letting a child inherit stdin in a cron job or service, where a prompt then blocks forever."
+   ],
+   "quiz": [
+    {
+     "q": "A script calls a tool that sometimes asks 'Continue? [y/N]'. How do you keep it from hanging?",
+     "options": [
+      "Pass stdin=subprocess.DEVNULL (or input='n\\n')",
+      "Use shell=True",
+      "Use capture_output=True",
+      "Use text=True"
+     ],
+     "answer": 0,
+     "explain": "With DEVNULL the prompt reads EOF immediately instead of waiting on the terminal."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/subprocess.html#frequently-used-arguments",
+   "requires": [
+    "py-subprocess.capture-output"
+   ]
+  },
+  {
+   "id": "py-subprocess.timeouts",
+   "name": "Timeouts",
+   "module": "io",
+   "level": 2,
+   "minutes": 8,
+   "summary": "Stop commands that run too long with timeout= and handle subprocess.TimeoutExpired.",
+   "why": "A hung network tool or stuck build should not hang your script or CI job forever.",
+   "body": "`run(..., timeout=seconds)` waits at most that long. If the process is still running, `run` **kills** it, waits for it to exit, and raises `subprocess.TimeoutExpired`. The exception has `cmd`, `timeout`, and whatever `output` / `stderr` was captured so far (bytes, even with `text=True`, and possibly `None`).\n\n```python\ntry:\n    subprocess.run([\"curl\", url], timeout=10, check=True)\nexcept subprocess.TimeoutExpired:\n    log.warning(\"curl took too long\")\n```\n\nNotes:\n\n- The timeout covers the whole run, including reading output.\n- The kill is SIGKILL on POSIX, so the child gets no chance to clean up. For a graceful stop, use `Popen` and call `terminate()` first.\n- With `shell=True`, the shell is killed but grandchildren it started may keep running and holding the output pipes open, so `run` can still block after the timeout. Avoid the shell, or use a process group (an advanced lesson).\n\nPick timeouts generously enough for slow CI machines, and include the command and timeout in the error message so failures are easy to diagnose.",
+   "code": "import subprocess, sys, time\n\nt = time.perf_counter()\ntry:\n    subprocess.run([sys.executable, \"-c\", \"import time; print('start', flush=True); time.sleep(30)\"],\n                   timeout=0.5, capture_output=True, text=True)\nexcept subprocess.TimeoutExpired as e:\n    print(f\"killed after {e.timeout}s\")            # killed after 0.5s\n    print(\"partial output:\", e.output)             # partial output: b'start\\n'\nprint(f\"elapsed {time.perf_counter() - t:.1f}s\")   # elapsed 0.5s",
+   "code_lang": "python",
+   "takeaways": [
+    "timeout= kills the child and raises TimeoutExpired",
+    "Captured partial output is on the exception",
+    "Grandchildren of a shell may survive the kill"
+   ],
+   "pitfalls": [
+    "Expecting text output on TimeoutExpired; e.output is bytes even with text=True."
+   ],
+   "quiz": [
+    {
+     "q": "What does run(cmd, timeout=5) do when cmd is still running after 5 seconds?",
+     "options": [
+      "Returns a result with returncode None",
+      "Raises TimeoutExpired and leaves the child running",
+      "Kills the child, waits for it, and raises TimeoutExpired",
+      "Sends SIGTERM and waits forever"
+     ],
+     "answer": 2,
+     "explain": "run() kills and reaps the process before raising."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/subprocess.html#subprocess.TimeoutExpired",
+   "requires": [
+    "py-subprocess.errors"
+   ]
+  },
+  {
+   "id": "py-subprocess.env-cwd",
+   "name": "Environment, working directory and PATH",
+   "module": "io",
+   "level": 2,
+   "minutes": 9,
+   "summary": "Control where a command runs and what environment it sees with cwd=, env= and shutil.which.",
+   "why": "Build and deploy scripts need to run tools in a specific folder with specific variables set.",
+   "body": "By default a child inherits your current working directory and a copy of your environment.\n\n`cwd=` runs the command in another directory without changing your own process's directory. It accepts a `str` or a `pathlib.Path`, and relative paths in the command are resolved against it.\n\n`env=` **replaces** the child's environment entirely. Usually you want to add to it:\n\n```python\nenv = {**os.environ, \"NODE_ENV\": \"production\"}\nsubprocess.run([\"npm\", \"run\", \"build\"], env=env, cwd=project)\n```\n\nPassing only `{\"NODE_ENV\": \"production\"}` drops `PATH`, `HOME` and everything else, which breaks most programs. All keys and values must be strings.\n\nFinding programs: the executable is searched on `PATH` (the child's `PATH` from `env` on POSIX). `shutil.which(\"ffmpeg\")` returns the full path or `None`, letting you fail early with a helpful message. For Python itself, prefer `sys.executable` to make sure the child uses the same interpreter and virtual environment as the parent.\n\nTo run a module with the same interpreter, use `[sys.executable, \"-m\", \"pip\", \"install\", ...]`, the reliable way to call pip from code.",
+   "code": "import os, shutil, subprocess, sys, tempfile\nfrom pathlib import Path\n\ntmp = Path(tempfile.mkdtemp())\n(tmp / \"data.txt\").write_text(\"hi\")\n\nr = subprocess.run([\"ls\"], cwd=tmp, capture_output=True, text=True)\nprint(r.stdout.strip())                      # data.txt\n\nenv = {**os.environ, \"GREETING\": \"hello\"}\ncode = \"import os; print(os.environ['GREETING'], 'PATH' in os.environ)\"\nr = subprocess.run([sys.executable, \"-c\", code], env=env, capture_output=True, text=True)\nprint(r.stdout.strip())                      # hello True\n\nprint(shutil.which(\"sh\"))                    # /usr/bin/sh (or /bin/sh)\nprint(shutil.which(\"no-such-tool\"))          # None",
+   "code_lang": "python",
+   "takeaways": [
+    "cwd= sets the child's working directory only",
+    "env= replaces the environment: merge with os.environ",
+    "shutil.which finds executables; sys.executable is the current Python"
+   ],
+   "pitfalls": [
+    "Passing env={'KEY': 'v'} alone, which removes PATH and breaks the command."
+   ],
+   "quiz": [
+    {
+     "q": "subprocess.run(['make'], env={'DEBUG': '1'}) fails with FileNotFoundError or odd errors. Why?",
+     "options": [
+      "env replaces the whole environment, so PATH and others are gone",
+      "DEBUG must be an int",
+      "make doesn't read environment variables",
+      "env only works with shell=True"
+     ],
+     "answer": 0,
+     "explain": "Merge instead: env={**os.environ, 'DEBUG': '1'}."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/subprocess.html#popen-constructor",
+   "requires": [
+    "py-subprocess.run-basics"
+   ]
+  },
+  {
+   "id": "py-subprocess.popen",
+   "name": "Popen: streaming output",
+   "module": "popen",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Use subprocess.Popen to start a process without waiting and read its output line by line as it runs.",
+   "why": "Long builds, servers and log tailers need live output and control while the process runs.",
+   "body": "`run` waits for completion. `Popen` starts the process and returns immediately, giving you a handle for live interaction. It takes the same arguments as `run` (except `input`, `timeout`, `check` and `capture_output`).\n\n```python\nwith subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True) as p:\n    for line in p.stdout:\n        print(\"got\", line.rstrip())\nprint(p.returncode)\n```\n\nKey methods and attributes:\n\n- `p.stdin`, `p.stdout`, `p.stderr`: file objects when you used `PIPE`.\n- `p.poll()`: returns the exit code if finished, else `None` (non-blocking).\n- `p.wait(timeout=None)`: block until exit.\n- `p.communicate(input, timeout)`: send input, read all output, wait.\n- `p.pid`, `p.returncode`, `p.terminate()`, `p.kill()`.\n\nUse it as a **context manager**: on exit it closes the pipes and waits for the process, so you don't leave zombie processes behind.\n\nOutput buffering matters: many programs buffer stdout fully when it's a pipe rather than a terminal, so lines arrive in bursts. For Python children, pass `-u` or set `PYTHONUNBUFFERED=1`; other tools often have a `--line-buffered` flag.\n\nIn asyncio code, use `asyncio.create_subprocess_exec` instead, which gives you awaitable streams.",
+   "code": "import subprocess, sys, time\n\nchild = \"import time\\nfor i in range(3):\\n    print('step', i, flush=True); time.sleep(0.2)\"\nt0 = time.perf_counter()\nwith subprocess.Popen([sys.executable, \"-c\", child],\n                      stdout=subprocess.PIPE, text=True) as p:\n    print(\"started pid\", p.pid > 0, \"poll:\", p.poll())   # started pid True poll: None\n    for line in p.stdout:                               # arrives live\n        print(f\"{time.perf_counter() - t0:.1f}s {line.rstrip()}\")\nprint(\"exit code\", p.returncode)\n# 0.0s step 0\n# 0.2s step 1\n# 0.4s step 2\n# exit code 0",
+   "code_lang": "python",
+   "takeaways": [
+    "Popen starts a process without waiting and gives you live pipes",
+    "Iterate p.stdout for line-by-line streaming",
+    "Use Popen as a context manager so it is always waited for"
+   ],
+   "pitfalls": [
+    "Children that buffer output when writing to a pipe, so 'live' lines only show up at the end."
+   ],
+   "quiz": [
+    {
+     "q": "What does p.poll() return while the child is still running?",
+     "options": [
+      "0",
+      "-1",
+      "It blocks until the child exits",
+      "None"
+     ],
+     "answer": 3,
+     "explain": "poll() is non-blocking and returns None until there is an exit code."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/subprocess.html#popen-objects",
+   "requires": [
+    "py-subprocess.stdin",
+    "python.context-managers"
+   ]
+  },
+  {
+   "id": "py-subprocess.deadlocks",
+   "name": "Pipes, communicate() and deadlocks",
+   "module": "popen",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Avoid pipe-buffer deadlocks with communicate(), and connect Popen processes into real pipelines.",
+   "why": "The classic subprocess hang happens when parent and child both wait on a full pipe.",
+   "body": "An OS pipe has a small buffer (often 64 KiB). If a child writes more than that to a `PIPE` that nobody is reading, the child blocks. If the parent is meanwhile blocked too, say in `p.wait()` or writing to the child's stdin, both wait forever: a **deadlock**.\n\nTypical traps:\n\n- `p.wait()` with `stdout=PIPE` and lots of output,\n- reading `p.stdout` to the end while the child is stuck writing to a full `stderr` pipe,\n- writing a large input to `p.stdin` before reading output.\n\n`p.communicate(input=None, timeout=None)` solves this: it writes input, reads stdout and stderr concurrently (with threads or `select`), and waits. `run` uses it internally. If it times out, the process is not killed; call `p.kill()` then `p.communicate()` again to collect the rest.\n\nTo build a real streaming pipeline, connect processes with OS pipes:\n\n```python\np1 = Popen([\"cat\", \"big.log\"], stdout=PIPE)\np2 = Popen([\"grep\", \"ERROR\"], stdin=p1.stdout, stdout=PIPE)\np1.stdout.close()   # so p1 gets SIGPIPE if p2 exits early\nout, _ = p2.communicate()\n```\n\nData flows directly between the children without passing through Python.",
+   "code": "import subprocess, sys\n\nbig = \"import sys; sys.stdout.write('x' * 1_000_000); sys.stderr.write('done')\"\np = subprocess.Popen([sys.executable, \"-c\", big],\n                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)\n# p.wait() here could deadlock: 1 MB won't fit in the pipe buffer\nout, err = p.communicate(timeout=10)\nprint(len(out), err, p.returncode)          # 1000000 done 0\n\ngen = subprocess.Popen([\"seq\", \"1\", \"100000\"], stdout=subprocess.PIPE)\ngrep = subprocess.Popen([\"grep\", \"-c\", \"7\"], stdin=gen.stdout,\n                        stdout=subprocess.PIPE, text=True)\ngen.stdout.close()                          # let gen get SIGPIPE if grep exits\nprint(grep.communicate()[0].strip())        # 40951  (lines containing a 7)\ngen.wait()",
+   "code_lang": "python",
+   "takeaways": [
+    "A full, unread pipe blocks the child; waiting on it blocks you: deadlock",
+    "communicate() reads all pipes concurrently and waits safely",
+    "Connect Popen processes with stdin=p1.stdout for streaming pipelines"
+   ],
+   "pitfalls": [
+    "Calling p.wait() on a process whose stdout or stderr is a PIPE you haven't read."
+   ],
+   "quiz": [
+    {
+     "q": "Why does p.wait() sometimes hang forever when stdout=PIPE?",
+     "options": [
+      "The child blocks writing to a full pipe that the parent isn't reading",
+      "wait() requires a timeout",
+      "PIPE only works with shell=True",
+      "The child never starts until communicate() is called"
+     ],
+     "answer": 0,
+     "explain": "The pipe buffer fills, the child waits for a reader, the parent waits for the child."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/subprocess.html#subprocess.Popen.communicate",
+   "requires": [
+    "py-subprocess.popen"
+   ]
+  },
+  {
+   "id": "py-subprocess.signals",
+   "name": "Stopping processes and exit statuses",
+   "module": "popen",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Stop processes gracefully with terminate() then kill(), and interpret negative return codes.",
+   "why": "Supervisors, test harnesses and dev servers must stop children cleanly and report why they died.",
+   "body": "`p.terminate()` asks a process to stop: SIGTERM on POSIX, which the program can catch to clean up. `p.kill()` forces it: SIGKILL, which can't be caught. On Windows both call `TerminateProcess`. `p.send_signal(sig)` sends any signal, for example `signal.SIGINT` to mimic Ctrl+C.\n\nThe graceful pattern:\n\n```python\np.terminate()\ntry:\n    p.wait(timeout=5)\nexcept subprocess.TimeoutExpired:\n    p.kill()\n    p.wait()\n```\n\nAlways `wait()` after signalling, so the process is reaped; an exited child that hasn't been waited for stays a **zombie** in the process table.\n\nOn POSIX, a **negative returncode** `-N` means the process was killed by signal N: `-15` is SIGTERM, `-9` is SIGKILL. A shell reports the same event as `128 + N`, so `137` from a shell or Docker means SIGKILL, often the out-of-memory killer. `signal.Signals(15).name` turns a number into `'SIGTERM'`.\n\n`CalledProcessError`'s message also decodes this, saying \"died with <Signals.SIGKILL: 9>\".",
+   "code": "import signal, subprocess, sys\n\nchild = \"\"\"\nimport signal, sys, time\nsignal.signal(signal.SIGTERM, lambda *a: (print(\"child: cleaning up\", flush=True), sys.exit(0)))\ntime.sleep(30)\n\"\"\"\np = subprocess.Popen([sys.executable, \"-c\", child])\ntry:\n    p.wait(timeout=0.5)\nexcept subprocess.TimeoutExpired:\n    p.terminate()                       # child: cleaning up\n    print(\"graceful exit:\", p.wait(timeout=5))      # graceful exit: 0\n\np = subprocess.Popen([\"sleep\", \"30\"])\np.kill()\ncode = p.wait()\nprint(code, signal.Signals(-code).name)            # -9 SIGKILL",
+   "code_lang": "python",
+   "takeaways": [
+    "terminate() = SIGTERM (catchable), kill() = SIGKILL",
+    "Always wait() after stopping a process to reap it",
+    "returncode -N means killed by signal N; shells report 128+N"
+   ],
+   "pitfalls": [
+    "Calling kill() first, so the child never gets to flush files or release locks."
+   ],
+   "quiz": [
+    {
+     "q": "A child's returncode is -15 on Linux. What happened?",
+     "options": [
+      "It exited with status 15",
+      "It timed out after 15 seconds",
+      "It was terminated by signal 15 (SIGTERM)",
+      "It is still running"
+     ],
+     "answer": 2,
+     "explain": "Negative return codes mean death by the signal with that number."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/subprocess.html#subprocess.Popen.terminate",
+   "requires": [
+    "py-subprocess.popen",
+    "py-subprocess.timeouts"
+   ]
+  },
+  {
+   "id": "py-subprocess.process-groups",
+   "name": "Process groups and killing trees",
+   "module": "systems",
+   "level": 4,
+   "minutes": 13,
+   "summary": "Run children in their own session or process group so you can signal or kill a whole process tree.",
+   "why": "Shells, build tools and test runners spawn grandchildren that survive if you only kill the direct child.",
+   "body": "Killing a process does not kill its children. If you start `sh -c \"make && ./server\"` and kill the shell on timeout, `make` or `server` keep running as orphans, and if they hold the stdout pipe open, `communicate()` keeps waiting for them.\n\nOn POSIX, put the child in its own **process group** and signal the whole group:\n\n- `start_new_session=True` runs `setsid()` in the child: a new session and process group, detached from your terminal.\n- `process_group=0` (3.11+) only creates a new process group, keeping the session.\n\nThen `os.killpg(p.pid, signal.SIGTERM)` (the group id equals the leader's pid) reaches every process in the group, including grandchildren, unless they deliberately moved to another group.\n\nSide effects: a child in a new session no longer receives Ctrl+C from your terminal, so forward signals yourself if you need that behaviour.\n\nOn Windows, use `creationflags=subprocess.CREATE_NEW_PROCESS_GROUP` and send `CTRL_BREAK_EVENT`, or rely on Job Objects (via third-party libraries) to kill trees.\n\nThe third-party `psutil` library can also walk `children(recursive=True)` and kill each, a portable fallback.",
+   "code": "import os, signal, subprocess, time\n\n# The shell starts a grandchild (sleep) that outlives a plain kill.\ncmd = \"sleep 30 & echo grandchild $!; wait\"\np = subprocess.Popen([\"sh\", \"-c\", cmd], stdout=subprocess.PIPE, text=True,\n                     start_new_session=True)\ngpid = int(p.stdout.readline().split()[1])\nprint(os.getpgid(gpid) == p.pid)     # True: same group as the shell\n\nos.killpg(p.pid, signal.SIGTERM)     # signal the whole group\np.wait()\nt = time.perf_counter()\nprint(repr(p.stdout.read()))         # '' -> EOF: no process holds the pipe\nprint(f\"{time.perf_counter() - t:.1f}s\")  # 0.0s (p.kill() alone: blocks ~30s)\np.stdout.close()",
+   "code_lang": "python",
+   "takeaways": [
+    "Killing a process leaves its children running",
+    "start_new_session=True or process_group=0 puts the child in its own group",
+    "os.killpg(pid, sig) signals the whole tree"
+   ],
+   "pitfalls": [
+    "Using shell=True with timeout and expecting the timeout to stop everything the shell started."
+   ],
+   "quiz": [
+    {
+     "q": "Why doesn't run('sh -c \"server\"', shell=True, timeout=5) always stop the server?",
+     "options": [
+      "timeout is ignored when shell=True",
+      "Only the shell is killed; the server is a separate grandchild process",
+      "The server ignores SIGKILL",
+      "subprocess waits for user input"
+     ],
+     "answer": 1,
+     "explain": "Signals go to one pid; put the tree in a process group and use killpg."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/subprocess.html#subprocess.Popen",
+   "requires": [
+    "py-subprocess.signals",
+    "py-subprocess.deadlocks"
+   ]
+  },
+  {
+   "id": "py-subprocess.fd-security",
+   "name": "File descriptors and secure spawning",
+   "module": "systems",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Control which file descriptors children inherit and drop privileges with close_fds, pass_fds, user and umask.",
+   "why": "Leaked descriptors and over-privileged children are subtle security and reliability bugs.",
+   "body": "When a child starts, it may inherit open file descriptors from the parent: sockets, files, pipe ends. Leaks cause real bugs: a child holding a listening socket keeps the port busy after your server restarts, and a child holding a pipe's write end means the reader never sees EOF.\n\nPython defaults are safe: descriptors created by Python are **non-inheritable** (PEP 446), and `close_fds=True` (the default) closes everything except 0, 1 and 2 in the child. To deliberately hand over specific descriptors, list them in `pass_fds=(fd,)`; they are made inheritable in the child only.\n\nOther POSIX controls on `Popen` and `run`:\n\n- `user=`, `group=`, `extra_groups=` (3.9+): drop privileges when running as root.\n- `umask=` (3.9+): file creation mask for the child.\n- `preexec_fn=`: runs Python code in the child before `exec`. Avoid it: it is not safe in the presence of threads. Use the dedicated parameters (`start_new_session`, `process_group`, `user`) instead.\n- `executable=`: run a different binary than `args[0]`, which becomes the child's `argv[0]`.\n\nSecurity checklist: list args (no shell), absolute paths for sensitive tools, a minimal `env`, no secrets in arguments (they are visible in `ps`), and `stdin=DEVNULL`.",
+   "code": "import os, subprocess, sys\n\nr, w = os.pipe()\nprint(os.get_inheritable(w))                  # False (PEP 446)\n\nchild = \"import os, sys; fd = int(sys.argv[1]); os.write(fd, b'via fd'); os.close(fd)\"\nsubprocess.run([sys.executable, \"-c\", child, str(w)], pass_fds=(w,), check=True)\nos.close(w)\nprint(os.read(r, 100))                        # b'via fd'\n\nres = subprocess.run([sys.executable, \"-c\", child, str(r)],\n                     capture_output=True, text=True)\nprint(res.stderr.strip().splitlines()[-1])    # OSError: [Errno 9] Bad file descriptor\nos.close(r)",
+   "code_lang": "python",
+   "takeaways": [
+    "Python-created descriptors are non-inheritable and close_fds=True by default",
+    "pass_fds hands specific descriptors to the child",
+    "Prefer user=, umask=, start_new_session over preexec_fn"
+   ],
+   "pitfalls": [
+    "Passing secrets on the command line, where any user can read them with ps."
+   ],
+   "quiz": [
+    {
+     "q": "Why is preexec_fn discouraged?",
+     "options": [
+      "It only works on Windows",
+      "It runs after exec, so it has no effect",
+      "It disables close_fds",
+      "It can deadlock in programs that use threads"
+     ],
+     "answer": 3,
+     "explain": "Running Python code between fork and exec is unsafe with threads; dedicated parameters avoid it."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/subprocess.html#popen-constructor",
+   "requires": [
+    "py-subprocess.process-groups",
+    "py-subprocess.env-cwd"
+   ]
+  },
+  {
+   "id": "py-subprocess.internals",
+   "name": "How processes are spawned",
+   "module": "systems",
+   "level": 4,
+   "minutes": 12,
+   "summary": "See how subprocess creates processes: fork/exec, vfork and posix_spawn on POSIX, CreateProcess on Windows.",
+   "why": "Spawn mechanics explain performance at scale, memory errors in big processes, and Windows quoting bugs.",
+   "body": "On POSIX, the classic way to start a program is **fork** (clone the current process) then **exec** (replace the clone with the new program). subprocess does this in C (`_posixsubprocess`), running the minimal setup between the two: redirect descriptors, change directory, set the session, drop privileges.\n\nForking a large process used to be expensive and could fail with `ENOMEM` under strict memory overcommit, even though the memory is shared copy-on-write. So CPython picks faster primitives when it can:\n\n- **posix_spawn** on Linux and macOS, when the arguments allow it (for example `close_fds=False` and no `cwd`, `preexec_fn` or session options),\n- **vfork** on Linux (3.10+), which shares memory with the parent until exec, avoiding page-table copies; used whenever it is safe.\n\nExec failures (a missing binary, a bad `cwd`) are reported back to the parent through a dedicated pipe and re-raised as `FileNotFoundError` and friends, which is why you get a proper exception rather than exit code 127.\n\nOn Windows, `CreateProcess` takes a **single command-line string**. subprocess converts your list with `list2cmdline`, following the MS C runtime quoting rules; programs that parse their command line differently (notably `cmd.exe`) may see different arguments.",
+   "code": "import subprocess, sys, time\n\nprint(subprocess.list2cmdline([\"prog\", \"a b\", 'say \"hi\"']))\n# prog \"a b\" \"say \\\"hi\\\"\"   (Windows quoting rules)\n\nN = 50\nt = time.perf_counter()\nfor _ in range(N):\n    subprocess.run([\"true\"])\nprint(f\"{(time.perf_counter() - t) / N * 1000:.2f} ms per spawn\")  # ~1 ms\n\ntry:\n    subprocess.run([\"true\"], cwd=\"/no/such/dir\")\nexcept FileNotFoundError as e:\n    print(\"raised in parent:\", e.strerror)   # raised in parent: No such file or directory",
+   "code_lang": "python",
+   "takeaways": [
+    "POSIX spawning is fork/vfork + exec, or posix_spawn when options allow",
+    "Exec errors come back through a pipe and are raised in the parent",
+    "Windows gets one command-line string built by list2cmdline"
+   ],
+   "pitfalls": [
+    "Assuming Windows programs receive your list elements exactly; quoting depends on how the target parses its command line."
+   ],
+   "quiz": [
+    {
+     "q": "How does subprocess raise FileNotFoundError for a missing program on POSIX, when the error happens in the child after fork?",
+     "options": [
+      "The child reports the exec error to the parent through a dedicated pipe",
+      "It parses the shell's error message",
+      "It checks PATH before forking and never forks",
+      "The kernel raises it directly in Python"
+     ],
+     "answer": 0,
+     "explain": "_posixsubprocess writes the errno to an error pipe that the parent reads and turns into an exception."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/subprocess.html#popen-constructor",
+   "requires": [
+    "py-subprocess.fd-security"
+   ]
+  }
+ ]
+}

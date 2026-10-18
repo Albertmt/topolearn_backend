@@ -1,0 +1,1359 @@
+{
+ "tool": {
+  "id": "prometheus",
+  "name": "Prometheus",
+  "category": "tool",
+  "tagline": "Pull-based metrics monitoring with a time-series database and PromQL",
+  "description": "Prometheus collects numeric metrics by scraping HTTP endpoints, stores them as labelled time series and lets you query them with PromQL. It powers dashboards, alerting rules and capacity analysis, and is the standard metrics system in cloud-native and Kubernetes environments. Learning it means learning how to instrument services, write queries and alert on what matters.",
+  "icon": "Pr",
+  "color": "#E6522C",
+  "official_docs": "https://prometheus.io/docs/",
+  "version": "3.x",
+  "aliases": [
+   "promql",
+   "prom",
+   "alertmanager",
+   "prometheus monitoring"
+  ],
+  "requires": [
+   {
+    "tool": "linux",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Metrics basics"
+  },
+  {
+   "id": "promql",
+   "name": "PromQL"
+  },
+  {
+   "id": "collect",
+   "name": "Collecting metrics"
+  },
+  {
+   "id": "instrument",
+   "name": "Instrumenting applications"
+  },
+  {
+   "id": "rules",
+   "name": "Rules and alerting"
+  },
+  {
+   "id": "kubernetes",
+   "name": "Discovery and Kubernetes"
+  },
+  {
+   "id": "operate",
+   "name": "Operating at scale"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "prometheus.what-is",
+   "name": "What Prometheus is and how it works",
+   "module": "basics",
+   "level": 1,
+   "minutes": 6,
+   "summary": "Prometheus scrapes metrics from targets over HTTP, stores them as time series and evaluates queries and alerts on them.",
+   "why": "Understanding the pull model and the components tells you where data comes from and where each problem can occur.",
+   "body": "**Prometheus** is a monitoring system built around **metrics**: numbers that change over time, such as requests served, memory used or queue length. It was created at SoundCloud and is a graduated CNCF project.\n\nThe architecture:\n\n- **Targets** expose their current metric values as plain text on an HTTP endpoint, usually `/metrics`. Applications do this with a client library; for software you can't change, an **exporter** translates (for example `node_exporter` for Linux host metrics).\n- The **Prometheus server** **scrapes** (pulls) every target on an interval, such as every 15 seconds, and stores the samples in its local **time-series database** (TSDB).\n- **PromQL**, its query language, powers the built-in UI, Grafana dashboards and **rules**.\n- **Alerting rules** evaluate PromQL continuously; firing alerts go to **Alertmanager**, which groups, silences and routes them to email, Slack or paging services.\n\nThe **pull model** means Prometheus knows when a target is down (the scrape fails and `up` becomes 0), and targets don't need to know where monitoring lives. Short-lived batch jobs that can't be scraped push to a **Pushgateway** instead.\n\nPrometheus is designed for reliability, not perfect accuracy: each server is standalone, and it's not meant for per-request data like billing. Logs and traces are separate systems.",
+   "code": "# A target exposes metrics as text; Prometheus pulls this every scrape interval\ncurl -s http://localhost:9100/metrics | grep -m3 '^node_'\n# node_boot_time_seconds 1.7603e+09\n# node_cpu_seconds_total{cpu=\"0\",mode=\"idle\"} 81234.56\n# node_cpu_seconds_total{cpu=\"0\",mode=\"user\"} 1520.33\n\n# Prometheus server UI and API on port 9090\ncurl -s 'http://localhost:9090/api/v1/query?query=up'\n# {\"status\":\"success\",\"data\":{\"resultType\":\"vector\",\"result\":[...]}}",
+   "code_lang": "bash",
+   "takeaways": [
+    "Targets expose /metrics; Prometheus scrapes (pulls) them on an interval",
+    "Data lives in a local TSDB and is queried with PromQL",
+    "Alerting rules fire into Alertmanager, which routes notifications"
+   ],
+   "pitfalls": [
+    "Using Prometheus for per-event data such as individual orders; it stores aggregated numeric samples."
+   ],
+   "quiz": [
+    {
+     "q": "How does Prometheus usually get data from a web service?",
+     "options": [
+      "The service pushes every request to Prometheus",
+      "Prometheus reads the service's logs",
+      "Prometheus periodically scrapes the service's /metrics endpoint",
+      "Through a message queue"
+     ],
+     "answer": 2,
+     "explain": "The pull model scrapes an HTTP endpoint; push is only for special cases via the Pushgateway."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/introduction/overview/",
+   "requires": []
+  },
+  {
+   "id": "prometheus.data-model",
+   "name": "The data model: metrics, labels and series",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "A time series is a metric name plus a set of labels; each holds timestamped float samples. Learn naming and why labels matter.",
+   "why": "Every query and every performance problem in Prometheus comes back to series and their labels.",
+   "body": "Every time series is identified by a **metric name** and a set of **labels** (key-value pairs):\n\n`http_requests_total{method=\"GET\", path=\"/api/users\", status=\"200\"}`\n\nEach distinct combination of label values is a **separate series**. A series is a list of **samples**: a float64 value and a millisecond timestamp. Prometheus adds two labels to every scraped series: `job` (from the scrape configuration) and `instance` (the target's host:port).\n\nLabels make queries powerful: you can sum all requests, or break them down by method or status, with one metric. But they have a cost. The number of series is the product of the label values used. Adding `user_id` as a label creates a series per user, the classic **cardinality explosion** that makes Prometheus slow and memory-hungry. Keep label values bounded: HTTP method, status class, route template, never IDs, emails or full URLs.\n\nNaming conventions from the Prometheus docs:\n\n- snake_case, prefixed with the application or domain: `myapp_jobs_processed_total`.\n- Include the **base unit** as a suffix: `_seconds`, `_bytes`, not milliseconds or megabytes.\n- Counters end in `_total`.\n\nLabel names starting with `__` are reserved for internal use.",
+   "code": "# Exposition format: one line per series, # HELP and # TYPE describe the metric\n# HELP http_requests_total Total HTTP requests.\n# TYPE http_requests_total counter\nhttp_requests_total{method=\"GET\",status=\"200\"} 1027\nhttp_requests_total{method=\"GET\",status=\"404\"} 3\nhttp_requests_total{method=\"POST\",status=\"200\"} 112\n# HELP process_resident_memory_bytes Resident memory size in bytes.\n# TYPE process_resident_memory_bytes gauge\nprocess_resident_memory_bytes 2.4576e+07\n\n# After scraping, each series also gets job and instance labels:\n# http_requests_total{instance=\"10.0.0.5:8000\",job=\"api\",method=\"GET\",status=\"200\"}",
+   "code_lang": "text",
+   "takeaways": [
+    "A series = metric name + unique label set; each holds float samples",
+    "job and instance are added at scrape time",
+    "Keep label values bounded; base units and _total in names"
+   ],
+   "pitfalls": [
+    "Putting user IDs, request IDs or raw URLs into labels, creating millions of series."
+   ],
+   "quiz": [
+    {
+     "q": "A metric has labels method (4 values), status (10 values) and instance (5 targets). How many series can it have at most?",
+     "options": [
+      "200",
+      "19",
+      "50",
+      "4"
+     ],
+     "answer": 0,
+     "explain": "Series multiply: 4 x 10 x 5 = 200 possible label combinations."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/concepts/data_model/",
+   "requires": [
+    "prometheus.what-is"
+   ]
+  },
+  {
+   "id": "prometheus.metric-types",
+   "name": "Counters, gauges, histograms and summaries",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "The four metric types, what each is for, and why you almost never look at a counter's raw value.",
+   "why": "Choosing the right type decides which questions you can answer later and which PromQL functions apply.",
+   "body": "Prometheus client libraries offer four metric types:\n\n- **Counter**: a value that only goes **up**, reset to zero when the process restarts. Requests served, errors, bytes sent. Its raw value is rarely interesting; you query its rate of increase. Names end in `_total`.\n- **Gauge**: a value that goes up and down. Memory in use, queue length, temperature, number of active connections. You look at its current value, average or max.\n- **Histogram**: counts observations (like request durations) into configurable **buckets**. It exposes several series: `_bucket{le=\"0.1\"}` (cumulative count of observations less than or equal to 0.1), `_sum` and `_count`. Quantiles such as p95 are computed at **query time**, and histograms from many instances can be aggregated.\n- **Summary**: computes quantiles **in the client** and exposes them as `{quantile=\"0.95\"}` plus `_sum` and `_count`. Cheap to query, but quantiles from different instances **cannot be meaningfully aggregated**.\n\nRules of thumb: count events with counters, measure states with gauges, and use histograms for latencies and sizes. Prefer histograms to summaries unless you have a single instance and need exact quantiles.\n\nNewer Prometheus versions also support **native histograms**, which use exponential buckets automatically and store a whole distribution as one series, removing the need to pick bucket boundaries.",
+   "code": "# TYPE jobs_processed_total counter\njobs_processed_total 5817            # only increases (resets on restart)\n# TYPE queue_length gauge\nqueue_length 12                      # goes up and down\n# TYPE request_duration_seconds histogram\nrequest_duration_seconds_bucket{le=\"0.1\"} 940     # cumulative counts\nrequest_duration_seconds_bucket{le=\"0.5\"} 990\nrequest_duration_seconds_bucket{le=\"1\"} 998\nrequest_duration_seconds_bucket{le=\"+Inf\"} 1000\nrequest_duration_seconds_sum 83.2\nrequest_duration_seconds_count 1000\n# TYPE rpc_latency_seconds summary\nrpc_latency_seconds{quantile=\"0.95\"} 0.31          # computed in the client\nrpc_latency_seconds_sum 41.7\nrpc_latency_seconds_count 400",
+   "code_lang": "text",
+   "takeaways": [
+    "Counter: only increases, query its rate",
+    "Gauge: current value that goes up and down",
+    "Histogram buckets are aggregatable; summary quantiles are not"
+   ],
+   "pitfalls": [
+    "Averaging summary quantiles across instances; the result is not a real percentile."
+   ],
+   "quiz": [
+    {
+     "q": "You need the p99 latency across 20 replicas of a service. Which type should each replica expose?",
+     "options": [
+      "Summary",
+      "Counter of total seconds",
+      "Gauge",
+      "Histogram"
+     ],
+     "answer": 3,
+     "explain": "Histogram buckets can be summed across replicas before computing the quantile."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/concepts/metric_types/",
+   "requires": [
+    "prometheus.data-model"
+   ]
+  },
+  {
+   "id": "prometheus.naming-conventions",
+   "name": "Metric and label naming conventions",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Name metrics with a domain prefix, base units and the right suffix (_total, _seconds, _bytes, _info) so queries stay predictable.",
+   "why": "Consistent names let anyone guess a metric and its unit, and PromQL functions assume the conventions.",
+   "body": "Prometheus does not enforce naming, but the ecosystem relies on a few conventions, and tools such as Grafana, `promtool check metrics` and the client libraries assume them.\n\nA metric name has three parts: a **prefix** for the application or subsystem (`http_`, `node_`, `myapp_`), a description of what is measured, and a **unit suffix**. Use `snake_case`.\n\n- Always use **base units**: `_seconds` (not milliseconds), `_bytes` (not megabytes), `_ratio` for 0 to 1 values (not percent), `_celsius`, `_joules`. Converting is the dashboard's job; mixed units in one query are a classic bug.\n- **Counters** end in `_total`: `http_requests_total`. Histograms and summaries get `_bucket`, `_sum` and `_count` added automatically, so the base name is just `http_request_duration_seconds`.\n- A metric should mean the same thing across all its label values. Don't put bytes sent and bytes received under one name with a `direction` label unless summing them makes sense; do use labels for dimensions you will aggregate over.\n- **Info metrics** carry labels and the constant value 1: `app_build_info{version=\"2.3.1\", go_version=\"1.24\"}`. Join them onto other series when you need the labels.\n- Don't repeat labels in the name: `http_requests_get_total` should be `http_requests_total{method=\"GET\"}`.\n\nLabel names are `snake_case` too; `job`, `instance` and the `__` prefix are reserved. Since Prometheus 3.0 any UTF-8 string is technically allowed in names (useful for OpenTelemetry data), but the conventions above are still what everyone expects.",
+   "code": "# Good\nhttp_requests_total{method=\"GET\",code=\"200\"}      # counter, _total\nhttp_request_duration_seconds_bucket{le=\"0.25\"}   # histogram in seconds\nprocess_resident_memory_bytes                      # gauge in bytes\nqueue_backlog_ratio                                # 0..1, not percent\nmyapp_build_info{version=\"2.3.1\"} 1                # info metric\n\n# Bad\nrequestsGET                       # no prefix, label baked into the name\nhttp_latency_ms                   # not a base unit\ncpu_percent                       # use a ratio and multiply by 100 in Grafana\nerrors                            # counter without _total, no namespace\n\n# promtool can lint an exposition page:\n# curl -s localhost:8000/metrics | promtool check metrics",
+   "code_lang": "text",
+   "takeaways": [
+    "prefix + what + base unit, in snake_case",
+    "Counters end in _total; histograms get _bucket/_sum/_count for free",
+    "Dimensions go in labels, not in the name; info metrics have value 1"
+   ],
+   "pitfalls": [
+    "Exposing latency in milliseconds alongside other metrics in seconds, then mixing them in one query."
+   ],
+   "quiz": [
+    {
+     "q": "Which name best follows the conventions for a counter of bytes written to disk by a backup tool?",
+     "options": [
+      "backup_disk_written_bytes_total",
+      "backupDiskBytes",
+      "disk_bytes_written_by_backup",
+      "backup_disk_write_mb"
+     ],
+     "answer": 0,
+     "explain": "Domain prefix, base unit bytes and the _total suffix mark it as a counter."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/practices/naming/",
+   "requires": [
+    "prometheus.metric-types"
+   ]
+  },
+  {
+   "id": "prometheus.counters-gauges-practice",
+   "name": "Counters vs gauges in practice",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Why a counter's absolute value is meaningless, how resets look, when a gauge is the right choice, and which functions fit each.",
+   "why": "Most wrong dashboards come from treating a counter like a gauge or a gauge like a counter.",
+   "body": "The counter/gauge decision shapes everything you can do later, so it's worth making it deliberately.\n\nA **counter** answers \"how many events happened?\". Its stored value is the total since the process started, so two instances with different uptimes show unrelated numbers, and after a restart it **resets** to zero. Never compare or subtract raw counter values by hand: `rate()` and `increase()` understand resets and extrapolate across the window. Expose a counter even when you think you want \"errors per minute\"; the per-minute view is a query, not a metric.\n\nA **gauge** answers \"what is the value right now?\": memory in use, temperature, items in a queue, number of goroutines. It can go up and down, so `rate()` on it is nonsense. Use `avg_over_time`, `max_over_time`, `delta()` or `deriv()` instead.\n\nA few practical rules:\n\n- If the natural operation is \"add one\", it's a counter. If it's \"set to\", it's a gauge.\n- A gauge of \"events in the last minute\" computed by the app is an anti-pattern: Prometheus can't re-window it. Expose the counter.\n- Timestamps belong in gauges: `last_backup_timestamp_seconds` as Unix time; `time() - last_backup_timestamp_seconds` then gives the age.\n- Counters sampled every 15 seconds miss nothing in total, but short spikes are smoothed by the rate window.\n\nClient libraries forbid decrementing a counter. If you find yourself wanting to, it's a gauge.",
+   "code": "# Counter: raw values are not comparable, rate() is\njobs_processed_total{instance=\"a\"}  182034   # up 3 days\njobs_processed_total{instance=\"b\"}     417   # restarted 2 min ago (reset)\nrate(jobs_processed_total[5m])             # ~3.2 and ~3.4 jobs/s: comparable\n\n# Gauge: ask about the value itself\nqueue_length                               # now\nmax_over_time(queue_length[1h])            # worst in the last hour\ndelta(queue_length[30m])                   # change, may be negative\n\n# Timestamp gauge -> age\ntime() - last_backup_timestamp_seconds > 86400   # backups older than a day",
+   "code_lang": "promql",
+   "takeaways": [
+    "Counter = cumulative events; only its rate/increase is meaningful",
+    "Gauge = current state; use *_over_time, delta, deriv",
+    "Expose raw counters and timestamps, compute windows in PromQL"
+   ],
+   "pitfalls": [
+    "Pre-computing a 'per minute' gauge in the application, which can't be re-aggregated or re-windowed."
+   ],
+   "quiz": [
+    {
+     "q": "Instance A shows jobs_processed_total = 5000 and instance B shows 300. What can you conclude?",
+     "options": [
+      "A processes more jobs per second",
+      "B is probably broken",
+      "Nothing about throughput; B may just have restarted recently",
+      "A is 16 times faster"
+     ],
+     "answer": 2,
+     "explain": "Counter values depend on uptime and resets; only their rates are comparable."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/practices/instrumentation/#counter-vs-gauge-summary-vs-histogram",
+   "requires": [
+    "prometheus.metric-types"
+   ]
+  },
+  {
+   "id": "prometheus.install-scrape",
+   "name": "Running Prometheus and scraping targets",
+   "module": "collect",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Start Prometheus, write prometheus.yml with scrape_configs, and check target health with the up metric.",
+   "why": "Everything else depends on targets being scraped correctly, and the configuration file is where that happens.",
+   "body": "Prometheus is a single Go binary (or the `prom/prometheus` Docker image) configured by `prometheus.yml`. Its main sections:\n\n- `global`: defaults such as `scrape_interval` (the built-in default is 1m; 15s to 30s is common) and `evaluation_interval` for rules.\n- `scrape_configs`: a list of **jobs**. Each has a `job_name`, how to find targets (`static_configs`, or service discovery covered later) and options like `metrics_path` (default `/metrics`), `scheme` and `scrape_timeout`.\n- `rule_files` and `alerting`: covered later.\n\nStart it with `prometheus --config.file=prometheus.yml` and open `http://localhost:9090`. **Status, Target health** shows every target with its last scrape and error. For each target Prometheus records synthetic series:\n\n- `up`: 1 if the last scrape succeeded, 0 if it failed. The simplest and most important alert is on `up == 0`.\n- `scrape_duration_seconds` and `scrape_samples_scraped`.\n\nValidate configuration before applying it with `promtool check config prometheus.yml`. Prometheus reloads its configuration on `SIGHUP` or, if started with `--web.enable-lifecycle`, on `POST /-/reload`.\n\nStorage is in `./data` by default; set `--storage.tsdb.path` and `--storage.tsdb.retention.time` (default 15 days) for real deployments.",
+   "code": "# prometheus.yml\nglobal:\n  scrape_interval: 15s\n  evaluation_interval: 15s\n\nscrape_configs:\n  - job_name: prometheus             # Prometheus scrapes itself\n    static_configs:\n      - targets: [\"localhost:9090\"]\n  - job_name: api\n    metrics_path: /metrics\n    static_configs:\n      - targets: [\"10.0.0.5:8000\", \"10.0.0.6:8000\"]\n        labels:\n          env: prod                  # extra label on every series\n# $ promtool check config prometheus.yml   -> SUCCESS\n# $ prometheus --config.file=prometheus.yml --storage.tsdb.retention.time=30d\n# Query in the UI:  up{job=\"api\"}   -> 1 per healthy target, 0 if down",
+   "code_lang": "yaml",
+   "takeaways": [
+    "scrape_configs lists jobs and their targets",
+    "up is 1 for a successful scrape and 0 for a failed one",
+    "Check config with promtool; reload with SIGHUP or /-/reload"
+   ],
+   "pitfalls": [
+    "Forgetting that the default scrape_interval is 1m, then wondering why graphs look coarse."
+   ],
+   "quiz": [
+    {
+     "q": "A target's process is down and the scrape fails. What does Prometheus record?",
+     "options": [
+      "Nothing at all",
+      "up{...} = 0 for that target",
+      "All its metrics become 0",
+      "An error label on every series"
+     ],
+     "answer": 1,
+     "explain": "Each scrape writes up; failures set it to 0 so you can alert on missing targets."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/getting_started/",
+   "requires": [
+    "prometheus.data-model"
+   ]
+  },
+  {
+   "id": "prometheus.promql-basics",
+   "name": "PromQL basics: selectors and vectors",
+   "module": "promql",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Select series with label matchers, tell instant vectors from range vectors, and use offset and comparisons.",
+   "why": "PromQL is how you get anything out of Prometheus: graphs, dashboards and alerts are all PromQL expressions.",
+   "body": "A PromQL expression evaluates to one of four types; the two you use constantly are:\n\n- **Instant vector**: one sample per series at a single point in time. `node_memory_MemAvailable_bytes` returns the latest value for every matching series.\n- **Range vector**: a window of samples per series, written with a duration in brackets: `http_requests_total[5m]`. Range vectors can't be graphed directly; they are passed to functions like `rate()`.\n\n**Label matchers** filter series inside braces:\n\n- `=` equal, `!=` not equal,\n- `=~` regex match, `!~` regex non-match. Regexes are **fully anchored**: `status=~\"5..\"` matches 500 to 599, and `\"5\"` alone would only match exactly 5.\n\nExamples: `http_requests_total{job=\"api\", method!=\"GET\"}` or `{__name__=~\"node_cpu.*\"}`.\n\nOther basics:\n\n- `offset 1h` looks back in time: `http_requests_total offset 1d`.\n- Arithmetic and comparison operators work on vectors and scalars: `node_filesystem_avail_bytes / node_filesystem_size_bytes < 0.1` keeps only filesystems with less than 10 percent free. Comparison operators **filter** series rather than returning true or false (add `bool` to get 0 or 1).\n- Durations use units such as `30s`, `5m`, `1h`, `1d`.",
+   "code": "# All series of the metric, latest value each (instant vector)\nup\n# Filter by labels; regex is fully anchored\nhttp_requests_total{job=\"api\", status=~\"5..\", method!=\"OPTIONS\"}\n# Range vector: the last 5 minutes of samples per series (input for functions)\nhttp_requests_total{job=\"api\"}[5m]\n# Compare with the same time yesterday\nnode_load1 - node_load1 offset 1d\n# Filesystems with less than 10% space left (filters series)\nnode_filesystem_avail_bytes{fstype!=\"tmpfs\"} / node_filesystem_size_bytes{fstype!=\"tmpfs\"} < 0.10\n# Targets that are down\nup == 0",
+   "code_lang": "promql",
+   "takeaways": [
+    "Instant vector: latest sample per series; range vector: [5m] window per series",
+    "Matchers =, !=, =~, !~; regexes are fully anchored",
+    "Comparisons filter series unless you add bool"
+   ],
+   "pitfalls": [
+    "Writing status=~\"5\" and expecting all 5xx codes; use \"5..\"."
+   ],
+   "quiz": [
+    {
+     "q": "What does http_requests_total[5m] return?",
+     "options": [
+      "The total over 5 minutes as one number",
+      "All samples from the last 5 minutes for each matching series",
+      "The value 5 minutes ago",
+      "The rate per second"
+     ],
+     "answer": 1,
+     "explain": "A range selector returns a range vector: the raw samples in the window for each series."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/querying/basics/",
+   "requires": [
+    "prometheus.install-scrape",
+    "prometheus.metric-types"
+   ]
+  },
+  {
+   "id": "prometheus.label-matchers",
+   "name": "Label matchers and selectors in depth",
+   "module": "promql",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Combine matchers, match on __name__, test for missing labels, use anchored regexes safely and the 3.x quoted-name syntax.",
+   "why": "Precise selectors are the difference between a query that returns the right series and one that silently returns too many or none.",
+   "body": "A **selector** is a metric name plus any number of matchers in braces. All matchers must hold (they are ANDed), and you can repeat a label with different matchers: `{status=~\"5..\", status!=\"503\"}`.\n\nThe metric name is just the special label `__name__`, so `http_requests_total{job=\"api\"}` equals `{__name__=\"http_requests_total\", job=\"api\"}`. Matching on `__name__` with a regex selects several metrics at once: `{__name__=~\"node_(cpu|memory).*\"}`. A selector must have at least one matcher that doesn't match the empty string, so `{job=~\".*\"}` alone is rejected.\n\n**Missing labels** are treated as the empty string. `up{env=\"\"}` finds targets without an `env` label and `{env!=\"\"}` those with one. The regex `.+` requires a non-empty value, while `.*` also matches absent labels.\n\nRegexes use RE2 syntax and are **fully anchored**, as if wrapped in `^(?:...)$`. `path=~\"/api\"` matches only exactly `/api`; use `/api.*` for a prefix. Alternation `=~\"GET|POST\"` is the usual way to pick a few values. Regex matchers are slower than equality on big series sets; prefer `=` where you can.\n\nSince **Prometheus 3.0** metric and label names may contain any UTF-8 characters, such as dots from OpenTelemetry. Such names are written **quoted**: `{\"http.server.request.count\", \"service.name\"=\"api\"}`. Classic names need no quotes.",
+   "code": "# Several matchers on one label\nhttp_requests_total{status=~\"5..\", status!=\"503\"}\n\n# Several metrics at once via __name__\n{__name__=~\"node_(cpu|memory).*\", instance=\"web1:9100\"}\n\n# Series that lack a label / have the label\nup{env=\"\"}\nup{env=~\".+\"}\n\n# Anchored regex: prefix needs .*\nhttp_requests_total{path=~\"/api/v1/.*\", method=~\"GET|HEAD\"}\n\n# Prometheus 3.x quoted UTF-8 names (OpenTelemetry style)\n{\"http.server.request.count\", \"service.name\"=\"checkout\"}",
+   "code_lang": "promql",
+   "takeaways": [
+    "Matchers are ANDed; a label may appear more than once",
+    "__name__ is a label: regex-select many metrics",
+    "Missing label == empty string; .+ demands a value",
+    "3.x: quote names containing dots or other UTF-8"
+   ],
+   "pitfalls": [
+    "Writing path=~\"/api\" and matching nothing, because regexes are anchored."
+   ],
+   "quiz": [
+    {
+     "q": "Which selector returns only series of up that carry a non-empty team label?",
+     "options": [
+      "up{team}",
+      "up{team=~\".*\"}",
+      "up{team!=\"\"}",
+      "up{team=\"*\"}"
+     ],
+     "answer": 2,
+     "explain": "A missing label behaves as the empty string, so != \"\" keeps only series with a value."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/querying/basics/#time-series-selectors",
+   "requires": [
+    "prometheus.promql-basics"
+   ]
+  },
+  {
+   "id": "prometheus.expression-browser-api",
+   "name": "The expression browser and HTTP API",
+   "module": "promql",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Explore queries in the built-in UI, then call the same engine over HTTP with /api/v1/query and query_range.",
+   "why": "The UI is where you develop every query, and the API is how Grafana, scripts and tests run them.",
+   "body": "The Prometheus server ships a web UI on port 9090 (rewritten in React for 3.0). The **Query** page is the **expression browser**: type PromQL, press Enter, and switch between **Table** (an instant query at one moment) and **Graph** (a range query over a window). The metrics explorer button lists every metric name with its help text, and the Explain tab breaks a query into its steps. The **Status** menu shows targets, service discovery, rules, configuration, flags and TSDB statistics.\n\nEverything the UI does goes through the **HTTP API** under `/api/v1/`. Two endpoints matter most:\n\n- `GET /api/v1/query?query=<expr>&time=<rfc3339 or unix>`: an **instant query**, result type `vector`, `scalar` or `string`. Omit `time` for now.\n- `GET /api/v1/query_range?query=<expr>&start=..&end=..&step=15s`: evaluates the expression at every step and returns a `matrix` with `values: [[ts, \"value\"], ...]` per series. Values are strings to preserve precision.\n\nBoth accept `POST` with form parameters, which avoids URL-length limits for long queries. Responses are JSON with `status: \"success\"` or `\"error\"` plus `errorType` and `error`.\n\nOther useful endpoints: `/api/v1/series?match[]=up` (which series exist), `/api/v1/labels` and `/api/v1/label/job/values` (for building dropdowns), `/api/v1/targets`, `/api/v1/rules`, `/api/v1/alerts` and `/api/v1/status/tsdb`. Liveness and readiness are `/-/healthy` and `/-/ready`.\n\nThe API is read-only unless you enable the admin API, and it has no authentication of its own.",
+   "code": "# Instant query (now)\ncurl -s 'http://localhost:9090/api/v1/query' --data-urlencode 'query=sum(up) by (job)'\n# {\"status\":\"success\",\"data\":{\"resultType\":\"vector\",\n#   \"result\":[{\"metric\":{\"job\":\"api\"},\"value\":[1760700000.123,\"2\"]}]}}\n\n# Range query: last hour, one point per minute\ncurl -s 'http://localhost:9090/api/v1/query_range' \\\n  --data-urlencode 'query=rate(http_requests_total{job=\"api\"}[5m])' \\\n  --data-urlencode \"start=$(date -u -d '-1 hour' +%s)\" \\\n  --data-urlencode \"end=$(date -u +%s)\" --data-urlencode 'step=60s' | jq '.data.result[0].values[:2]'\n# [[1760696400,\"12.4\"],[1760696460,\"12.9\"]]\n\n# Which label values exist?\ncurl -s 'http://localhost:9090/api/v1/label/job/values'\n# {\"status\":\"success\",\"data\":[\"api\",\"node\",\"prometheus\"]}",
+   "code_lang": "bash",
+   "takeaways": [
+    "Table = instant query, Graph = range query in the UI",
+    "/api/v1/query returns a vector; /query_range returns a matrix with step",
+    "POST form data for long queries; values come back as strings"
+   ],
+   "pitfalls": [
+    "Using a step much smaller than the scrape interval in query_range, which only repeats the same samples."
+   ],
+   "quiz": [
+    {
+     "q": "A dashboard needs one value per minute over the last 6 hours. Which call fits?",
+     "options": [
+      "/api/v1/series with match[]",
+      "/api/v1/query with query=...[6h]",
+      "/api/v1/query with time=now",
+      "/api/v1/query_range with start, end and step=60s"
+     ],
+     "answer": 3,
+     "explain": "query_range evaluates the expression at each step between start and end and returns a matrix."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/querying/api/",
+   "requires": [
+    "prometheus.promql-basics"
+   ]
+  },
+  {
+   "id": "prometheus.rate-increase",
+   "name": "rate, irate and increase for counters",
+   "module": "promql",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Turn ever-growing counters into per-second rates and increases, handle counter resets, and pick a sensible range.",
+   "why": "Nearly every useful graph and alert on counters, from request rates to error ratios, starts with rate().",
+   "body": "A counter's raw value says little; what matters is how fast it grows.\n\n- `rate(c[5m])`: the **per-second average rate** over the last 5 minutes. It automatically handles **counter resets** (a process restart drops the value to 0) and extrapolates to the window edges. Use it for graphs and alerts.\n- `irate(c[5m])`: the per-second rate between the **last two samples** in the window. More responsive, but spiky; useful only for fast-moving, zoomed-in graphs.\n- `increase(c[1h])`: the total increase over the window, equal to `rate(c[1h]) * 3600`. Because of extrapolation the result can be a non-integer even for integer counters.\n\nChoosing the range: it must contain at least two samples, and should be **at least four times the scrape interval** to tolerate a missed scrape. With 15s scrapes, `[1m]` is the minimum and `[5m]` is common. In Grafana, `$__rate_interval` picks a safe value automatically.\n\nThe golden rule: **rate first, then aggregate**. `sum(rate(x[5m]))` is correct; `rate(sum(x)[5m:])` is wrong because summing counters from instances that restart at different times hides resets.\n\nAn error ratio is just two rates divided: errors per second divided by requests per second. Never use `rate()` on a gauge; use `deriv()` or `delta()` for gauges instead.",
+   "code": "# Requests per second per series, averaged over 5 minutes\nrate(http_requests_total{job=\"api\"}[5m])\n\n# Total requests per second for the whole job (rate first, then sum)\nsum(rate(http_requests_total{job=\"api\"}[5m]))\n\n# Errors in the last hour (may be fractional because of extrapolation)\nincrease(http_requests_total{job=\"api\", status=~\"5..\"}[1h])\n\n# Error ratio: 5xx per second / all requests per second\nsum(rate(http_requests_total{status=~\"5..\"}[5m]))\n  /\nsum(rate(http_requests_total[5m]))\n# e.g. 0.0042  (0.42 % of requests fail)",
+   "code_lang": "promql",
+   "takeaways": [
+    "rate() = per-second average increase, reset-safe",
+    "Use a range of at least 4x the scrape interval",
+    "Always rate first, then sum"
+   ],
+   "pitfalls": [
+    "Applying rate() to a gauge such as memory usage; it's meant for counters only."
+   ],
+   "quiz": [
+    {
+     "q": "Why is sum(rate(x[5m])) preferred over rate of a summed counter?",
+     "options": [
+      "It is faster",
+      "They are always identical",
+      "sum() doesn't work on counters",
+      "rate() must see each series' own resets; summing first hides them"
+     ],
+     "answer": 3,
+     "explain": "Resets are detected per series; once summed, a restart looks like a drop that rate can't interpret correctly."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/querying/functions/#rate",
+   "requires": [
+    "prometheus.promql-basics",
+    "prometheus.counters-gauges-practice"
+   ]
+  },
+  {
+   "id": "prometheus.aggregation",
+   "name": "Aggregation and vector matching",
+   "module": "promql",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Aggregate with sum, avg, max, count and topk by labels, and combine vectors with on, ignoring and group_left.",
+   "why": "Dashboards show totals per service or instance, and joining metrics needs explicit label matching.",
+   "body": "**Aggregation operators** reduce many series to fewer: `sum`, `avg`, `min`, `max`, `count`, `stddev`, `topk`, `bottomk`, `quantile`, `count_values`, `group`.\n\n- `sum by (job, status) (...)` keeps only the listed labels.\n- `sum without (instance) (...)` drops the listed labels and keeps the rest; handy when you don't know every label.\n- `topk(5, ...)` returns the 5 largest series, with their labels intact.\n\n**Binary operators** between two vectors match series with **identical label sets** by default. When the label sets differ, say how to match:\n\n- `on(label, ...)`: match only on these labels.\n- `ignoring(label, ...)`: match on all labels except these.\n- `group_left` / `group_right`: allow many-to-one matching, and copy extra labels from the \"one\" side. The classic case is joining an info metric: `* on(instance) group_left(version) app_build_info` adds the `version` label to every series.\n\nWithout these, mismatched labels produce an **empty result**, with no error. If a many-to-many match occurs, the query fails with an error.\n\nAggregation removes the metric name. Also note that `avg` of per-instance ratios is not the same as the ratio of sums: compute ratios from summed rates, not averages of ratios.",
+   "code": "# Requests per second by status code, all instances summed\nsum by (status) (rate(http_requests_total{job=\"api\"}[5m]))\n\n# Same, but keep every label except instance and pod\nsum without (instance, pod) (rate(http_requests_total[5m]))\n\n# The 3 busiest endpoints\ntopk(3, sum by (path) (rate(http_requests_total[5m])))\n\n# CPU usage percentage per instance\n100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])))\n\n# Attach the version label from an info metric (value 1) to each instance's rate\nsum by (instance) (rate(http_requests_total[5m]))\n  * on(instance) group_left(version) app_build_info",
+   "code_lang": "promql",
+   "takeaways": [
+    "by (...) keeps labels; without (...) drops them",
+    "Binary ops match identical label sets unless on/ignoring says otherwise",
+    "group_left joins many-to-one and copies labels from info metrics"
+   ],
+   "pitfalls": [
+    "Dividing two vectors with different labels and getting an empty result instead of an error."
+   ],
+   "quiz": [
+    {
+     "q": "Which expression returns per-instance request rates, dropping all other labels?",
+     "options": [
+      "sum by (instance) (rate(x[5m]))",
+      "sum without (instance) (rate(x[5m]))",
+      "rate(sum(x)[5m])",
+      "topk(instance, rate(x[5m]))"
+     ],
+     "answer": 0,
+     "explain": "by (instance) keeps only the instance label in the result."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/querying/operators/",
+   "requires": [
+    "prometheus.rate-increase"
+   ]
+  },
+  {
+   "id": "prometheus.offset-at-modifiers",
+   "name": "offset and @ modifiers",
+   "module": "promql",
+   "level": 2,
+   "minutes": 9,
+   "summary": "Shift a selector back in time with offset, pin it to a fixed moment with @, and combine both for week-over-week comparisons.",
+   "why": "Comparing with yesterday or last week and freezing a value at a point in time are everyday dashboard needs.",
+   "body": "Both modifiers attach to a selector (instant or range) or to a subquery, never to the whole expression.\n\n**offset** shifts the evaluation time backwards by a duration: `http_requests_total offset 1w` gives the value as it was one week before the query time. With a range vector it moves the whole window: `rate(http_requests_total[5m] offset 1d)` is the rate at the same time yesterday. Negative offsets (`offset -1h`) look into the future relative to the evaluation time and are mainly useful inside range queries.\n\nThe **@ modifier** fixes the evaluation time to an absolute Unix timestamp: `up @ 1760700000`. In a range query every step would normally evaluate at a different time; with `@` the selector returns the same value at every step, which is how you draw a constant \"value at deploy time\" line. Two special forms, `@ start()` and `@ end()`, refer to the start and end of the range query, so `topk(5, rate(x[5m]) @ end())` ranks series by their latest value across the whole graph instead of re-ranking at every step and making lines appear and disappear.\n\nThe order is always `selector [range] offset <d> @ <ts>` or `@` first, both are accepted.\n\nTypical uses:\n\n- Week-over-week: `rate(x[5m]) / rate(x[5m] offset 1w)`.\n- Stable top-N in dashboards with `@ end()`.\n- Reproducing an incident: pin a query to the time of the page.\n\nRemember that both modifiers only change *when* data is read; they don't fill gaps, so a comparison with a week when the service didn't exist yields nothing.",
+   "code": "# Value one day ago\nnode_memory_MemAvailable_bytes offset 1d\n\n# Traffic now versus the same 5-minute window last week (ratio)\nsum(rate(http_requests_total[5m]))\n  / sum(rate(http_requests_total[5m] offset 1w))\n\n# Constant line in a graph: requests/s at a fixed moment\nsum(rate(http_requests_total[5m]) @ 1760700000)\n\n# Stable top 5 across a dashboard panel\ntopk(5, sum by (route) (rate(http_requests_total[5m]) @ end()))\n\n# Both together: the window ending one hour before the end of the graph\nrate(http_requests_total[5m] offset 1h @ end())",
+   "code_lang": "promql",
+   "takeaways": [
+    "offset <duration> shifts a selector into the past",
+    "@ <timestamp> pins it to one moment; start()/end() refer to the range query",
+    "Use @ end() for a stable topk in graphs"
+   ],
+   "pitfalls": [
+    "Writing rate(x[5m]) offset 1d instead of rate(x[5m] offset 1d); the modifier belongs to the selector."
+   ],
+   "quiz": [
+    {
+     "q": "Why does topk(3, rate(x[5m])) make lines flicker in a Grafana graph, and what fixes it?",
+     "options": [
+      "The top 3 is recomputed at every step; add @ end() to rank by the final value",
+      "rate needs a longer window; use [1h]",
+      "Grafana limits series to 3; raise the limit",
+      "topk is nondeterministic; use sort()"
+     ],
+     "answer": 0,
+     "explain": "@ end() evaluates the ranking once at the end of the range so the same series are kept throughout."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/querying/basics/#offset-modifier",
+   "requires": [
+    "prometheus.promql-basics",
+    "prometheus.rate-increase"
+   ]
+  },
+  {
+   "id": "prometheus.common-functions",
+   "name": "Everyday functions: absent, changes, predict",
+   "module": "promql",
+   "level": 2,
+   "minutes": 14,
+   "summary": "The functions you reach for daily beyond rate: absent, changes and resets, delta, deriv and predict_linear, label_replace, clamp and the *_over_time family.",
+   "why": "A small set of functions covers most dashboard and alerting needs; knowing which exist saves reinventing them.",
+   "body": "Beyond `rate()` and aggregation, a few dozen functions do most of the work. The important ones, grouped:\n\n**Gauges over time**: `avg_over_time`, `max_over_time`, `min_over_time`, `last_over_time`, `quantile_over_time(0.9, g[1h])` take a range vector of a gauge and reduce each series' window to one number. `delta(g[1h])` is the difference between first and last sample, `deriv(g[1h])` a least-squares per-second slope, and `predict_linear(g[1h], 4*3600)` extrapolates that slope 4 hours ahead. The classic disk alert is `predict_linear(node_filesystem_avail_bytes[6h], 24*3600) < 0`.\n\n**Counters**: `resets(c[1h])` counts restarts, `changes(g[1h])` counts value changes (handy on version gauges or `process_start_time_seconds`).\n\n**Missing data**: an expression over no series returns nothing, so alerts can't fire. `absent(up{job=\"api\"})` returns a 1 when the selector is empty, and `absent_over_time(x[1h])` when there were no samples at all in the window.\n\n**Labels**: `label_replace(v, \"dst\", \"$1\", \"src\", \"(.*)-.*\")` writes a regex capture into a new or existing label; `label_join` concatenates several labels. Both work on the result, not on storage.\n\n**Values**: `clamp_min`, `clamp_max` and `clamp(v, lo, hi)` bound values (for example a negative delta after a reset); `round`, `abs`, `ceil`, `floor`; `time()` gives the evaluation timestamp and `timestamp(v)` each sample's own.\n\n**Selection**: `sort`, `sort_desc` order instant vectors for tables; `topk`/`bottomk` are aggregation operators.\n\nFunctions that take a range vector (`[5m]`) need a counter or gauge window; functions that take an instant vector work on the current values. Mixing them up is the most common syntax error.",
+   "code": "# Disk full within 24h at the current trend\npredict_linear(node_filesystem_avail_bytes{mountpoint=\"/\"}[6h], 24*3600) < 0\n\n# Pods that restarted more than twice in the last hour\nresets(process_cpu_seconds_total[1h]) > 2\n\n# Job has vanished entirely (returns {job=\"api\"} 1 when nothing matches)\nabsent(up{job=\"api\"})\n\n# Derive a 'service' label from the pod name: checkout-7d9f-abc -> checkout\nlabel_replace(rate(http_requests_total[5m]), \"service\", \"$1\", \"pod\", \"([a-z]+)-.*\")\n\n# Peak queue length per hour, clamped to a sane maximum for the panel\nclamp_max(max_over_time(queue_length[1h]), 1000)\n\n# Seconds since the process started\ntime() - process_start_time_seconds",
+   "code_lang": "promql",
+   "takeaways": [
+    "*_over_time, delta, deriv, predict_linear for gauges",
+    "absent()/absent_over_time() make 'no data' alertable",
+    "label_replace rewrites labels at query time; clamp_* bounds values"
+   ],
+   "pitfalls": [
+    "Passing an instant vector to a function that needs a range (e.g. max_over_time(x)), or the reverse."
+   ],
+   "quiz": [
+    {
+     "q": "An alert expression over http_errors_total{job=\"api\"} never fires even though the service is gone. Why?",
+     "options": [
+      "Alertmanager dropped it",
+      "The for clause is too long",
+      "An empty selector returns no series, so there is nothing to alert on; use absent()",
+      "Counters can't be alerted on"
+     ],
+     "answer": 2,
+     "explain": "Rules fire per returned series; absent() turns 'nothing matched' into a series with value 1."
+    },
+    {
+     "q": "Which function estimates free disk space 24 hours from now?",
+     "options": [
+      "delta(x[24h])",
+      "rate(x[24h]) * 24",
+      "predict_linear(x[6h], 86400)",
+      "deriv(x[24h])"
+     ],
+     "answer": 2,
+     "explain": "predict_linear fits a line over the window and projects it the given number of seconds ahead."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/querying/functions/",
+   "requires": [
+    "prometheus.aggregation"
+   ]
+  },
+  {
+   "id": "prometheus.scrape-config",
+   "name": "Scrape configuration and staleness",
+   "module": "collect",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Tune scrape_interval and scrape_timeout, understand honor_labels and honor_timestamps, limits, scrape protocols and how stale series disappear.",
+   "why": "Scrape settings decide data resolution, label conflicts and what happens when a target or series vanishes.",
+   "body": "Each `scrape_configs` job accepts options that override `global` defaults.\n\n- `scrape_interval` (default 1m, 15s to 30s is common) and `scrape_timeout` (default 10s, must not exceed the interval). Use one interval everywhere if you can: mixed intervals make `rate()` windows hard to choose.\n- `metrics_path`, `scheme`, `params` for query strings, plus `basic_auth`, `authorization` and `tls_config`.\n- `honor_labels: true`: if a scraped sample already carries `job` or `instance` (Pushgateway, federation), keep the target's values instead of renaming them to `exported_job`/`exported_instance`.\n- `honor_timestamps` (default true): accept timestamps the target supplies; set false for misbehaving exporters.\n- Limits: `sample_limit`, `label_limit`, `label_value_length_limit`, `body_size_limit`. If exceeded the whole scrape fails and `up` is 0, protecting the server from a cardinality bomb.\n- `scrape_protocols` negotiates the format (OpenMetrics text, Prometheus text, protobuf). Since 3.0 a target that answers **without a `Content-Type` header** is rejected unless you set `fallback_scrape_protocol: PrometheusText0.0.4`.\n\n**Staleness**: when a series present in one scrape is missing from the next, or a target disappears from discovery, Prometheus writes a **stale marker** and the series stops appearing in instant queries immediately. Without a marker (for example when the scrape simply fails) a query still returns the last sample for up to the **lookback delta** of 5 minutes (`--query.lookback-delta`), after which the series is considered gone. This is why `up == 0` is a better down-detector than \"metric is missing\".\n\nEvery scrape also records `scrape_duration_seconds`, `scrape_samples_scraped`, `scrape_samples_post_metric_relabeling` and `scrape_series_added`, useful for spotting slow or exploding targets.",
+   "code": "global:\n  scrape_interval: 15s\n  scrape_timeout: 10s\n\nscrape_configs:\n  - job_name: pushgateway\n    honor_labels: true             # keep job/instance pushed by batch jobs\n    static_configs: [{targets: [\"pushgateway:9091\"]}]\n\n  - job_name: legacy-exporter\n    scrape_interval: 60s           # slow exporter, scrape less often\n    scrape_timeout: 30s\n    fallback_scrape_protocol: PrometheusText0.0.4   # it sends no Content-Type\n    sample_limit: 20000            # fail the scrape rather than ingest a bomb\n    metric_relabel_configs:\n      - source_labels: [__name__]\n        regex: \"legacy_debug_.*\"\n        action: drop\n# Slow targets:  scrape_duration_seconds > 5\n# Targets that nearly hit the limit:  scrape_samples_scraped > 18000",
+   "code_lang": "yaml",
+   "takeaways": [
+    "scrape_timeout <= scrape_interval; keep intervals uniform",
+    "honor_labels keeps pushed job/instance; limits fail dangerous scrapes",
+    "Stale markers drop series at once; otherwise the 5m lookback applies",
+    "3.x rejects responses without Content-Type unless a fallback protocol is set"
+   ],
+   "pitfalls": [
+    "Alerting on a metric 'being absent' and getting a 5-minute delay, where up == 0 would fire on the next scrape."
+   ],
+   "quiz": [
+    {
+     "q": "A target was scraped fine, then its process hangs and scrapes time out. What does an instant query of its metrics show right after?",
+     "options": [
+      "Zero for every metric",
+      "The values keep updating from cache",
+      "Nothing, immediately",
+      "The last values for up to 5 minutes, while up is 0"
+     ],
+     "answer": 3,
+     "explain": "A failed scrape writes no stale markers, so the lookback delta keeps returning the last sample; up drops to 0 at once."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/configuration/configuration/#scrape_config",
+   "requires": [
+    "prometheus.install-scrape"
+   ]
+  },
+  {
+   "id": "prometheus.exporters",
+   "name": "Exporters: node, blackbox and friends",
+   "module": "collect",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Monitor hosts, endpoints and third-party software with exporters such as node_exporter and blackbox_exporter.",
+   "why": "Most of what you monitor (servers, databases, proxies, external URLs) can't be instrumented directly.",
+   "body": "An **exporter** is a small process that collects data from something else and exposes it in Prometheus format.\n\n- **node_exporter** (port 9100) exposes Linux host metrics: CPU (`node_cpu_seconds_total`), memory, filesystems, disks, network. Run it on every host, not in a container that can't see the host (or mount `/proc`, `/sys` and the root filesystem).\n- **blackbox_exporter** (port 9115) probes endpoints from the outside over HTTP, TCP, ICMP or DNS. Prometheus scrapes `/probe?target=https://example.com&module=http_2xx`, and the result includes `probe_success`, `probe_duration_seconds` and certificate expiry (`probe_ssl_earliest_cert_expiry`).\n- Many others exist: `postgres_exporter`, `mysqld_exporter`, `redis_exporter`, the NGINX exporter, cloud provider exporters. Many modern tools such as Kubernetes components, etcd, Traefik and RabbitMQ expose Prometheus metrics natively.\n\nBlackbox scrapes need a small relabeling trick: the URL to probe is passed as the `target` parameter while the actual scrape address is the exporter itself. The configuration below shows the standard pattern.\n\nPrefer exporters from the official list on prometheus.io, check how many series they produce, and disable collectors you don't need.",
+   "code": "scrape_configs:\n  - job_name: node\n    static_configs:\n      - targets: [\"web1:9100\", \"web2:9100\"]\n  - job_name: blackbox-http\n    metrics_path: /probe\n    params:\n      module: [http_2xx]\n    static_configs:\n      - targets: [\"https://example.com\", \"https://api.example.com/health\"]\n    relabel_configs:\n      - source_labels: [__address__]\n        target_label: __param_target      # URL becomes ?target=...\n      - source_labels: [__param_target]\n        target_label: instance            # keep the URL as instance label\n      - target_label: __address__\n        replacement: blackbox:9115        # actually scrape the exporter\n# Query: probe_success == 0   (endpoints currently failing)",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Exporters translate other systems' data into Prometheus metrics",
+    "node_exporter for hosts, blackbox_exporter for probing endpoints",
+    "Blackbox jobs relabel the target URL into a parameter"
+   ],
+   "pitfalls": [
+    "Running node_exporter in a container without host mounts and monitoring the container instead of the host."
+   ],
+   "quiz": [
+    {
+     "q": "What does blackbox_exporter measure?",
+     "options": [
+      "Internal metrics of your app",
+      "Host CPU and memory",
+      "Whether endpoints respond correctly when probed from outside",
+      "Prometheus's own TSDB"
+     ],
+     "answer": 2,
+     "explain": "It performs external probes and reports probe_success, latency and TLS details."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/instrumenting/exporters/",
+   "requires": [
+    "prometheus.install-scrape"
+   ]
+  },
+  {
+   "id": "prometheus.node-cadvisor",
+   "name": "Host and container metrics: node, cAdvisor",
+   "module": "collect",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Get CPU, memory, disk and network for hosts from node_exporter and for containers from cAdvisor, and write the standard queries for each.",
+   "why": "Infrastructure dashboards and capacity alerts almost always start from these two exporters.",
+   "body": "**node_exporter** runs on every Linux host (port 9100) and reads `/proc` and `/sys`. Collectors are enabled with `--collector.<name>` flags; the defaults cover CPU, memory, filesystems, disk I/O, network and load. In Docker it needs `--pid=host` and the host's `/`, `/proc` and `/sys` mounted read-only, with `--path.rootfs=/host`. Key metrics and their idiomatic queries:\n\n- CPU: `node_cpu_seconds_total{mode}` is a counter per core and mode. Utilisation is `1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))`.\n- Memory: `node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes` (not `MemFree`, which ignores cache).\n- Disk: `node_filesystem_avail_bytes` and `node_filesystem_size_bytes` (filter `fstype!~\"tmpfs|overlay\"`), `rate(node_disk_read_bytes_total[5m])`.\n- Network: `rate(node_network_receive_bytes_total{device!=\"lo\"}[5m])`.\n\nThe **textfile collector** reads `*.prom` files from a directory, letting cron jobs or scripts on the host expose their own metrics without a Pushgateway.\n\n**cAdvisor** reports per-container resource usage from cgroups. On Kubernetes it is built into the kubelet (`/metrics/cadvisor`); elsewhere run the `gcr.io/cadvisor/cadvisor` image. Its metrics carry `container`, `pod`, `namespace` or `name` labels:\n\n- `rate(container_cpu_usage_seconds_total[5m])` in cores; compare with the CPU limit.\n- `container_memory_working_set_bytes` is what the OOM killer looks at, not `container_memory_usage_bytes`.\n- `container_network_receive_bytes_total`, `container_fs_writes_bytes_total`.\n\nFilter out the cgroup parents and pause containers (`container!=\"\"`, `container!=\"POD\"`) or totals double-count.",
+   "code": "# docker-compose.yml: host metrics from inside a container\nservices:\n  node-exporter:\n    image: prom/node-exporter:v1.9.1\n    pid: host\n    volumes: [\"/:/host:ro,rslave\"]\n    command: [\"--path.rootfs=/host\", \"--collector.textfile.directory=/host/var/lib/node_exporter\"]\n    ports: [\"9100:9100\"]\n  cadvisor:\n    image: gcr.io/cadvisor/cadvisor:v0.52.1\n    volumes: [\"/:/rootfs:ro\", \"/var/run:/var/run:ro\", \"/sys:/sys:ro\", \"/var/lib/docker:/var/lib/docker:ro\"]\n    ports: [\"8080:8080\"]\n\n# PromQL\n# host CPU busy %      100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])))\n# host memory used %   100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)\n# container CPU cores  sum by (name) (rate(container_cpu_usage_seconds_total{name!=\"\"}[5m]))\n# container RSS        container_memory_working_set_bytes{name!=\"\"}",
+   "code_lang": "yaml",
+   "takeaways": [
+    "node_exporter: idle-CPU rate, MemAvailable, filesystem avail/size",
+    "cAdvisor: container_cpu_usage_seconds_total and memory_working_set_bytes",
+    "Mount the host into node_exporter; filter empty container labels in cAdvisor"
+   ],
+   "pitfalls": [
+    "Alerting on container_memory_usage_bytes, which includes reclaimable page cache and overstates pressure."
+   ],
+   "quiz": [
+    {
+     "q": "Which expression gives the percentage of CPU in use on each host?",
+     "options": [
+      "rate(node_cpu_seconds_total[5m]) * 100",
+      "100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])))",
+      "node_cpu_seconds_total{mode=\"user\"} * 100",
+      "100 - node_cpu_seconds_total{mode=\"idle\"}"
+     ],
+     "answer": 1,
+     "explain": "The idle counter's rate per core is the idle fraction; average over cores and subtract from 1."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/guides/node-exporter/",
+   "requires": [
+    "prometheus.exporters"
+   ]
+  },
+  {
+   "id": "prometheus.instrumenting",
+   "name": "Instrumenting a Python app",
+   "module": "instrument",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Add counters, gauges and histograms to an application with a client library and expose a /metrics endpoint.",
+   "why": "The most valuable metrics are the ones only your application knows: business events, queue depth, request latency.",
+   "body": "Official client libraries exist for Go, Java, Python, Ruby and Rust, and community ones for most other languages. The pattern is the same everywhere:\n\n- Create metrics **once**, at module level, with a name, help text and the label names.\n- Update them in code: `inc()` counters, `set()`/`inc()`/`dec()` gauges, `observe()` histograms (or use a timer helper).\n- Expose `/metrics`: a built-in HTTP server, or a handler mounted in your web framework.\n\nWhat to instrument, following the **RED method** for services: **R**ate of requests, **E**rrors, **D**uration (a histogram). For resources such as queues and pools, the **USE** method: utilization, saturation, errors.\n\nLabel hygiene matters most here: use the **route template** (`/users/{id}`), never the actual path, and keep status codes or status classes. Choose histogram buckets around your latency objectives (for example 50 ms, 100 ms, 250 ms, 500 ms, 1 s).\n\nMulti-process servers such as Gunicorn need the client library's multiprocess mode, since each worker has its own memory. For batch jobs that finish before a scrape, push final values to the **Pushgateway** instead.\n\nIn Python, `prometheus_client` also exposes default process and Python runtime metrics automatically.",
+   "code": "# pip install prometheus-client\nimport random, time\nfrom prometheus_client import Counter, Histogram, start_http_server\n\nREQUESTS = Counter(\"shop_requests_total\", \"Requests handled\", [\"route\", \"status\"])\nLATENCY = Histogram(\"shop_request_duration_seconds\", \"Request latency\",\n                    [\"route\"], buckets=[0.05, 0.1, 0.25, 0.5, 1])\n\ndef handle(route):\n    with LATENCY.labels(route).time():          # observes the duration\n        time.sleep(random.random() / 10)\n    REQUESTS.labels(route, \"200\").inc()\n\nstart_http_server(8000)                          # serves /metrics on :8000\nfor _ in range(50):\n    handle(\"/products/{id}\")                     # route template, not real path\n# curl -s localhost:8000/metrics | grep shop_requests\n# shop_requests_total{route=\"/products/{id}\",status=\"200\"} 50.0",
+   "code_lang": "python",
+   "takeaways": [
+    "Define metrics once, update them in code, expose /metrics",
+    "RED: rate, errors, duration histogram for every service",
+    "Label with route templates and bounded values"
+   ],
+   "pitfalls": [
+    "Creating a new metric object per request, causing duplicate registration errors or leaks."
+   ],
+   "quiz": [
+    {
+     "q": "Which label value is safe for an HTTP request counter?",
+     "options": [
+      "path=\"/users/81723\"",
+      "user_email=\"x@y.z\"",
+      "request_id=\"a1b2...\"",
+      "route=\"/users/{id}\""
+     ],
+     "answer": 3,
+     "explain": "A route template has a bounded number of values; IDs and emails explode cardinality."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/instrumenting/clientlibs/",
+   "requires": [
+    "prometheus.metric-types",
+    "prometheus.exporters"
+   ]
+  },
+  {
+   "id": "prometheus.instrumenting-go",
+   "name": "Instrumenting a Go service",
+   "module": "instrument",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Use client_golang with promauto and promhttp to expose /metrics, instrument HTTP handlers and register custom collectors.",
+   "why": "Go is the native language of the Prometheus ecosystem; most exporters and cloud-native services are instrumented this way.",
+   "body": "`github.com/prometheus/client_golang` is the official library. The pieces:\n\n- `prometheus.NewCounterVec(prometheus.CounterOpts{Name, Help}, []string{\"route\", \"code\"})` and the Gauge, Histogram and Summary equivalents. The `Vec` variants take label names and give a child per label-value set via `.WithLabelValues(...)`.\n- The **registry**. `promauto` registers metrics on the default registry as they are created; `prometheus.MustRegister` does it explicitly, and `prometheus.NewRegistry()` gives you a clean one when you don't want the built-in `go_*` and `process_*` collectors.\n- `promhttp.Handler()` serves `/metrics` for the default registry; `promhttp.HandlerFor(reg, opts)` for a custom one.\n\nFor HTTP servers the `promhttp` package has middleware: `promhttp.InstrumentHandlerDuration`, `InstrumentHandlerCounter` and `InstrumentHandlerInFlight` wrap a handler and fill a metric you define, with `method` and `code` labels derived automatically. Add a route label yourself with a `prometheus.Labels` **curried** vec: `dur.MustCurryWith(prometheus.Labels{\"route\": \"/orders\"})`.\n\nDeclare metrics as package-level variables so they are registered once; registering the same name twice panics. Call `.WithLabelValues()` on the hot path (it's a fast lookup) but avoid building a new label value per request.\n\nTo expose data you already hold (a cache size, a pool's state) implement the **Collector** interface (`Describe` and `Collect`) and compute the values on each scrape instead of polling in a goroutine. The `collectors` package has ready-made ones for `database/sql` and the Go runtime.\n\nHistograms accept `NativeHistogramBucketFactor` for native histograms, covered later.",
+   "code": "package main\n\nimport (\n\t\"net/http\"\n\n\t\"github.com/prometheus/client_golang/prometheus\"\n\t\"github.com/prometheus/client_golang/prometheus/promauto\"\n\t\"github.com/prometheus/client_golang/prometheus/promhttp\"\n)\n\nvar (\n\treqs = promauto.NewCounterVec(prometheus.CounterOpts{\n\t\tName: \"shop_http_requests_total\", Help: \"HTTP requests handled.\",\n\t}, []string{\"route\", \"method\", \"code\"})\n\tdur = promauto.NewHistogramVec(prometheus.HistogramOpts{\n\t\tName: \"shop_http_request_duration_seconds\", Help: \"Request latency.\",\n\t\tBuckets: []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5},\n\t}, []string{\"route\", \"method\", \"code\"})\n)\n\nfunc instrument(route string, h http.Handler) http.Handler {\n\tl := prometheus.Labels{\"route\": route}\n\treturn promhttp.InstrumentHandlerDuration(dur.MustCurryWith(l),\n\t\tpromhttp.InstrumentHandlerCounter(reqs.MustCurryWith(l), h))\n}\n\nfunc main() {\n\thttp.Handle(\"/orders\", instrument(\"/orders\", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tw.Write([]byte(\"ok\"))\n\t})))\n\thttp.Handle(\"/metrics\", promhttp.Handler()) // go_* and process_* come for free\n\thttp.ListenAndServe(\":8080\", nil)\n}\n// curl -s localhost:8080/metrics | grep shop_http_requests_total\n// shop_http_requests_total{code=\"200\",method=\"get\",route=\"/orders\"} 3",
+   "code_lang": "go",
+   "takeaways": [
+    "promauto + package-level vars: create once, register once",
+    "promhttp.Handler() exposes /metrics; Instrument* middleware fills request metrics",
+    "Implement Collector to compute values at scrape time"
+   ],
+   "pitfalls": [
+    "Creating metrics inside a handler, which panics with 'duplicate metrics collector registration'."
+   ],
+   "quiz": [
+    {
+     "q": "You want to expose the current size of an in-memory cache without a background goroutine. Best approach?",
+     "options": [
+      "Write it to a log line",
+      "A Gauge updated by a ticker every second",
+      "A custom Collector whose Collect reads the size when scraped",
+      "A Counter incremented on every insert"
+     ],
+     "answer": 2,
+     "explain": "A Collector computes values on demand at scrape time, giving exact current state with no polling."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/guides/go-application/",
+   "requires": [
+    "prometheus.instrumenting"
+   ]
+  },
+  {
+   "id": "prometheus.pushgateway",
+   "name": "Pushgateway: batch jobs and when not to push",
+   "module": "collect",
+   "level": 2,
+   "minutes": 9,
+   "summary": "Push final metrics from short-lived jobs to the Pushgateway, scrape it with honor_labels, and understand why it is not a general push endpoint.",
+   "why": "Cron jobs and CI tasks finish before any scrape can happen, yet 'last backup succeeded?' is a vital alert.",
+   "body": "The **Pushgateway** (port 9091) is a small cache: jobs `POST` or `PUT` metrics to it, and Prometheus scrapes the gateway like any target. It exists for one case: **service-level batch jobs** that have no instance to scrape, such as a nightly backup or a database migration.\n\nThe URL encodes a **grouping key**: `/metrics/job/<job>/instance/<instance>`. `PUT` replaces every metric in that group, `POST` replaces only metrics with the same names, `DELETE` removes the group. Pushed metrics carry the grouping labels, so the Prometheus job must set `honor_labels: true` or `job` becomes `exported_job`.\n\nThe gateway adds `push_time_seconds` and `push_failure_time_seconds` per group; alert on `time() - push_time_seconds > 86400` to catch a job that stopped running.\n\nWhy it is **not** for everything:\n\n- Metrics **never expire**. A decommissioned job keeps reporting its last value forever until someone deletes it, and `up` tells you only whether the gateway is reachable, not the job.\n- It is a **single point of failure** and bottleneck, with no aggregation: two instances pushing the same series overwrite each other.\n- Pushing from long-running services throws away the pull model's health checking and discovery.\n\nAlternatives: for host-local cron jobs use node_exporter's textfile collector; for many short tasks inside a service, count them in the service's own metrics; for OpenTelemetry push, use the 3.x OTLP receiver.\n\nClient libraries offer `push_to_gateway` helpers, and `curl --data-binary` works for shell scripts.",
+   "code": "# Push from a backup script (text format on stdin)\ncat <<EOF | curl --data-binary @- http://pushgateway:9091/metrics/job/db_backup/instance/db1\n# TYPE backup_last_success_timestamp_seconds gauge\nbackup_last_success_timestamp_seconds $(date +%s)\n# TYPE backup_size_bytes gauge\nbackup_size_bytes 73400320\nEOF\n\n# Delete a group when a job is retired\ncurl -X DELETE http://pushgateway:9091/metrics/job/db_backup/instance/db1\n\n# prometheus.yml\n#   - job_name: pushgateway\n#     honor_labels: true\n#     static_configs: [{targets: [\"pushgateway:9091\"]}]\n# Alert: backup older than a day\n#   time() - backup_last_success_timestamp_seconds{job=\"db_backup\"} > 86400",
+   "code_lang": "bash",
+   "takeaways": [
+    "Only for service-level batch jobs with nothing to scrape",
+    "Grouping key in the URL; honor_labels: true on the scrape job",
+    "Pushed metrics persist until deleted; alert on push_time_seconds age"
+   ],
+   "pitfalls": [
+    "Using the Pushgateway to turn Prometheus into a push system for regular services, losing up and discovery."
+   ],
+   "quiz": [
+    {
+     "q": "A nightly job pushed its metrics last week and was then deleted. What does Prometheus show today?",
+     "options": [
+      "The same week-old values, because the gateway keeps them until deleted",
+      "up = 0 for the job",
+      "NaN for each metric",
+      "Nothing; pushed metrics expire after 5 minutes"
+     ],
+     "answer": 0,
+     "explain": "The Pushgateway is a cache that never expires groups, so stale data must be deleted explicitly."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/practices/pushing/",
+   "requires": [
+    "prometheus.instrumenting",
+    "prometheus.scrape-config"
+   ]
+  },
+  {
+   "id": "prometheus.security-tls-auth",
+   "name": "Securing Prometheus: TLS and basic auth",
+   "module": "operate",
+   "level": 2,
+   "minutes": 11,
+   "summary": "Serve the UI and API over TLS with basic auth via the web config file, scrape targets securely, and understand that Prometheus has no authorization layer.",
+   "why": "By default anyone who can reach port 9090 can read every metric and, with lifecycle enabled, reload or shut the server down.",
+   "body": "Prometheus assumes a trusted network. Out of the box the API has **no authentication**, and the metrics it stores often reveal hostnames, versions and business numbers. Three layers to consider:\n\n**Serving side.** The flag `--web.config.file=web.yml` enables TLS and authentication for the UI and API (same mechanism in Alertmanager and the exporters built on the exporter toolkit). `tls_server_config` takes `cert_file` and `key_file` (optionally `client_auth_type: RequireAndVerifyClientCert` with a `client_ca_file` for mTLS). `basic_auth_users` maps usernames to **bcrypt** hashes; generate one with `htpasswd -nBC 10 \"\" | tr -d ':\\n'`. The file is re-read on every request, so password changes need no restart.\n\n**Scraping side.** Per job you can set `scheme: https`, `tls_config` (`ca_file`, `cert_file`, `key_file`, `insecure_skip_verify` for dev only), `basic_auth` or `authorization: {type: Bearer, credentials_file: ...}`. Prefer the `*_file` variants so secrets stay out of `prometheus.yml`, which the Status page displays with secrets masked.\n\n**Dangerous endpoints.** `--web.enable-lifecycle` exposes `/-/reload` and `/-/quit`; `--web.enable-admin-api` allows deleting series and taking snapshots. Both are off by default; keep them off unless the server is behind auth.\n\nWhat Prometheus **does not** have is **authorization**: any authenticated user can run any query, read the config and see all targets. Per-team or per-tenant access control means a reverse proxy, or a multi-tenant backend such as Mimir or Thanos with its own tenancy model. Remote write endpoints should likewise sit behind TLS and a credential, since anyone who can write can poison your data.",
+   "code": "# web.yml  (prometheus --web.config.file=web.yml)\ntls_server_config:\n  cert_file: /etc/prometheus/tls/server.crt\n  key_file: /etc/prometheus/tls/server.key\nbasic_auth_users:\n  # htpasswd -nBC 10 \"\" | tr -d ':\\n'   -> paste the bcrypt hash\n  grafana: $2y$10$3ZkE9bQx1t5tJ7mXl0u9IuK0M9QW0qVb0CGz2nL9Vn6wYd6wL1Y3e\n\n# prometheus.yml: scrape an exporter protected the same way\nscrape_configs:\n  - job_name: node\n    scheme: https\n    tls_config:\n      ca_file: /etc/prometheus/tls/ca.crt\n    basic_auth:\n      username: prometheus\n      password_file: /etc/prometheus/secrets/node_exporter.pw\n    static_configs: [{targets: [\"web1:9100\"]}]\n\n# Check it: promtool check web-config web.yml\n# curl -u grafana:... --cacert ca.crt https://prom.example.com:9090/api/v1/query?query=up",
+   "code_lang": "yaml",
+   "takeaways": [
+    "--web.config.file gives TLS and basic auth to the UI/API",
+    "Scrape jobs set scheme, tls_config and credential files",
+    "No authorization exists; use a proxy or a multi-tenant backend",
+    "Keep lifecycle and admin APIs disabled unless protected"
+   ],
+   "pitfalls": [
+    "Setting insecure_skip_verify: true in production 'temporarily' and never removing it."
+   ],
+   "quiz": [
+    {
+     "q": "Team A must only see its own namespace's metrics in a shared Prometheus. What does Prometheus offer?",
+     "options": [
+      "Label-based RBAC in prometheus.yml",
+      "Separate basic_auth_users per namespace",
+      "A per-user query ACL in web.yml",
+      "Nothing built in; put a filtering proxy or a multi-tenant store in front"
+     ],
+     "answer": 3,
+     "explain": "Prometheus authenticates but never authorizes; any valid user can query everything."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/configuration/https/",
+   "requires": [
+    "prometheus.scrape-config",
+    "prometheus.expression-browser-api"
+   ]
+  },
+  {
+   "id": "prometheus.subqueries",
+   "name": "Subqueries",
+   "module": "promql",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Turn any instant-vector expression into a range vector with [range:resolution] so you can apply *_over_time functions to computed values.",
+   "why": "Questions like 'max request rate in the last day' need a range of a computed value, which only a subquery provides.",
+   "body": "Range selectors (`x[5m]`) work only on raw series. A **subquery** evaluates an instant expression repeatedly over a window and hands the results to a function as a range vector:\n\n`max_over_time( sum(rate(http_requests_total[5m]))[1d:1m] )`\n\nThe syntax is `<expr>[<range>:<resolution>]`. The resolution is optional and defaults to the global `evaluation_interval`; it controls how many evaluations happen. Here the rate is computed every minute across the day (1440 evaluations) and `max_over_time` picks the peak.\n\nTypical uses:\n\n- Peaks and percentiles of rates: `quantile_over_time(0.99, rate(x[5m])[1h:])`.\n- Smoothing a derived ratio: `avg_over_time((a / b)[30m:1m])`.\n- Alerting on \"the error ratio exceeded 5 percent at any point in the last hour\".\n- Recording-rule-free aggregation over time in an ad-hoc investigation.\n\nCosts and caveats:\n\n- A subquery runs the inner expression once per resolution step; `[30d:15s]` over a heavy expression is enormously expensive. Keep the resolution coarse and the inner query cheap.\n- Steps are aligned to multiples of the resolution, not to the query time, so results can shift slightly between evaluations. `offset` and `@` apply to subqueries too.\n- For anything used on a dashboard or in an alert, a **recording rule** that stores the inner expression is cleaner and far cheaper; the subquery is then a plain range selector on the recorded series.\n\nA subquery that simply wraps a selector, `x[5m:]`, is pointless and should be the selector `x[5m]`.",
+   "code": "# Peak request rate over the last 24 hours, sampled each minute\nmax_over_time(sum(rate(http_requests_total{job=\"api\"}[5m]))[1d:1m])\n\n# 99th percentile of the 5-minute error ratio across the last hour\nquantile_over_time(0.99,\n  (sum(rate(http_requests_total{status=~\"5..\"}[5m]))\n   / sum(rate(http_requests_total[5m])))[1h:30s])\n\n# Was the ratio above 5% at any point in the last hour?  (alert expr)\nmax_over_time(job:http_error_ratio:rate5m{job=\"api\"}[1h:]) > 0.05\n\n# Cheaper equivalent once a recording rule stores the rate:\n#   record: job:http_requests:rate5m\nmax_over_time(job:http_requests:rate5m{job=\"api\"}[1d])",
+   "code_lang": "promql",
+   "takeaways": [
+    "expr[range:resolution] = range vector of a computed value",
+    "Default resolution is evaluation_interval; coarser is cheaper",
+    "Prefer recording rules for anything permanent"
+   ],
+   "pitfalls": [
+    "Writing rate(x[5m])[1d:] without a function around it; a bare subquery can't be graphed."
+   ],
+   "quiz": [
+    {
+     "q": "How many times does the inner expression run in max_over_time(sum(rate(x[5m]))[6h:1m])?",
+     "options": [
+      "Once",
+      "6",
+      "360",
+      "Once per series"
+     ],
+     "answer": 2,
+     "explain": "6 hours at a 1-minute resolution is 360 evaluations, each a full sum(rate(...))."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/querying/basics/#subquery",
+   "requires": [
+    "prometheus.common-functions",
+    "prometheus.offset-at-modifiers"
+   ]
+  },
+  {
+   "id": "prometheus.histograms-quantiles",
+   "name": "Latency percentiles with histogram_quantile",
+   "module": "promql",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Compute percentiles from histogram buckets, aggregate them correctly, and understand their error and the native histogram alternative.",
+   "why": "Latency SLOs are defined in percentiles, and the wrong query silently produces meaningless numbers.",
+   "body": "A classic histogram exposes cumulative `_bucket` counters labelled by `le` (less or equal). To get a percentile:\n\n1. Take the **rate** of the buckets over a window.\n2. **Sum** them across instances, keeping `le` (and any labels you want to break down by).\n3. Apply `histogram_quantile(φ, ...)` with φ between 0 and 1.\n\n`histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))`\n\nThe result is an **estimate**: Prometheus assumes observations are spread linearly inside a bucket. If buckets are 0.1 and 0.5 seconds and the p95 falls between them, you can only know it's somewhere in that range. Put bucket boundaries near the values you care about, especially your SLO threshold. If the quantile falls in the `+Inf` bucket, the result is the highest finite boundary.\n\nThe **average** is cheap and exact: `rate(_sum[5m]) / rate(_count[5m])`. For SLOs it's often better to ask \"what fraction of requests were faster than 300 ms?\": `rate(bucket{le=\"0.3\"}) / rate(_count)` is exact if 0.3 is a bucket boundary.\n\n**Native histograms** store high-resolution exponential buckets in a single series; `histogram_quantile` works on them directly without `le`, with far smaller error and no bucket planning. They must be enabled in both the client library and the Prometheus configuration.",
+   "code": "# p95 latency for the whole service\nhistogram_quantile(0.95,\n  sum by (le) (rate(http_request_duration_seconds_bucket{job=\"api\"}[5m])))\n\n# p99 per route: keep route as well as le\nhistogram_quantile(0.99,\n  sum by (route, le) (rate(http_request_duration_seconds_bucket[5m])))\n\n# Exact average latency\nsum(rate(http_request_duration_seconds_sum[5m]))\n  / sum(rate(http_request_duration_seconds_count[5m]))\n\n# Share of requests faster than 300 ms (0.3 must be a bucket boundary)\nsum(rate(http_request_duration_seconds_bucket{le=\"0.3\"}[5m]))\n  / sum(rate(http_request_duration_seconds_count[5m]))",
+   "code_lang": "promql",
+   "takeaways": [
+    "rate the buckets, sum by (le), then histogram_quantile",
+    "Percentiles are estimates within bucket boundaries",
+    "Ratios against a bucket boundary are exact and ideal for SLOs"
+   ],
+   "pitfalls": [
+    "Dropping le in the aggregation (sum by (route) ...), which makes histogram_quantile return nothing."
+   ],
+   "quiz": [
+    {
+     "q": "Why must le stay in the sum before histogram_quantile on a classic histogram?",
+     "options": [
+      "For performance",
+      "The function needs the bucket boundaries to interpolate the quantile",
+      "le is the instance label",
+      "It doesn't need to"
+     ],
+     "answer": 1,
+     "explain": "Without le the buckets are merged into one series and the distribution is lost."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/practices/histograms/",
+   "requires": [
+    "prometheus.aggregation",
+    "prometheus.instrumenting"
+   ]
+  },
+  {
+   "id": "prometheus.recording-rules",
+   "name": "Recording rules",
+   "module": "rules",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Precompute expensive or frequently used queries into new series with recording rules, and name them by convention.",
+   "why": "Dashboards and alerts that query raw high-cardinality data get slow; recording rules make them fast and consistent.",
+   "body": "A **recording rule** evaluates a PromQL expression every `evaluation_interval` and saves the result as a **new time series**. Dashboards and alerts then query the cheap precomputed series instead of crunching raw data on every refresh.\n\nRules live in YAML files listed under `rule_files` in `prometheus.yml`, organized into **groups**. Rules within a group run sequentially, so one rule can use the output of an earlier one in the same group; groups run in parallel.\n\nUse recording rules for:\n\n- Expensive aggregations shown on popular dashboards.\n- Building blocks of SLO and alerting expressions, so all alerts use identical definitions.\n- Reducing cardinality before **federation** or remote write: keep a per-job aggregate instead of every instance.\n\nThe naming convention is `level:metric:operations`: the aggregation level (labels kept), the original metric name, and the operations applied, for example `job:http_requests:rate5m` or `job_route:http_request_duration_seconds:p95_5m`.\n\nCheck rule files with `promtool check rules`, and unit-test them with `promtool test rules`, which feeds synthetic series into the rules and asserts on the output. The **Rules** page in the UI shows each rule's last evaluation time and errors.",
+   "code": "# rules/api.yml  (listed under rule_files: in prometheus.yml)\ngroups:\n  - name: api-recording\n    interval: 30s                     # optional, overrides evaluation_interval\n    rules:\n      - record: job:http_requests:rate5m\n        expr: sum by (job) (rate(http_requests_total[5m]))\n      - record: job:http_errors:rate5m\n        expr: sum by (job) (rate(http_requests_total{status=~\"5..\"}[5m]))\n      - record: job:http_error_ratio:rate5m       # uses the two rules above\n        expr: job:http_errors:rate5m / job:http_requests:rate5m\n# $ promtool check rules rules/api.yml\n# SUCCESS: 3 rules found",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Recording rules store query results as new series",
+    "Name them level:metric:operations",
+    "Rules in a group run in order and can build on each other"
+   ],
+   "pitfalls": [
+    "Recording every possible query; rules cost evaluation time and storage too."
+   ],
+   "quiz": [
+    {
+     "q": "What does the name job:http_requests:rate5m tell you?",
+     "options": [
+      "It's aggregated to the job level from http_requests with a 5m rate",
+      "It's raw scraped data",
+      "It's an alert name",
+      "It's per-instance data"
+     ],
+     "answer": 0,
+     "explain": "The convention encodes the aggregation level, source metric and operations."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/configuration/recording_rules/",
+   "requires": [
+    "prometheus.rate-increase",
+    "prometheus.aggregation"
+   ]
+  },
+  {
+   "id": "prometheus.alerting-rules",
+   "name": "Alerting rules",
+   "module": "rules",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Write alerting rules with for, labels and templated annotations, and design alerts on symptoms rather than causes.",
+   "why": "Alerts are how monitoring reaches people; noisy or missing alerts are the main failure of monitoring setups.",
+   "body": "An **alerting rule** is a PromQL expression: every series it returns is an **active alert**, carrying that series' labels.\n\n- `for: 5m`: the condition must hold for 5 minutes before the alert goes from **pending** to **firing**. This filters short blips; use it on almost every alert.\n- `keep_firing_for: 5m`: keep firing for a while after the condition clears, to avoid flapping.\n- `labels`: extra labels such as `severity: page`, used by Alertmanager for routing.\n- `annotations`: human text, templated with `{{ $labels.instance }}` and `{{ $value }}`, plus a runbook link.\n\nFiring alerts are sent to Alertmanager, and appear in the UI's **Alerts** page and as the `ALERTS` series.\n\nGood alerting practice:\n\n- Alert on **symptoms users feel**: error ratio, latency, availability, rather than every possible cause like CPU usage.\n- Every page should be **actionable** and link to a runbook.\n- Use `absent()` or `absent_over_time()` to catch metrics that stopped arriving, since an expression over nothing returns nothing and never fires.\n- For SLOs, burn-rate alerts compare error rates over a short and a long window.\n\nTest alert logic with `promtool test rules`, including the `for` duration and the expected labels and annotations.",
+   "code": "groups:\n  - name: api-alerts\n    rules:\n      - alert: HighErrorRatio\n        expr: job:http_error_ratio:rate5m{job=\"api\"} > 0.05\n        for: 10m\n        labels:\n          severity: page\n        annotations:\n          summary: \"{{ $labels.job }} error ratio is {{ $value | humanizePercentage }}\"\n          runbook_url: https://wiki.example.com/runbooks/api-errors\n      - alert: TargetDown\n        expr: up == 0\n        for: 5m\n        labels: {severity: ticket}\n        annotations:\n          summary: \"{{ $labels.instance }} of job {{ $labels.job }} is down\"\n      - alert: ApiMetricsMissing\n        expr: absent(up{job=\"api\"})\n        for: 10m\n        labels: {severity: page}",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Each series returned by expr is an alert; for: delays firing",
+    "Labels route alerts; templated annotations explain them",
+    "Alert on user-facing symptoms and catch missing data with absent()"
+   ],
+   "pitfalls": [
+    "Alerts without for: that page on every momentary spike."
+   ],
+   "quiz": [
+    {
+     "q": "An alert has for: 10m. The condition is true for 6 minutes, then false. What happens?",
+     "options": [
+      "It fires for 6 minutes",
+      "It fires once at minute 10",
+      "It stays pending and never fires",
+      "It fires and stays firing"
+     ],
+     "answer": 2,
+     "explain": "The condition must hold continuously for the whole for duration before firing."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/",
+   "requires": [
+    "prometheus.recording-rules",
+    "prometheus.common-functions"
+   ]
+  },
+  {
+   "id": "prometheus.alert-templates-runbooks",
+   "name": "Alert annotations, templates and runbooks",
+   "module": "rules",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Write annotations with Go templates, humanize values, link runbooks and dashboards, and shape Alertmanager notification templates.",
+   "why": "An alert is only as good as the message the on-call engineer reads at 3 a.m.",
+   "body": "Both `labels` and `annotations` in an alerting rule are **Go templates** evaluated per firing series. Available data:\n\n- `$labels`: the series' labels (`{{ $labels.instance }}`), `$value`: the sample value, `$externalLabels`, `$externalURL`.\n- Functions: `humanize` (1234567 to 1.235M), `humanize1024`, `humanizePercentage` (0.042 to 4.2%), `humanizeDuration`, `humanizeTimestamp`, `printf \"%.2f\"`, `toUpper`, `reReplaceAll`, `title`.\n- `query \"expr\"` runs another PromQL query inside the template; `first`, `label \"name\"`, `value` pick from its result. Useful, but every firing alert runs it, so keep it cheap.\n\nUse `labels` only for routing keys (`severity`, `team`): a templated label with `$value` would create a new alert identity on every change and never resolve. Everything human-readable goes in `annotations`.\n\nRecommended annotations: `summary` (one line, used as the notification title), `description` (what, where, how bad, with values), `runbook_url` and `dashboard_url`. A **runbook** should say what the alert means, how to confirm it, the first three things to try and who to escalate to. If you can't write one, question whether the alert should page.\n\nOn the Alertmanager side, **notification templates** control the message per receiver. They see the whole group: `.Status`, `.GroupLabels`, `.CommonLabels`, `.CommonAnnotations` and `range .Alerts` with each alert's `.Labels`, `.Annotations`, `.StartsAt` and `.GeneratorURL`. Default templates for Slack and email already render `summary`, so most teams only override `title` and `text`. Templates live in files referenced by `templates:` and are tested by sending a synthetic alert through the API.",
+   "code": "groups:\n  - name: api\n    rules:\n      - alert: ApiHighLatency\n        expr: job_route:http_request_duration_seconds:p99_5m{job=\"api\"} > 0.5\n        for: 10m\n        labels:\n          severity: page\n          team: checkout\n        annotations:\n          summary: \"p99 latency high on {{ $labels.route }}\"\n          description: >-\n            {{ $labels.job }} route {{ $labels.route }} has p99 of\n            {{ $value | humanizeDuration }} (threshold 500ms) for 10m.\n            Current rps: {{ with printf \"job:http_requests:rate5m{job='%s'}\" $labels.job | query }}\n            {{ . | first | value | humanize }}{{ end }}\n          runbook_url: https://runbooks.example.com/api/high-latency\n          dashboard_url: https://grafana.example.com/d/api?var-route={{ $labels.route }}\n# Alertmanager Slack receiver using the group data:\n#   title: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }} ({{ .Alerts | len }})'\n#   text: '{{ range .Alerts }}- {{ .Annotations.summary }}\\n{{ end }}'",
+   "code_lang": "yaml",
+   "takeaways": [
+    "$labels, $value and humanize* functions in annotations",
+    "Routing keys in labels; never template $value into a label",
+    "summary, description, runbook_url, dashboard_url on every page",
+    "Alertmanager templates iterate .Alerts of a group"
+   ],
+   "pitfalls": [
+    "Putting {{ $value }} in a label, so each value change becomes a new alert that never resolves."
+   ],
+   "quiz": [
+    {
+     "q": "What goes wrong if an alerting rule sets labels: {current: \"{{ $value }}\"}?",
+     "options": [
+      "Each new value creates a differently labelled alert, so alerts multiply and don't resolve",
+      "Templates aren't allowed in labels, the rule fails to load",
+      "Alertmanager drops labels with numbers",
+      "Nothing; it's a common pattern"
+     ],
+     "answer": 0,
+     "explain": "Labels define alert identity; a changing label means a new alert every evaluation."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/configuration/template_examples/",
+   "requires": [
+    "prometheus.alerting-rules"
+   ]
+  },
+  {
+   "id": "prometheus.alertmanager",
+   "name": "Alertmanager: routing, grouping and silences",
+   "module": "rules",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Route alerts to the right receivers, group and deduplicate them, inhibit noise, and silence alerts during maintenance.",
+   "why": "Without Alertmanager configuration a single outage sends hundreds of notifications to the wrong people.",
+   "body": "**Alertmanager** receives alerts from one or more Prometheus servers and decides who gets notified, how and when. Point Prometheus at it under `alerting: alertmanagers:`.\n\nThe configuration is a **routing tree**. The root `route` has a default receiver; child routes `matchers` on labels (for example `severity=\"page\"` or `team=\"payments\"`) send alerts to other receivers. The first matching child wins unless `continue: true`.\n\n**Grouping** batches related alerts into one notification: `group_by: [alertname, cluster]` means one message per alert name and cluster, even if 50 instances fail. Timers control batching:\n\n- `group_wait` (default 30s): wait before the first notification of a new group, to collect more alerts.\n- `group_interval` (default 5m): wait before notifying about new alerts added to the group.\n- `repeat_interval` (default 4h): resend a still-firing alert.\n\n**Inhibition** mutes alerts while another is firing, such as all warnings in a cluster that is entirely down. **Silences** mute matching alerts for a time window, set in the UI, with `amtool`, or through the API.\n\nReceivers support email, Slack, PagerDuty, Opsgenie, webhooks and more. Run Alertmanager as a cluster of two or three instances for high availability; they gossip to deduplicate notifications.",
+   "code": "# alertmanager.yml\nglobal: {smtp_smarthost: \"smtp.example.com:587\", smtp_from: alerts@example.com}\nroute:\n  receiver: team-email\n  group_by: [alertname, cluster]\n  group_wait: 30s\n  group_interval: 5m\n  repeat_interval: 4h\n  routes:\n    - matchers: ['severity=\"page\"']\n      receiver: oncall-pager\nreceivers:\n  - name: team-email\n    email_configs: [{to: team@example.com}]\n  - name: oncall-pager\n    pagerduty_configs: [{routing_key: <secret>}]\ninhibit_rules:\n  - source_matchers: ['alertname=\"ClusterDown\"']\n    target_matchers: ['severity=\"warning\"']\n    equal: [cluster]\n# Send a test alert through the API:\n# curl -X POST -H 'Content-Type: application/json' localhost:9093/api/v2/alerts \\\n#   -d '[{\"labels\":{\"alertname\":\"Test\",\"severity\":\"page\"}}]'",
+   "code_lang": "yaml",
+   "takeaways": [
+    "A routing tree matches alert labels to receivers",
+    "group_by plus group_wait, group_interval and repeat_interval control notification volume",
+    "Inhibition and silences mute alerts in known situations"
+   ],
+   "pitfalls": [
+    "Grouping by instance, so a cluster-wide outage still sends one notification per machine."
+   ],
+   "quiz": [
+    {
+     "q": "Fifty instances start failing the same alert in one cluster with group_by: [alertname, cluster]. How many notifications go out initially?",
+     "options": [
+      "Fifty",
+      "One per instance per repeat_interval",
+      "One",
+      "None until repeat_interval"
+     ],
+     "answer": 2,
+     "explain": "All fifty alerts share the same alertname and cluster, so they form one group."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/alerting/latest/configuration/",
+   "requires": [
+    "prometheus.alerting-rules"
+   ]
+  },
+  {
+   "id": "prometheus.promtool-rule-tests",
+   "name": "Unit-testing rules with promtool",
+   "module": "rules",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Feed synthetic series into recording and alerting rules with promtool test rules, and assert on outputs, labels and annotations in CI.",
+   "why": "Alerting rules are code that pages people; a test file catches a bad threshold or a broken template before it deploys.",
+   "body": "`promtool` can check syntax (`promtool check rules file.yml`, `promtool check config prometheus.yml`) and, more valuably, **execute rules against fake data** with `promtool test rules tests.yml`.\n\nA test file names the `rule_files` to load, an `evaluation_interval`, and a list of `tests`. Each test has:\n\n- `interval`: spacing of the input samples.\n- `input_series`: series written in a compact notation. `'0+10x5'` means start at 0 and add 10 five times (0 10 20 30 40 50); `'1 1 0 0'` lists values; `_` is a missing sample and `stale` a stale marker. Counters are just increasing sequences; a drop simulates a reset.\n- `alert_rule_test`: at `eval_time`, which alerts of `alertname` are expected (`exp_alerts`) with their `exp_labels` and `exp_annotations`. An empty `exp_alerts` asserts the alert is **not** firing, which is the test most people forget.\n- `promql_expr_test`: evaluate any expression at `eval_time` and compare with `exp_samples`; use it for recording rules and tricky expressions.\n\nTime starts at 0 and `eval_time` is relative to it, so a `for: 5m` alert fires at `eval_time: 5m` only if the condition held since minute 0. Pending alerts are not reported.\n\n`exp_labels` must list **all** labels of the alert, including those from the series and the rule, and annotations are compared after templating, which is how you test `humanize` output and runbook links.\n\nRun the tests in CI alongside `promtool check rules`, and `promtool check config` with `--syntax-only` when the referenced files aren't present on the build machine.",
+   "code": "# tests/api.test.yml   ->   promtool test rules tests/api.test.yml\nrule_files:\n  - ../rules/api.yml\nevaluation_interval: 1m\ntests:\n  - interval: 1m\n    input_series:\n      - series: 'http_requests_total{job=\"api\",instance=\"a\",status=\"200\"}'\n        values: '0+100x20'          # 100 req/min, steady\n      - series: 'http_requests_total{job=\"api\",instance=\"a\",status=\"500\"}'\n        values: '0+10x20'           # 10 errors/min = 9% error ratio\n    promql_expr_test:\n      - expr: job:http_error_ratio:rate5m\n        eval_time: 10m\n        exp_samples:\n          - labels: 'job:http_error_ratio:rate5m{job=\"api\"}'\n            value: 0.09090909090909091\n    alert_rule_test:\n      - eval_time: 9m               # for: 10m not satisfied yet\n        alertname: HighErrorRatio\n        exp_alerts: []\n      - eval_time: 16m\n        alertname: HighErrorRatio\n        exp_alerts:\n          - exp_labels: {job: api, severity: page}\n            exp_annotations:\n              summary: \"api error ratio is 9.091%\"\n# Unit Testing:  tests/api.test.yml\n#   SUCCESS",
+   "code_lang": "yaml",
+   "takeaways": [
+    "promtool test rules runs rules on synthetic input_series",
+    "'a+bxn' notation; _ gaps and stale markers",
+    "Assert both firing and not-firing, with all labels and rendered annotations"
+   ],
+   "pitfalls": [
+    "Forgetting that eval_time counts from 0, so a for: 10m alert tested at 5m 'mysteriously' doesn't fire."
+   ],
+   "quiz": [
+    {
+     "q": "How many samples does values: '0+5x3' produce, and what are they?",
+     "options": [
+      "3: 0 5 10",
+      "4: 0 5 10 15",
+      "3: 5 10 15",
+      "1: 15"
+     ],
+     "answer": 1,
+     "explain": "The start value plus 3 increments gives 4 samples: 0, 5, 10, 15."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/configuration/unit_testing_rules/",
+   "requires": [
+    "prometheus.alerting-rules",
+    "prometheus.recording-rules"
+   ]
+  },
+  {
+   "id": "prometheus.service-discovery-relabeling",
+   "name": "Service discovery and relabeling",
+   "module": "kubernetes",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Discover targets dynamically from Kubernetes, clouds or files, and rewrite target and metric labels with relabel_configs.",
+   "why": "In dynamic environments static target lists are useless; relabeling is the most powerful and most confusing part of Prometheus config.",
+   "body": "**Service discovery** mechanisms find targets automatically: `kubernetes_sd_configs` (pods, services, endpoints, nodes), cloud ones (`ec2_sd_configs`, `gce_sd_configs`, `azure_sd_configs`), `consul_sd_configs`, `dns_sd_configs` and `file_sd_configs` (JSON or YAML files that another tool writes). Each discovered target arrives with **meta labels** such as `__meta_kubernetes_pod_label_app` or `__meta_ec2_tag_Name`.\n\n**relabel_configs** run once per target **before** scraping, as an ordered list of steps. Each step reads `source_labels` (joined with `;`), matches a fully anchored `regex`, and applies an `action`:\n\n- `keep` / `drop`: keep or discard targets whose value matches.\n- `replace` (default): write `replacement` (with `$1` capture groups) to `target_label`.\n- `labelmap`: copy labels whose names match the regex, for example all pod labels.\n- `hashmod`: shard targets across several Prometheus servers.\n\nSpecial labels control the scrape: `__address__`, `__scheme__`, `__metrics_path__` and `__param_<name>`. After relabeling, all labels starting with `__` are removed.\n\n**metric_relabel_configs** use the same syntax but run on every scraped **sample**, after the scrape: the place to drop expensive metrics or labels before storage. Check the result on **Status, Service discovery**, which shows labels before and after relabeling.",
+   "code": "scrape_configs:\n  - job_name: kubernetes-pods\n    kubernetes_sd_configs:\n      - role: pod\n    relabel_configs:\n      # only pods annotated prometheus.io/scrape: \"true\"\n      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]\n        action: keep\n        regex: \"true\"\n      # custom port from an annotation: 10.1.2.3:80 + 9102 -> 10.1.2.3:9102\n      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]\n        regex: ([^:]+)(?::\\d+)?;(\\d+)\n        replacement: $1:$2\n        target_label: __address__\n      - action: labelmap                # copy all pod labels\n        regex: __meta_kubernetes_pod_label_(.+)\n      - source_labels: [__meta_kubernetes_namespace]\n        target_label: namespace\n    metric_relabel_configs:\n      - source_labels: [__name__]       # drop a noisy metric before storage\n        regex: go_gc_duration_seconds.*\n        action: drop",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Service discovery yields targets with __meta_* labels",
+    "relabel_configs shape targets before scraping; metric_relabel_configs filter samples after",
+    "Labels starting with __ vanish after relabeling"
+   ],
+   "pitfalls": [
+    "Using relabel_configs to drop metrics; they act on targets, so use metric_relabel_configs."
+   ],
+   "quiz": [
+    {
+     "q": "You want to stop storing one high-cardinality metric from an exporter. Where?",
+     "options": [
+      "metric_relabel_configs with action: drop on __name__",
+      "relabel_configs with action: drop on __name__",
+      "rule_files",
+      "global.external_labels"
+     ],
+     "answer": 0,
+     "explain": "Metric names exist only after scraping, so metric_relabel_configs is the place."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/configuration/configuration/#relabel_config",
+   "requires": [
+    "prometheus.exporters",
+    "prometheus.scrape-config"
+   ]
+  },
+  {
+   "id": "prometheus.kube-prometheus-stack",
+   "name": "kube-prometheus-stack and ServiceMonitors",
+   "module": "kubernetes",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Install the Prometheus Operator stack with Helm and declare scrape targets as ServiceMonitor, PodMonitor and PrometheusRule objects.",
+   "why": "On Kubernetes nobody edits prometheus.yml by hand; the Operator turns CRDs into configuration and ships a full default setup.",
+   "body": "The **Prometheus Operator** manages Prometheus and Alertmanager as Kubernetes resources. The **kube-prometheus-stack** Helm chart bundles it with Prometheus, Alertmanager, Grafana, node-exporter, kube-state-metrics (object-level metrics such as deployment replicas and pod phases), plus a large set of recording rules, alerts and dashboards for the cluster itself.\n\nAfter installing, you describe what to scrape with **custom resources** instead of `scrape_configs`:\n\n- **ServiceMonitor**: selects Services by label and names the port to scrape on their Endpoints. The Operator generates a `kubernetes_sd_configs` job with the right relabeling, including `namespace`, `service` and `pod` labels.\n- **PodMonitor**: the same for pods without a Service (jobs, DaemonSets).\n- **Probe**: a blackbox_exporter target.\n- **ScrapeConfig**: an escape hatch for arbitrary scrape configuration (static targets, cloud discovery).\n- **PrometheusRule**: a rule group, mounted into Prometheus automatically.\n- **AlertmanagerConfig**: per-namespace routing merged into the Alertmanager config.\n\nThe **Prometheus** resource itself holds replicas, retention, resources, storage (a PVC template) and the **selectors** that decide which monitors and rules it picks up. The number one gotcha: the chart's `serviceMonitorSelectorNilUsesHelmValues` default makes Prometheus select only monitors labelled `release: <helm release name>`. A ServiceMonitor without that label is silently ignored. Set the value to `false` or add the label. The same applies to `ruleSelector` and `podMonitorSelector`.\n\nDebug with the Prometheus UI's Status pages (port-forward `svc/<release>-kube-prometheus-stack-prometheus` 9090) and `kubectl get servicemonitors -A`. The Operator's logs report invalid monitors.\n\nApplications still need a Service exposing a named `metrics` port and the `/metrics` endpoint.",
+   "code": "# helm repo add prometheus-community https://prometheus-community.github.io/helm-charts\n# helm install mon prometheus-community/kube-prometheus-stack -n monitoring --create-namespace \\\n#   --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false\napiVersion: monitoring.coreos.com/v1\nkind: ServiceMonitor\nmetadata:\n  name: checkout\n  namespace: shop\n  labels: {release: mon}          # needed unless the Nil... value is false\nspec:\n  selector:\n    matchLabels: {app: checkout}  # Services with this label\n  namespaceSelector: {matchNames: [shop]}\n  endpoints:\n    - port: metrics               # the Service port *name*\n      interval: 30s\n      path: /metrics\n---\napiVersion: monitoring.coreos.com/v1\nkind: PrometheusRule\nmetadata: {name: checkout, namespace: shop, labels: {release: mon}}\nspec:\n  groups:\n    - name: checkout\n      rules:\n        - alert: CheckoutDown\n          expr: absent(up{job=\"checkout\"}) or up{job=\"checkout\"} == 0\n          for: 5m\n          labels: {severity: page}",
+   "code_lang": "yaml",
+   "takeaways": [
+    "The chart ships Operator, Prometheus, Alertmanager, Grafana, exporters and default rules",
+    "ServiceMonitor selects Services by label and a named port; PodMonitor for bare pods",
+    "Match the Prometheus resource's selectors (release label) or the monitor is ignored"
+   ],
+   "pitfalls": [
+    "A ServiceMonitor that points at a port number instead of the Service port name, so nothing is discovered."
+   ],
+   "quiz": [
+    {
+     "q": "You applied a ServiceMonitor but the targets never appear in Prometheus. Most likely cause?",
+     "options": [
+      "The scrape interval is too long",
+      "ServiceMonitors need a restart of Prometheus",
+      "It lacks the label the Prometheus resource's serviceMonitorSelector requires",
+      "PodMonitor is required for Deployments"
+     ],
+     "answer": 2,
+     "explain": "The Operator only feeds monitors matching the Prometheus CR's selectors, by default release=<helm release>."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/installation/",
+   "requires": [
+    "prometheus.service-discovery-relabeling"
+   ]
+  },
+  {
+   "id": "prometheus.slo-burn-rate",
+   "name": "SLOs and multi-window burn-rate alerts",
+   "module": "rules",
+   "level": 4,
+   "minutes": 16,
+   "summary": "Define an SLO and error budget in PromQL, then page on burn rate over paired long and short windows instead of raw thresholds.",
+   "why": "Threshold alerts either page too often or miss slow burns; burn-rate alerting is the standard that balances both.",
+   "body": "An **SLO** states a target such as \"99.9 percent of requests succeed over 30 days\". The allowed failure, 0.1 percent, is the **error budget**. The **burn rate** is how fast you are consuming it: a burn rate of 1 uses the whole budget in exactly 30 days; 14.4 uses it in about 2 days.\n\nIn PromQL the error ratio over a window is `sum(rate(errors[w])) / sum(rate(requests[w]))`, and the burn rate is that ratio divided by `(1 - SLO)`. Record the ratio for several windows so the alerts are cheap and consistent.\n\nAlerting on a single window is a trade-off: a 5-minute window reacts fast but pages on blips; a 6-hour window is stable but slow and keeps firing long after recovery. The **multi-window, multi-burn-rate** approach from the Google SRE Workbook pairs a long window (detect a significant burn) with a short window one twelfth its size (confirm it is still happening, so the alert resolves quickly):\n\n- Page: burn rate > 14.4 over 1h **and** 5m (2 percent of a 30-day budget in an hour).\n- Page: burn rate > 6 over 6h **and** 30m (5 percent in 6 hours).\n- Ticket: burn rate > 3 over 1d **and** 2h; burn rate > 1 over 3d **and** 6h.\n\nLatency SLOs use the same shape with \"slow requests\" as the errors: `rate(_count) - rate(_bucket{le=\"0.3\"})`, so the threshold must be a bucket boundary. Keep the SLO definition (metric, window, target) in one place; tools such as Sloth or Pyrra generate the recording rules and alerts from a short spec.\n\nRemaining budget for a dashboard: `1 - (ratio over 30d) / (1 - SLO)`, where the 30-day ratio comes from `increase()` or a long recording-rule chain, not a 30-day `rate()` evaluated on every refresh.",
+   "code": "groups:\n  - name: api-slo\n    rules:\n      # error ratio per window (repeat for 30m, 1h, 2h, 6h, 1d, 3d)\n      - record: job:slo_errors_per_request:ratio_rate5m\n        expr: sum by (job) (rate(http_requests_total{job=\"api\",status=~\"5..\"}[5m]))\n              / sum by (job) (rate(http_requests_total{job=\"api\"}[5m]))\n      - record: job:slo_errors_per_request:ratio_rate1h\n        expr: sum by (job) (rate(http_requests_total{job=\"api\",status=~\"5..\"}[1h]))\n              / sum by (job) (rate(http_requests_total{job=\"api\"}[1h]))\n      # SLO 99.9%  ->  budget 0.001\n      - alert: ApiErrorBudgetBurn\n        expr: |\n          (job:slo_errors_per_request:ratio_rate1h{job=\"api\"} > (14.4 * 0.001)\n           and job:slo_errors_per_request:ratio_rate5m{job=\"api\"} > (14.4 * 0.001))\n          or\n          (job:slo_errors_per_request:ratio_rate6h{job=\"api\"} > (6 * 0.001)\n           and job:slo_errors_per_request:ratio_rate30m{job=\"api\"} > (6 * 0.001))\n        labels: {severity: page}\n        annotations:\n          summary: \"api is burning its 30d error budget fast ({{ $value | humanizePercentage }} errors)\"\n          runbook_url: https://runbooks.example.com/api/slo-burn",
+   "code_lang": "yaml",
+   "takeaways": [
+    "burn rate = error ratio / (1 - SLO); 1 = budget gone exactly at the SLO window's end",
+    "Pair a long window with a 1/12 short window: fast detection, fast resolution",
+    "14.4x over 1h+5m and 6x over 6h+30m are the standard paging pair"
+   ],
+   "pitfalls": [
+    "Evaluating rate(x[30d]) in a dashboard query instead of chaining recording rules, which is extremely expensive."
+   ],
+   "quiz": [
+    {
+     "q": "With a 99.9% 30-day SLO, a burn rate of 14.4 sustained means the budget is gone in roughly:",
+     "options": [
+      "30 days",
+      "14.4 hours",
+      "about 2 days",
+      "1 hour"
+     ],
+     "answer": 2,
+     "explain": "Burn rate 1 exhausts the budget in 30 days; 30 / 14.4 is about 2.08 days."
+    },
+    {
+     "q": "Why add the short 5m window to the 1h burn-rate condition?",
+     "options": [
+      "Because rate() needs two windows",
+      "To reduce query cost",
+      "To make the alert fire sooner",
+      "So the alert resolves quickly once the error rate drops, instead of waiting for the 1h window to drain"
+     ],
+     "answer": 3,
+     "explain": "The long window detects a significant burn; the short one confirms it is current and clears fast."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/practices/alerting/",
+   "requires": [
+    "prometheus.alerting-rules",
+    "prometheus.histograms-quantiles",
+    "prometheus.subqueries"
+   ]
+  },
+  {
+   "id": "prometheus.native-histograms",
+   "name": "Native histograms",
+   "module": "instrument",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Enable native histograms, expose them from client libraries over protobuf, and query them with histogram_quantile, histogram_fraction and friends.",
+   "why": "They give accurate percentiles with one series per histogram and no bucket planning, at a fraction of the cost of classic histograms.",
+   "body": "A **classic histogram** is a dozen or more series with hand-picked `le` boundaries, and quantiles are only as good as those boundaries. A **native histogram** stores a whole distribution in a **single sample**: buckets are exponential with a configurable **schema** (schema 3 means a growth factor of about 1.09 per bucket, 8 means 1.003), span sparse ranges, and only non-empty buckets are stored. Samples carry a count, sum, zero-bucket threshold and positive/negative bucket spans.\n\nEnabling, in Prometheus 3.x:\n\n- Start the server with `--enable-feature=native-histograms` (still a feature flag in the 3.x line).\n- Clients must expose them over the **protobuf** exposition format; Prometheus negotiates it automatically when the flag is on. The text format can't carry them yet (OpenMetrics 2.0 is adding it).\n- In client_golang set `NativeHistogramBucketFactor: 1.1` on a Histogram; the client picks the matching schema. `NativeHistogramMaxBucketNumber` plus `NativeHistogramMinResetDuration` cap memory by widening buckets or resetting after a time.\n- Per scrape job, `always_scrape_classic_histograms: true` keeps the classic series alongside for a migration period.\n\nQuerying: `rate()` and `increase()` work on the whole histogram, `sum()` and `avg()` merge histograms with identical schemas, and the dedicated functions take a histogram sample instead of bucket series:\n\n- `histogram_quantile(0.95, rate(h[5m]))` with **no** `by (le)`.\n- `histogram_count()`, `histogram_sum()`, `histogram_avg()`.\n- `histogram_fraction(0, 0.3, rate(h[5m]))`: the share of observations between 0 and 0.3, the SLO query, now without needing 0.3 to be a boundary.\n- `histogram_stddev`, `histogram_stdvar`.\n\nRemote write 2.0, Mimir, Thanos and Grafana support native histograms; Alertmanager doesn't care. **Custom-bucket native histograms** (`convert_classic_histograms_to_nhcb`) store a classic histogram's exact buckets in the compact form, an interim step for exporters you can't change.",
+   "code": "// client_golang: one histogram, native plus classic buckets for migration\ndur := promauto.NewHistogramVec(prometheus.HistogramOpts{\n\tName:                            \"shop_http_request_duration_seconds\",\n\tHelp:                            \"Request latency.\",\n\tBuckets:                         []float64{0.05, 0.1, 0.25, 0.5, 1}, // classic (optional)\n\tNativeHistogramBucketFactor:     1.1,     // ~schema 3\n\tNativeHistogramMaxBucketNumber:  160,\n\tNativeHistogramMinResetDuration: time.Hour,\n}, []string{\"route\"})\ndur.WithLabelValues(\"/orders\").Observe(0.123)\n\n// prometheus --enable-feature=native-histograms\n// PromQL on the native histogram (no le label anywhere):\n//   histogram_quantile(0.99, sum by (route) (rate(shop_http_request_duration_seconds[5m])))\n//   histogram_fraction(0, 0.3, sum(rate(shop_http_request_duration_seconds[5m])))  // share under 300ms\n//   histogram_avg(rate(shop_http_request_duration_seconds[5m]))\n//   histogram_count(rate(shop_http_request_duration_seconds[5m]))                   // req/s",
+   "code_lang": "go",
+   "takeaways": [
+    "One series per histogram, exponential sparse buckets, schema sets resolution",
+    "Feature flag plus protobuf scraping; clients opt in with a bucket factor",
+    "histogram_quantile without le; histogram_fraction for exact SLO ratios"
+   ],
+   "pitfalls": [
+    "Writing sum by (le) (rate(h[5m])) on a native histogram, which has no le label and returns nothing."
+   ],
+   "quiz": [
+    {
+     "q": "Which query gives the fraction of requests under 300 ms from a native histogram h?",
+     "options": [
+      "h < 0.3",
+      "rate(h_bucket{le=\"0.3\"}[5m]) / rate(h_count[5m])",
+      "histogram_fraction(0, 0.3, rate(h[5m]))",
+      "histogram_quantile(0.3, rate(h[5m]))"
+     ],
+     "answer": 2,
+     "explain": "histogram_fraction returns the share of observations in a value range, interpolated inside buckets."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/specs/native_histograms/",
+   "requires": [
+    "prometheus.histograms-quantiles",
+    "prometheus.instrumenting-go"
+   ]
+  },
+  {
+   "id": "prometheus.tsdb-internals",
+   "name": "Storage internals: head, WAL and compaction",
+   "module": "operate",
+   "level": 4,
+   "minutes": 14,
+   "summary": "How the TSDB stores samples in memory and on disk, what the WAL protects, how compaction and retention work, and how to size it.",
+   "why": "Memory usage, disk planning, slow restarts and data loss after crashes are all explained by the storage design.",
+   "body": "Prometheus's local TSDB is organized in time **blocks**:\n\n- The **head block** holds the most recent data (roughly the last two to three hours) **in memory**, with every active series and its recent samples. Samples are compressed with delta-of-delta timestamps and XOR-encoded values, averaging about 1 to 2 bytes per sample.\n- Every incoming sample is first appended to the **write-ahead log** (WAL) on disk. After a crash or restart, Prometheus replays the WAL to rebuild the head, which is why restarts of large servers take minutes. Memory-mapped head chunks reduce that work.\n- Every two hours the head is cut into an immutable **persistent block**: a directory with compressed chunks, an **index** (label to series postings), metadata and **tombstones** for deletions.\n- **Compaction** merges small blocks into bigger ones (up to 10 percent of retention or 31 days), making queries over long ranges cheaper.\n- **Retention** deletes whole blocks older than `--storage.tsdb.retention.time` (default 15d) or beyond `--storage.tsdb.retention.size`.\n\nSizing rule of thumb: disk = retention seconds x samples per second x 1 to 2 bytes. Memory is driven mostly by the number of **active series** in the head, which is why cardinality matters more than retention.\n\nLocal storage is single-node and not replicated; use snapshots for backups and remote write for durable long-term storage. Use local SSD, not NFS.",
+   "code": "# Inspect the TSDB on disk\nls data/\n# 01JA3K...  01JA6Q...  chunks_head/  wal/  lock  queries.active\npromtool tsdb list data/\n# BLOCK ULID   MIN TIME  MAX TIME  DURATION  NUM SAMPLES  NUM CHUNKS  NUM SERIES\npromtool tsdb analyze data/ | head -20     # top metrics and labels by series count\n\n# Disk estimate: 1M samples/s for 30 days at ~1.5 bytes/sample\npython3 -c \"print(1_000_000 * 30*24*3600 * 1.5 / 1e12, 'TB')\"   # 3.888 TB\n\n# Key self-metrics (PromQL):\n#   prometheus_tsdb_head_series                        active series in memory\n#   rate(prometheus_tsdb_head_samples_appended_total[5m])   ingestion rate\n#   prometheus_tsdb_wal_corruptions_total",
+   "code_lang": "bash",
+   "takeaways": [
+    "Recent data lives in the in-memory head, protected by the WAL",
+    "Two-hour blocks are compacted into larger ones and deleted by retention",
+    "Memory scales with active series; disk with samples x retention"
+   ],
+   "pitfalls": [
+    "Putting the TSDB on NFS or network storage, which the docs explicitly don't support."
+   ],
+   "quiz": [
+    {
+     "q": "Why can a large Prometheus take minutes to restart?",
+     "options": [
+      "It re-scrapes all history",
+      "It downloads rules",
+      "It recompacts all blocks",
+      "It replays the write-ahead log to rebuild the in-memory head block"
+     ],
+     "answer": 3,
+     "explain": "The head block lives in memory, so it's reconstructed from the WAL and head chunks on startup."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/storage/",
+   "requires": [
+    "prometheus.data-model",
+    "prometheus.recording-rules"
+   ]
+  },
+  {
+   "id": "prometheus.cardinality-scaling",
+   "name": "Cardinality, federation, HA and remote write",
+   "module": "operate",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Find and fix cardinality explosions, run HA pairs, and scale beyond one server with sharding, federation, agent mode and remote write to Thanos or Mimir.",
+   "why": "Every growing Prometheus deployment eventually hits limits; knowing the options avoids costly redesigns.",
+   "body": "**Cardinality** (the number of active series) is the main scaling limit. Find offenders on the **Status, TSDB** page (top metrics and label pairs by series count), with `promtool tsdb analyze`, or with queries like `topk(10, count by (__name__) ({__name__=~\".+\"}))`. Fix them at the source (remove unbounded labels) or drop them with `metric_relabel_configs`. Per-scrape safety nets such as `sample_limit` and `label_limit` fail a scrape that suddenly explodes instead of taking the server down.\n\nScaling options, roughly in order of complexity:\n\n- **Functional sharding**: separate Prometheus servers per team, cluster or job. Simple and robust.\n- **hashmod sharding**: several servers split one large job's targets via relabeling.\n- **Federation**: a global Prometheus scrapes `/federate` on others for selected, preferably pre-aggregated, series (`match[]` parameters). Fine for summaries, not for copying everything.\n- **Remote write**: stream samples to a long-term, horizontally scalable backend such as **Thanos**, **Grafana Mimir**, Cortex or VictoriaMetrics, which provides a global query view, deduplication of HA pairs and years of retention on object storage. Prometheus 3.x can also send **Remote Write 2.0**, a more compact protocol that carries metadata and native histograms.\n- **Agent mode** (`--agent`): Prometheus only scrapes and remote-writes, without local querying, using far less memory.\n\nFor **high availability** run two identical Prometheus servers scraping the same targets. Each evaluates the same rules and sends alerts to a clustered Alertmanager, which deduplicates. Give them the same `external_labels` plus one replica label so the remote backend can dedup samples. Watch `prometheus_remote_storage_*` metrics (pending samples, failed sends) for remote write backlogs.",
+   "code": "# prometheus.yml (excerpt) for an HA pair writing to Mimir or Thanos Receive\nglobal:\n  external_labels:\n    cluster: eu-1\n    __replica__: prom-a              # prom-b on the twin; backend dedups\nscrape_configs:\n  - job_name: api\n    sample_limit: 50000              # fail the scrape if it explodes\n    static_configs: [{targets: [\"api:8000\"]}]\nremote_write:\n  - url: https://mimir.example.com/api/v1/push\n    queue_config:\n      max_samples_per_send: 5000\n    write_relabel_configs:           # don't ship debug metrics\n      - source_labels: [__name__]\n        regex: debug_.*\n        action: drop\n# Find the biggest metrics (PromQL):\n#   topk(10, count by (__name__) ({__name__=~\".+\"}))",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Active series count is the key limit; find it with TSDB status and topk count",
+    "Shard by function first; federate only aggregates",
+    "Remote write to Thanos/Mimir for global view, HA dedup and long retention"
+   ],
+   "pitfalls": [
+    "Federating all raw series into one global server, recreating the original scaling problem."
+   ],
+   "quiz": [
+    {
+     "q": "What is Prometheus agent mode for?",
+     "options": [
+      "Running alerting rules only",
+      "Scraping and forwarding via remote write with minimal local storage and no local queries",
+      "Replacing Alertmanager",
+      "Federation"
+     ],
+     "answer": 1,
+     "explain": "Agent mode drops the query engine and long local storage, keeping only scraping and a WAL for remote write."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/storage/#remote-storage-integrations",
+   "requires": [
+    "prometheus.tsdb-internals",
+    "prometheus.service-discovery-relabeling"
+   ]
+  },
+  {
+   "id": "prometheus.prometheus-3-changes",
+   "name": "Prometheus 3.x: UTF-8 names and OTLP",
+   "module": "operate",
+   "level": 4,
+   "minutes": 14,
+   "summary": "What changed in 3.x: UTF-8 metric names, the OTLP receiver, left-open range selectors, strict scrape protocols and the upgrade path from 2.x.",
+   "why": "Most tutorials still describe 2.x; knowing the breaking changes avoids silent query differences and failed upgrades.",
+   "body": "Prometheus 3.0 (November 2024) was the first major release in seven years. The headline changes, continued in 3.1 to 3.5 (the 3.5 LTS release):\n\n- **UTF-8 names**. Metric and label names may contain any UTF-8 characters. In PromQL and the exposition format quote them: `{\"service.name\"=\"api\"}`. The old restriction is kept for targets and clients that can't cope via `global.metric_name_validation_scheme: legacy` and per-target escaping negotiated in the `Accept` header.\n- **OTLP receiver**. With `--web.enable-otlp-receiver`, Prometheus accepts OpenTelemetry metrics on `/api/v1/otlp/v1/metrics`, so collectors and SDKs can push directly. The `otlp:` config block controls `translation_strategy` (`UnderscoreEscapingWithSuffixes`, the default, rewrites `http.server.duration` to `http_server_duration_seconds`; `NoUTF8EscapingWithSuffixes` keeps dots; `NoTranslation` keeps the names untouched) and `promote_resource_attributes` to turn chosen resource attributes such as `service.name` into labels instead of leaving them in `target_info`.\n- **Left-open range selectors**. A `[5m]` window now excludes a sample exactly at its left edge, so a window holds a predictable number of samples; `rate` results can differ slightly from 2.x.\n- **Strict scrape protocols**. Responses without `Content-Type` fail unless `fallback_scrape_protocol` is set; `scrape_protocols` orders the negotiation.\n- **New UI** (React), with the old one gone in later 3.x; `--enable-feature=old-ui` was temporary.\n- **Agent mode** and the `@` and negative-offset modifiers are no longer feature flags; `holt_winters` became `double_exponential_smoothing` behind `promql-experimental-functions`; **Remote Write 2.0** can be enabled per endpoint.\n- Removed flags and settings: deprecated `--storage.tsdb.retention`, several `--alertmanager.*` and `--storage.remote.*` flags; check the release notes with `promtool check config`.\n\n**Upgrading**: go to 2.55 first, then 3.x; 3.x TSDB data can still be read by 2.55 if you must roll back. Regex matchers with `.` no longer match newlines in some edge cases, and alerts that relied on sample-at-edge behaviour may need their windows widened.",
+   "code": "# prometheus.yml additions for OpenTelemetry data\notlp:\n  promote_resource_attributes:\n    - service.name\n    - service.namespace\n    - k8s.pod.name\n  translation_strategy: UnderscoreEscapingWithSuffixes   # or NoUTF8EscapingWithSuffixes\nstorage:\n  tsdb:\n    out_of_order_time_window: 30m    # OTLP pushes may arrive late\n\n# prometheus --config.file=prometheus.yml --web.enable-otlp-receiver\n# OTel collector / SDK endpoint: http://prometheus:9090/api/v1/otlp\n\n# PromQL after NoUTF8EscapingWithSuffixes (quoted UTF-8 names):\n#   histogram_quantile(0.9, sum by (le) (\n#     rate({\"http.server.request.duration_seconds_bucket\", \"service.name\"=\"api\"}[5m])))\n# Default strategy gives the classic form instead:\n#   http_server_request_duration_seconds_bucket{service_name=\"api\"}",
+   "code_lang": "yaml",
+   "takeaways": [
+    "UTF-8 names with quoted syntax; legacy validation available",
+    "--web.enable-otlp-receiver plus the otlp: block for OpenTelemetry push",
+    "Left-open ranges and strict Content-Type can change behaviour",
+    "Upgrade via 2.55; keep rollback possible"
+   ],
+   "pitfalls": [
+    "Upgrading straight from an old 2.x release without passing through 2.55, which may not read the TSDB correctly."
+   ],
+   "quiz": [
+    {
+     "q": "After enabling the OTLP receiver, service.name shows up only in target_info, not on your metrics. What fixes it?",
+     "options": [
+      "Add service.name to otlp.promote_resource_attributes",
+      "Enable --enable-feature=utf8-names",
+      "Use a ServiceMonitor",
+      "Set translation_strategy: NoTranslation"
+     ],
+     "answer": 0,
+     "explain": "Resource attributes stay in target_info unless promoted to labels on each series."
+    }
+   ],
+   "docs": "https://prometheus.io/docs/prometheus/latest/migration/",
+   "requires": [
+    "prometheus.label-matchers",
+    "prometheus.scrape-config",
+    "prometheus.cardinality-scaling"
+   ]
+  }
+ ]
+}

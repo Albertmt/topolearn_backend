@@ -1,0 +1,1217 @@
+{
+ "tool": {
+  "id": "django",
+  "name": "Django",
+  "category": "framework",
+  "tagline": "Batteries-included Python web framework: ORM, admin, auth, forms and templates",
+  "description": "Django is a full-stack Python web framework that ships with an ORM and migrations, an automatic admin, authentication, forms, templates, caching and security protections out of the box. Its conventions let teams build database-backed sites and APIs quickly and keep them maintainable for years. It powers sites such as Instagram and countless business applications.",
+  "icon": "Dj",
+  "color": "#0C4B33",
+  "official_docs": "https://docs.djangoproject.com/en/6.0/",
+  "version": "6.0",
+  "aliases": [
+   "django framework",
+   "django orm",
+   "python django",
+   "django admin"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 2
+   },
+   {
+    "tool": "sql",
+    "level": 1
+   },
+   {
+    "tool": "html",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Projects, URLs and templates"
+  },
+  {
+   "id": "models",
+   "name": "Models and the ORM"
+  },
+  {
+   "id": "forms-views",
+   "name": "Forms, views and auth"
+  },
+  {
+   "id": "orm",
+   "name": "Querying in depth"
+  },
+  {
+   "id": "app",
+   "name": "Settings and testing"
+  },
+  {
+   "id": "production",
+   "name": "Security and production"
+  },
+  {
+   "id": "internals",
+   "name": "Internals and async"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "django.project-setup",
+   "name": "Projects, apps and manage.py",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Create a project with django-admin, add apps with startapp, register them in INSTALLED_APPS and run the dev server.",
+   "why": "Django's project/app structure and manage.py commands are the frame every other feature lives in.",
+   "body": "Django separates a **project** (the whole site: settings, root URLs, deployment entry points) from **apps** (self-contained features such as `blog` or `accounts`, each with models, views, templates and migrations).\n\n```bash\npython -m pip install django\ndjango-admin startproject mysite .\npython manage.py startapp blog\npython manage.py runserver\n```\n\nThe trailing `.` puts `manage.py` in the current directory. The project package `mysite/` contains:\n\n- `settings.py`: configuration, including `INSTALLED_APPS` and `DATABASES` (SQLite by default)\n- `urls.py`: the root URL configuration\n- `wsgi.py` and `asgi.py`: entry points for production servers\n\n`startapp blog` creates `models.py`, `views.py`, `admin.py`, `apps.py`, `tests.py` and a `migrations/` package. Django ignores the app until you add `\"blog\"` to `INSTALLED_APPS`; forgetting this is the classic reason models or templates are \"not found\".\n\n`manage.py` is a wrapper around `django-admin` that sets `DJANGO_SETTINGS_MODULE` for your project. You'll use it constantly: `runserver`, `makemigrations`, `migrate`, `createsuperuser`, `shell` (which auto-imports your models since Django 5.2), `test` and `check`.\n\n`runserver` reloads on code changes and serves on `http://127.0.0.1:8000/`. Like Flask's, it is for development only. Django 6.0 requires Python 3.12 or newer.\n\nDesign apps around one responsibility each; small focused apps are easier to test and reuse than one giant app.",
+   "code": "# terminal\npython -m venv .venv && source .venv/bin/activate\npython -m pip install \"django~=6.0\"\ndjango-admin startproject mysite .\npython manage.py startapp blog\n\n# mysite/settings.py  (excerpt)\nINSTALLED_APPS = [\n    \"django.contrib.admin\",\n    \"django.contrib.auth\",\n    \"django.contrib.contenttypes\",\n    \"django.contrib.sessions\",\n    \"django.contrib.messages\",\n    \"django.contrib.staticfiles\",\n    \"blog\",                       # your app must be listed here\n]\n\n# back in the terminal\npython manage.py migrate          # create tables for the built-in apps\npython manage.py runserver        # http://127.0.0.1:8000/",
+   "code_lang": "bash",
+   "takeaways": [
+    "A project holds settings and root URLs; apps hold features",
+    "Add every app to INSTALLED_APPS",
+    "manage.py runs commands with your project's settings"
+   ],
+   "pitfalls": [
+    "Creating an app but forgetting to add it to INSTALLED_APPS."
+   ],
+   "quiz": [
+    {
+     "q": "You created models in a new app but makemigrations says \"No changes detected\". What is the most likely cause?",
+     "options": [
+      "The database is not running",
+      "The app is not in INSTALLED_APPS",
+      "You need to restart runserver",
+      "Models must be in settings.py"
+     ],
+     "answer": 1,
+     "explain": "Django only looks for models, migrations and templates in installed apps."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/intro/tutorial01/",
+   "requires": [
+    "python.modules-imports",
+    "python.venv-pip"
+   ]
+  },
+  {
+   "id": "django.urls-views",
+   "name": "URLconfs and function views",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Map URL patterns to view functions with path(), capture values with converters, name routes and reverse them.",
+   "why": "Views are where requests become responses, and named URLs keep links correct as the site grows.",
+   "body": "A **view** is a function that takes an `HttpRequest` and returns an `HttpResponse`. The **URLconf** maps paths to views:\n\n```python\nurlpatterns = [path(\"posts/<int:pk>/\", views.post_detail, name=\"post-detail\")]\n```\n\nPath converters (`str`, `int`, `slug`, `uuid`, `path`) capture and convert parts of the URL into keyword arguments. Patterns have no leading slash and conventionally end with one; `re_path` is available for regular expressions.\n\nEach app usually has its own `urls.py`, included from the project's: `path(\"blog/\", include(\"blog.urls\"))`. Setting `app_name = \"blog\"` in the app's URLconf creates a **namespace**, so names are referenced as `\"blog:post-detail\"`.\n\n**Never hard-code URLs.** Build them from names: `reverse(\"blog:post-detail\", args=[3])` in Python, `{% url 'blog:post-detail' post.pk %}` in templates, and `redirect(\"blog:post-detail\", pk=3)` as a shortcut.\n\nInside a view:\n\n- `request.method`, `request.GET` and `request.POST` (QueryDicts), `request.headers`, `request.user`\n- return `HttpResponse`, `JsonResponse`, `redirect(...)` or `render(...)`\n- `get_object_or_404(Post, pk=pk)` turns a missing row into a 404\n- raise `Http404` yourself for other not-found cases\n\nDecorators such as `@require_POST` or `@require_http_methods([\"GET\", \"POST\"])` restrict methods and return 405 for others.",
+   "code": "# blog/urls.py\nfrom django.urls import path\nfrom . import views\n\napp_name = \"blog\"\nurlpatterns = [\n    path(\"\", views.post_list, name=\"list\"),\n    path(\"posts/<int:pk>/\", views.post_detail, name=\"detail\"),\n]\n\n# blog/views.py\nfrom django.http import JsonResponse\nfrom django.shortcuts import get_object_or_404\nfrom django.urls import reverse\nfrom .models import Post\n\ndef post_list(request):\n    q = request.GET.get(\"q\", \"\")\n    posts = Post.objects.filter(title__icontains=q)\n    return JsonResponse({\"results\": [{\"title\": p.title, \"url\": reverse(\"blog:detail\", args=[p.pk])} for p in posts]})\n\ndef post_detail(request, pk):\n    post = get_object_or_404(Post, pk=pk)       # 404 if missing\n    return JsonResponse({\"title\": post.title})\n# mysite/urls.py:  path(\"blog/\", include(\"blog.urls\"))  ->  /blog/posts/3/",
+   "code_lang": "python",
+   "takeaways": [
+    "path(\"route/<int:pk>/\", view, name=...) maps URLs to views",
+    "include() + app_name give each app its own namespaced URLconf",
+    "Build URLs with reverse() and {% url %}, never by hand"
+   ],
+   "pitfalls": [
+    "Starting a pattern with a slash (\"/posts/\"), which never matches."
+   ],
+   "quiz": [
+    {
+     "q": "With app_name = \"blog\" and path(\"posts/<int:pk>/\", ..., name=\"detail\") included under \"blog/\", what does reverse(\"blog:detail\", args=[7]) return?",
+     "options": [
+      "/blog/detail/7/",
+      "/posts/7/",
+      "/blog/posts/7/",
+      "blog:detail/7"
+     ],
+     "answer": 2,
+     "explain": "reverse combines the include prefix with the named pattern and fills in the argument."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/http/urls/",
+   "requires": [
+    "django.project-setup"
+   ]
+  },
+  {
+   "id": "django.templates",
+   "name": "Templates and the template language",
+   "module": "basics",
+   "level": 1,
+   "minutes": 14,
+   "summary": "Render HTML with render(), use variables, tags, filters and template inheritance, and organize templates per app.",
+   "why": "Server-rendered HTML is Django's default output, and the template language keeps it safe and reusable.",
+   "body": "`render(request, \"blog/post_list.html\", {\"posts\": posts})` loads a template, fills it with the **context** dict and returns an `HttpResponse`.\n\nWith `APP_DIRS: True` (the default in new projects), Django looks in each installed app's `templates/` folder. Put templates in `blog/templates/blog/...` and refer to them as `\"blog/...\"`; the extra folder namespaces them, because all apps share one search path.\n\nThe Django Template Language (DTL):\n\n- `{{ post.title }}`: variables; dots look up dict keys, attributes, methods without arguments and list indexes\n- `{{ post.created|date:\"Y-m-d\" }}`, `|default:\"none\"`, `|truncatewords:30`, `|length`, `|linebreaks`: filters\n- `{% for p in posts %}...{% empty %}No posts{% endfor %}` and `{% if %}...{% elif %}...{% endif %}`\n- `{% url 'blog:detail' p.pk %}` for links, `{% csrf_token %}` inside POST forms\n- `{% extends \"base.html\" %}` and `{% block content %}` for layouts; `{% include \"partials/card.html\" %}` for snippets\n- Django 6.0 adds **template partials**: `{% partialdef card %}...{% endpartialdef %}` defines a named fragment, `{% partial card %}` reuses it, and `render(request, \"page.html#card\", ...)` renders just that fragment, handy for htmx.\n\nOutput is **autoescaped**; `|safe` and `mark_safe` turn it off, so use them only on trusted HTML.\n\nThe DTL deliberately can't call functions with arguments or run arbitrary Python: prepare data in the view. For more power, Django also supports Jinja as a template backend.",
+   "code": "<!-- blog/templates/blog/base.html -->\n<!doctype html>\n<title>{% block title %}My blog{% endblock %}</title>\n<main>{% block content %}{% endblock %}</main>\n\n<!-- blog/templates/blog/post_list.html -->\n{% extends \"blog/base.html\" %}\n{% block title %}Posts | {{ block.super }}{% endblock %}\n{% block content %}\n  <ul>\n  {% for post in posts %}\n    <li>\n      <a href=\"{% url 'blog:detail' post.pk %}\">{{ post.title }}</a>\n      by {{ post.author.name|default:\"anonymous\" }}, {{ post.created|date:\"M j, Y\" }}\n      {% if forloop.first %}<strong>newest</strong>{% endif %}\n    </li>\n  {% empty %}\n    <li>No posts yet.</li>\n  {% endfor %}\n  </ul>\n{% endblock %}\n\n<!-- view: return render(request, \"blog/post_list.html\", {\"posts\": Post.objects.all()}) -->",
+   "code_lang": "html",
+   "takeaways": [
+    "render(request, template, context) returns an HttpResponse",
+    "Namespace templates as app/templates/app/name.html",
+    "Tags {% %}, variables {{ }}, filters |name:arg; output is autoescaped"
+   ],
+   "pitfalls": [
+    "Putting templates directly in app/templates/ so two apps' list.html collide."
+   ],
+   "quiz": [
+    {
+     "q": "Why put blog templates in blog/templates/blog/ rather than blog/templates/?",
+     "options": [
+      "It enables autoescaping",
+      "It makes templates load faster",
+      "Django requires the duplicate name",
+      "All apps share one template search path, so the extra folder prevents name clashes"
+     ],
+     "answer": 3,
+     "explain": "Templates from every app are searched together; the app-named folder namespaces them."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/templates/",
+   "requires": [
+    "django.urls-views"
+   ]
+  },
+  {
+   "id": "django.static-files",
+   "name": "Static files",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Serve CSS, JavaScript and images with the staticfiles app, the {% static %} tag and collectstatic for production.",
+   "why": "Every site has assets, and Django's static pipeline handles them differently in development and production.",
+   "body": "**Static files** are assets shipped with your code: CSS, JavaScript, images. The `django.contrib.staticfiles` app (installed by default) finds them in:\n\n- each app's `static/` folder, namespaced like templates: `blog/static/blog/site.css`\n- extra directories listed in `STATICFILES_DIRS`, for project-wide assets\n\nIn templates, load the tag library and build URLs with `{% static %}`:\n\n```html\n{% load static %}\n<link rel=\"stylesheet\" href=\"{% static 'blog/site.css' %}\">\n```\n\nThe URL is based on `STATIC_URL` (default `\"static/\"`). In development, `runserver` serves static files automatically when `DEBUG=True`.\n\nIn **production**, Django does not serve them. Run `python manage.py collectstatic`, which copies everything into `STATIC_ROOT`, and let something efficient serve that folder: Nginx, a CDN, or the WhiteNoise package inside your app.\n\nConfigure `ManifestStaticFilesStorage` (in `STORAGES[\"staticfiles\"]`) to give files hashed names like `site.3f2a1c.css`, so browsers can cache them forever and still get new versions after a deploy. That only works if every reference uses `{% static %}`.\n\n**Media files** are different: files uploaded by users. They use `MEDIA_URL` and `MEDIA_ROOT` (or a cloud storage backend) and must never be mixed with static files, because user uploads are untrusted.",
+   "code": "# mysite/settings.py\nfrom pathlib import Path\nBASE_DIR = Path(__file__).resolve().parent.parent\n\nSTATIC_URL = \"static/\"\nSTATICFILES_DIRS = [BASE_DIR / \"assets\"]          # project-wide files\nSTATIC_ROOT = BASE_DIR / \"staticfiles\"            # collectstatic target\nSTORAGES = {\n    \"default\": {\"BACKEND\": \"django.core.files.storage.FileSystemStorage\"},\n    \"staticfiles\": {\"BACKEND\": \"django.contrib.staticfiles.storage.ManifestStaticFilesStorage\"},\n}\nMEDIA_URL = \"media/\"                              # user uploads, kept separate\nMEDIA_ROOT = BASE_DIR / \"media\"\n\n# template:\n#   {% load static %}\n#   <img src=\"{% static 'blog/logo.png' %}\" alt=\"logo\">\n# deploy:\n#   python manage.py collectstatic --noinput",
+   "code_lang": "python",
+   "takeaways": [
+    "App assets live in app/static/app/; link them with {% static %}",
+    "collectstatic gathers files into STATIC_ROOT for the web server or CDN",
+    "Media (user uploads) are separate from static files"
+   ],
+   "pitfalls": [
+    "Hard-coding /static/... paths, which breaks hashed filenames and CDN URLs."
+   ],
+   "quiz": [
+    {
+     "q": "What does python manage.py collectstatic do?",
+     "options": [
+      "Copies all static files into STATIC_ROOT",
+      "Minifies CSS and JavaScript",
+      "Uploads user media to the CDN",
+      "Starts a static file server"
+     ],
+     "answer": 0,
+     "explain": "collectstatic gathers files from apps and STATICFILES_DIRS into one folder for production serving."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/howto/static-files/",
+   "requires": [
+    "django.templates"
+   ]
+  },
+  {
+   "id": "django.models",
+   "name": "Defining models",
+   "module": "models",
+   "level": 1,
+   "minutes": 14,
+   "summary": "Describe database tables as Python classes with typed fields, options like null, blank, default and choices, and __str__.",
+   "why": "Models are the single source of truth for your data; the ORM, admin, forms and migrations all derive from them.",
+   "body": "A **model** is a class subclassing `models.Model`; each class attribute that is a field becomes a column:\n\n- text: `CharField(max_length=200)`, `TextField()`, `SlugField()`, `EmailField()`, `URLField()`\n- numbers: `IntegerField`, `PositiveIntegerField`, `DecimalField(max_digits=8, decimal_places=2)` for money, `FloatField`\n- others: `BooleanField`, `DateField`, `DateTimeField`, `UUIDField`, `JSONField`, `FileField`, `ImageField`\n\nEvery model gets an automatic primary key `id`, a 64-bit `BigAutoField` by default in Django 6.0.\n\nCommon field options:\n\n- `null=True`: the database column allows NULL\n- `blank=True`: forms and validation allow an empty value\n- `default=...`: Python-side default; `db_default=...` sets it in the database\n- `unique=True`, `db_index=True`, `verbose_name`, `help_text`\n- `choices=`: limit values, usually with a `TextChoices` or `IntegerChoices` enum. Django adds `get_<field>_display()` for the label.\n\n`null` and `blank` are different: one is about the database, the other about validation. For text fields, prefer `blank=True` with an empty string over `null=True`, so there is only one \"empty\" value.\n\n`DateTimeField(auto_now_add=True)` sets the creation time once; `auto_now=True` updates on every save.\n\nAlways define `__str__`, since it is used in the admin, the shell and error messages. Model options go in an inner `class Meta`, such as `ordering`, `verbose_name_plural`, indexes and constraints.",
+   "code": "# blog/models.py\nfrom django.db import models\n\nclass Author(models.Model):\n    name = models.CharField(max_length=100)\n    email = models.EmailField(unique=True)\n\n    def __str__(self):\n        return self.name\n\nclass Post(models.Model):\n    class Status(models.TextChoices):\n        DRAFT = \"draft\", \"Draft\"\n        PUBLISHED = \"pub\", \"Published\"\n\n    title = models.CharField(max_length=200)\n    slug = models.SlugField(unique=True)\n    body = models.TextField(blank=True)\n    status = models.CharField(max_length=5, choices=Status, default=Status.DRAFT)\n    views = models.PositiveIntegerField(default=0)\n    created = models.DateTimeField(auto_now_add=True)\n    class Meta:\n        ordering = [\"-created\"]\n    def __str__(self):\n        return self.title      # post.get_status_display() -> \"Published\"",
+   "code_lang": "python",
+   "takeaways": [
+    "Subclass models.Model; field attributes become columns",
+    "null is about the database, blank about validation",
+    "Use TextChoices/IntegerChoices for fixed sets of values",
+    "Always define __str__"
+   ],
+   "pitfalls": [
+    "Using null=True on CharField/TextField, giving two kinds of empty: NULL and \"\"."
+   ],
+   "quiz": [
+    {
+     "q": "A form should allow leaving a CharField empty. What do you set?",
+     "options": [
+      "null=True",
+      "blank=True",
+      "default=None",
+      "required=False on the model"
+     ],
+     "answer": 1,
+     "explain": "blank controls validation (forms and full_clean); null only affects the database column."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/db/models/",
+   "requires": [
+    "django.project-setup",
+    "python.classes",
+    "sql.create-table"
+   ]
+  },
+  {
+   "id": "django.migrations",
+   "name": "Migrations",
+   "module": "models",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Turn model changes into versioned migration files with makemigrations and apply them with migrate.",
+   "why": "Migrations keep every developer's and server's database schema in sync with the code.",
+   "body": "Django never changes your database silently. When models change, you run two commands:\n\n1. `python manage.py makemigrations`: compares models to the state recorded in existing migration files and writes a new file such as `blog/migrations/0002_post_views.py` with operations like `AddField`.\n2. `python manage.py migrate`: applies unapplied migrations to the database and records them in the `django_migrations` table.\n\nMigration files are **code**: commit them to version control with the model change, review them, and deploy them together. Every environment then reaches the same schema by running `migrate`.\n\nUseful commands:\n\n- `showmigrations`: which migrations are applied\n- `sqlmigrate blog 0002`: the SQL a migration will run, which is great for reviewing locking risks\n- `migrate blog 0001`: migrate backwards to an earlier state (if operations are reversible)\n- `makemigrations --check --dry-run`: fails in CI if someone changed models without creating migrations\n\nWhen adding a non-nullable field to a table with rows, `makemigrations` asks for a one-off default, or you add `default=` or `null=True` to the field.\n\nRules of thumb:\n\n- never edit a migration that has already been applied elsewhere; create a new one\n- don't delete migration files from a deployed app\n- when two branches both add migrations, `makemigrations --merge` creates a merge migration\n\nMigrations also capture non-schema changes such as `choices`, so small model edits create migrations too; that's expected.",
+   "code": "# 1. change the model (blog/models.py)\n#        views = models.PositiveIntegerField(default=0)\n\n$ python manage.py makemigrations blog\nMigrations for 'blog':\n  blog/migrations/0002_post_views.py\n    + Add field views to post\n\n$ python manage.py sqlmigrate blog 0002          # review the SQL\n$ python manage.py migrate\nApplying blog.0002_post_views... OK\n\n$ python manage.py showmigrations blog\nblog\n [X] 0001_initial\n [X] 0002_post_views\n\n# CI: fail if models and migrations are out of sync\n$ python manage.py makemigrations --check --dry-run",
+   "code_lang": "bash",
+   "takeaways": [
+    "makemigrations writes migration files; migrate applies them",
+    "Commit migrations with the model change",
+    "Never edit migrations that already ran elsewhere"
+   ],
+   "pitfalls": [
+    "Changing models and forgetting makemigrations, so production lacks the column."
+   ],
+   "quiz": [
+    {
+     "q": "You added a field to a model. What must happen before the database has the new column?",
+     "options": [
+      "Run collectstatic",
+      "Restart the server",
+      "Run makemigrations, then migrate",
+      "Run migrate only"
+     ],
+     "answer": 2,
+     "explain": "makemigrations records the change as a migration file; migrate applies it to the database."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/migrations/",
+   "requires": [
+    "django.models"
+   ]
+  },
+  {
+   "id": "django.queryset-basics",
+   "name": "Querying with QuerySets",
+   "module": "models",
+   "level": 1,
+   "minutes": 14,
+   "summary": "Create, read, update and delete rows with the ORM: filter, exclude, get, order_by, slicing and field lookups.",
+   "why": "Almost every view reads or writes data, and QuerySets are how Django does it safely and readably.",
+   "body": "Each model has a **manager**, `objects`, that produces **QuerySets**: lazy, chainable descriptions of a query.\n\nReading:\n\n- `Post.objects.all()`, `.filter(status=\"pub\")`, `.exclude(views=0)`\n- `.get(pk=1)` returns exactly one object or raises `Post.DoesNotExist` / `MultipleObjectsReturned`\n- `.order_by(\"-created\", \"title\")`, `.first()`, `.last()`, `.count()`, `.exists()`\n- slicing `[:10]` becomes `LIMIT 10`; `[10:20]` adds `OFFSET`\n\n**Field lookups** use double underscores: `title__icontains=\"django\"`, `views__gte=100`, `created__year=2025`, `status__in=[\"pub\", \"draft\"]`, `body__isnull=True`, `slug__startswith=\"how\"`.\n\nSeveral keyword arguments in one `filter()` are combined with AND.\n\nWriting:\n\n- `Post.objects.create(title=..., ...)` inserts and returns the object\n- change attributes then `post.save()`; `save(update_fields=[\"title\"])` updates only those columns\n- `Post.objects.filter(status=\"draft\").update(status=\"pub\")` runs one UPDATE without loading objects\n- `post.delete()` or `queryset.delete()`\n- `get_or_create(...)` and `update_or_create(...)` for idempotent writes\n\n`values(\"title\")` returns dicts and `values_list(\"title\", flat=True)` plain values, which is cheaper when you don't need model instances.\n\nQuerySets are **lazy**: building one runs no SQL. The query runs when you iterate, slice with a step, call `len()`, `list()`, `bool()` or print it. The ORM always passes values as query parameters, so filters are safe from SQL injection.",
+   "code": "from blog.models import Post\n\npost = Post.objects.create(title=\"Hello Django\", slug=\"hello\", status=\"pub\")\n\npublished = Post.objects.filter(status=\"pub\").exclude(views=0)   # no SQL yet\nrecent = published.order_by(\"-created\")[:5]                     # still lazy\nfor p in recent:                                                 # SQL runs here\n    print(p.title)\n\nPost.objects.filter(title__icontains=\"django\", created__year=2025).count()\nPost.objects.filter(status__in=[\"pub\", \"draft\"]).exists()        # True\n\ntry:\n    Post.objects.get(slug=\"nope\")\nexcept Post.DoesNotExist:\n    print(\"not found\")\n\npost.title = \"Hello, Django\"\npost.save(update_fields=[\"title\"])\nPost.objects.filter(status=\"draft\").update(status=\"pub\")          # one UPDATE\ntitles = list(Post.objects.values_list(\"title\", flat=True))      # ['Hello, Django', ...]\nprint(Post.objects.filter(status=\"pub\").query)   # SELECT ... WHERE \"blog_post\".\"status\" = pub ...",
+   "code_lang": "python",
+   "takeaways": [
+    "filter/exclude/order_by chain lazily; SQL runs on iteration or evaluation",
+    "field__lookup=value expresses conditions (icontains, gte, in, year...)",
+    "get() raises DoesNotExist; update()/delete() work on whole QuerySets"
+   ],
+   "pitfalls": [
+    "Using get() for something that may be missing without handling DoesNotExist (or get_object_or_404 in views)."
+   ],
+   "quiz": [
+    {
+     "q": "When does Post.objects.filter(status=\"pub\").order_by(\"-created\") hit the database?",
+     "options": [
+      "When the request ends",
+      "Only when save() is called",
+      "Immediately when the line runs",
+      "When the QuerySet is evaluated, e.g. iterated or converted to a list"
+     ],
+     "answer": 3,
+     "explain": "QuerySets are lazy; building and chaining them doesn't run SQL until evaluation."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/db/queries/",
+   "requires": [
+    "django.models",
+    "sql.where"
+   ]
+  },
+  {
+   "id": "django.relationships",
+   "name": "Relationships: ForeignKey and ManyToMany",
+   "module": "models",
+   "level": 1,
+   "minutes": 14,
+   "summary": "Link models with ForeignKey, ManyToManyField and OneToOneField, choose on_delete, and query across relationships.",
+   "why": "Real data is relational, and following relationships in both directions is everyday ORM work.",
+   "body": "Three field types connect models:\n\n- **`ForeignKey`** (many-to-one): many posts belong to one author. `author = models.ForeignKey(Author, on_delete=models.CASCADE, related_name=\"posts\")`\n- **`ManyToManyField`**: posts have many tags and tags many posts. Django creates the join table for you; use `through=` for a custom one with extra columns.\n- **`OneToOneField`**: one-to-one extension, such as a `Profile` for each `User`.\n\n`on_delete` is required on `ForeignKey` and decides what happens when the referenced row is deleted:\n\n- `CASCADE`: delete dependent rows too\n- `PROTECT` / `RESTRICT`: refuse the deletion with an error\n- `SET_NULL`: set the column to NULL (requires `null=True`)\n- `SET_DEFAULT`, `DO_NOTHING`\n\nNavigating:\n\n- forward: `post.author` (one query the first time, then cached)\n- reverse: `author.posts.all()`, named by `related_name` (without it, `author.post_set`)\n- many-to-many: `post.tags.add(t)`, `.remove(t)`, `.set([...])`, `.clear()`, and `post.tags.all()`\n\n**Query across relationships** with double underscores, in both directions:\n\n```python\nPost.objects.filter(author__name=\"Ann\")\nAuthor.objects.filter(posts__tags__name=\"django\").distinct()\n```\n\nFilters across multi-valued relationships can return duplicates, hence `.distinct()`.\n\nAlways set `related_name`: it makes reverse access readable and avoids clashes when two foreign keys point at the same model.",
+   "code": "from django.db import models\n\nclass Tag(models.Model):\n    name = models.CharField(max_length=50, unique=True)\n\nclass Post(models.Model):\n    title = models.CharField(max_length=200)\n    author = models.ForeignKey(\"Author\", on_delete=models.CASCADE, related_name=\"posts\")\n    tags = models.ManyToManyField(Tag, blank=True, related_name=\"posts\")\n\nclass Comment(models.Model):\n    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name=\"comments\")\n    text = models.TextField()\n\n# usage\nann = Author.objects.create(name=\"Ann\")\npost = Post.objects.create(title=\"Hi\", author=ann)\npost.tags.add(Tag.objects.create(name=\"django\"))\nprint(post.author.name, ann.posts.count())          # Ann 1\nprint(Post.objects.filter(author__name=\"Ann\", tags__name=\"django\").count())   # 1\nprint(Author.objects.filter(posts__comments__isnull=True).distinct().count()) # 1",
+   "code_lang": "python",
+   "takeaways": [
+    "ForeignKey = many-to-one, ManyToManyField = many-to-many, OneToOneField = one-to-one",
+    "on_delete decides what deleting the parent does (CASCADE, PROTECT, SET_NULL...)",
+    "related_name names the reverse accessor; __ spans relationships in queries"
+   ],
+   "pitfalls": [
+    "SET_NULL without null=True on the field, which fails the system check."
+   ],
+   "quiz": [
+    {
+     "q": "Post has author = ForeignKey(Author, related_name=\"posts\", on_delete=PROTECT). What happens when you delete an author with posts?",
+     "options": [
+      "The deletion is refused with ProtectedError",
+      "The posts' author becomes NULL",
+      "Nothing, the author is soft-deleted",
+      "The posts are deleted too"
+     ],
+     "answer": 0,
+     "explain": "PROTECT blocks deleting a referenced object, raising ProtectedError."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/ref/models/fields/#foreignkey",
+   "requires": [
+    "django.queryset-basics"
+   ]
+  },
+  {
+   "id": "django.admin",
+   "name": "The Django admin",
+   "module": "models",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Register models in the admin and customize lists, filters, search, inlines and actions with ModelAdmin.",
+   "why": "The admin gives you a production-quality back office for your data with a few lines of code.",
+   "body": "The **admin** (`django.contrib.admin`) builds a full CRUD interface from your models. Create an account with `python manage.py createsuperuser`, then visit `/admin/`.\n\nRegister models in the app's `admin.py`. A plain `admin.site.register(Post)` works; a `ModelAdmin` class customizes it:\n\n- `list_display`: columns on the change list, including methods and related fields\n- `list_filter`, `search_fields`, `date_hierarchy`: sidebar filters, a search box, date drill-down\n- `list_editable`, `ordering`, `list_per_page`, `list_select_related`\n- `prepopulated_fields = {\"slug\": [\"title\"]}`: fills the slug as you type\n- `readonly_fields`, `fields` or `fieldsets`: shape the edit form\n- `autocomplete_fields` or `raw_id_fields`: usable selects for foreign keys with many rows\n- `inlines`: edit related objects (comments) on the parent page with `TabularInline` or `StackedInline`\n- `actions`: functions applied to selected rows, such as \"publish selected\"\n\n`search_fields = [\"title\", \"author__name\"]` searches across relationships; prefixes like `\"^title\"` or `\"=slug\"` change the matching.\n\nAccess is controlled by Django's permissions: staff users see only the models they have `view`, `add`, `change` or `delete` permission for.\n\nThe admin is meant for trusted staff, not as your public site's interface. When you need complex workflows for end users, build normal views.",
+   "code": "# blog/admin.py\nfrom django.contrib import admin\nfrom .models import Comment, Post\n\nclass CommentInline(admin.TabularInline):\n    model = Comment\n    extra = 0\n\n@admin.register(Post)\nclass PostAdmin(admin.ModelAdmin):\n    list_display = [\"title\", \"author\", \"status\", \"views\", \"created\"]\n    list_filter = [\"status\", \"created\"]\n    search_fields = [\"title\", \"author__name\"]\n    prepopulated_fields = {\"slug\": [\"title\"]}\n    autocomplete_fields = [\"author\"]          # AuthorAdmin needs search_fields\n    list_select_related = [\"author\"]\n    date_hierarchy = \"created\"\n    inlines = [CommentInline]\n    actions = [\"publish\"]\n\n    @admin.action(description=\"Publish selected posts\")\n    def publish(self, request, queryset):\n        updated = queryset.update(status=Post.Status.PUBLISHED)\n        self.message_user(request, f\"{updated} posts published.\")",
+   "code_lang": "python",
+   "takeaways": [
+    "createsuperuser, then register models in admin.py",
+    "ModelAdmin options shape lists, search, filters and forms",
+    "Inlines edit related rows; actions process selections",
+    "The admin is for staff, not end users"
+   ],
+   "pitfalls": [
+    "Using autocomplete_fields without search_fields on the related model's admin, which fails the system check."
+   ],
+   "quiz": [
+    {
+     "q": "Which ModelAdmin option lets staff edit a post's comments on the post's page?",
+     "options": [
+      "list_display",
+      "inlines",
+      "list_editable",
+      "fieldsets"
+     ],
+     "answer": 1,
+     "explain": "Inlines embed forms for related objects within the parent object's change page."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/ref/contrib/admin/",
+   "requires": [
+    "django.relationships"
+   ]
+  },
+  {
+   "id": "django.forms",
+   "name": "Forms and validation",
+   "module": "forms-views",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Define Form classes, bind them to request.POST, validate with is_valid and clean methods, and render errors.",
+   "why": "Forms are where untrusted input enters your app; Django validates, converts and re-displays it for you.",
+   "body": "A **form class** declares fields, each with a type, widget and validation:\n\n```python\nclass ContactForm(forms.Form):\n    email = forms.EmailField()\n    message = forms.CharField(widget=forms.Textarea, max_length=2000)\n```\n\nThe standard view pattern:\n\n1. `GET`: create an **unbound** form, `ContactForm()`, and render it.\n2. `POST`: create a **bound** form, `ContactForm(request.POST)`, and call `form.is_valid()`.\n3. If valid, use `form.cleaned_data`, which holds converted Python values (`int`, `date`, ...), then redirect.\n4. If invalid, re-render the same bound form: it remembers the input and carries `form.errors`.\n\nCustom validation:\n\n- `clean_<field>(self)` validates one field and returns the cleaned value\n- `clean(self)` validates combinations of fields; use `self.add_error(\"field\", \"msg\")` or raise `ValidationError` for a form-wide error\n- `validators=[...]` on a field for reusable checks\n\nIn templates, `{{ form }}` renders all fields with labels and errors (as `<div>`s by default). For custom layouts, loop over fields or use `{{ form.email.as_field_group }}` per field, and always include `{% csrf_token %}` in POST forms, or the CSRF middleware rejects the submission with 403.\n\nNever read `request.POST` directly for business logic when a form exists: `cleaned_data` is the validated, typed version. File uploads need `request.FILES` passed as the second argument and `enctype=\"multipart/form-data\"` on the form.",
+   "code": "from django import forms\nfrom django.shortcuts import redirect, render\n\nclass ContactForm(forms.Form):\n    email = forms.EmailField()\n    subject = forms.CharField(max_length=100)\n    message = forms.CharField(widget=forms.Textarea, min_length=10)\n    cc_myself = forms.BooleanField(required=False)\n\n    def clean_subject(self):\n        return self.cleaned_data[\"subject\"].strip().capitalize()\n\n    def clean(self):\n        cleaned = super().clean()\n        if \"http\" in cleaned.get(\"message\", \"\") and not cleaned.get(\"cc_myself\"):\n            self.add_error(\"message\", \"Links are only allowed if you cc yourself.\")\n        return cleaned\n\ndef contact(request):\n    form = ContactForm(request.POST or None)          # bound on POST, unbound on GET\n    if request.method == \"POST\" and form.is_valid():\n        send_message(**form.cleaned_data)              # typed, validated values\n        return redirect(\"contact-thanks\")\n    return render(request, \"contact.html\", {\"form\": form})\n# template: <form method=\"post\">{% csrf_token %}{{ form }}<button>Send</button></form>",
+   "code_lang": "python",
+   "takeaways": [
+    "Unbound form for GET, bound form(request.POST) for POST",
+    "is_valid() fills cleaned_data or errors",
+    "clean_<field>() for one field, clean() for cross-field rules",
+    "Always include {% csrf_token %} in POST forms"
+   ],
+   "pitfalls": [
+    "Rendering a fresh empty form after a failed POST, losing the user's input and the error messages."
+   ],
+   "quiz": [
+    {
+     "q": "After form.is_valid() returns True, where should you read the submitted values from?",
+     "options": [
+      "form.initial",
+      "request.POST",
+      "form.cleaned_data",
+      "form.data"
+     ],
+     "answer": 2,
+     "explain": "cleaned_data contains validated values converted to Python types."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/forms/",
+   "requires": [
+    "django.templates",
+    "django.urls-views"
+   ]
+  },
+  {
+   "id": "django.model-forms",
+   "name": "ModelForms",
+   "module": "forms-views",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Generate forms from models with ModelForm, save them to create or update rows, and list fields explicitly.",
+   "why": "Most forms edit model instances; ModelForm removes the duplication between model and form.",
+   "body": "A **`ModelForm`** builds its fields from a model:\n\n```python\nclass PostForm(forms.ModelForm):\n    class Meta:\n        model = Post\n        fields = [\"title\", \"slug\", \"body\", \"tags\"]\n```\n\nField types, `max_length`, `choices`, `blank` and help text come from the model. Validation runs both the form's checks and the model's (`full_clean`), including `unique` constraints.\n\nSaving:\n\n- `form.save()` inserts a new row or updates the instance you passed in\n- edit an existing object with `PostForm(request.POST, instance=post)`\n- `form.save(commit=False)` returns an unsaved instance so you can set fields that aren't in the form, like `obj.author = request.user`, then call `obj.save()`. With `commit=False` and many-to-many fields, call `form.save_m2m()` afterwards.\n\n**List fields explicitly.** `fields = \"__all__\"` or `exclude = [...]` means any new model field automatically becomes editable by users, a mass-assignment vulnerability waiting to happen (`is_staff`, `price`, `owner`...).\n\nCustomize with `widgets = {\"body\": forms.Textarea(attrs={\"rows\": 10})}`, `labels`, `help_texts`, or by overriding a field declaratively on the form class. Add `clean_<field>` methods as with normal forms.\n\nGeneric views `CreateView` and `UpdateView` use ModelForms automatically, which is why they need only `model` and `fields` to work.",
+   "code": "# blog/forms.py\nfrom django import forms\nfrom .models import Post\n\nclass PostForm(forms.ModelForm):\n    class Meta:\n        model = Post\n        fields = [\"title\", \"slug\", \"body\", \"tags\"]     # explicit, never \"__all__\"\n        widgets = {\"body\": forms.Textarea(attrs={\"rows\": 12})}\n\n# blog/views.py\nfrom django.contrib.auth.decorators import login_required\nfrom django.shortcuts import get_object_or_404, redirect, render\n\n@login_required\ndef post_edit(request, pk=None):\n    post = get_object_or_404(Post, pk=pk) if pk else None\n    form = PostForm(request.POST or None, instance=post)\n    if request.method == \"POST\" and form.is_valid():\n        obj = form.save(commit=False)\n        obj.author = request.user.author       # field not in the form\n        obj.save()\n        form.save_m2m()                        # needed after commit=False\n        return redirect(\"blog:detail\", pk=obj.pk)\n    return render(request, \"blog/post_form.html\", {\"form\": form})",
+   "code_lang": "python",
+   "takeaways": [
+    "ModelForm derives fields and validation from the model",
+    "instance= edits an existing row; save() creates or updates",
+    "save(commit=False) lets you set extra fields; then save_m2m()",
+    "Always list fields explicitly"
+   ],
+   "pitfalls": [
+    "Using fields = \"__all__\", exposing sensitive fields added later."
+   ],
+   "quiz": [
+    {
+     "q": "You call form.save(commit=False), set obj.author and call obj.save(). The form has a ManyToMany field. What else is needed?",
+     "options": [
+      "obj.tags.save()",
+      "form.is_valid() again",
+      "Nothing",
+      "form.save_m2m()"
+     ],
+     "answer": 3,
+     "explain": "Many-to-many data can only be saved after the instance exists, so save_m2m() must be called explicitly."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/forms/modelforms/",
+   "requires": [
+    "django.forms",
+    "django.relationships"
+   ]
+  },
+  {
+   "id": "django.class-based-views",
+   "name": "Generic class-based views",
+   "module": "forms-views",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Use ListView, DetailView, CreateView, UpdateView and DeleteView, customize them by overriding methods, and add mixins.",
+   "why": "Generic views implement the common CRUD patterns so your code only describes what's different.",
+   "body": "**Class-based views** (CBVs) are classes whose `as_view()` produces a view function: `path(\"\", PostListView.as_view(), name=\"list\")`.\n\nDjango's **generic views** cover common pages:\n\n- `TemplateView`: render a template\n- `ListView`: a list of objects with pagination (`paginate_by = 20`); context has `object_list`, `post_list` and `page_obj`\n- `DetailView`: one object by `pk` or `slug` from the URL; 404 if missing\n- `CreateView`, `UpdateView`: a ModelForm; on success redirect to `success_url` or the object's `get_absolute_url()`\n- `DeleteView`: confirm on GET, delete on POST\n- `FormView`, `RedirectView`\n\nDefault templates follow `app/model_suffix.html`, such as `blog/post_list.html`, `blog/post_detail.html` and `blog/post_form.html`.\n\nCustomize by setting attributes or overriding methods:\n\n- `get_queryset()`: restrict the objects, for example only the user's own\n- `get_context_data(**kwargs)`: add extra context; call `super()` first\n- `form_valid(form)`: act before saving, such as setting the author\n\nBehaviors come from **mixins**: `LoginRequiredMixin`, `PermissionRequiredMixin`, `UserPassesTestMixin`. Put them **leftmost** in the bases so their `dispatch` runs first.\n\nUse `reverse_lazy` for `success_url` class attributes, since URLs aren't loaded when the class body runs.\n\nCBVs shine for standard CRUD; for unusual flows, a function view is often clearer.",
+   "code": "# blog/views.py\nfrom django.contrib.auth.mixins import LoginRequiredMixin\nfrom django.urls import reverse_lazy\nfrom django.views.generic import CreateView, DeleteView, DetailView, ListView\nfrom .models import Post\n\nclass PostListView(ListView):\n    model = Post\n    paginate_by = 20                              # template: blog/post_list.html\n    def get_queryset(self):\n        return Post.objects.published().select_related(\"author\")\n\nclass PostDetailView(DetailView):\n    model = Post                                  # URL: <slug:slug>/ -> lookup by slug\nclass PostCreateView(LoginRequiredMixin, CreateView):\n    model = Post\n    fields = [\"title\", \"slug\", \"body\"]            # template: blog/post_form.html\n    def form_valid(self, form):\n        form.instance.author = self.request.user.author\n        return super().form_valid(form)\nclass PostDeleteView(LoginRequiredMixin, DeleteView):\n    model = Post\n    success_url = reverse_lazy(\"blog:list\")\n    def get_queryset(self):                       # only your own posts\n        return Post.objects.filter(author__user=self.request.user)",
+   "code_lang": "python",
+   "takeaways": [
+    "ListView/DetailView/CreateView/UpdateView/DeleteView cover CRUD",
+    "Override get_queryset, get_context_data and form_valid to customize",
+    "Mixins like LoginRequiredMixin go leftmost",
+    "Use reverse_lazy for class-level URLs"
+   ],
+   "pitfalls": [
+    "Putting LoginRequiredMixin after the generic view in the bases, so the check doesn't run first."
+   ],
+   "quiz": [
+    {
+     "q": "Why is success_url = reverse_lazy(\"blog:list\") used instead of reverse() on a class attribute?",
+     "options": [
+      "The URLconf isn't loaded when the class body executes at import time",
+      "reverse_lazy is faster",
+      "reverse() can't handle namespaces",
+      "reverse() is deprecated"
+     ],
+     "answer": 0,
+     "explain": "Class attributes are evaluated at import, before URLs are ready; reverse_lazy defers resolution until used."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/class-based-views/generic-display/",
+   "requires": [
+    "django.model-forms",
+    "django.queryset-basics",
+    "python.inheritance"
+   ]
+  },
+  {
+   "id": "django.auth",
+   "name": "Authentication and permissions",
+   "module": "forms-views",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Log users in and out with Django's auth views, protect views with login_required, and check permissions and groups.",
+   "why": "Almost every app needs accounts, and Django's auth system is secure and complete out of the box.",
+   "body": "`django.contrib.auth` provides users, password hashing, sessions-based login, permissions and groups.\n\n**Login and logout.** Include the built-in views: `path(\"accounts/\", include(\"django.contrib.auth.urls\"))` gives `login`, `logout`, password change and password reset URLs. You supply templates such as `registration/login.html`. Settings `LOGIN_URL`, `LOGIN_REDIRECT_URL` and `LOGOUT_REDIRECT_URL` control redirects. Logging out requires a **POST** (a form with a CSRF token), not a link.\n\nIn views, `request.user` is the current user or an `AnonymousUser`; check `request.user.is_authenticated`. In templates, `{{ user }}` is available.\n\n**Protecting views:**\n\n- `@login_required` (functions) or `LoginRequiredMixin` (classes) redirect anonymous users to `LOGIN_URL?next=...`\n- Django 5.1 added `LoginRequiredMiddleware`, which makes every view require login unless marked `@login_not_required`\n\n**Permissions.** Each model gets `add`, `change`, `delete` and `view` permissions automatically, named like `\"blog.change_post\"`. Check with `user.has_perm(\"blog.change_post\")`, `@permission_required(...)`, or `PermissionRequiredMixin`. Assign permissions to **groups** (\"Editors\") and users to groups. Superusers have all permissions. For per-object rules (\"only the author may edit\"), filter querysets or check ownership in the view.\n\nProgrammatic login: `user = authenticate(request, username=..., password=...)` then `login(request, user)`. Passwords are stored hashed (PBKDF2 by default, Argon2 if configured); never store or compare raw passwords yourself.",
+   "code": "# mysite/urls.py\nfrom django.urls import include, path\nurlpatterns = [path(\"accounts/\", include(\"django.contrib.auth.urls\"))]   # login/, logout/, ...\n\n# settings.py\nLOGIN_URL = \"login\"\nLOGIN_REDIRECT_URL = \"blog:list\"\n\n# blog/views.py\nfrom django.contrib.auth.decorators import login_required, permission_required\nfrom django.core.exceptions import PermissionDenied\nfrom django.shortcuts import get_object_or_404, render\n\n@login_required\ndef dashboard(request):\n    return render(request, \"blog/dashboard.html\", {\"mine\": request.user.author.posts.all()})\n\n@permission_required(\"blog.change_post\", raise_exception=True)    # 403 if missing\ndef moderate(request, pk):\n    post = get_object_or_404(Post, pk=pk)\n    if not (request.user.is_superuser or post.author.user == request.user):\n        raise PermissionDenied\n    ...\n# templates/registration/login.html:  <form method=\"post\">{% csrf_token %}{{ form }}<button>Log in</button></form>\n# logout must be POST: <form method=\"post\" action=\"{% url 'logout' %}\">{% csrf_token %}<button>Log out</button></form>",
+   "code_lang": "python",
+   "takeaways": [
+    "include(\"django.contrib.auth.urls\") gives login, logout and password views",
+    "@login_required / LoginRequiredMixin protect views",
+    "Permissions are app_label.action_model, assigned via groups",
+    "Logout is a POST request"
+   ],
+   "pitfalls": [
+    "Linking to logout with a plain <a href>; since Django 5.0 LogoutView only accepts POST."
+   ],
+   "quiz": [
+    {
+     "q": "What is the permission codename Django creates for editing Post objects in the blog app?",
+     "options": [
+      "blog.edit_post",
+      "blog.change_post",
+      "post.change",
+      "blog.update_post"
+     ],
+     "answer": 1,
+     "explain": "Default permissions are add, change, delete and view, named app_label.action_modelname."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/auth/default/",
+   "requires": [
+    "django.forms",
+    "django.urls-views"
+   ]
+  },
+  {
+   "id": "django.query-expressions",
+   "name": "Q, F, annotate and aggregate",
+   "module": "orm",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Build OR/NOT conditions with Q, reference columns with F, and compute per-row annotations and totals with Count, Sum and Avg.",
+   "why": "Reports, counters and complex filters belong in the database, not in Python loops.",
+   "body": "**Q objects** combine conditions with `|` (OR), `&` (AND) and `~` (NOT):\n\n```python\nPost.objects.filter(Q(status=\"pub\") | Q(author__name=\"Ann\"), ~Q(views=0))\n```\n\n**F expressions** refer to a column's value inside the query:\n\n- compare columns: `filter(updated__gt=F(\"created\"))`\n- update atomically: `Post.objects.filter(pk=pk).update(views=F(\"views\") + 1)` runs `views = views + 1` in SQL, with no race between concurrent requests. Doing `post.views += 1; post.save()` loses increments under load.\n\n**`aggregate()`** summarizes a whole QuerySet into a dict: `Post.objects.aggregate(total=Sum(\"views\"), avg=Avg(\"views\"))` returns `{\"total\": 15, \"avg\": 5.0}`.\n\n**`annotate()`** adds a computed value to each row:\n\n```python\nAuthor.objects.annotate(n=Count(\"posts\")).filter(n__gte=5).order_by(\"-n\")\n```\n\nAnnotations can be filtered and ordered like fields, and **conditional aggregation** counts subsets: `Count(\"posts\", filter=Q(posts__status=\"pub\"))`.\n\n`values(\"field\").annotate(...)` turns into `GROUP BY field`, the ORM's way of grouping: `Post.objects.values(\"author__name\").annotate(total=Sum(\"views\"))`.\n\nDatabase functions (`Lower`, `Coalesce`, `TruncMonth`, `Concat`, ...) and `Case`/`When` work anywhere expressions do. For correlated queries, `Subquery(...)` with `OuterRef(\"pk\")` and `Exists(...)` express \"latest comment per post\" or \"has any unapproved comment\" in a single SQL statement.\n\nBeware combining two multi-valued `Count`s in one annotate: the joins multiply rows. Use `distinct=True` or subqueries.",
+   "code": "from django.db.models import Avg, Count, Exists, F, OuterRef, Q, Sum\nfrom django.db.models.functions import TruncMonth\nfrom blog.models import Author, Comment, Post\n\npopular_or_mine = Post.objects.filter(Q(views__gte=100) | Q(author__name=\"Ann\"), ~Q(status=\"draft\"))\n\nPost.objects.filter(pk=1).update(views=F(\"views\") + 1)       # race-free counter\n\nPost.objects.aggregate(total=Sum(\"views\"), avg=Avg(\"views\"))  # {'total': 15, 'avg': 5.0}\n\nauthors = (Author.objects\n           .annotate(n_posts=Count(\"posts\"),\n                     n_published=Count(\"posts\", filter=Q(posts__status=\"pub\")))\n           .filter(n_posts__gte=1)\n           .order_by(\"-n_posts\"))\n# [(a.name, a.n_posts, a.n_published) for a in authors] -> [('Ann', 2, 1), ('Bo', 1, 1)]\n\nper_author = Post.objects.values(\"author__name\").annotate(total=Sum(\"views\"))  # GROUP BY\nper_month = Post.objects.annotate(m=TruncMonth(\"created\")).values(\"m\").annotate(n=Count(\"id\"))\n\npending = Comment.objects.filter(post=OuterRef(\"pk\"), approved=False)\nneeds_review = Post.objects.filter(Exists(pending))",
+   "code_lang": "python",
+   "takeaways": [
+    "Q objects build OR/NOT conditions; F references columns inside SQL",
+    "update(x=F(\"x\") + 1) avoids lost updates",
+    "aggregate() returns one dict; annotate() adds a value per row",
+    "values(...).annotate(...) is GROUP BY"
+   ],
+   "pitfalls": [
+    "Incrementing counters in Python with obj.x += 1; obj.save(), which loses concurrent updates."
+   ],
+   "quiz": [
+    {
+     "q": "What does Author.objects.annotate(n=Count(\"posts\")) return?",
+     "options": [
+      "A list of integers",
+      "A dict with the total number of posts",
+      "Authors, each with an extra attribute n holding their post count",
+      "Only authors with posts"
+     ],
+     "answer": 2,
+     "explain": "annotate adds a computed field per object; aggregate would return a single dict."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/db/aggregation/",
+   "requires": [
+    "django.relationships",
+    "sql.group-by",
+    "sql.aggregate-functions"
+   ]
+  },
+  {
+   "id": "django.related-queries",
+   "name": "Avoiding N+1 queries",
+   "module": "orm",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Load related objects efficiently with select_related and prefetch_related, and detect query explosions in tests.",
+   "why": "The N+1 query problem is the most common Django performance bug, and it hides in innocent-looking templates.",
+   "body": "Accessing a relationship on each object of a list triggers one query per object. Listing 50 posts with `{{ post.author.name }}` runs 1 query for the posts plus **50** for the authors: the **N+1 problem**.\n\nTwo tools fix it:\n\n- **`select_related(\"author\")`** follows ForeignKey and OneToOne relations with a SQL **JOIN**, so posts and authors arrive in one query. Chain through relations: `select_related(\"author__user\")`.\n- **`prefetch_related(\"tags\", \"comments\")`** handles many-to-many and reverse foreign keys: it runs one extra query per relation (`WHERE post_id IN (...)`) and joins the results in Python.\n\n`Prefetch(\"comments\", queryset=Comment.objects.filter(approved=True), to_attr=\"approved_comments\")` customizes what is prefetched and stores it as a list attribute.\n\nA prefetched relation is used only if you access it with `.all()`. Calling `.filter()` on it afterwards runs a new query, so put the filter in a `Prefetch` instead.\n\nRelated tools:\n\n- `only(\"title\", \"slug\")` and `defer(\"body\")` skip loading heavy columns\n- `.iterator()` streams huge result sets instead of caching them all\n- `bulk_create` and `bulk_update` write many rows in a few queries\n- `count()` and `exists()` beat `len(qs)` and `if qs:` when you don't need the objects\n\n**Detect** problems with `django-debug-toolbar` in development and `self.assertNumQueries(n)` in tests, which fails when a change sneaks in extra queries. Put `select_related`/`prefetch_related` in the view's queryset (or a manager method), not scattered in templates.",
+   "code": "from django.db.models import Prefetch\nfrom blog.models import Comment, Post\n\n# N+1: 1 query for posts + 1 per post for its author\nfor post in Post.objects.all():\n    print(post.author.name)\n\n# 3 queries total: posts JOIN authors, then tags, then approved comments\nposts = (Post.objects\n         .select_related(\"author\")\n         .prefetch_related(\"tags\",\n                           Prefetch(\"comments\",\n                                    queryset=Comment.objects.filter(approved=True),\n                                    to_attr=\"approved_comments\")))\nfor post in posts:\n    print(post.author.name, [t.name for t in post.tags.all()], len(post.approved_comments))\n\n# In tests:\n# with self.assertNumQueries(3):\n#     self.client.get(reverse(\"blog:list\"))",
+   "code_lang": "python",
+   "takeaways": [
+    "select_related = JOIN for ForeignKey/OneToOne",
+    "prefetch_related = one extra query per many-valued relation",
+    "Prefetch(queryset=..., to_attr=...) customizes prefetching",
+    "assertNumQueries guards against regressions"
+   ],
+   "pitfalls": [
+    "Calling .filter() on a prefetched relation, which bypasses the prefetch cache and queries again."
+   ],
+   "quiz": [
+    {
+     "q": "Which method should you use to load each post's tags (a ManyToManyField) efficiently?",
+     "options": [
+      "only(\"tags\")",
+      "values(\"tags\")",
+      "select_related(\"tags\")",
+      "prefetch_related(\"tags\")"
+     ],
+     "answer": 3,
+     "explain": "select_related only works for single-valued relations; many-to-many needs prefetch_related."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/ref/models/querysets/#prefetch-related",
+   "requires": [
+    "django.relationships",
+    "django.queryset-basics"
+   ]
+  },
+  {
+   "id": "django.managers",
+   "name": "Managers, QuerySet methods and Meta",
+   "module": "orm",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Add reusable query methods with custom QuerySets and managers, and declare indexes and constraints in Meta.",
+   "why": "Named query methods keep business rules like \"published\" in one place instead of copied filters everywhere.",
+   "body": "When the same filter appears in many views, give it a name. Define methods on a **custom QuerySet** and expose it as the manager:\n\n```python\nclass PostQuerySet(models.QuerySet):\n    def published(self):\n        return self.filter(status=\"pub\")\n\nclass Post(models.Model):\n    objects = PostQuerySet.as_manager()\n```\n\nNow `Post.objects.published().filter(author=a)` chains naturally. Methods returning QuerySets are composable, which is why defining them on the QuerySet (not only the manager) is the preferred style.\n\n**Model methods** hold row-level behavior: `get_absolute_url()` (used by the admin and generic views), computed properties, and domain actions like `publish()`. A good rule: table-level logic in QuerySets, row-level logic on the model.\n\n`Meta` options worth knowing:\n\n- `ordering`: default ordering, applied to every query, so keep it cheap and indexed\n- `indexes = [models.Index(fields=[\"status\", \"-created\"])]`\n- `constraints`: `UniqueConstraint(fields=[\"author\", \"slug\"], name=\"...\")` and `CheckConstraint(condition=Q(views__gte=0), name=\"...\")`, enforced by the database and by `full_clean()`\n- `verbose_name`, `verbose_name_plural`, `db_table`, `get_latest_by`\n\nDatabase constraints beat Python checks: they hold even for bulk updates, admin edits and other programs writing to the database.\n\nNote that `save()` does not call `full_clean()`; validation runs in ModelForms or when you call it explicitly.",
+   "code": "from django.db import models\nfrom django.db.models import Q\nfrom django.urls import reverse\nfrom django.utils import timezone\nclass PostQuerySet(models.QuerySet):\n    def published(self):\n        return self.filter(status=\"pub\", published_at__lte=timezone.now())\n    def by(self, author):\n        return self.filter(author=author)\nclass Post(models.Model):\n    title = models.CharField(max_length=200)\n    slug = models.SlugField()\n    author = models.ForeignKey(\"Author\", on_delete=models.CASCADE, related_name=\"posts\")\n    status = models.CharField(max_length=5, default=\"draft\")\n    views = models.IntegerField(default=0)\n    published_at = models.DateTimeField(null=True, blank=True)\n    objects = PostQuerySet.as_manager()\n    class Meta:\n        ordering = [\"-published_at\"]\n        indexes = [models.Index(fields=[\"status\", \"-published_at\"])]\n        constraints = [models.UniqueConstraint(fields=[\"author\", \"slug\"], name=\"unique_author_slug\"),\n                       models.CheckConstraint(condition=Q(views__gte=0), name=\"views_gte_0\")]\n    def get_absolute_url(self):\n        return reverse(\"blog:detail\", kwargs={\"slug\": self.slug})\n# Post.objects.published().by(ann)[:10]",
+   "code_lang": "python",
+   "takeaways": [
+    "Put reusable filters on a QuerySet subclass; expose with as_manager()",
+    "Row behavior and get_absolute_url() go on the model",
+    "Declare indexes and constraints in Meta; the database enforces them"
+   ],
+   "pitfalls": [
+    "Expecting model.save() to run field validation; it doesn't call full_clean()."
+   ],
+   "quiz": [
+    {
+     "q": "Why define published() on a QuerySet subclass rather than only on a Manager?",
+     "options": [
+      "So it can be chained after other filters, e.g. Post.objects.filter(...).published()",
+      "QuerySet methods are cached",
+      "It is required for migrations",
+      "Managers can't have methods"
+     ],
+     "answer": 0,
+     "explain": "QuerySet methods are available on every QuerySet in a chain, not just at the start."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/db/managers/",
+   "requires": [
+    "django.query-expressions"
+   ]
+  },
+  {
+   "id": "django.settings",
+   "name": "Settings and environments",
+   "module": "app",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Organize settings.py for development and production, read secrets from the environment, and access settings safely.",
+   "why": "Misconfigured settings cause most deployment failures and security incidents in Django apps.",
+   "body": "`settings.py` is a plain Python module selected by the `DJANGO_SETTINGS_MODULE` environment variable (`manage.py`, `wsgi.py` and `asgi.py` set a default). Key settings:\n\n- `DEBUG`: detailed error pages; must be `False` in production\n- `SECRET_KEY`: signs sessions, password reset tokens and more; keep it secret and stable\n- `ALLOWED_HOSTS`: host names the site may serve; required when `DEBUG=False`\n- `DATABASES`, `CACHES`, `INSTALLED_APPS`, `MIDDLEWARE`, `TEMPLATES`, `STORAGES`\n- `TIME_ZONE` and `USE_TZ=True` (the default): store aware datetimes in UTC\n\nKeep secrets and per-environment values out of the repository. The simplest robust approach reads them from **environment variables**:\n\n```python\nSECRET_KEY = os.environ[\"DJANGO_SECRET_KEY\"]       # crash early if missing\nDEBUG = os.environ.get(\"DJANGO_DEBUG\", \"\") == \"1\"\n```\n\nLibraries like `django-environ` add helpers for parsing booleans, lists and database URLs. Some teams use split modules (`settings/base.py`, `dev.py`, `prod.py`) that import from a base; either way, production defaults should be safe.\n\nIn code, always read settings via `from django.conf import settings`, never by importing your settings module, so tests can override values with `@override_settings` and the right module is used.\n\n`python manage.py diffsettings` shows what differs from Django's defaults, and `python manage.py check --deploy` lists insecure production settings.",
+   "code": "# mysite/settings.py (excerpt)\nimport os\nfrom pathlib import Path\n\nBASE_DIR = Path(__file__).resolve().parent.parent\nSECRET_KEY = os.environ[\"DJANGO_SECRET_KEY\"]                 # required\nDEBUG = os.environ.get(\"DJANGO_DEBUG\", \"0\") == \"1\"           # safe default: off\nALLOWED_HOSTS = os.environ.get(\"DJANGO_ALLOWED_HOSTS\", \"localhost\").split(\",\")\n\nDATABASES = {\n    \"default\": {\n        \"ENGINE\": \"django.db.backends.postgresql\",\n        \"NAME\": os.environ.get(\"POSTGRES_DB\", \"blog\"),\n        \"USER\": os.environ.get(\"POSTGRES_USER\", \"blog\"),\n        \"PASSWORD\": os.environ.get(\"POSTGRES_PASSWORD\", \"\"),\n        \"HOST\": os.environ.get(\"POSTGRES_HOST\", \"localhost\"),\n        \"CONN_MAX_AGE\": 60,                                  # reuse connections\n    }\n}\n\n# anywhere else in the code:\nfrom django.conf import settings\npage_size = getattr(settings, \"BLOG_PAGE_SIZE\", 20)",
+   "code_lang": "python",
+   "takeaways": [
+    "DEBUG off, a secret SECRET_KEY and ALLOWED_HOSTS are mandatory in production",
+    "Read secrets and per-environment values from environment variables",
+    "Access settings via django.conf.settings",
+    "check --deploy audits production settings"
+   ],
+   "pitfalls": [
+    "Committing SECRET_KEY and DEBUG = True to the repository and deploying them."
+   ],
+   "quiz": [
+    {
+     "q": "Why import settings with from django.conf import settings rather than import mysite.settings?",
+     "options": [
+      "It is shorter",
+      "It uses the active DJANGO_SETTINGS_MODULE and respects overrides like @override_settings",
+      "mysite.settings is private",
+      "It caches values"
+     ],
+     "answer": 1,
+     "explain": "django.conf.settings is a lazy proxy for whichever settings module is active, including test overrides."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/settings/",
+   "requires": [
+    "django.project-setup"
+   ]
+  },
+  {
+   "id": "django.testing",
+   "name": "Testing Django apps",
+   "module": "app",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Write tests with django.test.TestCase, the test Client and setUpTestData, and check responses, templates and query counts.",
+   "why": "Django apps change constantly, and its test tools make full request-to-database tests fast and isolated.",
+   "body": "`python manage.py test` finds tests in files named `test*.py`, creates a separate **test database**, runs them and destroys it.\n\nChoose a base class:\n\n- `SimpleTestCase`: no database access\n- **`TestCase`**: wraps each test in a transaction that is rolled back, so tests are isolated and fast. The usual choice.\n- `TransactionTestCase`: really commits, for testing transaction behavior or `on_commit` callbacks (`TestCase.captureOnCommitCallbacks` often suffices)\n- `LiveServerTestCase`: runs a real server for browser tests with Playwright or Selenium\n\n`setUpTestData(cls)` creates data once per class, much faster than `setUp` per test; each test still sees it fresh thanks to the rollback.\n\n`self.client` is a test **Client** that makes requests through the whole stack (middleware, URLs, views, templates) without a server:\n\n- `self.client.get(reverse(\"blog:list\"), {\"q\": \"x\"})`, `.post(url, data)`\n- `self.client.force_login(user)` skips the login form\n- assertions: `assertEqual(resp.status_code, 200)`, `assertContains(resp, \"Hello\")`, `assertRedirects`, `assertTemplateUsed`, `assertFormError`\n- `resp.context[\"posts\"]` gives the template context\n\n`self.assertNumQueries(n)` catches N+1 regressions. `@override_settings(...)` changes settings for a test. `RequestFactory` builds requests to call a view directly, for unit tests.\n\nMany teams use **pytest-django**, which runs the same Django machinery with pytest fixtures and plain `assert`.",
+   "code": "from django.contrib.auth.models import User\nfrom django.test import TestCase\nfrom django.urls import reverse\nfrom blog.models import Author, Post\n\nclass PostViewsTests(TestCase):\n    @classmethod\n    def setUpTestData(cls):                       # runs once per class\n        cls.user = User.objects.create_user(\"ann\", password=\"pw\")\n        cls.author = Author.objects.create(name=\"Ann\", user=cls.user)\n        Post.objects.create(title=\"Hello\", slug=\"hello\", author=cls.author, status=\"pub\")\n\n    def test_list_shows_published_posts(self):\n        with self.assertNumQueries(2):            # count + page (author via select_related)\n            resp = self.client.get(reverse(\"blog:list\"))\n        self.assertContains(resp, \"Hello\")\n        self.assertTemplateUsed(resp, \"blog/post_list.html\")\n    def test_create_requires_login(self):\n        resp = self.client.get(reverse(\"blog:create\"))\n        self.assertRedirects(resp, f\"{reverse('login')}?next={reverse('blog:create')}\")\n    def test_logged_in_user_can_create(self):\n        self.client.force_login(self.user)\n        resp = self.client.post(reverse(\"blog:create\"), {\"title\": \"New\", \"slug\": \"new\", \"body\": \"x\"})\n        self.assertEqual(resp.status_code, 302)\n        self.assertTrue(Post.objects.filter(slug=\"new\", author=self.author).exists())",
+   "code_lang": "python",
+   "takeaways": [
+    "TestCase isolates each test in a rolled-back transaction",
+    "setUpTestData creates shared data once per class",
+    "self.client exercises the full stack; force_login skips login forms",
+    "assertNumQueries catches query regressions"
+   ],
+   "pitfalls": [
+    "Creating heavy fixtures in setUp for every test instead of setUpTestData."
+   ],
+   "quiz": [
+    {
+     "q": "How does django.test.TestCase keep tests from affecting each other's data?",
+     "options": [
+      "It mocks the ORM",
+      "It deletes all rows after each test",
+      "It wraps each test in a transaction and rolls it back",
+      "It creates a new database per test"
+     ],
+     "answer": 2,
+     "explain": "Each test runs inside a transaction (with savepoints) that is rolled back at the end."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/testing/overview/",
+   "requires": [
+    "django.class-based-views",
+    "django.auth"
+   ]
+  },
+  {
+   "id": "django.transactions",
+   "name": "Transactions and concurrency",
+   "module": "orm",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Group writes with transaction.atomic, run side effects with on_commit, and lock rows with select_for_update.",
+   "why": "Multi-step writes and concurrent requests corrupt data unless you control transactions and locking.",
+   "body": "By default Django runs in **autocommit** mode: each query commits immediately. When several writes must succeed or fail together, wrap them in **`transaction.atomic()`**, as a decorator or a context manager. If the block raises, everything in it is rolled back.\n\nNested `atomic` blocks create **savepoints**, so an inner block can fail and roll back without aborting the outer one, if you catch the exception **outside** the inner block. Catching a database error inside an atomic block and continuing is wrong: the transaction is broken, and the next query raises `TransactionManagementError`.\n\n`ATOMIC_REQUESTS = True` in a database's settings wraps every view in a transaction. It's simple, but holds transactions open for the whole request; explicit `atomic` blocks are more precise.\n\n**Side effects after commit.** Sending emails, enqueuing tasks or calling APIs inside a transaction is risky: the transaction may roll back after the email went out, or a worker may run before the data is committed. Use `transaction.on_commit(callback)`, which runs only after a successful commit and is discarded on rollback.\n\n**Concurrency.** Two requests reading then writing the same row can overwrite each other. Options:\n\n- `F()` expressions for arithmetic updates\n- `select_for_update()` inside `atomic` locks the selected rows until commit (`nowait=True` or `skip_locked=True` for queues)\n- optimistic locking with a version column checked in `filter(...).update(...)`\n- unique constraints, and handling `IntegrityError` from `get_or_create` races\n\nKeep transactions short: never wait on slow network calls while holding locks.",
+   "code": "from django.db import IntegrityError, transaction\nfrom django.db.models import F\nfrom shop.models import Account, Order, Transfer\nfrom shop.tasks import send_receipt\n@transaction.atomic\ndef transfer(from_id, to_id, amount):\n    # lock both rows in a consistent order to avoid deadlocks\n    accounts = {a.pk: a for a in Account.objects.select_for_update().filter(pk__in=[from_id, to_id]).order_by(\"pk\")}\n    if accounts[from_id].balance < amount:\n        raise ValueError(\"insufficient funds\")            # rolls everything back\n    Account.objects.filter(pk=from_id).update(balance=F(\"balance\") - amount)\n    Account.objects.filter(pk=to_id).update(balance=F(\"balance\") + amount)\n    t = Transfer.objects.create(source_id=from_id, target_id=to_id, amount=amount)\n    transaction.on_commit(lambda: send_receipt.enqueue(t.pk))   # only after COMMIT\n    return t\ndef place_order(user, cart):\n    with transaction.atomic():\n        order = Order.objects.create(user=user)\n        try:\n            with transaction.atomic():                  # savepoint\n                order.apply_coupon(cart.coupon)\n        except IntegrityError:\n            order.note = \"coupon already used\"         # outer transaction still fine\n        order.save()\n    return order",
+   "code_lang": "python",
+   "takeaways": [
+    "atomic() makes a block all-or-nothing; nesting creates savepoints",
+    "Catch database errors outside the atomic block that failed",
+    "on_commit runs side effects only after a successful commit",
+    "select_for_update locks rows inside a transaction"
+   ],
+   "pitfalls": [
+    "Sending emails or enqueuing jobs inside a transaction that might roll back."
+   ],
+   "quiz": [
+    {
+     "q": "Inside an atomic block you create an order and enqueue a job that reads it. Why use transaction.on_commit?",
+     "options": [
+      "Jobs can't be enqueued inside atomic",
+      "It retries failed jobs",
+      "It makes the job faster",
+      "The worker might run before the commit and not see the order (or the transaction might roll back)"
+     ],
+     "answer": 3,
+     "explain": "on_commit defers the callback until the data is committed, and drops it if the transaction rolls back."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/db/transactions/",
+   "requires": [
+    "django.query-expressions"
+   ]
+  },
+  {
+   "id": "django.middleware",
+   "name": "Middleware",
+   "module": "app",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Write middleware that wraps every request and response, understand ordering, and use the process_view and process_exception hooks.",
+   "why": "Cross-cutting concerns like timing, headers, tenancy and request IDs belong in middleware, not every view.",
+   "body": "**Middleware** is a chain of wrappers around your views. Each one is a factory taking `get_response` (the next layer) and returning a callable that handles a request:\n\n```python\ndef timing_middleware(get_response):\n    # one-time setup when the server starts\n    def middleware(request):\n        # before the view\n        response = get_response(request)\n        # after the view\n        return response\n    return middleware\n```\n\nClasses work the same way with `__init__(self, get_response)` and `__call__(self, request)`.\n\nList middleware in `settings.MIDDLEWARE`. **Order matters**: requests pass through top to bottom, responses bottom to top, like layers of an onion. `AuthenticationMiddleware` needs `SessionMiddleware` above it, and `SecurityMiddleware` usually comes first.\n\nA middleware can short-circuit by returning a response without calling `get_response`, for example a maintenance page or an IP block, in which case inner layers and the view never run.\n\nOptional hooks on class-based middleware:\n\n- `process_view(request, view_func, view_args, view_kwargs)`: after URL resolution, before the view\n- `process_exception(request, exception)`: when the view raises; return a response to handle it\n- `process_template_response(request, response)`: modify a `TemplateResponse` before it renders\n\nBuilt-in middleware handles sessions, auth, CSRF, messages, clickjacking headers, GZip, locale and (in Django 6.0) Content Security Policy.\n\nMiddleware runs on every request, so keep it fast. Mark middleware `async_capable` and provide an async path if you serve async views under ASGI, to avoid sync/async switching overhead.",
+   "code": "# core/middleware.py\nimport logging, time, uuid\n\nlog = logging.getLogger(__name__)\nclass RequestIdMiddleware:\n    def __init__(self, get_response):\n        self.get_response = get_response               # called once at startup\n    def __call__(self, request):\n        request.id = request.headers.get(\"X-Request-ID\") or uuid.uuid4().hex\n        start = time.perf_counter()\n        response = self.get_response(request)          # inner middleware + view\n        response[\"X-Request-ID\"] = request.id\n        log.info(\"%s %s %s %.1fms\", request.id, request.path, response.status_code,\n                 (time.perf_counter() - start) * 1000)\n        return response\n    def process_exception(self, request, exception):\n        log.exception(\"request %s failed\", request.id)\n        return None                                    # let Django's handling continue\n# settings.py\nMIDDLEWARE = [\n    \"django.middleware.security.SecurityMiddleware\",\n    \"core.middleware.RequestIdMiddleware\",\n    \"django.contrib.sessions.middleware.SessionMiddleware\",\n    # ... CommonMiddleware, CsrfViewMiddleware, AuthenticationMiddleware, ...\n]",
+   "code_lang": "python",
+   "takeaways": [
+    "Middleware wraps get_response: code before runs on the request, after on the response",
+    "MIDDLEWARE order: top-down for requests, bottom-up for responses",
+    "Returning early short-circuits the inner layers and the view",
+    "process_view / process_exception hooks for finer control"
+   ],
+   "pitfalls": [
+    "Placing a middleware that uses request.user above AuthenticationMiddleware."
+   ],
+   "quiz": [
+    {
+     "q": "Middleware A is listed above B in MIDDLEWARE. In which order do they see the response?",
+     "options": [
+      "B then A",
+      "Both at the same time",
+      "Only B sees it",
+      "A then B"
+     ],
+     "answer": 0,
+     "explain": "Responses travel back up the stack, so the inner middleware (B) processes them before the outer one (A)."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/http/middleware/",
+   "requires": [
+    "django.settings",
+    "django.urls-views"
+   ]
+  },
+  {
+   "id": "django.signals",
+   "name": "Signals",
+   "module": "app",
+   "level": 3,
+   "minutes": 10,
+   "summary": "React to model and request events with post_save and friends, register receivers in AppConfig.ready, and know when to avoid them.",
+   "why": "Signals decouple apps from each other, but used carelessly they hide control flow and cause surprising bugs.",
+   "body": "**Signals** let code subscribe to events sent elsewhere. Common built-ins:\n\n- model: `pre_save`, `post_save` (with a `created` flag), `pre_delete`, `post_delete`, `m2m_changed`\n- requests: `request_started`, `request_finished`\n- auth: `user_logged_in`, `user_logged_out`, `user_login_failed`\n\nConnect a receiver with the `@receiver` decorator, filtering by sender:\n\n```python\n@receiver(post_save, sender=User)\ndef create_profile(sender, instance, created, **kwargs): ...\n```\n\nReceivers must accept `**kwargs`. Put them in `signals.py` and import that module in your app's `AppConfig.ready()`, otherwise the module may never be imported and the receiver never connected. Use `dispatch_uid` if a module might be imported twice.\n\nYou can define your own: `order_paid = Signal()` and `order_paid.send(sender=Order, order=o)`.\n\nKnow the limits:\n\n- `QuerySet.update()`, `bulk_create()` and `bulk_update()` don't send `pre_save`/`post_save`\n- signals run **synchronously**, in the same transaction; a slow receiver slows the request, and an exception in one breaks the save\n- logic in signals is invisible at the call site, which makes code harder to follow and test\n\nGood uses: letting a reusable app react to another app's events without importing it, cache invalidation, audit logs. If both sides are your own code, an explicit function call (`create_user_with_profile()`) or a model method is usually clearer.",
+   "code": "# accounts/signals.py\nfrom django.conf import settings\nfrom django.contrib.auth.signals import user_login_failed\nfrom django.db.models.signals import post_save\nfrom django.dispatch import receiver\nfrom .models import Profile\n\n@receiver(post_save, sender=settings.AUTH_USER_MODEL)\ndef create_profile(sender, instance, created, **kwargs):\n    if created:\n        Profile.objects.create(user=instance)\n\n@receiver(user_login_failed)\ndef log_failed_login(sender, credentials, request, **kwargs):\n    print(\"failed login for\", credentials.get(\"username\"))\n\n# accounts/apps.py\nfrom django.apps import AppConfig\n\nclass AccountsConfig(AppConfig):\n    name = \"accounts\"\n    def ready(self):\n        from . import signals  # noqa: F401  (connects the receivers)",
+   "code_lang": "python",
+   "takeaways": [
+    "@receiver(signal, sender=Model) connects a function to an event",
+    "Import signal modules in AppConfig.ready()",
+    "update() and bulk operations don't send save signals",
+    "Prefer explicit calls when both sides are your code"
+   ],
+   "pitfalls": [
+    "Relying on post_save for logic that must also run after queryset.update() or bulk_create()."
+   ],
+   "quiz": [
+    {
+     "q": "Which operation does NOT trigger post_save receivers?",
+     "options": [
+      "instance.save()",
+      "Model.objects.filter(...).update(...)",
+      "ModelForm.save()",
+      "Model.objects.create()"
+     ],
+     "answer": 1,
+     "explain": "QuerySet.update() runs a single SQL UPDATE without loading instances, so no save signals are sent."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/signals/",
+   "requires": [
+    "django.managers",
+    "python.decorators"
+   ]
+  },
+  {
+   "id": "django.custom-user",
+   "name": "Custom user models",
+   "module": "app",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Start projects with a custom user model, reference it via AUTH_USER_MODEL and get_user_model, and add email login.",
+   "why": "Changing the user model after the first migration is painful, so it's a day-one decision.",
+   "body": "Django's docs recommend that **every new project** define a custom user model, even an empty one, because switching later means rewriting migrations and foreign keys across apps.\n\nThe easy version extends `AbstractUser`, keeping username, password, permissions and the admin integration:\n\n```python\nclass User(AbstractUser):\n    pass\n```\n\nand in settings: `AUTH_USER_MODEL = \"accounts.User\"`, set **before** the first `migrate`.\n\nTo log in with email instead of a username, either keep `AbstractUser` and set `USERNAME_FIELD = \"email\"` with a unique email field and `REQUIRED_FIELDS = []` (also removing the username field), or build on `AbstractBaseUser` and `PermissionsMixin` with a custom manager implementing `create_user` and `create_superuser`.\n\nReferencing the user model correctly:\n\n- in model fields: `models.ForeignKey(settings.AUTH_USER_MODEL, ...)`\n- in other code: `get_user_model()` returns the active class\n- never `from django.contrib.auth.models import User` in reusable code\n\nRegister it in the admin with `admin.site.register(User, UserAdmin)` (or a `UserAdmin` subclass with your fields).\n\nFor extra per-user data that isn't needed for authentication, such as a bio or preferences, a separate `Profile` model with a `OneToOneField` to the user keeps the user table lean, and can be added at any time.",
+   "code": "# accounts/models.py\nfrom django.contrib.auth.models import AbstractUser, UserManager\nfrom django.db import models\n\nclass EmailUserManager(UserManager):\n    def _create_user(self, email, password, **extra):\n        user = self.model(email=self.normalize_email(email), **extra)\n        user.set_password(password)\n        user.save(using=self._db)\n        return user\n    def create_user(self, email, password=None, **extra):\n        return self._create_user(email, password, **extra)\n    def create_superuser(self, email, password=None, **extra):\n        return self._create_user(email, password, is_staff=True, is_superuser=True, **extra)\n\nclass User(AbstractUser):\n    username = None\n    email = models.EmailField(unique=True)\n    USERNAME_FIELD = \"email\"\n    REQUIRED_FIELDS = []\n    objects = EmailUserManager()\n\n# settings.py  (before the first migrate!)\nAUTH_USER_MODEL = \"accounts.User\"\n# elsewhere: author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)",
+   "code_lang": "python",
+   "takeaways": [
+    "Define a custom user model at project start; set AUTH_USER_MODEL before the first migration",
+    "Extend AbstractUser for the easy path",
+    "Reference users via settings.AUTH_USER_MODEL and get_user_model()"
+   ],
+   "pitfalls": [
+    "Importing django.contrib.auth.models.User directly in apps, which breaks with a custom user model."
+   ],
+   "quiz": [
+    {
+     "q": "How should a ForeignKey to the user be declared in a reusable app?",
+     "options": [
+      "OneToOneField(get_user_model(), ...) only",
+      "ForeignKey(User, ...)",
+      "ForeignKey(settings.AUTH_USER_MODEL, ...)",
+      "ForeignKey(\"auth.User\", ...)"
+     ],
+     "answer": 2,
+     "explain": "settings.AUTH_USER_MODEL resolves to whichever user model the project configured."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/auth/customizing/#substituting-a-custom-user-model",
+   "requires": [
+    "django.auth",
+    "django.migrations"
+   ]
+  },
+  {
+   "id": "django.security",
+   "name": "Security features and hardening",
+   "module": "production",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Use Django's protections against CSRF, XSS, SQL injection and clickjacking, enable HTTPS settings and a Content Security Policy.",
+   "why": "Django is secure by default only if you keep its protections on and configure the production settings.",
+   "body": "Django defends against the classic attacks, as long as you don't bypass it:\n\n- **SQL injection**: the ORM parameterizes queries. With `raw()` or `cursor.execute()`, pass values as `params`, never with f-strings.\n- **XSS**: templates autoescape. `|safe`, `mark_safe` and `{% autoescape off %}` disable it; build HTML in Python with `format_html()`, which escapes arguments.\n- **CSRF**: `CsrfViewMiddleware` requires a token on unsafe methods; include `{% csrf_token %}` in forms and send the `X-CSRFToken` header from JavaScript. Avoid `@csrf_exempt` except for endpoints authenticated by other means.\n- **Clickjacking**: `XFrameOptionsMiddleware` sends `X-Frame-Options: DENY`.\n- **Host header attacks**: `ALLOWED_HOSTS`.\n\nHTTPS settings for production:\n\n- `SECURE_SSL_REDIRECT = True`\n- `SESSION_COOKIE_SECURE = True` and `CSRF_COOKIE_SECURE = True`\n- `SECURE_HSTS_SECONDS` (start small), `SECURE_HSTS_INCLUDE_SUBDOMAINS`\n- `SECURE_PROXY_SSL_HEADER = (\"HTTP_X_FORWARDED_PROTO\", \"https\")` behind a proxy that sets it\n\n**Content Security Policy** is built in since Django 6.0: add `django.middleware.csp.ContentSecurityPolicyMiddleware` and set `SECURE_CSP` (or `SECURE_CSP_REPORT_ONLY` to test first) using constants from `django.utils.csp.CSP`. With `CSP.NONCE` in a directive and the `csp` context processor, templates add `nonce=\"{{ csp_nonce }}\"` to inline scripts.\n\nAlso: never run with `DEBUG=True` in production, keep Django updated, use the strongest password hasher you can afford, and run `python manage.py check --deploy` in CI.",
+   "code": "# settings.py (production)\nfrom django.utils.csp import CSP\n\nDEBUG = False\nALLOWED_HOSTS = [\"blog.example.com\"]\nSECURE_SSL_REDIRECT = True\nSECURE_PROXY_SSL_HEADER = (\"HTTP_X_FORWARDED_PROTO\", \"https\")\nSESSION_COOKIE_SECURE = CSRF_COOKIE_SECURE = True\nSECURE_HSTS_SECONDS = 3600                 # raise to a year once verified\nMIDDLEWARE.insert(1, \"django.middleware.csp.ContentSecurityPolicyMiddleware\")\nSECURE_CSP = {\n    \"default-src\": [CSP.SELF],\n    \"script-src\": [CSP.SELF, CSP.NONCE],\n    \"img-src\": [CSP.SELF, \"https:\"],\n}\nTEMPLATES[0][\"OPTIONS\"][\"context_processors\"].append(\"django.template.context_processors.csp\")\n\n# Safe raw SQL and HTML building\nfrom django.db import connection\nfrom django.utils.html import format_html\ndef search(term):\n    with connection.cursor() as cur:\n        cur.execute(\"SELECT id FROM blog_post WHERE title LIKE %s\", [f\"%{term}%\"])   # params!\n        return cur.fetchall()\nlink = format_html('<a href=\"{}\">{}</a>', \"/u/1\", \"<script>\")  # <a href=\"/u/1\">&lt;script&gt;</a>",
+   "code_lang": "python",
+   "takeaways": [
+    "ORM and params prevent SQL injection; never interpolate SQL strings",
+    "Autoescaping, CSRF tokens and X-Frame-Options are on by default; don't bypass them",
+    "Enable HTTPS redirects, secure cookies and HSTS in production",
+    "Django 6.0 has built-in CSP via middleware and SECURE_CSP"
+   ],
+   "pitfalls": [
+    "Marking user content with mark_safe or |safe to \"fix\" escaped HTML."
+   ],
+   "quiz": [
+    {
+     "q": "Which raw query is safe from SQL injection?",
+     "options": [
+      "cur.execute(\"SELECT * FROM t WHERE name = '%s'\" % name)",
+      "cur.execute(\"SELECT * FROM t WHERE name = \" + name)",
+      "cur.execute(f\"SELECT * FROM t WHERE name = '{name}'\")",
+      "cur.execute(\"SELECT * FROM t WHERE name = %s\", [name])"
+     ],
+     "answer": 3,
+     "explain": "Passing values as parameters lets the database driver quote them; string formatting does not."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/security/",
+   "requires": [
+    "django.forms",
+    "django.settings"
+   ]
+  },
+  {
+   "id": "django.caching",
+   "name": "Caching",
+   "module": "production",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Configure a cache backend such as Redis and cache data, views and template fragments, with a plan for invalidation.",
+   "why": "Caching is often the cheapest way to make a slow page fast, if you can keep it correct.",
+   "body": "Configure backends in `CACHES`. Options include `LocMemCache` (default, per process, development only), `RedisCache` and `PyMemcacheCache` (shared across processes and servers), `DatabaseCache` and `FileBasedCache`.\n\nCaching levels, from finest to coarsest:\n\n- **Low-level API**: `from django.core.cache import cache`, then `cache.get(key)`, `cache.set(key, value, timeout=300)`, `cache.get_or_set(key, callable, timeout)`, `cache.delete(key)`, `cache.incr(key)`. Cache expensive computed values, such as API results or aggregates.\n- **Template fragments**: `{% load cache %}{% cache 600 sidebar request.user.pk %}...{% endcache %}` caches part of a page, varying by the extra arguments.\n- **Per view**: `@cache_page(60 * 15)` caches whole responses, keyed by URL. Responses that vary by cookie or language need `@vary_on_cookie` or similar. Avoid it for personalized pages.\n- **Per site**: `UpdateCacheMiddleware` and `FetchFromCacheMiddleware`, rarely the right choice beyond simple public sites.\n\n**Invalidation** is the hard part. Strategies:\n\n- short timeouts when staleness is acceptable\n- delete or update keys when data changes (in the code that writes, or via signals)\n- versioned keys: include `updated_at` or a version number in the key so new data naturally uses a new key\n\nHTTP caching complements server caching: `ETag`/`Last-Modified` via `@condition` or `ConditionalGetMiddleware`, and `Cache-Control` headers for browsers and CDNs.\n\n`functools.cached_property` on models caches per instance, not across requests.",
+   "code": "# settings.py\nCACHES = {\"default\": {\"BACKEND\": \"django.core.cache.backends.redis.RedisCache\",\n                      \"LOCATION\": \"redis://127.0.0.1:6379/1\"}}\n\n# blog/views.py\nfrom django.core.cache import cache\nfrom django.db.models import Count\nfrom django.shortcuts import render\nfrom django.views.decorators.cache import cache_page\nfrom .models import Tag\n\ndef popular_tags():\n    return cache.get_or_set(\n        \"popular-tags:v1\",\n        lambda: list(Tag.objects.annotate(n=Count(\"posts\")).order_by(\"-n\").values(\"name\", \"n\")[:10]),\n        timeout=600)\n\n@cache_page(60 * 5)                     # whole response, keyed by URL\ndef archive(request, year):\n    return render(request, \"blog/archive.html\", {\"year\": year, \"tags\": popular_tags()})\n\ndef on_post_saved():                    # call when posts change\n    cache.delete(\"popular-tags:v1\")\n# template fragment:\n# {% load cache %}{% cache 600 sidebar request.user.pk %}...expensive sidebar...{% endcache %}",
+   "code_lang": "python",
+   "takeaways": [
+    "Use a shared backend like Redis in production; LocMemCache is per process",
+    "Low-level cache API for data, {% cache %} for fragments, @cache_page for whole views",
+    "Plan invalidation: timeouts, explicit deletes or versioned keys"
+   ],
+   "pitfalls": [
+    "Using @cache_page on a page with user-specific content, serving one user's page to others."
+   ],
+   "quiz": [
+    {
+     "q": "Why is LocMemCache a poor choice with 4 Gunicorn workers?",
+     "options": [
+      "Each worker process has its own separate cache, so data is duplicated and invalidation is inconsistent",
+      "It only stores strings",
+      "It requires Redis",
+      "It doesn't support timeouts"
+     ],
+     "answer": 0,
+     "explain": "Local-memory caches live inside each process, so workers don't share entries or deletions."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/cache/",
+   "requires": [
+    "django.query-expressions",
+    "django.settings"
+   ]
+  },
+  {
+   "id": "django.tasks",
+   "name": "Background tasks",
+   "module": "production",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Define tasks with Django 6.0's @task decorator, enqueue them, and choose a backend or a queue like Celery to run them.",
+   "why": "Slow work such as emails, exports and webhooks must leave the request cycle to keep pages fast.",
+   "body": "Requests should finish in milliseconds, so slow or unreliable work (sending email, generating reports, calling webhooks) belongs in **background tasks**.\n\nDjango 6.0 adds a built-in **Tasks framework** (`django.tasks`) that standardizes how you define and enqueue work:\n\n```python\n@task\ndef send_welcome_email(user_id): ...\n\nsend_welcome_email.enqueue(user.pk)\n```\n\n`enqueue()` returns a `TaskResult` with an `id` and `status`; `get_result(id)` looks it up later. Options such as `priority`, `queue_name` and `run_after` can be set on the decorator or with `.using(...)`.\n\nBackends are configured in the `TASKS` setting. Django ships only two:\n\n- `ImmediateBackend` (the default): runs the task synchronously during `enqueue()`, convenient in development\n- `DummyBackend`: stores results without running anything, useful in tests\n\nDjango does **not** include a worker. For real background execution you need a backend from a third-party package (such as the `django-tasks` reference implementation with its database backend and worker command), or you keep using an established queue such as **Celery** or **RQ** with its own decorator and workers.\n\nRules that apply to any task system:\n\n- pass IDs, not model instances: arguments must be serializable (JSON for `django.tasks`), and the row may change before the task runs\n- enqueue after commit: `transaction.on_commit(lambda: task.enqueue(order.pk))`\n- make tasks **idempotent**, because retries and duplicates happen\n- tasks must be module-level functions so workers can import them",
+   "code": "# settings.py\nTASKS = {\"default\": {\"BACKEND\": \"django.tasks.backends.immediate.ImmediateBackend\"}}\n# production: a worker-based backend from a third-party package\n\n# accounts/tasks.py\nfrom django.core.mail import send_mail\nfrom django.tasks import task\n\n@task(priority=10)\ndef send_welcome_email(user_id):\n    from accounts.models import User\n    user = User.objects.get(pk=user_id)          # fetch fresh data in the task\n    send_mail(\"Welcome!\", f\"Hi {user.first_name}\", None, [user.email])\n    return user.email\n\n# accounts/views.py\nfrom django.db import transaction\n\ndef signup_done(user):\n    transaction.on_commit(lambda: send_welcome_email.enqueue(user.pk))\n\n# shell\nresult = send_welcome_email.enqueue(1)\nprint(result.status, result.return_value)        # SUCCESSFUL ann@example.com  (ImmediateBackend)",
+   "code_lang": "python",
+   "takeaways": [
+    "Django 6.0: @task defines a task, .enqueue() schedules it",
+    "Built-in backends: ImmediateBackend (runs inline) and DummyBackend (tests); workers come from third-party backends",
+    "Pass IDs, enqueue on commit, make tasks idempotent"
+   ],
+   "pitfalls": [
+    "Passing model instances or other non-serializable objects as task arguments."
+   ],
+   "quiz": [
+    {
+     "q": "With the default ImmediateBackend, when does an enqueued task run?",
+     "options": [
+      "In a separate worker process",
+      "Synchronously, during the enqueue() call",
+      "After the request finishes",
+      "Never, it is only stored"
+     ],
+     "answer": 1,
+     "explain": "ImmediateBackend executes tasks inline; real background execution needs a worker-based backend."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/tasks/",
+   "requires": [
+    "django.transactions"
+   ]
+  },
+  {
+   "id": "django.deployment",
+   "name": "Deploying Django",
+   "module": "production",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Serve Django with Gunicorn or an ASGI server behind a proxy, run collectstatic and migrations, and configure databases and logging.",
+   "why": "Getting from runserver to a reliable production service involves a well-known checklist.",
+   "body": "A production Django deployment usually looks like this:\n\n- **App server**: `gunicorn mysite.wsgi` (WSGI) or `uvicorn mysite.asgi:application` / `gunicorn -k uvicorn_worker.UvicornWorker mysite.asgi` (ASGI, for async views and WebSockets via Channels)\n- **Reverse proxy or load balancer** in front for TLS, buffering and serving static files\n- **Database** such as PostgreSQL, with persistent connections (`CONN_MAX_AGE`, plus `CONN_HEALTH_CHECKS=True`) or a pooler; Django 5.1+ also supports psycopg's native connection pool on PostgreSQL\n- **Static files** from `collectstatic`, served by WhiteNoise, the proxy or a CDN; **media** uploads on object storage via `django-storages`\n\nRelease steps, in order: build the image or artifact, `python manage.py collectstatic --noinput`, `python manage.py migrate` as a separate one-off step, then start new app processes.\n\nConfiguration checklist (`python manage.py check --deploy` covers much of it):\n\n- `DEBUG = False`, real `SECRET_KEY`, `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS` for HTTPS origins if needed\n- HTTPS settings and `SECURE_PROXY_SSL_HEADER` behind a proxy\n- `LOGGING` to stdout in containers, plus error tracking (such as Sentry); `ADMINS` emails are an option on small sites\n- caches on Redis, sessions in the database or cache\n- a health check URL that touches the database\n\nWrite migrations to be backward compatible with the running code, since old and new versions overlap during a rolling deploy.",
+   "code": "# Dockerfile (excerpt)\nFROM python:3.13-slim\nENV PYTHONUNBUFFERED=1 DJANGO_SETTINGS_MODULE=mysite.settings\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\nCOPY . .\nRUN DJANGO_SECRET_KEY=build-only python manage.py collectstatic --noinput\nRUN useradd --create-home app\nUSER app\nCMD [\"gunicorn\", \"mysite.wsgi\", \"--bind\", \"0.0.0.0:8000\", \"--workers\", \"3\", \"--access-logfile\", \"-\"]\n\n# release step (run once per deploy, before switching traffic):\n#   python manage.py migrate --noinput\n# CI:\n#   python manage.py check --deploy --fail-level WARNING",
+   "code_lang": "dockerfile",
+   "takeaways": [
+    "Gunicorn (WSGI) or Uvicorn (ASGI) behind a reverse proxy",
+    "collectstatic at build time, migrate as a separate release step",
+    "check --deploy, persistent DB connections, stdout logging",
+    "Keep migrations compatible with the previous code version"
+   ],
+   "pitfalls": [
+    "Running migrations automatically in every app process at startup, racing each other."
+   ],
+   "quiz": [
+    {
+     "q": "Why run manage.py migrate as a separate release step rather than in each container's startup command?",
+     "options": [
+      "Gunicorn can't run management commands",
+      "migrate is too slow for startup",
+      "Several containers would run it concurrently and race, and failures would crash-loop the app",
+      "migrate needs root"
+     ],
+     "answer": 2,
+     "explain": "A single, ordered migration step avoids concurrent schema changes and keeps app startup simple."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/",
+   "requires": [
+    "django.security",
+    "django.static-files"
+   ]
+  },
+  {
+   "id": "django.orm-internals",
+   "name": "How QuerySets work",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Understand QuerySet laziness, cloning, the result cache, SQL compilation and the multi-valued filter() gotcha.",
+   "why": "Expert ORM use means predicting exactly which SQL runs, and when.",
+   "body": "A QuerySet is a thin wrapper around a **`Query`** object, a tree describing tables, joins, WHERE conditions, annotations and ordering. Each chained method (`filter`, `annotate`, `order_by`) **clones** the QuerySet and modifies the clone's query, so QuerySets are immutable from the caller's point of view and safe to reuse as bases.\n\nWhen evaluated, the `Query` is handed to a **SQLCompiler** for the database backend, which produces SQL and parameters; `str(qs.query)` shows an approximation (parameters are not properly quoted), and `qs.explain()` asks the database for its plan.\n\n**Evaluation** happens on iteration, `len()`, `list()`, `bool()`, `repr()`, pickling and slicing with a step. Results are stored in the QuerySet's **result cache**: iterating the same QuerySet twice runs one query, but building a new one (`qs.filter(...)`, `qs.all()`) starts fresh. Indexing an unevaluated QuerySet (`qs[0]`) runs a `LIMIT 1` query each time.\n\n`count()`, `exists()` and `aggregate()` run their own queries unless the cache is already filled (`count()` then uses `len()` of the cache).\n\n**The multi-valued relationship gotcha:** conditions inside **one** `filter()` call on a multi-valued relation must match the **same** related row; conditions in **separate** `filter()` calls may match **different** rows:\n\n```python\nPost.objects.filter(comments__text=\"spam\", comments__approved=True)    # same comment\nPost.objects.filter(comments__text=\"spam\").filter(comments__approved=True)  # any comments\n```\n\nThe second form also adds a second join. With `DEBUG=True`, `connection.queries` lists executed SQL; `CaptureQueriesContext` does the same in tests.",
+   "code": "from django.db import connection\nfrom django.test.utils import CaptureQueriesContext\nfrom blog.models import Post\n\nbase = Post.objects.filter(status=\"pub\")\nrecent = base.order_by(\"-created\")        # a clone; base is unchanged\n\nwith CaptureQueriesContext(connection) as ctx:\n    posts = Post.objects.all()\n    list(posts); list(posts)               # 1 query: second pass uses the result cache\n    posts.filter(views__gt=0).exists()     # new QuerySet -> new query\n    posts.all()[0]                         # new clone -> LIMIT 1 query\nprint(len(ctx))                            # 3\n\n# Same comment must match both conditions vs. any comments matching each:\nsame = Post.objects.filter(comments__text=\"spam\", comments__approved=True)\nanyc = Post.objects.filter(comments__text=\"spam\").filter(comments__approved=True)\nprint(same.count(), anyc.count())          # e.g. 1 2\n\nprint(str(same.query).count(\"JOIN\"), str(anyc.query).count(\"JOIN\"))   # 1 2\nprint(base.explain())                      # the database's query plan",
+   "code_lang": "python",
+   "takeaways": [
+    "Chaining clones the QuerySet; each clone holds a Query tree",
+    "Evaluated QuerySets cache results; new clones query again",
+    "Conditions in one filter() on a multi-valued relation must match the same related row",
+    "str(qs.query), explain() and CaptureQueriesContext reveal the SQL"
+   ],
+   "pitfalls": [
+    "Splitting conditions across filter() calls on a reverse/M2M relation and getting broader results than intended."
+   ],
+   "quiz": [
+    {
+     "q": "posts = Post.objects.all(); list(posts); list(posts). How many queries run?",
+     "options": [
+      "2",
+      "One per post",
+      "0",
+      "1"
+     ],
+     "answer": 3,
+     "explain": "The first evaluation fills the result cache, and the second iteration reuses it."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/ref/models/querysets/",
+   "requires": [
+    "django.related-queries",
+    "django.transactions"
+   ]
+  },
+  {
+   "id": "django.request-lifecycle",
+   "name": "The request/response lifecycle",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Trace a request through the handler, middleware chain, URL resolver, view and response rendering, and how errors become responses.",
+   "why": "Knowing each step lets you put code in the right layer and debug problems that aren't in your view.",
+   "body": "What happens between the server and your view:\n\n1. The server calls the **handler**: `WSGIHandler` (from `wsgi.py`) or `ASGIHandler` (from `asgi.py`). At startup the handler instantiated every middleware once, building the chain from `MIDDLEWARE`.\n2. `request_started` is sent, and the handler builds an `HttpRequest` (`WSGIRequest` or `ASGIRequest`) from the environ or scope.\n3. The request passes **down** the middleware chain. Each layer is wrapped by `convert_exception_to_response`, so an exception raised anywhere becomes a response at that layer instead of escaping.\n4. At the bottom, `_get_response` **resolves the URL**: the resolver for `ROOT_URLCONF` (or a per-request `request.urlconf`) returns a `ResolverMatch` with the view, args, kwargs and URL name, stored as `request.resolver_match`.\n5. Middleware `process_view` hooks run, then the **view** is called (wrapped with `atomic` if `ATOMIC_REQUESTS` is set).\n6. If the view returns a `TemplateResponse`, `process_template_response` hooks run and the template is rendered **lazily** now, which is why middleware can still change its context.\n7. The response travels **up** the chain. Exceptions trigger `process_exception` hooks, then Django's handlers: `Http404` becomes a 404 (via `handler404`), `PermissionDenied` a 403, `SuspiciousOperation` a 400, other errors a 500 (via `handler500`) and the error is logged to `django.request`.\n8. The server sends the response; when it closes it, `request_finished` fires and Django closes database connections that exceeded `CONN_MAX_AGE`.\n\nStreaming and file responses send their body after the view returns, so code relying on request-scoped state there must be careful.",
+   "code": "# Inspecting the lifecycle from inside a project (e.g. a test or shell)\nfrom django.core.signals import request_finished, request_started\nfrom django.test import Client\nfrom django.urls import resolve\n\nmatch = resolve(\"/blog/posts/3/\")\nprint(match.view_name, match.kwargs, match.func)    # blog:detail {'pk': 3} <function post_detail ...>\n\nevents = []\nrequest_started.connect(lambda **kw: events.append(\"started\"))\nrequest_finished.connect(lambda **kw: events.append(\"finished\"))\n\nclass ShowMatch:                                    # a middleware using process_view\n    def __init__(self, get_response):\n        self.get_response = get_response\n    def __call__(self, request):\n        return self.get_response(request)\n    def process_view(self, request, view_func, view_args, view_kwargs):\n        events.append(f\"view {request.resolver_match.view_name}\")\n\n# with ShowMatch in MIDDLEWARE:\nresp = Client().get(\"/blog/posts/3/\")\nprint(events)        # ['started', 'view blog:detail', 'finished']",
+   "code_lang": "python",
+   "takeaways": [
+    "Handler builds the request, then middleware runs down, the view runs, the response goes up",
+    "The URL resolver produces request.resolver_match",
+    "Each middleware layer converts exceptions into responses",
+    "TemplateResponse renders lazily after the view returns"
+   ],
+   "pitfalls": [
+    "Expecting process_view hooks to run for requests that a middleware above short-circuited."
+   ],
+   "quiz": [
+    {
+     "q": "A view returns a TemplateResponse. When is its template rendered?",
+     "options": [
+      "After the view returns, before the response goes back up the middleware chain",
+      "In the browser",
+      "Only when the response is cached",
+      "Immediately inside the view"
+     ],
+     "answer": 0,
+     "explain": "TemplateResponse defers rendering so process_template_response hooks can modify it first."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/ref/request-response/",
+   "requires": [
+    "django.middleware",
+    "django.testing"
+   ]
+  },
+  {
+   "id": "django.data-migrations",
+   "name": "Data migrations and zero-downtime changes",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Write RunPython data migrations with historical models, and change schemas safely on live databases in several steps.",
+   "why": "Schema changes on busy production tables are where deploys break; experts plan them in safe stages.",
+   "body": "Besides schema operations, migrations can change **data**. Create an empty one with `makemigrations blog --empty -n backfill_slugs` and add a `RunPython` operation:\n\n```python\nmigrations.RunPython(forwards, backwards)\n```\n\nInside `forwards(apps, schema_editor)`, get models with **`apps.get_model(\"blog\", \"Post\")`**, never by importing them. This returns the **historical** version of the model as it was at this point in the migration history; your current `models.py` might have fields that don't exist yet. Historical models have no custom methods and no custom managers unless marked `use_in_migrations = True`. Provide a reverse function (or `RunPython.noop`) so the migration can be unapplied.\n\nFor large tables, process rows in batches, and consider `atomic = False` on the migration class so a backfill doesn't hold one giant transaction. `RunSQL` runs raw SQL, and `SeparateDatabaseAndState` lets you change Django's model state without touching the database (or vice versa).\n\n**Zero-downtime schema changes** split risky operations across deploys, because old and new code run side by side:\n\n- add a column: add it nullable (or with `db_default`), deploy code that writes it, backfill, then add `NOT NULL` or constraints\n- rename a column: add the new one, write both, backfill, switch reads, drop the old one later\n- remove a column: stop using it in code first, then drop it in a later release\n\nOn PostgreSQL, `AddIndexConcurrently` (from `django.contrib.postgres.operations`, in a non-atomic migration) builds indexes without locking writes. Always check `sqlmigrate` output for table rewrites and long locks.",
+   "code": "# blog/migrations/0007_backfill_slugs.py\nfrom django.db import migrations\nfrom django.utils.text import slugify\n\ndef forwards(apps, schema_editor):\n    Post = apps.get_model(\"blog\", \"Post\")                    # historical model\n    batch = []\n    for post in Post.objects.filter(slug=\"\").only(\"id\", \"title\").iterator(chunk_size=1000):\n        post.slug = f\"{slugify(post.title)[:40]}-{post.pk}\"\n        batch.append(post)\n        if len(batch) == 1000:\n            Post.objects.bulk_update(batch, [\"slug\"])\n            batch.clear()\n    Post.objects.bulk_update(batch, [\"slug\"])\n\nclass Migration(migrations.Migration):\n    atomic = False                                            # no single huge transaction\n    dependencies = [(\"blog\", \"0006_post_slug_nullable\")]\n    operations = [migrations.RunPython(forwards, migrations.RunPython.noop)]\n\n# next release: 0008 makes slug unique and NOT NULL once all rows are filled",
+   "code_lang": "python",
+   "takeaways": [
+    "RunPython with apps.get_model uses historical models, never imports",
+    "Provide reverse functions; batch large backfills, possibly with atomic = False",
+    "Split risky schema changes across releases: add, backfill, constrain, remove later"
+   ],
+   "pitfalls": [
+    "Importing models directly in a data migration, which breaks when the model changes later."
+   ],
+   "quiz": [
+    {
+     "q": "Why use apps.get_model(\"blog\", \"Post\") inside a RunPython function?",
+     "options": [
+      "It is faster than importing",
+      "It returns the model as it existed at that point in migration history",
+      "Imports are not allowed in migrations",
+      "It loads custom model methods"
+     ],
+     "answer": 1,
+     "explain": "The historical model matches the schema at that migration, regardless of later changes to models.py."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/howto/writing-migrations/",
+   "requires": [
+    "django.migrations",
+    "django.transactions"
+   ]
+  },
+  {
+   "id": "django.async",
+   "name": "Async views and the async ORM",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Write async views and use the async ORM interface, bridge sync code with sync_to_async, and know the performance trade-offs.",
+   "why": "Async Django can handle many slow I/O waits efficiently, but only if you understand where it is still synchronous.",
+   "body": "Django supports `async def` views. Under an **ASGI** server (Uvicorn, Daphne, Hypercorn) they run on the event loop, so one process can wait on many slow network calls at once. Under **WSGI**, async views still work but each runs in its own one-off event loop, with no concurrency benefit.\n\nThe ORM has an **async interface**: methods prefixed with `a` (`aget`, `acreate`, `afirst`, `acount`, `aexists`, `aupdate`, `adelete`, `asave`), `async for obj in queryset`, and async related-manager methods. Internally most of these still run the database driver in a thread, so they avoid blocking the loop but aren't faster than sync code.\n\nCalling sync-only code (the regular ORM, many libraries) from an async context raises **`SynchronousOnlyOperation`**. Wrap it with `asgiref.sync.sync_to_async(fn)`; use `async_to_sync` for the opposite direction. By default `sync_to_async` runs functions in a single shared thread (`thread_sensitive=True`) for safety, which can become a bottleneck.\n\nLimitations to know:\n\n- **transactions** don't work in async code; put transactional logic in a sync function and call it with `sync_to_async`\n- every sync middleware in the stack forces a switch to a thread for each request, losing much of the benefit; check that all middleware is async-capable\n- lazy relationship access (`post.author`) is a sync query; use `select_related` or `aget`\n\nAsync views shine for fan-out to external APIs (`asyncio.gather` with httpx), streaming responses, and long-polling. For typical CRUD pages, sync views under WSGI remain simpler and as fast.",
+   "code": "# blog/views.py\nimport asyncio\nimport httpx\nfrom asgiref.sync import sync_to_async\nfrom django.db import transaction\nfrom django.http import JsonResponse\nfrom .models import Post\n\nasync def post_summary(request, pk):\n    post = await Post.objects.select_related(\"author\").aget(pk=pk)\n    async with httpx.AsyncClient(timeout=3) as client:\n        shares, comments = await asyncio.gather(                 # concurrent I/O\n            client.get(f\"https://stats.example.com/shares/{pk}\"),\n            client.get(f\"https://stats.example.com/comments/{pk}\"))\n    tags = [t.name async for t in post.tags.all()]\n    await record_view(pk)\n    return JsonResponse({\"title\": post.title, \"author\": post.author.name, \"tags\": tags,\n                         \"shares\": shares.json(), \"comments\": comments.json()})\n\n@sync_to_async\ndef record_view(pk):\n    with transaction.atomic():                                   # transactions: sync only\n        post = Post.objects.select_for_update().get(pk=pk)\n        post.views += 1\n        post.save(update_fields=[\"views\"])",
+   "code_lang": "python",
+   "takeaways": [
+    "Async views pay off under ASGI for concurrent I/O",
+    "Use a-prefixed ORM methods and async for; sync ORM calls raise SynchronousOnlyOperation",
+    "sync_to_async bridges sync code, including transactions",
+    "Sync middleware in the stack erodes async benefits"
+   ],
+   "pitfalls": [
+    "Accessing a lazy relation like post.author inside an async view without select_related."
+   ],
+   "quiz": [
+    {
+     "q": "Inside an async view, how do you run code that needs transaction.atomic()?",
+     "options": [
+      "Call transaction.aatomic()",
+      "Use async with transaction.atomic()",
+      "Put it in a sync function and call it via sync_to_async",
+      "Transactions are automatic in async views"
+     ],
+     "answer": 2,
+     "explain": "Transactions aren't supported in async contexts yet, so the transactional code must run synchronously in a thread."
+    }
+   ],
+   "docs": "https://docs.djangoproject.com/en/6.0/topics/async/",
+   "requires": [
+    "django.request-lifecycle",
+    "django.orm-internals",
+    "python.async-await"
+   ]
+  }
+ ]
+}

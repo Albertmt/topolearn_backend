@@ -1,0 +1,845 @@
+{
+ "tool": {
+  "id": "keras",
+  "name": "Keras",
+  "category": "library",
+  "tagline": "High-level deep learning API that runs on JAX, TensorFlow or PyTorch",
+  "description": "Keras is a high-level API for building and training neural networks with layers, models, fit() and callbacks. Keras 3 is multi-backend: the same model code runs on JAX, TensorFlow or PyTorch, chosen with one setting. It is the fastest way to go from idea to trained model, and it scales to custom training steps and distributed training when you need them.",
+  "icon": "K",
+  "color": "#D00000",
+  "official_docs": "https://keras.io/api/",
+  "version": "3.x",
+  "aliases": [
+   "keras 3",
+   "tf.keras"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 2
+   },
+   {
+    "tool": "numpy",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Getting started"
+  },
+  {
+   "id": "models",
+   "name": "Models"
+  },
+  {
+   "id": "training",
+   "name": "Training"
+  },
+  {
+   "id": "layers",
+   "name": "Layers & preprocessing"
+  },
+  {
+   "id": "advanced",
+   "name": "Advanced workflows"
+  },
+  {
+   "id": "internals",
+   "name": "Internals & scaling"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "keras.backends",
+   "name": "Keras 3 and its backends",
+   "module": "basics",
+   "level": 1,
+   "minutes": 7,
+   "summary": "Keras 3 runs the same code on JAX, TensorFlow or PyTorch; pick the backend with KERAS_BACKEND before importing keras.",
+   "why": "Choosing and switching backends is the first decision in any Keras 3 project and affects speed, deployment and ecosystem.",
+   "body": "**Keras 3** is a rewrite of Keras that is no longer tied to TensorFlow. Models, layers, losses and optimizers are written once against Keras's own API and executed by a **backend**: `\"jax\"`, `\"tensorflow\"` or `\"torch\"` (plus `\"numpy\"` and `\"openvino\"` for inference only).\n\nSelect the backend before Keras is imported, with the `KERAS_BACKEND` environment variable or the `\"backend\"` field of `~/.keras/keras.json`. Once imported, the backend cannot change in that process. `keras.config.backend()` tells you which one is active.\n\nWhy it matters:\n\n- **JAX** is often the fastest for training thanks to XLA compilation, and works well on TPUs.\n- **TensorFlow** gives SavedModel export, TF Serving and LiteRT.\n- **PyTorch** lets Keras models interoperate with PyTorch code: a Keras model is also a `torch.nn.Module`.\n\nTensors you get back are native to the backend (a `jax.Array`, `tf.Tensor` or `torch.Tensor`), but Keras functions accept NumPy arrays everywhere. Install with `pip install keras` plus the backend framework you want.\n\nIn TensorFlow 2.16+, `tf.keras` also points to Keras 3. Old Keras 2 code that relies on TensorFlow internals may need updates; the `tf_keras` package keeps legacy Keras 2 available.",
+   "code": "import os\nos.environ[\"KERAS_BACKEND\"] = \"jax\"      # or \"tensorflow\" / \"torch\"; set BEFORE import\n\nimport keras\n\nprint(keras.__version__)                 # 3.x\nprint(keras.config.backend())            # jax\n\nx = keras.ops.convert_to_tensor([1.0, 2.0])\nprint(type(x).__module__)                # a native jax array type under JAX\nprint(keras.ops.convert_to_numpy(keras.ops.sum(x * 2)))   # 6.0",
+   "code_lang": "python",
+   "takeaways": [
+    "One codebase, three backends: JAX, TensorFlow, PyTorch",
+    "Set `KERAS_BACKEND` before importing keras",
+    "Returned tensors are backend-native; NumPy inputs work everywhere"
+   ],
+   "pitfalls": [
+    "Setting `KERAS_BACKEND` after `import keras`, which has no effect."
+   ],
+   "quiz": [
+    {
+     "q": "You set os.environ['KERAS_BACKEND'] = 'torch' after import keras ran. Which backend is used?",
+     "options": [
+      "torch",
+      "The backend chosen at import time",
+      "Both",
+      "Keras raises an error"
+     ],
+     "answer": 1,
+     "explain": "The backend is fixed when Keras is first imported; later changes to the variable are ignored."
+    }
+   ],
+   "docs": "https://keras.io/getting_started/",
+   "requires": [
+    "python.modules-imports"
+   ]
+  },
+  {
+   "id": "keras.sequential-model",
+   "name": "The Sequential model",
+   "module": "models",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Stack layers in keras.Sequential, declare the input shape with keras.Input, and inspect the model with summary().",
+   "why": "Sequential is the quickest way to define the many models that are a plain stack of layers.",
+   "body": "`keras.Sequential` builds a model from a list of layers, each feeding the next. Start the list with `keras.Input(shape=...)`, which declares the shape of **one sample** (without the batch dimension), so the model can create its weights right away.\n\nOnce built you can:\n\n- `model.summary()` to print each layer's output shape and parameter count.\n- `model.count_params()`, `model.layers`, `model.weights`, `model.output_shape`.\n- Call `model(x)` on a batch to get predictions as backend tensors.\n\nWithout an `Input`, the model is built lazily the first time it sees data, and `summary()` is unavailable until then.\n\nThe batch dimension appears as `None` in shapes because any batch size works. A `Dense(units)` layer has `inputs * units + units` parameters: weights plus biases.\n\nSequential is right when there is exactly one input, one output and no branching. For multiple inputs or outputs, skip connections or shared layers, use the functional API; for arbitrary Python logic, subclass `keras.Model`. You can also `model.add(layer)` and `model.pop()` to edit a Sequential model incrementally.",
+   "code": "import keras\nfrom keras import layers\n\nmodel = keras.Sequential([\n    keras.Input(shape=(784,)),            # one sample = 784 features\n    layers.Dense(128, activation=\"relu\"),\n    layers.Dropout(0.2),\n    layers.Dense(10, activation=\"softmax\"),\n], name=\"mnist_mlp\")\n\nmodel.summary()                           # layers, output shapes, parameter counts\nprint(model.count_params())               # 101770  (784*128+128 + 128*10+10)\nprint(model.output_shape)                 # (None, 10)\nprint(len(model.layers))                  # 3\nprint(tuple(model.layers[0].kernel.shape))   # (784, 128)",
+   "code_lang": "python",
+   "takeaways": [
+    "Start with `keras.Input(shape=...)` for one sample's shape",
+    "`summary()` shows shapes and parameter counts",
+    "Sequential = one input, one output, no branches"
+   ],
+   "pitfalls": [
+    "Including the batch size in `keras.Input(shape=...)`."
+   ],
+   "quiz": [
+    {
+     "q": "For images of 28x28 pixels with 1 channel, what should keras.Input receive?",
+     "options": [
+      "shape=(None, 28, 28, 1)",
+      "shape=(1, 28, 28)",
+      "shape=(784, 1)",
+      "shape=(28, 28, 1)"
+     ],
+     "answer": 3,
+     "explain": "Input takes the per-sample shape; Keras is channels-last by default and adds the batch dimension itself."
+    }
+   ],
+   "docs": "https://keras.io/guides/sequential_model/",
+   "requires": [
+    "keras.backends"
+   ]
+  },
+  {
+   "id": "keras.core-layers",
+   "name": "Core layers",
+   "module": "layers",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Dense, Conv2D, pooling, Flatten, Embedding, recurrent and normalization layers: what they do and how they change shapes.",
+   "why": "Models are assembled from these layers; knowing their shapes lets you design and debug architectures.",
+   "body": "Keras layers are callables that hold weights and transform tensors. The ones you will use most:\n\n- `Dense(units, activation=...)`: fully connected, acts on the last axis.\n- `Conv2D(filters, kernel_size, strides, padding)`: 2-d convolution on **channels-last** images `(batch, height, width, channels)`. `padding=\"same\"` keeps height and width at stride 1; `\"valid\"` (the default) shrinks them.\n- `MaxPooling2D(2)`, `GlobalAveragePooling2D()`: downsample or collapse spatial dimensions.\n- `Flatten()`: reshape to `(batch, features)`.\n- `Embedding(input_dim, output_dim)`: integer ids to vectors.\n- `LSTM`, `GRU`, `MultiHeadAttention`: sequence layers.\n- `BatchNormalization`, `LayerNormalization`, `Dropout`.\n\nActivations can be passed by name (`\"relu\"`, `\"gelu\"`, `\"softmax\"`) or used as separate `Activation` layers.\n\nA layer creates its weights the first time it sees an input shape (`build`), so `Conv2D(16, 3)` does not need to know the number of input channels. After that, `layer.weights`, `layer.kernel` and `layer.bias` are available.\n\nCalling a layer directly on a NumPy array is a quick way to check output shapes before assembling a model.",
+   "code": "import numpy as np\nimport keras\nfrom keras import layers\n\nx = np.random.rand(2, 28, 28, 1).astype(\"float32\")    # N, H, W, C\nconv = layers.Conv2D(16, kernel_size=3, padding=\"same\", activation=\"relu\")\ny = conv(x)\nprint(tuple(y.shape))                                   # (2, 28, 28, 16)\nprint(tuple(layers.MaxPooling2D(2)(y).shape))           # (2, 14, 14, 16)\nprint(tuple(conv.kernel.shape), tuple(conv.bias.shape)) # (3, 3, 1, 16) (16,)\nprint(tuple(layers.Flatten()(y).shape))                 # (2, 12544)\nprint(tuple(layers.GlobalAveragePooling2D()(y).shape))  # (2, 16)\n\nemb = layers.Embedding(input_dim=1000, output_dim=8)\nprint(tuple(emb(np.array([[4, 20, 7]])).shape))         # (1, 3, 8)",
+   "code_lang": "python",
+   "takeaways": [
+    "Keras images are channels-last: (N, H, W, C)",
+    "Layers build their weights on first call",
+    "`padding='same'` keeps spatial size at stride 1"
+   ],
+   "pitfalls": [
+    "Feeding channels-first image arrays from PyTorch-style pipelines without transposing."
+   ],
+   "quiz": [
+    {
+     "q": "What is the output shape of Conv2D(32, 3) (default padding) on input (8, 64, 64, 3)?",
+     "options": [
+      "(8, 62, 62, 32)",
+      "(8, 64, 64, 32)",
+      "(8, 32, 62, 62)",
+      "(8, 64, 64, 3)"
+     ],
+     "answer": 0,
+     "explain": "The default padding is 'valid', so a 3x3 kernel trims one pixel on each side: 64 -> 62."
+    }
+   ],
+   "docs": "https://keras.io/api/layers/",
+   "requires": [
+    "keras.sequential-model"
+   ]
+  },
+  {
+   "id": "keras.compile-fit",
+   "name": "compile, fit, evaluate, predict",
+   "module": "training",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Configure training with compile(optimizer, loss, metrics), train with fit(), measure with evaluate() and run inference with predict().",
+   "why": "This four-call workflow trains the majority of Keras models in practice.",
+   "body": "Before training, **compile** the model with three things:\n\n- an **optimizer**: a name like `\"adam\"` or an object such as `keras.optimizers.Adam(learning_rate=1e-3)` to set hyperparameters;\n- a **loss**: what to minimise;\n- **metrics**: what to report, like `\"accuracy\"`.\n\n**`fit(x, y, batch_size, epochs, validation_split or validation_data, callbacks)`** runs the training loop, compiled for the backend (XLA by default on JAX), and returns a `History` whose `.history` dict holds per-epoch losses and metrics, including `val_` versions when you validate.\n\n**`evaluate(x, y)`** returns the loss and metrics on new data. **`predict(x)`** runs the model in batches and returns NumPy arrays.\n\nChoose loss and output layer together. For integer class labels, use `SparseCategoricalCrossentropy`; if the last layer has no softmax, pass `from_logits=True`, which is more numerically stable. For one-hot labels use `CategoricalCrossentropy`, and for regression `\"mse\"` or `\"mae\"`.\n\n`validation_split=0.2` takes the **last** 20% of the arrays without shuffling, so shuffle your data first if it is ordered. `verbose=0` silences the progress bar, useful in scripts and notebooks.",
+   "code": "import numpy as np\nimport keras\nfrom keras import layers\n\nrng = np.random.default_rng(0)\nx = rng.random((1000, 8)).astype(\"float32\")\ny = (x[:, 0] + x[:, 1] > 1).astype(\"int32\")\n\nmodel = keras.Sequential([keras.Input((8,)),\n                          layers.Dense(32, activation=\"relu\"),\n                          layers.Dense(2)])                  # logits\nmodel.compile(optimizer=keras.optimizers.Adam(learning_rate=1e-3),\n              loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True),\n              metrics=[\"accuracy\"])\n\nhistory = model.fit(x, y, batch_size=32, epochs=20, validation_split=0.2, verbose=0)\nprint(list(history.history))   # includes 'loss', 'accuracy', 'val_loss', 'val_accuracy'\n\nloss, acc = model.evaluate(x, y, verbose=0)\nlogits = model.predict(x[:2], verbose=0)\nprint(type(logits).__name__, logits.shape)                    # ndarray (2, 2)",
+   "code_lang": "python",
+   "takeaways": [
+    "compile = optimizer + loss + metrics",
+    "fit returns History; evaluate measures; predict returns NumPy",
+    "`from_logits=True` when the last layer has no softmax"
+   ],
+   "pitfalls": [
+    "Using `validation_split` on sorted data, so validation contains only the last classes."
+   ],
+   "quiz": [
+    {
+     "q": "The final layer is Dense(10) with no activation and labels are integers 0-9. Which loss fits?",
+     "options": [
+      "CategoricalCrossentropy()",
+      "BinaryCrossentropy()",
+      "SparseCategoricalCrossentropy(from_logits=True)",
+      "SparseCategoricalCrossentropy()"
+     ],
+     "answer": 2,
+     "explain": "Integer labels need the sparse variant, and raw outputs need from_logits=True."
+    }
+   ],
+   "docs": "https://keras.io/guides/training_with_built_in_methods/",
+   "requires": [
+    "keras.core-layers"
+   ]
+  },
+  {
+   "id": "keras.functional-api",
+   "name": "The functional API",
+   "module": "models",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Build models as graphs of layers: multiple inputs and outputs, skip connections and shared layers, with keras.Model(inputs, outputs).",
+   "why": "Most real architectures branch or merge; the functional API expresses them while keeping summary, plotting and saving.",
+   "body": "In the **functional API** you create symbolic inputs with `keras.Input`, call layers on them like functions, and wrap the result in `keras.Model(inputs=..., outputs=...)`. Each call returns a symbolic `KerasTensor` with a known shape, so shape errors appear while you build the model, not during training.\n\nIt handles what Sequential cannot:\n\n- **Multiple inputs**, such as text plus tabular metadata, merged with `layers.concatenate` or `layers.add`.\n- **Multiple outputs**, each with its own loss (and optional `loss_weights`), passed to `compile` as a dict keyed by output layer names.\n- **Skip connections** (`x = layers.add([x, shortcut])`), as in ResNets.\n- **Shared layers**: calling the same layer object on two inputs reuses its weights, as in siamese networks.\n\nThe model is a static graph of layers, so Keras can show it with `summary()` or `keras.utils.plot_model`, serialise it fully, and let you extract intermediate outputs with `keras.Model(model.input, model.get_layer(\"name\").output)`.\n\nWhen feeding data, pass dicts keyed by input names (`{\"text\": ..., \"meta\": ...}`) for clarity. Functional models are themselves layers, so you can call one model inside another.",
+   "code": "import keras\nfrom keras import layers\n\ntext_in = keras.Input(shape=(100,), dtype=\"int32\", name=\"text\")   # token ids\nmeta_in = keras.Input(shape=(5,), name=\"meta\")\n\nt = layers.Embedding(10_000, 32)(text_in)\nt = layers.GlobalAveragePooling1D()(t)\nm = layers.Dense(16, activation=\"relu\")(meta_in)\nh = layers.concatenate([t, m])\n\npriority = layers.Dense(1, activation=\"sigmoid\", name=\"priority\")(h)\ndept = layers.Dense(4, name=\"dept\")(h)                           # logits\n\nmodel = keras.Model(inputs=[text_in, meta_in], outputs=[priority, dept])\nmodel.compile(optimizer=\"adam\",\n              loss={\"priority\": \"binary_crossentropy\",\n                    \"dept\": keras.losses.SparseCategoricalCrossentropy(from_logits=True)})\nprint([tuple(o.shape) for o in model.outputs])   # [(None, 1), (None, 4)]\n# model.fit({\"text\": x_text, \"meta\": x_meta}, {\"priority\": y_p, \"dept\": y_d})",
+   "code_lang": "python",
+   "takeaways": [
+    "Call layers on `keras.Input` tensors, then `keras.Model(inputs, outputs)`",
+    "Supports multi-input/output, skip connections and shared layers",
+    "Name inputs and outputs and pass dicts to compile and fit"
+   ],
+   "pitfalls": [
+    "Creating a new layer object for each branch when you meant to share weights."
+   ],
+   "quiz": [
+    {
+     "q": "How do you make two inputs share the same Dense weights in the functional API?",
+     "options": [
+      "Create two Dense layers with the same name",
+      "Call one Dense layer object on both inputs",
+      "Set shared=True",
+      "Concatenate the inputs first"
+     ],
+     "answer": 1,
+     "explain": "A layer object owns its weights, so calling it twice reuses them."
+    }
+   ],
+   "docs": "https://keras.io/guides/functional_api/",
+   "requires": [
+    "keras.sequential-model"
+   ]
+  },
+  {
+   "id": "keras.losses-optimizers-metrics",
+   "name": "Losses, optimizers and metrics",
+   "module": "training",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Choose the right loss for your labels, configure optimizers and learning-rate schedules, and understand stateful metrics.",
+   "why": "Mismatched loss and label formats, and poorly chosen learning rates, are the most common reasons a Keras model does not learn.",
+   "body": "**Losses** compare targets and predictions and return a scalar:\n\n- `SparseCategoricalCrossentropy`: integer class labels. `CategoricalCrossentropy`: one-hot labels.\n- `BinaryCrossentropy`: binary or multi-label targets in {0, 1}.\n- `MeanSquaredError`, `MeanAbsoluteError`, `Huber`: regression.\n\nAll classification losses take `from_logits=True` when predictions are raw scores. Any function `fn(y_true, y_pred)` returning per-sample losses also works.\n\n**Optimizers** live in `keras.optimizers`: `Adam`, `AdamW` (decoupled `weight_decay`), `SGD(momentum=0.9)`, `RMSprop`, `Lion` and more. The `learning_rate` can be a float or a **schedule** from `keras.optimizers.schedules`, such as `CosineDecay` (with optional warmup) or `ExponentialDecay`, evaluated every step. Options like `clipnorm` clip gradients.\n\n**Metrics** are **stateful**: `update_state(y_true, y_pred)` accumulates over batches, `result()` returns the current value and `reset_state()` clears it. That is why the accuracy fit() shows is an average over the epoch, not the last batch. Accuracy metrics come in sparse and categorical flavours that match the loss; AUC, Precision and Recall accept thresholds.",
+   "code": "import numpy as np\nimport keras\n\ny_true = np.array([0, 2])\nlogits = np.array([[2.0, 0.5, -1.0], [0.1, 0.2, 3.0]], dtype=\"float32\")\n\nloss = keras.losses.SparseCategoricalCrossentropy(from_logits=True)\nprint(round(float(loss(y_true, logits)), 4))                 # 0.1755\nprobs = keras.ops.softmax(logits)\nprint(round(float(keras.losses.SparseCategoricalCrossentropy()(y_true, probs)), 4))  # 0.1755\n\nacc = keras.metrics.SparseCategoricalAccuracy()\nacc.update_state(y_true, logits)                 # 2 of 2 correct\nacc.update_state(np.array([1]), np.array([[0.9, 0.1, 0.0]]))   # 0 of 1 correct\nprint(round(float(acc.result()), 3))             # 0.667  (accumulated)\nacc.reset_state()\n\nschedule = keras.optimizers.schedules.CosineDecay(1e-3, decay_steps=10_000)\nopt = keras.optimizers.AdamW(learning_rate=schedule, weight_decay=1e-4)",
+   "code_lang": "python",
+   "takeaways": [
+    "Sparse losses for integer labels, categorical for one-hot",
+    "Learning rates can be schedules evaluated every step",
+    "Metrics accumulate with update_state / result / reset_state"
+   ],
+   "pitfalls": [
+    "Using CategoricalCrossentropy with integer labels, which fails with a shape error (or trains on the wrong targets)."
+   ],
+   "quiz": [
+    {
+     "q": "Why is the accuracy printed by fit() at the end of an epoch an average over the epoch?",
+     "options": [
+      "fit() recomputes it on the whole dataset",
+      "It is the last batch only",
+      "It is computed on validation data",
+      "Metrics are stateful and accumulate across batches until reset"
+     ],
+     "answer": 3,
+     "explain": "Metrics accumulate via update_state and are reset at the start of each epoch."
+    }
+   ],
+   "docs": "https://keras.io/api/losses/",
+   "requires": [
+    "keras.compile-fit"
+   ]
+  },
+  {
+   "id": "keras.input-data",
+   "name": "Feeding data to fit()",
+   "module": "training",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Train from NumPy arrays, tf.data datasets, PyTorch DataLoaders or a keras.utils.PyDataset, with any backend.",
+   "why": "Real datasets do not fit in memory; Keras 3 accepts the data pipelines of every major framework.",
+   "body": "`fit()`, `evaluate()` and `predict()` accept several kinds of input, regardless of backend:\n\n- **NumPy arrays** (or backend tensors): simplest; pass `batch_size` and let Keras shuffle each epoch.\n- A **`tf.data.Dataset`**: yields batches already; do not pass `batch_size`. Works with JAX and PyTorch backends too, since Keras converts each batch.\n- A **PyTorch `DataLoader`**: yields batches; again no `batch_size`.\n- A **`keras.utils.PyDataset`**: a Python class with `__len__` (number of batches) and `__getitem__(idx)` returning one batch. Pass `workers=` and `use_multiprocessing=` to its constructor to load in parallel.\n\nFor generators or infinite datasets, set `steps_per_epoch` so Keras knows when an epoch ends.\n\nBatches can be `(x, y)` or `(x, y, sample_weight)`, and `x`/`y` can be dicts matching named inputs and outputs. `class_weight={0: 1.0, 1: 5.0}` up-weights rare classes.\n\nPick by need: NumPy for small data, tf.data for high-throughput pipelines (especially with the TF or JAX backend), DataLoader if you already have PyTorch datasets, and PyDataset for custom Python loading code without extra dependencies.",
+   "code": "import math\nimport numpy as np\nimport keras\n\nclass RandomBatches(keras.utils.PyDataset):\n    def __init__(self, n, batch_size, **kwargs):\n        super().__init__(**kwargs)           # e.g. workers=4, use_multiprocessing=True\n        self.n, self.batch_size = n, batch_size\n\n    def __len__(self):                       # batches per epoch\n        return math.ceil(self.n / self.batch_size)\n\n    def __getitem__(self, idx):              # one batch\n        size = min(self.batch_size, self.n - idx * self.batch_size)\n        x = np.random.rand(size, 4).astype(\"float32\")\n        return x, x.sum(axis=1, keepdims=True)\n\nmodel = keras.Sequential([keras.Input((4,)), keras.layers.Dense(1)])\nmodel.compile(optimizer=\"adam\", loss=\"mse\")\nmodel.fit(RandomBatches(1000, 64), epochs=2, verbose=0)\n# Also valid for fit(): NumPy arrays + batch_size, a tf.data.Dataset,\n# or a torch DataLoader, with any backend.",
+   "code_lang": "python",
+   "takeaways": [
+    "NumPy + batch_size, tf.data, torch DataLoader or PyDataset",
+    "Batched sources must not get a `batch_size` argument",
+    "`class_weight` and `sample_weight` reweight examples"
+   ],
+   "pitfalls": [
+    "Passing `batch_size` together with a dataset that is already batched."
+   ],
+   "quiz": [
+    {
+     "q": "What must PyDataset.__len__ return?",
+     "options": [
+      "The number of batches per epoch",
+      "The number of samples",
+      "The batch size",
+      "The number of epochs"
+     ],
+     "answer": 0,
+     "explain": "Keras indexes batches 0..len-1, so __len__ counts batches."
+    }
+   ],
+   "docs": "https://keras.io/guides/training_with_built_in_methods/",
+   "requires": [
+    "keras.compile-fit",
+    "python.classes"
+   ]
+  },
+  {
+   "id": "keras.callbacks",
+   "name": "Callbacks",
+   "module": "training",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Hook into fit() with EarlyStopping, ModelCheckpoint, ReduceLROnPlateau, TensorBoard and your own Callback subclasses.",
+   "why": "Callbacks add stopping, saving, scheduling and logging to training without writing a custom loop.",
+   "body": "A **callback** is an object whose methods `fit()` calls at points in training: `on_train_begin`, `on_epoch_begin`/`on_epoch_end`, `on_train_batch_end` and so on. Pass a list with `fit(..., callbacks=[...])`.\n\nThe built-in ones cover most needs:\n\n- `EarlyStopping(monitor=\"val_loss\", patience=5, restore_best_weights=True)`: stop when the monitored value stops improving and roll back to the best epoch.\n- `ModelCheckpoint(\"best.keras\", save_best_only=True)`: save the model (or weights with a `.weights.h5` path) during training.\n- `ReduceLROnPlateau(factor=0.5, patience=2)`: lower the learning rate when progress stalls.\n- `LearningRateScheduler(fn)`: set the rate per epoch from a function.\n- `TensorBoard(log_dir)`, `CSVLogger(path)`: logging.\n- `BackupAndRestore(dir)`: resume automatically after an interruption.\n\nTo write your own, subclass `keras.callbacks.Callback`. Inside, `self.model` is the model being trained and `logs` is a dict of the current metrics (`loss`, `val_loss`...). Setting `self.model.stop_training = True` stops training.\n\nMonitored names must match the logs exactly, including the `val_` prefix, which requires validation data.",
+   "code": "import numpy as np\nimport keras\n\nx = np.random.rand(500, 4).astype(\"float32\")\ny = x.sum(axis=1)\nmodel = keras.Sequential([keras.Input((4,)),\n                          keras.layers.Dense(16, activation=\"relu\"),\n                          keras.layers.Dense(1)])\nmodel.compile(optimizer=\"adam\", loss=\"mse\")\n\nclass PrintEvery(keras.callbacks.Callback):\n    def on_epoch_end(self, epoch, logs=None):\n        if epoch % 20 == 0:\n            print(f\"epoch {epoch}: val_loss={logs['val_loss']:.4f}\")\n\ncallbacks = [\n    keras.callbacks.EarlyStopping(monitor=\"val_loss\", patience=5, restore_best_weights=True),\n    keras.callbacks.ModelCheckpoint(\"best.keras\", monitor=\"val_loss\", save_best_only=True),\n    keras.callbacks.ReduceLROnPlateau(monitor=\"val_loss\", factor=0.5, patience=2),\n    PrintEvery(),\n]\nhistory = model.fit(x, y, epochs=300, validation_split=0.2, callbacks=callbacks, verbose=0)\nprint(\"trained for\", len(history.history[\"loss\"]), \"epochs\")   # fewer than 300",
+   "code_lang": "python",
+   "takeaways": [
+    "EarlyStopping + ModelCheckpoint + ReduceLROnPlateau is a solid default",
+    "Custom callbacks override `on_*` methods and read `logs`",
+    "Monitored keys must exist in logs (e.g. `val_loss` needs validation data)"
+   ],
+   "pitfalls": [
+    "Monitoring `val_accuracy` without passing validation data, so the callback never triggers (Keras only warns)."
+   ],
+   "quiz": [
+    {
+     "q": "What does restore_best_weights=True add to EarlyStopping?",
+     "options": [
+      "It saves the best model to disk",
+      "It restarts training from the best epoch",
+      "When stopping, it resets the model to the weights from the best epoch",
+      "It keeps training until val_loss stops decreasing"
+     ],
+     "answer": 2,
+     "explain": "Without it, the model keeps the weights of the last (worse) epoch."
+    }
+   ],
+   "docs": "https://keras.io/api/callbacks/",
+   "requires": [
+    "keras.compile-fit"
+   ]
+  },
+  {
+   "id": "keras.regularization",
+   "name": "Regularization and augmentation",
+   "module": "layers",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Fight overfitting with Dropout, weight regularizers, BatchNormalization and augmentation layers that only act during training.",
+   "why": "Most models overfit before they underfit; these tools close the gap between training and validation scores.",
+   "body": "**Overfitting** shows up as training loss falling while validation loss rises. Keras offers several remedies, often combined:\n\n- **Dropout(rate)**: randomly zeroes a fraction of activations in training. Typical rates are 0.1 to 0.5.\n- **Weight penalties**: `kernel_regularizer=keras.regularizers.L2(1e-4)` on a layer adds a penalty term to the loss. With Adam, prefer `AdamW(weight_decay=...)`, which decouples decay from the gradient.\n- **BatchNormalization**: normalises activations using batch statistics in training and moving averages at inference. It mainly stabilises training but also regularises a little.\n- **Data augmentation layers**: `RandomFlip`, `RandomRotation`, `RandomZoom`, `RandomContrast`, `RandomCrop` create varied copies of each image every epoch.\n- **Early stopping** with the callback.\n\nAll of these behave differently in training and inference. Keras passes a `training` argument: `fit()` sets it to `True`, while `predict()`, `evaluate()` and plain `model(x)` use inference behaviour. Augmentation layers are therefore no-ops at prediction time.\n\nRegularization penalties appear in `model.losses` and are added to the main loss by `fit()`. Placing augmentation inside the model means exported models handle raw images; placing it in a `tf.data` pipeline runs it on the CPU, in parallel with training.",
+   "code": "import numpy as np\nimport keras\nfrom keras import layers, regularizers\n\nmodel = keras.Sequential([\n    keras.Input((32, 32, 3)),\n    layers.RandomFlip(\"horizontal\"),       # augmentation: training only\n    layers.RandomRotation(0.1),\n    layers.Conv2D(32, 3, padding=\"same\", use_bias=False),\n    layers.BatchNormalization(),\n    layers.Activation(\"relu\"),\n    layers.GlobalAveragePooling2D(),\n    layers.Dropout(0.3),\n    layers.Dense(10, kernel_regularizer=regularizers.L2(1e-4)),\n])\n\nx = np.random.rand(4, 32, 32, 3).astype(\"float32\")\na = keras.ops.convert_to_numpy(model(x, training=False))\nb = keras.ops.convert_to_numpy(model(x, training=False))\nprint(np.allclose(a, b))       # True: inference is deterministic\nprint(len(model.losses))       # 1  (the L2 penalty, added to the loss by fit)",
+   "code_lang": "python",
+   "takeaways": [
+    "Dropout, weight decay, BatchNorm and augmentation combat overfitting",
+    "`training=True` in fit, inference behaviour in predict and model(x)",
+    "Prefer AdamW's weight_decay over L2 penalties with Adam"
+   ],
+   "pitfalls": [
+    "Calling `model(x, training=True)` for inference, which applies dropout and random augmentation."
+   ],
+   "quiz": [
+    {
+     "q": "When you call model.predict(x), what do RandomFlip and Dropout layers do?",
+     "options": [
+      "Apply random flips and dropout as in training",
+      "Act as identity: no flipping, no dropout",
+      "Raise an error",
+      "Flip but do not drop out"
+     ],
+     "answer": 1,
+     "explain": "Both only act when training=True; predict runs in inference mode."
+    }
+   ],
+   "docs": "https://keras.io/api/layers/regularization_layers/",
+   "requires": [
+    "keras.compile-fit",
+    "keras.core-layers"
+   ]
+  },
+  {
+   "id": "keras.preprocessing-layers",
+   "name": "Preprocessing layers",
+   "module": "layers",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Normalize numeric features, encode categories and text with Normalization, StringLookup, IntegerLookup and TextVectorization, learning their state with adapt().",
+   "why": "Putting preprocessing in layers keeps training and serving consistent and lets the model accept raw inputs.",
+   "body": "**Preprocessing layers** turn raw features into model-ready tensors. Many have state learned from data with **`adapt(data)`** before training:\n\n- `Normalization(axis=-1)`: learns per-feature mean and variance, then outputs `(x - mean) / std`.\n- `Discretization(bin_boundaries=...)` or `num_bins=`: buckets numeric values.\n- `StringLookup` and `IntegerLookup`: map categories to indices, with an **out-of-vocabulary** slot (index 0 for one-hot output, 1 for integer output when a mask token is present). `output_mode=\"one_hot\"` or `\"multi_hot\"` gives encodings directly.\n- `TextVectorization`: standardises, tokenises and indexes text.\n- `Hashing`: for huge or open-ended category sets.\n- Image layers: `Resizing`, `Rescaling(1/255)`, `CenterCrop`.\n\nYou can place them **inside the model**, so the saved model accepts raw strings and numbers and serving cannot drift from training, or **in the input pipeline** (`dataset.map(layer)`), where they run on the CPU asynchronously.\n\nSome of these layers (the lookup and text layers) are implemented with TensorFlow ops; with the JAX or PyTorch backend they work eagerly and inside `tf.data` pipelines, but not inside a compiled non-TF model, so put them in the data pipeline there.",
+   "code": "import numpy as np\nimport keras\nfrom keras import layers\n\ndata = np.array([[1.0, 200.0], [2.0, 300.0], [3.0, 400.0]], dtype=\"float32\")\nnorm = layers.Normalization(axis=-1)\nnorm.adapt(data)                       # learns mean and variance per column\nprint(keras.ops.convert_to_numpy(norm(data)).round(2))\n# [[-1.22 -1.22]\n#  [ 0.    0.  ]\n#  [ 1.22  1.22]]\n\nlookup = layers.StringLookup(vocabulary=[\"red\", \"green\", \"blue\"], output_mode=\"one_hot\")\nprint(keras.ops.convert_to_numpy(lookup(np.array([\"green\", \"purple\"]))))\n# [[0. 0. 1. 0.]\n#  [1. 0. 0. 0.]]   column 0 = out-of-vocabulary",
+   "code_lang": "python",
+   "takeaways": [
+    "`adapt()` learns state such as mean/variance or vocabularies",
+    "Inside the model: consistent serving; in tf.data: async CPU work",
+    "Lookup layers reserve an out-of-vocabulary index"
+   ],
+   "pitfalls": [
+    "Adapting a Normalization layer on the full dataset including test data, leaking test statistics."
+   ],
+   "quiz": [
+    {
+     "q": "What does Normalization.adapt(train_x) do?",
+     "options": [
+      "Trains the whole model on train_x",
+      "Normalises train_x in place",
+      "Chooses the batch size",
+      "Computes and stores per-feature mean and variance from train_x"
+     ],
+     "answer": 3,
+     "explain": "adapt sets the layer's non-trainable statistics; the layer then normalises any input with them."
+    }
+   ],
+   "docs": "https://keras.io/guides/preprocessing_layers/",
+   "requires": [
+    "keras.compile-fit"
+   ]
+  },
+  {
+   "id": "keras.saving",
+   "name": "Saving and exporting models",
+   "module": "training",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Save full models in the .keras format, save or load weights only, and export inference artifacts for serving.",
+   "why": "You need to resume training, share models and deploy them; each needs a different save format.",
+   "body": "Keras 3 has three ways to persist a model:\n\n- **`model.save(\"model.keras\")`**: the native format, a zip with the architecture config, weights and optimizer state. Reload with `keras.saving.load_model(\"model.keras\")`; the result is ready to `predict` or continue `fit`. Custom layers must be registered or passed via `custom_objects`.\n- **`model.save_weights(\"model.weights.h5\")`** and `load_weights(...)`: weights only. The file name must end in `.weights.h5`, and you rebuild the same architecture in code before loading.\n- **`model.export(\"dir\")`**: an inference-only artifact. By default it writes a TensorFlow SavedModel (needs TensorFlow installed) for TF Serving or LiteRT conversion; recent versions also offer `format=\"onnx\"`.\n\nThe legacy `.h5` full-model format and the old `SavedModel` mode of `model.save()` from Keras 2 are no longer the way to save in Keras 3.\n\nThe `.keras` format is backend-independent: a model trained with JAX can be loaded under PyTorch. For checkpoints during training, use the `ModelCheckpoint` callback, which writes the same formats.\n\nLoading runs in `safe_mode` by default, which refuses to deserialise arbitrary Python code such as `Lambda` layers from untrusted files.",
+   "code": "import numpy as np\nimport keras\n\nmodel = keras.Sequential([keras.Input((3,)), keras.layers.Dense(2)])\nmodel.compile(optimizer=\"adam\", loss=\"mse\")\n\nmodel.save(\"model.keras\")                         # config + weights + optimizer\nrestored = keras.saving.load_model(\"model.keras\")\nx = np.ones((1, 3), dtype=\"float32\")\nprint(np.allclose(model.predict(x, verbose=0),\n                  restored.predict(x, verbose=0)))   # True\n\nmodel.save_weights(\"model.weights.h5\")            # weights only\nclone = keras.Sequential([keras.Input((3,)), keras.layers.Dense(2)])\nclone.load_weights(\"model.weights.h5\")            # same architecture required\nprint(clone.get_weights()[0].shape)               # (3, 2)\n\n# For serving (requires TensorFlow): model.export(\"export_dir\")",
+   "code_lang": "python",
+   "takeaways": [
+    "`.keras` = full model, backend-independent",
+    "`.weights.h5` = weights only, rebuild architecture first",
+    "`model.export()` produces inference artifacts for serving"
+   ],
+   "pitfalls": [
+    "Saving weights to a file not ending in `.weights.h5`, which Keras 3 rejects."
+   ],
+   "quiz": [
+    {
+     "q": "You trained with the JAX backend and saved model.keras. Can you load it with the PyTorch backend?",
+     "options": [
+      "Yes, the .keras format is backend-independent",
+      "No, files are backend-specific",
+      "Only the weights",
+      "Only after converting with ONNX"
+     ],
+     "answer": 0,
+     "explain": "The format stores configs and NumPy-compatible weights, not backend graphs."
+    }
+   ],
+   "docs": "https://keras.io/guides/serialization_and_saving/",
+   "requires": [
+    "keras.compile-fit",
+    "keras.functional-api"
+   ]
+  },
+  {
+   "id": "keras.subclassing",
+   "name": "Subclassing keras.Model",
+   "module": "models",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Write models as Python classes: create layers in __init__ and define the forward pass in call(), with a training flag.",
+   "why": "Subclassing gives full Python flexibility for research architectures that are awkward as static graphs.",
+   "body": "For architectures with custom control flow, subclass **`keras.Model`**:\n\n- Create layers in `__init__` and assign them to attributes; Keras tracks their weights automatically, including layers stored in lists or dicts.\n- Implement `call(self, inputs, training=False)` with the forward computation, passing `training` on to layers that need it (Dropout, BatchNorm).\n- Call `super().__init__(**kwargs)` first so arguments like `name` work.\n\nA subclassed model is used like any other: `compile`, `fit`, `evaluate`, `predict`. Weights are created on the first call, so call the model on a sample batch (or call `build`) before `summary()`.\n\nTrade-offs compared with the functional API:\n\n- More flexible: loops, conditionals and arbitrary Python inside `call`.\n- Less introspection: Keras cannot plot the layer graph or check shapes before running.\n- Saving to `.keras` works, but to reload you must implement `get_config` (if `__init__` takes arguments) and register the class.\n\nA good pattern is to build reusable blocks by subclassing `keras.layers.Layer` and assemble them with the functional API, getting flexibility where you need it and introspection everywhere else. With the PyTorch backend, a Keras model is also a `torch.nn.Module`.",
+   "code": "import numpy as np\nimport keras\nfrom keras import layers\n\nclass ResidualMLP(keras.Model):\n    def __init__(self, units=64, n_classes=10, **kwargs):\n        super().__init__(**kwargs)\n        self.inp = layers.Dense(units, activation=\"relu\")\n        self.block = layers.Dense(units, activation=\"relu\")\n        self.drop = layers.Dropout(0.2)\n        self.head = layers.Dense(n_classes)\n\n    def call(self, x, training=False):\n        h = self.inp(x)\n        h = h + self.drop(self.block(h), training=training)   # residual connection\n        return self.head(h)\n\nmodel = ResidualMLP()\nprint(tuple(model(np.zeros((2, 20), dtype=\"float32\")).shape))   # (2, 10)  builds weights\nprint(len(model.trainable_weights))                              # 6\nmodel.compile(optimizer=\"adam\",\n              loss=keras.losses.SparseCategoricalCrossentropy(from_logits=True))",
+   "code_lang": "python",
+   "takeaways": [
+    "Layers in `__init__`, computation in `call(inputs, training=False)`",
+    "Weights exist after the first call",
+    "Flexible but less introspectable than functional models"
+   ],
+   "pitfalls": [
+    "Ignoring the `training` argument, so dropout stays active or inactive in the wrong phase."
+   ],
+   "quiz": [
+    {
+     "q": "Why might model.summary() fail right after constructing a subclassed model?",
+     "options": [
+      "Subclassed models do not support summary",
+      "summary needs compile first",
+      "The weights have not been created yet because the model has not been called or built",
+      "call() must be named forward()"
+     ],
+     "answer": 2,
+     "explain": "Subclassed models build their layers on first call, when input shapes become known."
+    }
+   ],
+   "docs": "https://keras.io/guides/making_new_layers_and_models_via_subclassing/",
+   "requires": [
+    "keras.functional-api",
+    "python.classes"
+   ]
+  },
+  {
+   "id": "keras.keras-ops",
+   "name": "keras.ops: backend-agnostic math",
+   "module": "layers",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Write numerical code once with keras.ops (a NumPy-like API plus neural-net ops) and keras.random, and run it on any backend.",
+   "why": "Custom layers, losses and metrics stay portable across JAX, TensorFlow and PyTorch only if they use keras.ops.",
+   "body": "**`keras.ops`** is Keras 3's portable tensor API. It implements most of the NumPy API (`ops.sum`, `ops.matmul`, `ops.reshape`, `ops.where`, `ops.einsum`...) plus neural-network functions (`ops.softmax`, `ops.relu`, `ops.conv`, `ops.one_hot`, `ops.logsumexp`) and core control flow (`ops.cond`, `ops.while_loop`, `ops.scan`). Each call dispatches to the active backend, so code written with it runs on JAX, TensorFlow and PyTorch alike.\n\nPractical rules:\n\n- Inside custom layers, losses and metrics, use `keras.ops` instead of `tf.*`, `jnp.*` or `torch.*`, unless you deliberately target one backend.\n- `ops.convert_to_tensor(x)` makes a backend tensor; `ops.convert_to_numpy(t)` brings it back.\n- Dtypes are strings: `\"float32\"`, `\"int32\"`, `\"bfloat16\"`.\n\nRandomness goes through **`keras.random`**: `normal`, `uniform`, `dropout`, `shuffle`. Pass a seed or, better, a `keras.random.SeedGenerator`, which holds state as a variable so random ops behave correctly inside compiled and stateless (JAX) functions.\n\nBecause results are backend-native, printing them shows backend types; convert to NumPy for portable output.",
+   "code": "import keras\nfrom keras import ops\n\nx = ops.arange(6, dtype=\"float32\")\nm = ops.reshape(x, (2, 3))\nprint(ops.convert_to_numpy(ops.sum(m, axis=0)))                   # [3. 5. 7.]\nprint(ops.convert_to_numpy(ops.matmul(m, ops.transpose(m))))      # [[ 5. 14.] [14. 50.]]\nprint(ops.convert_to_numpy(ops.softmax(ops.array([0.0, 0.0]))))   # [0.5 0.5]\nprint(ops.convert_to_numpy(ops.where(m > 2, m, 0.0)))             # [[0. 0. 0.] [3. 4. 5.]]\nprint(ops.convert_to_numpy(ops.one_hot(ops.array([2, 0]), 3)))    # [[0. 0. 1.] [1. 0. 0.]]\n\nseed = keras.random.SeedGenerator(42)\nnoise = keras.random.normal((2, 3), seed=seed)   # reproducible on every backend\nprint(tuple(noise.shape))                        # (2, 3)",
+   "code_lang": "python",
+   "takeaways": [
+    "`keras.ops` = NumPy API + NN ops, on every backend",
+    "Use it in custom layers, losses and metrics for portability",
+    "Use `keras.random` with a SeedGenerator for randomness"
+   ],
+   "pitfalls": [
+    "Calling `tf.*` functions in a custom layer, which breaks as soon as the backend is JAX or PyTorch."
+   ],
+   "quiz": [
+    {
+     "q": "Why use keras.random.SeedGenerator instead of an integer seed inside a layer?",
+     "options": [
+      "It is faster",
+      "It keeps RNG state as a variable, so each call draws new numbers even in compiled or stateless code",
+      "Integer seeds are not allowed",
+      "It makes results identical on all backends"
+     ],
+     "answer": 1,
+     "explain": "A fixed integer seed would repeat the same numbers on every call inside a compiled function."
+    }
+   ],
+   "docs": "https://keras.io/api/ops/",
+   "requires": [
+    "keras.backends",
+    "numpy.vectorized-arithmetic"
+   ]
+  },
+  {
+   "id": "keras.custom-layers",
+   "name": "Writing custom layers",
+   "module": "layers",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Subclass keras.layers.Layer with build() and add_weight(), implement call() with keras.ops, and make it serializable with get_config().",
+   "why": "Custom layers are how you package new ideas so they work with fit, saving and every backend.",
+   "body": "A custom layer subclasses **`keras.layers.Layer`** and usually implements:\n\n- `__init__(self, ..., **kwargs)`: store hyperparameters; call `super().__init__(**kwargs)`.\n- `build(self, input_shape)`: create weights with `self.add_weight(shape, initializer, trainable=True, name=...)`. Creating weights here, rather than in `__init__`, lets the layer adapt to the input size it first sees.\n- `call(self, inputs, training=None)`: the computation, written with `keras.ops` for portability.\n- `get_config(self)`: return the constructor arguments merged with `super().get_config()`, so the layer can be re-created with `from_config` when a saved model is loaded.\n\nDecorate the class with `@keras.saving.register_keras_serializable(package=\"...\")` so `load_model` can find it without `custom_objects`.\n\nOther useful hooks: `self.add_loss(value)` for activity regularisation, non-trainable weights (`trainable=False`) for state like moving averages (update them with `assign`), and `compute_output_shape` if Keras cannot infer it.\n\nNested layers assigned as attributes are tracked automatically, so their weights appear in `layer.weights`. Test a new layer by calling it on a NumPy batch, checking output shapes, and round-tripping it through `get_config`/`from_config`.",
+   "code": "import numpy as np\nimport keras\nfrom keras import ops\n\n@keras.saving.register_keras_serializable(package=\"demo\")\nclass ScaledDense(keras.layers.Layer):\n    def __init__(self, units, scale=1.0, **kwargs):\n        super().__init__(**kwargs)\n        self.units, self.scale = units, scale\n    def build(self, input_shape):\n        self.w = self.add_weight(shape=(input_shape[-1], self.units),\n                                 initializer=\"glorot_uniform\", name=\"w\")\n        self.b = self.add_weight(shape=(self.units,), initializer=\"zeros\", name=\"b\")\n    def call(self, x):\n        return self.scale * (ops.matmul(x, self.w) + self.b)\n    def get_config(self):\n        return {**super().get_config(), \"units\": self.units, \"scale\": self.scale}\n\nlayer = ScaledDense(4, scale=0.5)\nprint(tuple(layer(np.ones((2, 3), dtype=\"float32\")).shape))   # (2, 4)\nprint([tuple(w.shape) for w in layer.weights])                # [(3, 4), (4,)]\nclone = ScaledDense.from_config(layer.get_config())\nprint(clone.units, clone.scale)                               # 4 0.5",
+   "code_lang": "python",
+   "takeaways": [
+    "Create weights in `build` with `add_weight`",
+    "Write `call` with `keras.ops` for portability",
+    "Implement `get_config` and register the class for saving"
+   ],
+   "pitfalls": [
+    "Creating weights in `call`, which makes new weights on every call."
+   ],
+   "quiz": [
+    {
+     "q": "Why create weights in build() rather than __init__?",
+     "options": [
+      "build is faster",
+      "__init__ cannot call add_weight",
+      "Weights in __init__ are not saved",
+      "build receives the input shape, so the layer can size its weights to the data it first sees"
+     ],
+     "answer": 3,
+     "explain": "Deferring creation to build lets layers like Dense infer their input dimension."
+    }
+   ],
+   "docs": "https://keras.io/guides/making_new_layers_and_models_via_subclassing/",
+   "requires": [
+    "keras.subclassing",
+    "keras.keras-ops"
+   ]
+  },
+  {
+   "id": "keras.custom-losses-metrics",
+   "name": "Custom losses and metrics",
+   "module": "training",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Write losses as functions or Loss subclasses, and stateful metrics as Metric subclasses with add_variable, update_state and result.",
+   "why": "Business objectives and research ideas rarely match the built-in losses and metrics exactly.",
+   "body": "**Custom losses**: any function `loss(y_true, y_pred)` built from `keras.ops` that returns one value per sample works. Keras applies sample weights and reduces to a scalar for you. If the loss has hyperparameters that must be saved, subclass `keras.losses.Loss`, implement `call(y_true, y_pred)` and `get_config`.\n\n**Custom metrics** must accumulate across batches, so they are classes:\n\n- Subclass `keras.metrics.Metric`.\n- In `__init__`, create state with `self.add_variable(shape=(), initializer=\"zeros\", name=...)`.\n- `update_state(y_true, y_pred, sample_weight=None)`: update the variables with `assign_add`.\n- `result()`: compute the metric from the state.\n- `reset_state()`: the default resets every variable to its initializer, which is usually enough.\n\nWhy not compute a metric as a mean of per-batch values? Because many metrics (precision, AUC, percentages of totals) are not averages of per-batch results. Keeping sums and counts gives the exact epoch-level value.\n\nFor quantities that are not functions of `(y_true, y_pred)`, such as a regularisation term computed inside a layer, use `self.add_loss(...)` in the layer, or override `compute_loss` in the model.",
+   "code": "import numpy as np\nimport keras\nfrom keras import ops\ndef huber_like(y_true, y_pred, delta=1.0):         # a plain function is a valid loss\n    err = ops.abs(y_true - y_pred)\n    sq = 0.5 * err ** 2\n    return ops.mean(ops.where(err < delta, sq, delta * (err - 0.5 * delta)), axis=-1)\n\nclass MeanAbsPct(keras.metrics.Metric):\n    def __init__(self, name=\"mape\", **kwargs):\n        super().__init__(name=name, **kwargs)\n        self.total = self.add_variable(shape=(), initializer=\"zeros\", name=\"total\")\n        self.count = self.add_variable(shape=(), initializer=\"zeros\", name=\"count\")\n    def update_state(self, y_true, y_pred, sample_weight=None):\n        pct = ops.abs((y_true - y_pred) / y_true) * 100.0\n        self.total.assign_add(ops.sum(pct))\n        self.count.assign_add(ops.sum(ops.ones_like(pct)))\n    def result(self):\n        return self.total / self.count\n\nm = MeanAbsPct()\nm.update_state(np.array([100.0, 200.0], \"float32\"), np.array([110.0, 190.0], \"float32\"))\nprint(float(m.result()))                           # 7.5  (10% and 5% errors)\nmodel = keras.Sequential([keras.Input((3,)), keras.layers.Dense(1)])\nmodel.compile(optimizer=\"adam\", loss=huber_like, metrics=[MeanAbsPct()])",
+   "code_lang": "python",
+   "takeaways": [
+    "A loss can be any `fn(y_true, y_pred)` built from keras.ops",
+    "Metrics keep sums/counts in variables: update_state, result, reset_state",
+    "Use `add_loss` for terms that do not depend on targets"
+   ],
+   "pitfalls": [
+    "Averaging per-batch metric values for metrics that are not batch-decomposable, like precision."
+   ],
+   "quiz": [
+    {
+     "q": "Why does a custom Metric keep total and count variables instead of averaging per-batch results?",
+     "options": [
+      "So the epoch value is exact even when batches differ in size or the metric is not a simple average",
+      "Variables are faster",
+      "Keras forbids Python floats",
+      "To support multiple GPUs only"
+     ],
+     "answer": 0,
+     "explain": "Accumulating raw sums gives the true dataset-level value regardless of batch sizes."
+    }
+   ],
+   "docs": "https://keras.io/api/metrics/",
+   "requires": [
+    "keras.losses-optimizers-metrics",
+    "keras.keras-ops"
+   ]
+  },
+  {
+   "id": "keras.custom-train-step",
+   "name": "Customizing what fit() does",
+   "module": "advanced",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Override train_step in a keras.Model subclass to control each training step while keeping fit(), callbacks and metrics.",
+   "why": "GANs, contrastive learning and many research setups need custom steps, and this keeps all of fit()'s conveniences.",
+   "body": "`fit()` calls `model.train_step(data)` for every batch. Overriding it gives you control over the step while keeping callbacks, progress bars, distribution and `evaluate`/`predict`. Because gradients are computed differently on each backend, the step is written in that backend's style:\n\n- **TensorFlow**: compute the loss inside a `tf.GradientTape`, get gradients with `tape.gradient`, and apply with `self.optimizer.apply(grads, self.trainable_variables)`.\n- **PyTorch**: call `self.zero_grad()`, compute the loss, `loss.backward()`, collect `v.value.grad` for each trainable variable, and apply under `torch.no_grad()`.\n- **JAX**: steps are **stateless**: `train_step(self, state, data)` receives and returns variable values, and uses `self.stateless_call` and `self.optimizer.stateless_apply`.\n\nIn every version, use `self.compute_loss(x=x, y=y, y_pred=y_pred)` to get the loss configured in `compile` (including regularisation losses), and update `self.metrics`. Return a dict of metric results; those become the logs callbacks see.\n\nOverride `test_step` the same way for custom evaluation. If you need several optimizers (as in a GAN), override `compile` to accept them. For full control without fit(), write a training loop from scratch with the same building blocks.",
+   "code": "import os\nos.environ[\"KERAS_BACKEND\"] = \"tensorflow\"\nimport numpy as np\nimport keras\nimport tensorflow as tf\n\nclass CustomModel(keras.Model):\n    def train_step(self, data):\n        x, y = data\n        with tf.GradientTape() as tape:\n            y_pred = self(x, training=True)\n            loss = self.compute_loss(x=x, y=y, y_pred=y_pred)\n        grads = tape.gradient(loss, self.trainable_variables)\n        self.optimizer.apply(grads, self.trainable_variables)\n        for metric in self.metrics:\n            if metric.name == \"loss\":\n                metric.update_state(loss)\n            else:\n                metric.update_state(y, y_pred)\n        return {m.name: m.result() for m in self.metrics}\n\ninputs = keras.Input((32,))\nmodel = CustomModel(inputs, keras.layers.Dense(1)(inputs))\nmodel.compile(optimizer=\"adam\", loss=\"mse\", metrics=[\"mae\"])\nmodel.fit(np.random.rand(256, 32), np.random.rand(256, 1), epochs=2, verbose=0)",
+   "code_lang": "python",
+   "takeaways": [
+    "Override `train_step` to customise the step but keep fit()",
+    "Gradient code is backend-specific; JAX steps are stateless",
+    "Use `self.compute_loss` and update `self.metrics`; return their results"
+   ],
+   "pitfalls": [
+    "Forgetting to update metrics in the custom step, so fit() logs stale or zero values."
+   ],
+   "quiz": [
+    {
+     "q": "What is the main advantage of overriding train_step instead of writing a full training loop?",
+     "options": [
+      "It runs faster on every backend",
+      "It works without an optimizer",
+      "You keep fit()'s callbacks, progress bars, distribution and evaluate/predict",
+      "It needs no backend-specific code"
+     ],
+     "answer": 2,
+     "explain": "train_step plugs custom logic into fit() so all its features keep working."
+    }
+   ],
+   "docs": "https://keras.io/guides/custom_train_step_in_tensorflow/",
+   "requires": [
+    "keras.subclassing",
+    "keras.losses-optimizers-metrics"
+   ]
+  },
+  {
+   "id": "keras.transfer-learning",
+   "name": "Transfer learning and fine-tuning",
+   "module": "advanced",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Reuse pretrained keras.applications or KerasHub models: freeze the base, train a new head, then fine-tune with a low learning rate.",
+   "why": "Pretrained models give strong results with little data and compute.",
+   "body": "**Transfer learning** reuses a model trained on a large dataset. In Keras:\n\n- `keras.applications` provides ImageNet models (ResNet, EfficientNetV2, ConvNeXt, MobileNetV3...). `include_top=False` drops the classifier so you can add your own.\n- **KerasHub** (`keras_hub`) provides pretrained presets for text, vision and audio, including LLMs, all built on Keras 3.\n\nThe standard two-phase recipe:\n\n1. **Feature extraction**: set `base.trainable = False`, build a new head on top, and train only the head. Call the base with `training=False` so its BatchNormalization layers stay in inference mode even later when you unfreeze them.\n2. **Fine-tuning**: set `base.trainable = True` (or unfreeze only the top blocks), **recompile** so the change takes effect, and train a few epochs with a learning rate 10-100x smaller.\n\nPreprocessing must match what the model was trained with. Each application has a `preprocess_input` function; some, like EfficientNetV2 and ConvNeXt, include preprocessing in the model and expect raw 0-255 pixels.\n\nSetting `trainable` on a model or layer applies recursively to all its sublayers, and frozen weights appear in `non_trainable_weights`.",
+   "code": "import keras\nfrom keras import layers\n\nbase = keras.applications.EfficientNetV2B0(\n    include_top=False, weights=\"imagenet\", input_shape=(224, 224, 3))\nbase.trainable = False                        # 1) freeze pretrained weights\n\ninputs = keras.Input((224, 224, 3))           # raw 0-255 pixels for EfficientNetV2\nx = base(inputs, training=False)              # keep BatchNorm in inference mode\nx = layers.GlobalAveragePooling2D()(x)\nx = layers.Dropout(0.2)(x)\noutputs = layers.Dense(5)(x)\nmodel = keras.Model(inputs, outputs)\n\nloss = keras.losses.SparseCategoricalCrossentropy(from_logits=True)\nmodel.compile(optimizer=keras.optimizers.Adam(1e-3), loss=loss, metrics=[\"accuracy\"])\n# model.fit(train_ds, validation_data=val_ds, epochs=5)    # trains the head only\n\nbase.trainable = True                         # 2) fine-tune everything\nmodel.compile(optimizer=keras.optimizers.Adam(1e-5), loss=loss, metrics=[\"accuracy\"])\n# model.fit(train_ds, validation_data=val_ds, epochs=3)    # recompiled, tiny LR\nprint(len(model.trainable_weights) > 2)       # True",
+   "code_lang": "python",
+   "takeaways": [
+    "Freeze, train a new head, then unfreeze and fine-tune with a tiny LR",
+    "Call the base with `training=False` to protect BatchNorm statistics",
+    "Recompile after changing `trainable`"
+   ],
+   "pitfalls": [
+    "Changing `trainable` without recompiling, so the change is not applied to training."
+   ],
+   "quiz": [
+    {
+     "q": "Why call the pretrained base with training=False even when fine-tuning?",
+     "options": [
+      "To freeze all weights",
+      "To keep BatchNorm layers using their learned moving statistics instead of small-batch statistics",
+      "To disable gradients",
+      "To speed up inference"
+     ],
+     "answer": 1,
+     "explain": "training=False only affects layers like BatchNorm and Dropout; the weights can still be trainable."
+    }
+   ],
+   "docs": "https://keras.io/guides/transfer_learning/",
+   "requires": [
+    "keras.functional-api",
+    "keras.regularization",
+    "keras.callbacks"
+   ]
+  },
+  {
+   "id": "keras.mixed-precision",
+   "name": "Mixed precision",
+   "module": "advanced",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Train faster with the mixed_bfloat16 or mixed_float16 dtype policy, keeping variables and outputs in float32.",
+   "why": "Mixed precision can roughly double training speed on modern GPUs and TPUs on every Keras backend.",
+   "body": "Keras controls numeric precision with **dtype policies**. A mixed policy computes in 16-bit floats while storing variables in float32:\n\n```python\nkeras.config.set_dtype_policy(\"mixed_bfloat16\")\n```\n\nEvery layer created afterwards gets `compute_dtype` bfloat16 and `variable_dtype` float32. Use `\"mixed_bfloat16\"` on TPUs and recent GPUs (NVIDIA Ampere and newer); use `\"mixed_float16\"` on older tensor-core GPUs.\n\nGuidelines:\n\n- Keep the model's **output in float32** by giving the last layer `dtype=\"float32\"` (often a final `Activation(\"softmax\", dtype=\"float32\")`).\n- With `mixed_float16`, small gradients underflow, so a `LossScaleOptimizer` is needed; `compile()` wraps your optimizer automatically. In a custom train step, call `optimizer.scale_loss(loss)` before computing gradients.\n- bfloat16 has float32's exponent range and does not need loss scaling.\n- Individual layers can override the policy with `dtype=...`.\n\nSet the policy before building the model, and reset it with `keras.config.set_dtype_policy(\"float32\")` if later code should run in full precision. Measure: on CPUs and older GPUs mixed precision can be slower.",
+   "code": "import keras\nfrom keras import layers\n\nkeras.config.set_dtype_policy(\"mixed_bfloat16\")    # or \"mixed_float16\" on older GPUs\n\nmodel = keras.Sequential([\n    keras.Input((512,)),\n    layers.Dense(1024, activation=\"relu\"),\n    layers.Dense(10),\n    layers.Activation(\"softmax\", dtype=\"float32\"),  # numerically sensitive output\n])\nd = model.layers[0]\nprint(d.dtype_policy.name, d.compute_dtype, d.variable_dtype)\n# mixed_bfloat16 bfloat16 float32\nprint(model.layers[-1].compute_dtype)              # float32\n\nmodel.compile(optimizer=\"adam\", loss=\"sparse_categorical_crossentropy\")\n# with \"mixed_float16\", compile() wraps the optimizer in a LossScaleOptimizer\n\nkeras.config.set_dtype_policy(\"float32\")           # reset the global policy",
+   "code_lang": "python",
+   "takeaways": [
+    "Mixed policies: 16-bit compute, float32 variables",
+    "Keep the final output layer in float32",
+    "float16 needs loss scaling (automatic in compile); bfloat16 does not"
+   ],
+   "pitfalls": [
+    "Setting the policy after the model was built, so existing layers keep float32."
+   ],
+   "quiz": [
+    {
+     "q": "Under the mixed_bfloat16 policy, what are a Dense layer's compute and variable dtypes?",
+     "options": [
+      "bfloat16 and bfloat16",
+      "float32 and bfloat16",
+      "float16 and float32",
+      "bfloat16 and float32"
+     ],
+     "answer": 3,
+     "explain": "Mixed policies compute in the 16-bit type but store variables in float32."
+    }
+   ],
+   "docs": "https://keras.io/api/mixed_precision/",
+   "requires": [
+    "keras.compile-fit",
+    "keras.core-layers"
+   ]
+  },
+  {
+   "id": "keras.stateless-jax",
+   "name": "Stateless training with JAX",
+   "module": "internals",
+   "level": 4,
+   "minutes": 18,
+   "summary": "How Keras runs on JAX: stateless_call and stateless_apply pass variable values explicitly, enabling jax.jit and jax.grad over Keras models.",
+   "why": "It is how fit() works under JAX and what you need to combine Keras models with custom JAX code.",
+   "body": "JAX functions must be **pure**: no hidden mutable state. Keras variables are mutable, so on the JAX backend Keras provides **stateless** versions of everything that touches state:\n\n- `model.stateless_call(trainable_values, non_trainable_values, x, training=...)` runs the forward pass using the arrays you pass in and returns `(outputs, new_non_trainable_values)`, for example updated BatchNorm statistics.\n- `optimizer.stateless_apply(optimizer_values, grads, trainable_values)` returns new trainable values and new optimizer values.\n- Metrics have `stateless_update_state` and `stateless_result`.\n\nA training step is then a pure function from `(state, batch)` to `(loss, new_state)`, which you can wrap in `jax.jit`, differentiate with `jax.value_and_grad(..., has_aux=True)`, or shard with JAX's parallelism tools. The state is just lists of arrays gathered from `model.trainable_variables`, `model.non_trainable_variables` and `optimizer.variables`.\n\nAfter the loop, write the final values back with `variable.assign(value)` so the Keras model (and `model.save`) reflect the training.\n\nThis is exactly what `fit()` does internally on JAX, and it is the pattern to use when integrating Keras layers into Flax-style or research JAX code. Remember to `optimizer.build(model.trainable_variables)` before reading its variables.",
+   "code": "import os\nos.environ[\"KERAS_BACKEND\"] = \"jax\"\nimport jax, keras, numpy as np\nmodel = keras.Sequential([keras.Input((4,)), keras.layers.Dense(1)])\noptimizer = keras.optimizers.SGD(learning_rate=0.1)\noptimizer.build(model.trainable_variables)\nloss_fn = keras.losses.MeanSquaredError()\ndef compute_loss(tv, ntv, x, y):\n    y_pred, ntv = model.stateless_call(tv, ntv, x, training=True)\n    return loss_fn(y, y_pred), ntv\n@jax.jit\ndef train_step(state, x, y):\n    tv, ntv, ov = state\n    (loss, ntv), grads = jax.value_and_grad(compute_loss, has_aux=True)(tv, ntv, x, y)\n    tv, ov = optimizer.stateless_apply(ov, grads, tv)\n    return loss, (tv, ntv, ov)\nstate = ([v.value for v in model.trainable_variables],\n         [v.value for v in model.non_trainable_variables],\n         [v.value for v in optimizer.variables])\nx = np.random.rand(256, 4).astype(\"float32\"); y = x.sum(axis=1, keepdims=True)\nfor _ in range(300):\n    loss, state = train_step(state, x, y)\nfor var, val in zip(model.trainable_variables, state[0]):\n    var.assign(val)                                  # write results back\nprint(float(loss) < 0.01)                            # True",
+   "code_lang": "python",
+   "takeaways": [
+    "JAX needs pure functions; Keras offers stateless_call / stateless_apply",
+    "State = lists of trainable, non-trainable and optimizer values",
+    "Assign final values back to the Keras variables"
+   ],
+   "pitfalls": [
+    "Forgetting to write the trained values back, then saving a model with its initial weights."
+   ],
+   "quiz": [
+    {
+     "q": "What does model.stateless_call return besides the outputs?",
+     "options": [
+      "Updated non-trainable variable values (e.g. BatchNorm statistics)",
+      "The gradients",
+      "The loss",
+      "Updated trainable values"
+     ],
+     "answer": 0,
+     "explain": "Forward passes can change non-trainable state, which must be returned explicitly in a pure function."
+    }
+   ],
+   "docs": "https://keras.io/guides/writing_a_custom_training_loop_in_jax/",
+   "requires": [
+    "keras.custom-train-step"
+   ]
+  },
+  {
+   "id": "keras.distribution",
+   "name": "The keras.distribution API",
+   "module": "internals",
+   "level": 4,
+   "minutes": 16,
+   "summary": "Shard data and model weights across devices with DeviceMesh, LayoutMap, DataParallel and ModelParallel (JAX backend).",
+   "why": "Large models need weights split across accelerators; Keras exposes this declaratively without rewriting the model.",
+   "body": "**`keras.distribution`** describes how to place variables and data on many devices. It is currently implemented for the **JAX** backend (other backends use their native tools, like `tf.distribute` or PyTorch DDP/FSDP).\n\nThe building blocks:\n\n- `keras.distribution.list_devices()` lists accelerators.\n- A **`DeviceMesh(shape, axis_names, devices)`** arranges devices in a named grid, for example 2 x 4 with axes `(\"batch\", \"model\")`.\n- **`DataParallel()`**: replicate the model, split each batch across all devices. One line for multi-GPU training.\n- **`ModelParallel(layout_map=..., batch_dim_name=\"batch\")`**: shard variables according to a **`LayoutMap`**, which maps regular expressions over variable paths to layouts. A layout like `(None, \"model\")` splits a kernel's second axis across the mesh's `model` axis and replicates the first.\n\nActivate a distribution with `keras.distribution.set_distribution(...)` **before** creating the model, so variables are created already sharded; then `fit()` works as usual and the batch is split along the batch axis.\n\nSharded dimensions must be divisible by the mesh axis size. Under the hood Keras uses JAX's sharding and the XLA compiler inserts the required communication, so the model code itself stays unchanged.",
+   "code": "import os\nos.environ[\"KERAS_BACKEND\"] = \"jax\"\nimport keras\n\ndevices = keras.distribution.list_devices()          # e.g. 8 GPUs or TPU cores\nmesh = keras.distribution.DeviceMesh(\n    shape=(2, len(devices) // 2), axis_names=(\"batch\", \"model\"), devices=devices)\n\nlayout_map = keras.distribution.LayoutMap(mesh)\nlayout_map[\"dense_1/kernel\"] = (None, \"model\")   # split output columns across \"model\"\nlayout_map[\"dense_1/bias\"] = (\"model\",)\n\nkeras.distribution.set_distribution(\n    keras.distribution.ModelParallel(layout_map=layout_map, batch_dim_name=\"batch\"))\n\nmodel = keras.Sequential([keras.Input((1024,)),\n                          keras.layers.Dense(4096, name=\"dense_1\"),\n                          keras.layers.Dense(10, name=\"dense_2\")])\n# Variables are created sharded; fit() splits each batch along \"batch\".\n# Pure data parallelism instead:\n#   keras.distribution.set_distribution(keras.distribution.DataParallel())",
+   "code_lang": "python",
+   "takeaways": [
+    "DeviceMesh names device axes; LayoutMap maps variable paths to layouts",
+    "DataParallel for replication, ModelParallel for sharded weights",
+    "Set the distribution before building the model (JAX backend)"
+   ],
+   "pitfalls": [
+    "Setting the distribution after the model exists, so its variables are not sharded."
+   ],
+   "quiz": [
+    {
+     "q": "With a mesh axis 'model' of size 4, which Dense kernel can use the layout (None, 'model')?",
+     "options": [
+      "A (1024, 10) kernel",
+      "Any kernel",
+      "A (1024, 4096) kernel",
+      "Only square kernels"
+     ],
+     "answer": 2,
+     "explain": "The sharded dimension must be divisible by the axis size; 4096 is, 10 is not."
+    }
+   ],
+   "docs": "https://keras.io/guides/distribution/",
+   "requires": [
+    "keras.stateless-jax",
+    "keras.input-data"
+   ]
+  },
+  {
+   "id": "keras.serialization-internals",
+   "name": "Serialization and layer internals",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "What a .keras file contains, how get_config/from_config rebuild objects, safe_mode, and how Keras tracks variables in layers.",
+   "why": "Debugging load failures, writing robust custom objects and loading untrusted models safely require knowing these internals.",
+   "body": "A **`.keras` file** is a zip archive with three parts: `config.json` (the serialised architecture and compile config), `model.weights.h5` (the variable values, keyed by layer structure) and `metadata.json` (Keras version, date). Loading reads the config, re-creates each object, builds it, and then loads weights in order.\n\nRe-creation relies on **serialisation**: each object's `get_config()` must return the arguments its constructor needs, and the class must be found by name. Built-in classes are found automatically; your own need `@keras.saving.register_keras_serializable` or `custom_objects=`. Most \"unknown layer\" or \"unexpected keyword argument\" load errors come from a missing registration or an incomplete `get_config`.\n\n**`safe_mode=True`** (the default) refuses to deserialise Python bytecode, such as `Lambda` layers' functions, which could run arbitrary code. Only pass `safe_mode=False` for files you trust; better, replace `Lambda` layers with small registered custom layers.\n\n**Tracking**: when you assign a layer, variable, list or dict of layers to an attribute, Keras records it, which is how `weights`, saving and `trainable` propagation find everything. Every weight is a `keras.Variable` wrapping a backend array, with a `path` naming where it lives. Layers are built lazily in `build()`, and the functional API records an operation graph of `KerasTensor`s that is replayed when you call the model.",
+   "code": "import zipfile\nimport keras\n\nmodel = keras.Sequential([keras.Input((3,)), keras.layers.Dense(2, name=\"head\")])\nmodel.save(\"m.keras\")\nprint(sorted(zipfile.ZipFile(\"m.keras\").namelist()))\n# ['config.json', 'metadata.json', 'model.weights.h5']\n\ncfg = model.get_layer(\"head\").get_config()\nprint(cfg[\"units\"], cfg[\"activation\"])            # 2 linear\nrebuilt = keras.layers.Dense.from_config(cfg)     # a fresh, unbuilt Dense(2)\n\nkernel = model.get_layer(\"head\").kernel\nprint(isinstance(kernel, keras.Variable), kernel.path)   # True .../head/kernel\n\nlam = keras.Sequential([keras.Input((3,)), keras.layers.Lambda(lambda t: t * 2)])\nlam.save(\"lam.keras\")\ntry:\n    keras.saving.load_model(\"lam.keras\")          # safe_mode=True by default\nexcept ValueError:\n    print(\"blocked: Lambda bytecode needs safe_mode=False\")",
+   "code_lang": "python",
+   "takeaways": [
+    "`.keras` = config.json + model.weights.h5 + metadata.json",
+    "`get_config` + registration let Keras rebuild custom objects",
+    "safe_mode blocks deserialising Python code such as Lambda layers"
+   ],
+   "pitfalls": [
+    "Loading untrusted .keras files with `safe_mode=False`."
+   ],
+   "quiz": [
+    {
+     "q": "Why does load_model refuse a model with a Lambda layer by default?",
+     "options": [
+      "Lambda layers cannot be saved",
+      "Deserialising the Lambda's Python bytecode could execute arbitrary code, so safe_mode blocks it",
+      "Lambda layers have no weights",
+      "Lambda only works with TensorFlow"
+     ],
+     "answer": 1,
+     "explain": "safe_mode protects against code execution from untrusted files; trusted ones can opt out."
+    }
+   ],
+   "docs": "https://keras.io/guides/serialization_and_saving/",
+   "requires": [
+    "keras.custom-layers",
+    "keras.saving"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,714 @@
+{
+ "tool": {
+  "id": "boto3",
+  "name": "boto3",
+  "category": "library",
+  "tagline": "The AWS SDK for Python: call S3, DynamoDB, SQS and every other AWS API",
+  "description": "boto3 is Amazon's official Python SDK, built on botocore, giving Python code access to every AWS service through generated clients. It's how Python applications, scripts, data pipelines and Lambda functions store files in S3, read DynamoDB tables, send queue messages and automate infrastructure. Using it well means understanding credentials, pagination, errors, retries and the service-specific gotchas.",
+  "icon": "b3",
+  "color": "#232F3E",
+  "official_docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/index.html",
+  "version": "1.43",
+  "aliases": [
+   "aws sdk python",
+   "botocore",
+   "aws python",
+   "boto"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 2
+   },
+   {
+    "tool": "aws",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Getting started"
+  },
+  {
+   "id": "s3",
+   "name": "Working with S3"
+  },
+  {
+   "id": "data",
+   "name": "DynamoDB and SQS"
+  },
+  {
+   "id": "patterns",
+   "name": "Pagination, testing and tuning"
+  },
+  {
+   "id": "security",
+   "name": "Roles and credentials"
+  },
+  {
+   "id": "internals",
+   "name": "Internals and scale"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "boto3.setup-credentials",
+   "name": "Installing boto3 and configuring credentials",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Install boto3, configure credentials and a region with the AWS CLI, profiles or environment variables, and verify who you are.",
+   "why": "Every boto3 call is signed with credentials for a region, and most beginner errors are credential or region problems.",
+   "body": "**boto3** is the AWS SDK for Python, built on the lower-level **botocore** library. Install it with `pip install boto3`.\n\nboto3 needs two things before it can call AWS: **credentials** (who you are) and a **region** (where the service lives). It finds credentials automatically through a **provider chain**, so code doesn't contain secrets. The common sources, roughly in order:\n\n- Explicit arguments to `boto3.client(...)` or `boto3.Session(...)` (avoid in real code).\n- Environment variables `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`.\n- Profiles in `~/.aws/credentials` and `~/.aws/config`, selected by `AWS_PROFILE` or `profile_name=`; this includes IAM Identity Center (SSO) profiles set up with `aws configure sso` and `aws sso login`.\n- On AWS itself, the role attached to the compute: ECS task role, Lambda execution role, EC2 instance profile.\n\nThe region comes from `region_name=`, the `AWS_DEFAULT_REGION` environment variable or the profile's `region` setting.\n\nOn your laptop, prefer short-lived SSO credentials over long-lived access keys. On AWS, rely on roles and never ship keys.\n\nThe quickest check that everything works is STS `get_caller_identity`, which needs no permissions and returns the account and ARN of the identity boto3 resolved. If it fails with `NoCredentialsError`, nothing in the chain provided credentials.",
+   "code": "# $ pip install boto3\n# $ aws configure sso          # or: aws configure (access keys)\n# $ aws sso login --profile dev\n# $ export AWS_PROFILE=dev AWS_DEFAULT_REGION=eu-west-1\n\nimport boto3\nfrom botocore.exceptions import NoCredentialsError\n\ntry:\n    sts = boto3.client(\"sts\")\n    me = sts.get_caller_identity()\n    print(me[\"Account\"], me[\"Arn\"])\n    # 123456789012 arn:aws:sts::123456789012:assumed-role/Dev/alice\nexcept NoCredentialsError:\n    print(\"No credentials found: run aws configure or aws sso login\")\n\nprint(boto3.session.Session().region_name)   # eu-west-1",
+   "code_lang": "python",
+   "takeaways": [
+    "boto3 resolves credentials through a provider chain: no secrets in code",
+    "Env vars, profiles (incl. SSO) and attached IAM roles are the usual sources",
+    "Set a region via AWS_DEFAULT_REGION, the profile or region_name",
+    "sts.get_caller_identity() shows which identity is being used"
+   ],
+   "pitfalls": [
+    "Hard-coding access keys in source code or committing ~/.aws files."
+   ],
+   "quiz": [
+    {
+     "q": "Your code on an EC2 instance with an instance profile never sets credentials. How does boto3 authenticate?",
+     "options": [
+      "It can't; keys are required",
+      "The provider chain falls through to the instance metadata service and uses the role's temporary credentials",
+      "It uses the root account",
+      "It prompts for a password"
+     ],
+     "answer": 1,
+     "explain": "When nothing earlier in the chain provides credentials, boto3 fetches temporary role credentials from the instance metadata service."
+    }
+   ],
+   "docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html",
+   "requires": [
+    "python.venv-pip"
+   ]
+  },
+  {
+   "id": "boto3.clients-resources",
+   "name": "Clients vs resources",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Understand low-level clients (one method per API operation, dict responses) versus the higher-level, feature-frozen resource API.",
+   "why": "Choosing the right interface determines how you read the AWS docs and how future-proof your code is.",
+   "body": "boto3 offers two interfaces.\n\nA **client** (`boto3.client(\"s3\")`) maps one-to-one onto the service API: every AWS operation is a method in snake_case (`ListBuckets` becomes `list_buckets`), parameters are keyword arguments with the API's exact names (`Bucket=`, `Key=`), and responses are plain **dicts** mirroring the API's JSON, plus a `ResponseMetadata` entry with the HTTP status and request id. Every service and every operation is available, as soon as AWS releases it.\n\nA **resource** (`boto3.resource(\"s3\")`) is an object-oriented layer: `s3.Bucket(\"name\").objects.all()` yields `ObjectSummary` objects with attributes, and collections paginate automatically. It's pleasant, but only some services have resources (S3, DynamoDB, EC2, SQS, IAM and a few others), and AWS has stated that **no new features will be added to resources**. New code should generally use clients; the resource API remains fine where it's already used, notably DynamoDB's `Table` object.\n\nYou can reach the client behind a resource with `resource.meta.client`.\n\nReading the docs: each service's client reference lists every method with request syntax and response structure. Tools like `boto3-stubs` (mypy-boto3) add type hints and editor autocompletion for those dicts.\n\nCreate clients once and reuse them: creating one loads the service model and costs real time.",
+   "code": "import boto3\n\ns3 = boto3.client(\"s3\", region_name=\"us-east-1\")\ns3.create_bucket(Bucket=\"demo-reports-2026\")\ns3.put_object(Bucket=\"demo-reports-2026\", Key=\"a.txt\", Body=b\"hello\")\n\n# Client: API operations, dict responses\nresp = s3.list_objects_v2(Bucket=\"demo-reports-2026\")\nprint(resp[\"ResponseMetadata\"][\"HTTPStatusCode\"])          # 200\nprint([o[\"Key\"] for o in resp.get(\"Contents\", [])])         # ['a.txt']\n\n# Resource: objects and collections (feature-frozen interface)\nbucket = boto3.resource(\"s3\", region_name=\"us-east-1\").Bucket(\"demo-reports-2026\")\nfor obj in bucket.objects.all():\n    print(obj.key, obj.size)                                 # a.txt 5\n\nprint(bucket.meta.client.meta.service_model.service_name)   # s3",
+   "code_lang": "python",
+   "takeaways": [
+    "Clients: one method per API operation, dict in and dict out",
+    "Resources: object-oriented, but limited to some services and feature-frozen",
+    "Prefer clients for new code; DynamoDB's Table resource is still common",
+    "Create clients once and reuse them"
+   ],
+   "pitfalls": [
+    "Calling boto3.client(...) inside a hot loop for every request."
+   ],
+   "quiz": [
+    {
+     "q": "Which is true of the boto3 resource interface today?",
+     "options": [
+      "AWS doesn't add new features to it, so clients are recommended for new code",
+      "It is faster than clients",
+      "It replaces clients in boto3 2.x",
+      "It supports every AWS service"
+     ],
+     "answer": 0,
+     "explain": "Resources are feature-frozen; clients cover every operation of every service."
+    }
+   ],
+   "docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/guide/clients.html",
+   "requires": [
+    "boto3.setup-credentials"
+   ]
+  },
+  {
+   "id": "boto3.sessions",
+   "name": "Sessions, profiles and regions",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Use boto3.Session to work with specific profiles, regions or credentials, and create clients from it.",
+   "why": "Multi-account and multi-region code needs explicit sessions instead of boto3's hidden default session.",
+   "body": "`boto3.client(...)` uses a hidden **default session** configured from the environment. A **Session** holds configuration (credentials, region, profile) and creates clients and resources from it. Creating your own gives explicit control:\n\n- `boto3.Session(profile_name=\"prod\")` uses a specific profile from your AWS config.\n- `boto3.Session(region_name=\"eu-central-1\")` sets the default region for its clients.\n- `boto3.Session(aws_access_key_id=..., aws_secret_access_key=..., aws_session_token=...)` wraps temporary credentials, such as those from an assumed role.\n\nThen `session.client(\"s3\")`, optionally overriding the region per client.\n\nHandy introspection: `session.available_profiles`, `session.region_name`, `session.get_available_regions(\"ec2\")` (regions the SDK knows for a service) and `session.get_credentials()`.\n\nRules of thumb:\n\n- Applications with one identity and region can use the default session.\n- Tools that iterate over accounts or regions create one session per account and clients per region.\n- Sessions aren't thread-safe: create a session per thread, or create clients up front and share those (clients are thread-safe).\n\nNote that a profile set explicitly with `profile_name=` makes boto3 skip credential environment variables, whereas `AWS_PROFILE` is just one more input to the chain.",
+   "code": "import boto3\n\ndev = boto3.Session(region_name=\"us-east-1\")            # env/default profile\n# prod = boto3.Session(profile_name=\"prod\")             # a named profile\n\nprint(dev.region_name)                                   # us-east-1\nregions = dev.get_available_regions(\"ec2\")\nprint(len(regions) > 10, \"eu-west-1\" in regions)         # True True\n\n# one client per region from the same session\nclients = {r: dev.client(\"sqs\", region_name=r) for r in [\"us-east-1\", \"eu-west-1\"]}\nfor region, sqs in clients.items():\n    print(region, sqs.meta.region_name)\n# us-east-1 us-east-1\n# eu-west-1 eu-west-1\n\ncreds = dev.get_credentials()\nprint(creds.method)   # e.g. 'env', 'sso', 'shared-credentials-file', 'iam-role'",
+   "code_lang": "python",
+   "takeaways": [
+    "boto3.client() uses a hidden default session",
+    "Session(profile_name=..., region_name=...) for explicit configuration",
+    "Create clients per region from one session",
+    "Sessions aren't thread-safe; clients are"
+   ],
+   "pitfalls": [
+    "Mutating the default session's region inside library code and surprising every other caller."
+   ],
+   "quiz": [
+    {
+     "q": "You need to list queues in 5 regions of one account. What's the clean approach?",
+     "options": [
+      "One Session, then one client per region via session.client('sqs', region_name=r)",
+      "One Session per region with new credentials each time",
+      "Use a resource instead",
+      "Change AWS_DEFAULT_REGION between calls"
+     ],
+     "answer": 0,
+     "explain": "A session holds the credentials; clients can each target a different region."
+    }
+   ],
+   "docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/guide/session.html",
+   "requires": [
+    "boto3.setup-credentials"
+   ]
+  },
+  {
+   "id": "boto3.s3-basics",
+   "name": "S3: upload, download and read objects",
+   "module": "s3",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Store and fetch S3 objects with put_object, get_object, upload_file and download_file, and list keys.",
+   "why": "S3 is the most used AWS service from Python: data lakes, uploads, backups and ML artifacts all live there.",
+   "body": "S3 stores **objects** (bytes plus metadata) under **keys** in **buckets**. Keys are flat strings; slashes only look like folders.\n\nTwo pairs of methods cover most work:\n\n- `put_object(Bucket=, Key=, Body=b\"...\", ContentType=...)` uploads bytes or a file-like object in one request; `get_object(Bucket=, Key=)` returns a dict whose `Body` is a **streaming** object: call `.read()` once, or `.iter_lines()` / `.iter_chunks()` for big files.\n- `upload_file(filename, bucket, key)` and `download_file(bucket, key, filename)` are managed transfers: they switch to parallel multipart uploads and ranged downloads for large files automatically. `upload_fileobj` / `download_fileobj` do the same with file objects.\n\nPass metadata on upload with `ExtraArgs={\"ContentType\": \"text/csv\", \"Metadata\": {...}}` for managed transfers, or as parameters for `put_object`.\n\n`head_object` returns metadata (size, ETag, content type, last modified) without downloading. `delete_object` and `delete_objects` (up to 1000 keys per call) remove objects; `copy_object` copies server-side.\n\nListing uses `list_objects_v2(Bucket=, Prefix=\"reports/2026/\")`, which returns at most 1000 keys per call: use a paginator for more. `Delimiter=\"/\"` groups keys into `CommonPrefixes`, the \"folders\".\n\nBuckets are created rarely and usually by infrastructure code (Terraform, CloudFormation), not by applications. Outside us-east-1, `create_bucket` needs a `CreateBucketConfiguration` with the region.",
+   "code": "import boto3\n\ns3 = boto3.client(\"s3\", region_name=\"us-east-1\")\ns3.create_bucket(Bucket=\"demo-data-2026\")\n\ns3.put_object(Bucket=\"demo-data-2026\", Key=\"reports/2026/q1.csv\",\n              Body=b\"region,total\\neu,120\\n\", ContentType=\"text/csv\")\nwith open(\"local.txt\", \"w\") as f:\n    f.write(\"hello from disk\")\ns3.upload_file(\"local.txt\", \"demo-data-2026\", \"notes/hello.txt\")\n\nobj = s3.get_object(Bucket=\"demo-data-2026\", Key=\"reports/2026/q1.csv\")\nprint(obj[\"ContentType\"], obj[\"Body\"].read().decode())   # text/csv region,total ...\n\nhead = s3.head_object(Bucket=\"demo-data-2026\", Key=\"notes/hello.txt\")\nprint(head[\"ContentLength\"])                              # 15\n\nresp = s3.list_objects_v2(Bucket=\"demo-data-2026\", Delimiter=\"/\")\nprint([p[\"Prefix\"] for p in resp[\"CommonPrefixes\"]])      # ['notes/', 'reports/']\ns3.download_file(\"demo-data-2026\", \"notes/hello.txt\", \"copy.txt\")\nprint(open(\"copy.txt\").read())                            # hello from disk",
+   "code_lang": "python",
+   "takeaways": [
+    "put_object/get_object for bytes; upload_file/download_file for files",
+    "get_object's Body is a stream: read it once or iterate",
+    "head_object reads metadata without downloading",
+    "list_objects_v2 returns up to 1000 keys; Delimiter gives 'folders'"
+   ],
+   "pitfalls": [
+    "Reading obj['Body'] twice and getting empty bytes the second time."
+   ],
+   "quiz": [
+    {
+     "q": "Why prefer upload_file over put_object for a 5 GB file?",
+     "options": [
+      "put_object is deprecated",
+      "upload_file uses parallel multipart uploads and retries parts automatically",
+      "upload_file compresses the file",
+      "put_object can't set ContentType"
+     ],
+     "answer": 1,
+     "explain": "Managed transfers split large files into parts uploaded concurrently; a single PUT is limited to 5 GB anyway."
+    }
+   ],
+   "docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/guide/s3-uploading-files.html",
+   "requires": [
+    "boto3.clients-resources"
+   ]
+  },
+  {
+   "id": "boto3.errors",
+   "name": "Handling errors: ClientError and friends",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Catch botocore ClientError, read the AWS error code, use modeled exceptions like client.exceptions.NoSuchKey, and tell service from client-side errors.",
+   "why": "Correct error handling separates 'not found' from 'access denied' from 'network down', each needing a different response.",
+   "body": "Errors returned by an AWS service raise **`botocore.exceptions.ClientError`**. The details are in `e.response`:\n\n- `e.response[\"Error\"][\"Code\"]`: the AWS error code, like `NoSuchKey`, `AccessDenied`, `ThrottlingException`, `ConditionalCheckFailedException`.\n- `e.response[\"Error\"][\"Message\"]` and `e.response[\"ResponseMetadata\"][\"HTTPStatusCode\"]`.\n- The request id in `ResponseMetadata`, which AWS support asks for.\n\nMany services also expose **modeled exceptions** as attributes of the client: `except s3.exceptions.NoSuchKey:` or `except ddb.exceptions.ConditionalCheckFailedException:`. They're subclasses of `ClientError`, so `.response` still works. Not every error is modeled: `head_object` on a missing key raises a plain `ClientError` with code `\"404\"`, because HEAD responses have no body to carry an error code.\n\nProblems on the client side raise subclasses of **`BotoCoreError`** instead: `NoCredentialsError`, `NoRegionError`, `EndpointConnectionError`, `ReadTimeoutError`, `ParamValidationError` (wrong parameter names or types, caught before any request is sent).\n\nGuidelines:\n\n- Catch specific codes you can handle, re-raise everything else.\n- `AccessDenied` usually means an IAM policy problem: don't retry it.\n- Throttling and 5xx errors are retried automatically by botocore's retry handler; tune that rather than writing retry loops (see the configuration lesson).",
+   "code": "import boto3\nfrom botocore.exceptions import ClientError, ParamValidationError\n\ns3 = boto3.client(\"s3\", region_name=\"us-east-1\")\ns3.create_bucket(Bucket=\"demo-errors-2026\")\n\ndef read_config(key):\n    try:\n        return s3.get_object(Bucket=\"demo-errors-2026\", Key=key)[\"Body\"].read()\n    except s3.exceptions.NoSuchKey:\n        return b\"{}\"                                  # sensible default\n\nprint(read_config(\"missing.json\"))                    # b'{}'\n\ntry:\n    s3.head_object(Bucket=\"demo-errors-2026\", Key=\"missing.json\")\nexcept ClientError as e:\n    print(e.response[\"Error\"][\"Code\"])                 # 404\n\ntry:\n    s3.get_object(Bucket=\"demo-errors-2026\")          # Key is required\nexcept ParamValidationError as e:\n    print(\"bad params:\", type(e).__name__)             # bad params: ParamValidationError",
+   "code_lang": "python",
+   "takeaways": [
+    "Service errors raise ClientError; the code is in e.response['Error']['Code']",
+    "client.exceptions.X are modeled ClientError subclasses",
+    "head_object reports missing keys as code '404'",
+    "BotoCoreError subclasses cover credentials, network and parameter problems"
+   ],
+   "pitfalls": [
+    "Catching ClientError broadly and treating AccessDenied like 'not found'."
+   ],
+   "quiz": [
+    {
+     "q": "How do you get the AWS error code from a ClientError e?",
+     "options": [
+      "e.code",
+      "e.response['Error']['Code']",
+      "str(e).split()[0]",
+      "e.args[1]"
+     ],
+     "answer": 1,
+     "explain": "ClientError carries the parsed error response, including the error code, in e.response."
+    }
+   ],
+   "docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/guide/error-handling.html",
+   "requires": [
+    "boto3.clients-resources",
+    "python.exceptions"
+   ]
+  },
+  {
+   "id": "boto3.paginators-waiters",
+   "name": "Paginators and waiters",
+   "module": "patterns",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Iterate over all results with paginators, filter with JMESPath search(), and wait for resource states with waiters.",
+   "why": "List APIs return pages, and code that ignores pagination silently processes only the first 1000 items.",
+   "body": "Most AWS list operations return results in **pages**: up to 1000 keys from `list_objects_v2`, 100 items from many others, with a continuation token (`NextContinuationToken`, `NextToken`, `Marker`; it varies). Writing the token loop yourself is error-prone.\n\nA **paginator** handles it: `client.get_paginator(\"list_objects_v2\").paginate(Bucket=..., Prefix=...)` returns an iterable of pages; loop over pages, then over items in each.\n\n- `PaginationConfig={\"MaxItems\": 500, \"PageSize\": 100}` caps the total and page size.\n- `page_iterator.search(\"Contents[?Size > `1000`].Key\")` applies a **JMESPath** expression across all pages and yields matching values lazily.\n- `client.can_paginate(\"list_objects_v2\")` tells you whether a paginator exists.\n\nResource collections (`bucket.objects.filter(Prefix=...)`) paginate automatically too.\n\nA **waiter** polls until a resource reaches a state: `client.get_waiter(\"bucket_exists\").wait(Bucket=...)`, or for EC2 `instance_running`, for DynamoDB `table_exists`, for CloudFormation `stack_create_complete`. `WaiterConfig={\"Delay\": 5, \"MaxAttempts\": 40}` tunes polling; a `WaiterError` is raised on failure or timeout. `client.waiter_names` lists what's available.\n\nWaiters are for scripts and infrastructure automation. In request-handling code, prefer event-driven designs to blocking polls.",
+   "code": "import boto3\n\ns3 = boto3.client(\"s3\", region_name=\"us-east-1\")\ns3.create_bucket(Bucket=\"demo-pages-2026\")\ns3.get_waiter(\"bucket_exists\").wait(Bucket=\"demo-pages-2026\", WaiterConfig={\"Delay\": 1, \"MaxAttempts\": 10})\nfor i in range(2500):\n    s3.put_object(Bucket=\"demo-pages-2026\", Key=f\"logs/{i:05}.txt\", Body=b\"x\" * (i % 3))\n\nfirst = s3.list_objects_v2(Bucket=\"demo-pages-2026\", Prefix=\"logs/\")\nprint(first[\"KeyCount\"], first[\"IsTruncated\"])         # 1000 True: only page 1!\n\npages = s3.get_paginator(\"list_objects_v2\").paginate(Bucket=\"demo-pages-2026\", Prefix=\"logs/\")\ntotal = sum(len(page.get(\"Contents\", [])) for page in pages)\nprint(total)                                            # 2500\n\npages = s3.get_paginator(\"list_objects_v2\").paginate(Bucket=\"demo-pages-2026\", Prefix=\"logs/\")\nprint(sum(1 for _ in pages.search(\"Contents[?Size > `1`].Key\")))   # 833",
+   "code_lang": "python",
+   "takeaways": [
+    "List APIs return pages; use get_paginator(...).paginate(...)",
+    "PaginationConfig caps items and page size",
+    ".search('JMESPath') filters across all pages lazily",
+    "Waiters poll until a resource reaches a state"
+   ],
+   "pitfalls": [
+    "Calling list_objects_v2 once and assuming you got every key."
+   ],
+   "quiz": [
+    {
+     "q": "A bucket has 4,200 objects. What does a single list_objects_v2 call return?",
+     "options": [
+      "All 4,200 keys",
+      "At most 1,000 keys and IsTruncated=True",
+      "An error",
+      "A random sample"
+     ],
+     "answer": 1,
+     "explain": "S3 list calls return at most 1,000 keys per page, with a continuation token for the rest."
+    }
+   ],
+   "docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/guide/paginators.html",
+   "requires": [
+    "boto3.s3-basics"
+   ]
+  },
+  {
+   "id": "boto3.dynamodb",
+   "name": "DynamoDB with boto3",
+   "module": "data",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Read and write DynamoDB items with the Table resource: put_item, get_item, query with Key conditions, conditional writes and Decimal numbers.",
+   "why": "DynamoDB is the default serverless database on AWS, and boto3's Table API has several Python-specific gotchas.",
+   "body": "For DynamoDB, the resource API is still the most convenient: `table = boto3.resource(\"dynamodb\").Table(\"orders\")`. It converts between Python types and DynamoDB's typed JSON (`{\"S\": \"x\"}`, `{\"N\": \"1\"}`) for you; the client API makes you write those type descriptors by hand.\n\nCore operations:\n\n- `table.put_item(Item={...})` writes (replacing any item with the same key).\n- `table.get_item(Key={\"pk\": ..., \"sk\": ...})` returns a dict with `\"Item\"` only if found: use `.get(\"Item\")`.\n- `table.update_item(Key=..., UpdateExpression=\"SET #s = :s\", ExpressionAttributeNames=..., ExpressionAttributeValues=...)`.\n- `table.query(KeyConditionExpression=Key(\"pk\").eq(\"user#1\") & Key(\"sk\").begins_with(\"order#\"))` fetches items of one partition efficiently. `scan` reads the whole table: avoid it on large tables.\n\nConditions come from `boto3.dynamodb.conditions` (`Key`, `Attr`). **Conditional writes** like `ConditionExpression=Attr(\"pk\").not_exists()` implement \"create only if absent\" atomically; failures raise `ConditionalCheckFailedException`.\n\n**Numbers are `Decimal`**: DynamoDB numbers come back as `decimal.Decimal`, and passing a Python `float` raises `TypeError`. Convert with `Decimal(str(x))`.\n\nQuery results are paginated by size (1 MB per call); follow `LastEvaluatedKey` with `ExclusiveStartKey`, or use the client's paginator. Design keys around your access patterns before writing code.",
+   "code": "from decimal import Decimal\nimport boto3\nfrom boto3.dynamodb.conditions import Key, Attr\n\nddb = boto3.resource(\"dynamodb\", region_name=\"us-east-1\")\ntable = ddb.create_table(\n    TableName=\"orders\", BillingMode=\"PAY_PER_REQUEST\",\n    KeySchema=[{\"AttributeName\": \"pk\", \"KeyType\": \"HASH\"}, {\"AttributeName\": \"sk\", \"KeyType\": \"RANGE\"}],\n    AttributeDefinitions=[{\"AttributeName\": \"pk\", \"AttributeType\": \"S\"},\n                          {\"AttributeName\": \"sk\", \"AttributeType\": \"S\"}])\ntable.wait_until_exists()\n\nfor n, total in [(1, \"19.90\"), (2, \"5.00\"), (3, \"42.10\")]:\n    table.put_item(Item={\"pk\": \"user#1\", \"sk\": f\"order#{n:03}\", \"total\": Decimal(total)})\n\nprint(table.get_item(Key={\"pk\": \"user#1\", \"sk\": \"order#002\"})[\"Item\"][\"total\"])  # 5.00\nprint(table.get_item(Key={\"pk\": \"user#1\", \"sk\": \"order#999\"}).get(\"Item\"))      # None\n\nresp = table.query(KeyConditionExpression=Key(\"pk\").eq(\"user#1\") & Key(\"sk\").begins_with(\"order#\"),\n                   FilterExpression=Attr(\"total\").gt(Decimal(\"10\")))\nprint([i[\"sk\"] for i in resp[\"Items\"]])               # ['order#001', 'order#003']\ntry:\n    table.put_item(Item={\"pk\": \"user#1\", \"sk\": \"order#001\"}, ConditionExpression=Attr(\"pk\").not_exists())\nexcept table.meta.client.exceptions.ConditionalCheckFailedException:\n    print(\"already exists\")                            # already exists",
+   "code_lang": "python",
+   "takeaways": [
+    "The Table resource converts Python values to DynamoDB types",
+    "get_item has no 'Item' key when nothing matches",
+    "query by partition key with Key conditions; avoid scan on big tables",
+    "Numbers are Decimal; floats raise TypeError"
+   ],
+   "pitfalls": [
+    "Passing a float like 19.9 in an item and getting 'Float types are not supported'."
+   ],
+   "quiz": [
+    {
+     "q": "What does table.get_item(Key=...) return when no item matches?",
+     "options": [
+      "A dict without an 'Item' key",
+      "An empty Item dict",
+      "It raises ItemNotFound",
+      "None"
+     ],
+     "answer": 0,
+     "explain": "The response simply omits Item, so use response.get('Item')."
+    }
+   ],
+   "docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/guide/dynamodb.html",
+   "requires": [
+    "boto3.errors",
+    "boto3.sessions"
+   ]
+  },
+  {
+   "id": "boto3.sqs",
+   "name": "SQS: sending and receiving messages",
+   "module": "data",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Send, receive and delete SQS messages correctly with long polling, visibility timeouts and batches.",
+   "why": "Queues decouple services, and getting receive/delete semantics wrong causes duplicate processing or lost work.",
+   "body": "An SQS **queue** stores messages until a consumer deletes them. You address it by `QueueUrl` (`get_queue_url(QueueName=...)` looks it up).\n\n- `send_message(QueueUrl=..., MessageBody=\"...\")` enqueues a message (up to 256 KB of text; send JSON with `json.dumps`). `send_message_batch` sends up to 10 at once.\n- `receive_message(QueueUrl=..., MaxNumberOfMessages=10, WaitTimeSeconds=20)` returns up to 10 messages. `WaitTimeSeconds` enables **long polling**: the call waits up to 20 seconds for messages instead of returning empty immediately, which cuts cost and latency.\n- `delete_message(QueueUrl=..., ReceiptHandle=msg[\"ReceiptHandle\"])` acknowledges a message after successful processing.\n\nReceiving does **not** remove a message. It becomes invisible for the queue's **visibility timeout** (default 30 seconds); if you don't delete it in time, it reappears for another consumer. So: process, then delete; set the visibility timeout longer than processing takes, or extend it with `change_message_visibility`.\n\nStandard queues deliver **at least once** and don't guarantee order: handlers must be idempotent. **FIFO queues** (names ending in `.fifo`) preserve order within a `MessageGroupId` and deduplicate within 5 minutes using a `MessageDeduplicationId` or content-based deduplication.\n\nConfigure a **dead-letter queue** (a redrive policy with `maxReceiveCount`) so poison messages stop cycling forever.",
+   "code": "import json\nimport boto3\n\nsqs = boto3.client(\"sqs\", region_name=\"us-east-1\")\nurl = sqs.create_queue(QueueName=\"orders\",\n                       Attributes={\"VisibilityTimeout\": \"60\"})[\"QueueUrl\"]\n\nsqs.send_message_batch(QueueUrl=url, Entries=[\n    {\"Id\": str(i), \"MessageBody\": json.dumps({\"order_id\": i})} for i in range(3)])\n\ndef handle(order):\n    print(\"processing\", order[\"order_id\"])\n\nwhile True:\n    resp = sqs.receive_message(QueueUrl=url, MaxNumberOfMessages=10, WaitTimeSeconds=1)\n    messages = resp.get(\"Messages\", [])\n    if not messages:\n        break                                  # real workers keep polling (WaitTimeSeconds=20)\n    for msg in messages:\n        handle(json.loads(msg[\"Body\"]))\n        sqs.delete_message(QueueUrl=url, ReceiptHandle=msg[\"ReceiptHandle\"])\n# processing 0 / processing 1 / processing 2   (order not guaranteed)",
+   "code_lang": "python",
+   "takeaways": [
+    "receive_message doesn't remove messages; delete after processing",
+    "Long polling with WaitTimeSeconds=20 reduces empty responses and cost",
+    "Visibility timeout must exceed processing time",
+    "Standard queues are at-least-once and unordered; FIFO queues order per group"
+   ],
+   "pitfalls": [
+    "Deleting the message before processing it, losing work when the handler crashes."
+   ],
+   "quiz": [
+    {
+     "q": "A consumer receives a message, crashes, and never deletes it. What happens?",
+     "options": [
+      "SQS deletes it after 30 seconds",
+      "It moves to a FIFO queue",
+      "The message is lost",
+      "It becomes visible again after the visibility timeout and is redelivered"
+     ],
+     "answer": 3,
+     "explain": "Undeleted messages reappear after the visibility timeout, which is how SQS provides at-least-once delivery."
+    }
+   ],
+   "docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/guide/sqs.html",
+   "requires": [
+    "boto3.errors"
+   ]
+  },
+  {
+   "id": "boto3.presigned-urls",
+   "name": "Presigned URLs for S3",
+   "module": "s3",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Let browsers and other clients download or upload S3 objects directly with time-limited presigned URLs and POST policies.",
+   "why": "Serving and receiving files through your own servers is slow and expensive; presigned URLs hand the transfer to S3 securely.",
+   "body": "A **presigned URL** is a normal S3 URL with a signature in its query string, created locally with your credentials. Anyone holding it can perform that one operation until it expires, without AWS credentials of their own.\n\n- Downloads: `s3.generate_presigned_url(\"get_object\", Params={\"Bucket\": b, \"Key\": k}, ExpiresIn=900)`. Add `\"ResponseContentDisposition\": 'attachment; filename=\"report.pdf\"'` to force a download name.\n- Uploads: `generate_presigned_url(\"put_object\", Params={..., \"ContentType\": \"image/png\"})`; the client must then send exactly the signed headers. For browser form uploads with size and type limits, `generate_presigned_post(Bucket, Key, Conditions=[[\"content-length-range\", 0, 10_000_000]], ExpiresIn=600)` returns a URL plus form fields.\n\nThings to know:\n\n- Generating a URL makes **no network call** and doesn't check that the object exists or that you have permission; those are checked when the URL is used, against the signer's permissions at that time.\n- The URL can't outlive the credentials that signed it: URLs signed with temporary role credentials (Lambda, ECS, SSO) stop working when the session expires, even if `ExpiresIn` is longer. The maximum is 7 days.\n- Create the client with the bucket's region and `Config(signature_version=\"s3v4\")`. botocore still signs S3 presigned URLs with the legacy SigV2 scheme unless told otherwise, and SigV4 is what new regions and security policies require.\n\nTreat presigned URLs like passwords: short expiry, HTTPS only, and don't log them.",
+   "code": "import boto3, requests\nfrom botocore.config import Config\n\ns3 = boto3.client(\"s3\", region_name=\"us-east-1\", config=Config(signature_version=\"s3v4\"))\ns3.create_bucket(Bucket=\"demo-share-2026\")\ns3.put_object(Bucket=\"demo-share-2026\", Key=\"reports/q1.pdf\", Body=b\"%PDF-1.7 ...\")\n\nurl = s3.generate_presigned_url(\n    \"get_object\",\n    Params={\"Bucket\": \"demo-share-2026\", \"Key\": \"reports/q1.pdf\",\n            \"ResponseContentDisposition\": 'attachment; filename=\"q1.pdf\"'},\n    ExpiresIn=900)                       # 15 minutes\nprint(url.split(\"?\")[0])                 # https://demo-share-2026.s3.amazonaws.com/reports/q1.pdf\nprint(\"X-Amz-Signature=\" in url)         # True: SigV4\n\npost = s3.generate_presigned_post(\n    \"demo-share-2026\", \"uploads/avatar.png\",\n    Conditions=[[\"content-length-range\", 0, 2_000_000]], ExpiresIn=600)\nr = requests.post(post[\"url\"], data=post[\"fields\"],\n                  files={\"file\": (\"avatar.png\", b\"\\x89PNG...\")})\nprint(r.status_code)                     # 204",
+   "code_lang": "python",
+   "takeaways": [
+    "generate_presigned_url signs one operation locally, no network call",
+    "Set signature_version='s3v4'; use generate_presigned_post for browser uploads",
+    "URLs can't outlive the signing credentials; max 7 days",
+    "Keep expiry short and treat URLs as secrets"
+   ],
+   "pitfalls": [
+    "Presigning with Lambda's temporary credentials for 7 days and seeing links break after a few hours."
+   ],
+   "quiz": [
+    {
+     "q": "Does generate_presigned_url fail if the object doesn't exist?",
+     "options": [
+      "Yes, with a 403",
+      "Only for put_object",
+      "Yes, with NoSuchKey",
+      "No: it signs locally; the error appears when the URL is used"
+     ],
+     "answer": 3,
+     "explain": "Presigning is a local computation; S3 checks existence and permissions only on use."
+    }
+   ],
+   "docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/guide/s3-presigned-urls.html",
+   "requires": [
+    "boto3.s3-basics"
+   ]
+  },
+  {
+   "id": "boto3.testing",
+   "name": "Testing boto3 code with moto and Stubber",
+   "module": "patterns",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Test AWS code without AWS: moto's mock_aws for realistic in-memory services, and botocore's Stubber for exact request/response checks.",
+   "why": "Tests that hit real AWS are slow, flaky and cost money; mocks make AWS code testable in CI.",
+   "body": "Two complementary tools:\n\n**moto** (`pip install moto`) implements AWS services in memory. Decorate a test or use a context manager with `mock_aws()`, and every boto3 call inside goes to moto instead of AWS: you can create buckets, tables and queues and your code works against them with realistic behavior (errors, pagination, conditions). Set fake credentials (`AWS_ACCESS_KEY_ID=testing` and friends) and a region in a fixture so tests can never touch a real account. Create clients **inside** the mock, or at least after it starts.\n\n**botocore's Stubber** works at the client level: you queue up expected calls with `stubber.add_response(\"get_item\", response_dict, expected_params)` or `add_client_error(\"get_item\", \"ResourceNotFoundException\")`. It asserts that your code makes exactly those calls with exactly those parameters and returns your canned responses; `assert_no_pending_responses()` checks that all expected calls happened. It's precise but brittle, and responses must match the service's response shape.\n\nUse moto for most tests of AWS-facing logic, Stubber when you must assert exact parameters or simulate rare errors. For integration tests closer to reality, LocalStack runs AWS APIs in a container, reachable with `endpoint_url=`.\n\nWhatever you choose, keep AWS calls behind small functions that take a client parameter: that makes injection trivial.",
+   "code": "# test_storage.py   (pip install \"moto[s3]\" pytest)\nimport boto3, pytest\nfrom botocore.stub import Stubber\nfrom moto import mock_aws\ndef save_report(s3, bucket, name, text):\n    s3.put_object(Bucket=bucket, Key=f\"reports/{name}\", Body=text.encode())\n    return f\"s3://{bucket}/reports/{name}\"\n@pytest.fixture\ndef aws_env(monkeypatch):\n    for k in (\"AWS_ACCESS_KEY_ID\", \"AWS_SECRET_ACCESS_KEY\"):\n        monkeypatch.setenv(k, \"testing\")\n    monkeypatch.setenv(\"AWS_DEFAULT_REGION\", \"us-east-1\")\n\n@mock_aws\ndef test_save_report_with_moto(aws_env):\n    s3 = boto3.client(\"s3\"); s3.create_bucket(Bucket=\"acme-reports\")\n    assert save_report(s3, \"acme-reports\", \"q1.txt\", \"hi\") == \"s3://acme-reports/reports/q1.txt\"\n    assert s3.get_object(Bucket=\"acme-reports\", Key=\"reports/q1.txt\")[\"Body\"].read() == b\"hi\"\n\ndef test_save_report_with_stubber(aws_env):\n    s3 = boto3.client(\"s3\")\n    with Stubber(s3) as stub:\n        stub.add_response(\"put_object\", {}, {\"Bucket\": \"acme-reports\", \"Key\": \"reports/x\", \"Body\": b\"y\"})\n        save_report(s3, \"acme-reports\", \"x\", \"y\")\n        stub.assert_no_pending_responses()",
+   "code_lang": "python",
+   "takeaways": [
+    "moto's mock_aws runs AWS services in memory for realistic tests",
+    "Always set fake credentials and a region in test fixtures",
+    "Stubber asserts exact calls and returns canned responses",
+    "Pass clients into functions so tests can inject them"
+   ],
+   "pitfalls": [
+    "Creating a module-level client before mock_aws starts, so tests talk to real AWS."
+   ],
+   "quiz": [
+    {
+     "q": "Which tool lets you assert the exact parameters your code sends to put_object?",
+     "options": [
+      "moto",
+      "botocore Stubber",
+      "LocalStack",
+      "A waiter"
+     ],
+     "answer": 1,
+     "explain": "Stubber checks each expected call's parameters and returns the response you queued."
+    }
+   ],
+   "docs": "https://botocore.amazonaws.com/v1/documentation/api/latest/reference/stubber.html",
+   "requires": [
+    "boto3.s3-basics",
+    "python.testing"
+   ]
+  },
+  {
+   "id": "boto3.config-retries",
+   "name": "Config: retries, timeouts and endpoints",
+   "module": "patterns",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Tune clients with botocore Config: retry mode and attempts, connect and read timeouts, connection pool size, and custom endpoints.",
+   "why": "Default timeouts and retries rarely fit production; the wrong values cause hung requests or cascading throttling.",
+   "body": "`botocore.config.Config` customizes a client: `boto3.client(\"s3\", config=Config(...))`. Configs can be merged with `cfg.merge(other)`.\n\n**Retries**: botocore automatically retries throttling errors, 5xx responses and transient network errors with exponential backoff. The `retries` dict chooses the behavior:\n\n- `mode=\"legacy\"`: the long-standing default in boto3, with service-specific quirks.\n- `mode=\"standard\"`: consistent rules across services, 3 total attempts by default, and a retry quota that stops retry storms. AWS recommends it for new code.\n- `mode=\"adaptive\"`: standard plus client-side rate limiting that slows down when throttled; useful for single-process batch jobs hammering one API.\n\nMind the counting: in `Config`, `total_max_attempts` includes the first call, while the older `max_attempts` key counts **retries only** (so `max_attempts=3` means up to 4 calls). The `AWS_MAX_ATTEMPTS` variable and the `max_attempts` profile setting count total attempts. The mode can also come from `AWS_RETRY_MODE`.\n\n**Timeouts**: `connect_timeout` and `read_timeout` default to 60 seconds each, far too long for request-serving code: a stuck call ties up a worker for minutes once retries multiply it. Set them to what your latency budget allows.\n\n**Connection pool**: `max_pool_connections` (default 10) limits concurrent connections per client; raise it when many threads share one client.\n\n**Endpoints**: `endpoint_url=` on the client targets LocalStack, MinIO, VPC endpoints or FIPS endpoints. Other options include `region_name`, `signature_version`, `s3={\"addressing_style\": \"path\"}` and `user_agent_extra`.",
+   "code": "import boto3\nfrom botocore.config import Config\n\nfast_api = Config(\n    region_name=\"us-east-1\",\n    retries={\"mode\": \"standard\", \"total_max_attempts\": 4},   # 1 call + up to 3 retries\n    connect_timeout=2,\n    read_timeout=5,\n    max_pool_connections=50,\n)\nddb = boto3.client(\"dynamodb\", config=fast_api)\nprint(ddb.meta.config.retries)            # {'mode': 'standard', 'total_max_attempts': 4}\nprint(ddb.meta.config.read_timeout)       # 5\n\nbatch = fast_api.merge(Config(retries={\"mode\": \"adaptive\", \"total_max_attempts\": 10}))\nprint(batch.retries[\"mode\"], batch.connect_timeout)   # adaptive 2\n\n# Local S3-compatible storage (MinIO / LocalStack):\nminio = boto3.client(\"s3\", endpoint_url=\"http://localhost:9000\",\n                     config=Config(s3={\"addressing_style\": \"path\"}))\nprint(minio.meta.endpoint_url)            # http://localhost:9000",
+   "code_lang": "python",
+   "takeaways": [
+    "Config(retries={'mode': 'standard', 'total_max_attempts': N}) controls retries",
+    "In Config, total_max_attempts includes the first call; max_attempts counts retries only",
+    "Default 60 s connect/read timeouts are too long for request paths",
+    "endpoint_url targets LocalStack, MinIO or VPC endpoints"
+   ],
+   "pitfalls": [
+    "Wrapping boto3 calls in your own retry loop on top of botocore's retries, multiplying attempts and latency."
+   ],
+   "quiz": [
+    {
+     "q": "With Config(retries={'max_attempts': 3}), how many calls can a throttled operation make in total?",
+     "options": [
+      "3",
+      "4",
+      "1",
+      "6"
+     ],
+     "answer": 1,
+     "explain": "In Config, max_attempts counts retries only, so it's the first call plus up to three retries; total_max_attempts=3 would mean three calls."
+    }
+   ],
+   "docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/guide/retries.html",
+   "requires": [
+    "boto3.errors",
+    "boto3.sessions"
+   ]
+  },
+  {
+   "id": "boto3.assume-role",
+   "name": "Assuming roles with STS",
+   "module": "security",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Get temporary credentials for another role or account with sts.assume_role, and let profiles refresh them automatically.",
+   "why": "Cross-account access, least privilege and CI deployments all rely on assuming IAM roles instead of sharing keys.",
+   "body": "An IAM **role** is an identity without long-term keys. Principals allowed by the role's **trust policy** can call STS `assume_role` and receive **temporary credentials** (access key, secret key, session token) valid for 15 minutes to the role's maximum session duration (1 hour by default, up to 12).\n\nIn code:\n\n- `sts.assume_role(RoleArn=..., RoleSessionName=\"report-job\", DurationSeconds=3600)` returns a `Credentials` dict with `AccessKeyId`, `SecretAccessKey`, `SessionToken` and `Expiration`.\n- Build a `boto3.Session(aws_access_key_id=..., aws_secret_access_key=..., aws_session_token=...)` from them and create clients.\n- Optional: `ExternalId` (required by many third-party trust policies) and an inline session `Policy` to restrict permissions further.\n\nCredentials made this way **don't refresh**: after expiry, calls fail with `ExpiredToken`. For long-running processes, prefer letting botocore manage it: a profile in `~/.aws/config` with `role_arn` and `source_profile` (or `credential_source = Ec2InstanceMetadata` / `EcsContainer`) makes boto3 assume the role and **refresh credentials automatically** before they expire.\n\nUse a meaningful `RoleSessionName` (job name, user): it appears in CloudTrail, making audits possible. Verify with `get_caller_identity()`, whose ARN changes to `assumed-role/<RoleName>/<session name>`.\n\nCI systems use the related `assume_role_with_web_identity` (OIDC tokens from GitHub Actions or GitLab) so no AWS keys are stored at all.",
+   "code": "import boto3\n\ndef session_for_role(role_arn, name, duration=3600):\n    creds = boto3.client(\"sts\").assume_role(\n        RoleArn=role_arn, RoleSessionName=name, DurationSeconds=duration)[\"Credentials\"]\n    return boto3.Session(\n        aws_access_key_id=creds[\"AccessKeyId\"],\n        aws_secret_access_key=creds[\"SecretAccessKey\"],\n        aws_session_token=creds[\"SessionToken\"],\n        region_name=\"us-east-1\"), creds[\"Expiration\"]\n\naudit, expires = session_for_role(\"arn:aws:iam::123456789012:role/AuditReadOnly\", \"weekly-audit\")\nprint(audit.client(\"sts\").get_caller_identity()[\"Arn\"])\n# arn:aws:sts::123456789012:assumed-role/AuditReadOnly/weekly-audit\nprint(expires.tzinfo is not None)   # True: an aware datetime; no auto-refresh!\n\n# Auto-refreshing alternative in ~/.aws/config:\n# [profile audit]\n# role_arn = arn:aws:iam::123456789012:role/AuditReadOnly\n# source_profile = default\n# -> boto3.Session(profile_name=\"audit\") refreshes credentials automatically",
+   "code_lang": "python",
+   "takeaways": [
+    "assume_role returns temporary credentials for a role you're trusted to use",
+    "Sessions built from raw assume_role credentials don't refresh",
+    "Profiles with role_arn + source_profile refresh automatically",
+    "Use descriptive RoleSessionNames for CloudTrail audits"
+   ],
+   "pitfalls": [
+    "Caching assumed-role credentials in a long-running worker and failing with ExpiredToken after an hour."
+   ],
+   "quiz": [
+    {
+     "q": "A daemon builds a Session from assume_role credentials at startup. What happens after the duration expires?",
+     "options": [
+      "Calls fail with an expired token error",
+      "They fall back to the instance role",
+      "STS extends them on use",
+      "boto3 renews them automatically"
+     ],
+     "answer": 0,
+     "explain": "Static credentials passed to Session have no refresh logic; use a role profile or refreshable credentials."
+    }
+   ],
+   "docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html#assume-role-provider",
+   "requires": [
+    "boto3.sessions",
+    "boto3.errors"
+   ]
+  },
+  {
+   "id": "boto3.s3-transfers",
+   "name": "Large transfers, multipart and progress",
+   "module": "s3",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Tune managed S3 transfers with TransferConfig, track progress with callbacks, and understand multipart upload behavior and costs.",
+   "why": "Big files (datasets, backups, model weights) need parallelism, resumability and progress reporting to be practical.",
+   "body": "`upload_file`, `upload_fileobj`, `download_file` and `download_fileobj` use the **S3 transfer manager** (s3transfer). Above a size threshold it switches to **multipart**: the file is split into parts uploaded in parallel threads, each retried independently, then S3 assembles them. Downloads use parallel ranged GETs.\n\n`boto3.s3.transfer.TransferConfig` tunes it:\n\n- `multipart_threshold` (default 8 MB): size at which multipart kicks in.\n- `multipart_chunksize` (default 8 MB): part size. S3 allows at most 10,000 parts, so for very large objects raise it (a 1 TB file needs parts of at least ~105 MB).\n- `max_concurrency` (default 10): parallel threads per transfer; `use_threads=False` disables threading.\n\nPass `Config=TransferConfig(...)` and `Callback=fn`; the callback receives the number of bytes transferred since the last call, from worker threads, so make it thread-safe.\n\nOperational notes:\n\n- Failed multipart uploads leave **incomplete parts** that are billed until aborted. Add a lifecycle rule `AbortIncompleteMultipartUpload` to every bucket.\n- Multipart objects get an ETag that isn't the file's MD5; use checksums (`ChecksumAlgorithm=\"SHA256\"` in ExtraArgs) for integrity checks.\n- Installing `boto3[crt]` enables the AWS Common Runtime transfer client, which can be much faster on high-bandwidth machines.",
+   "code": "import os, threading\nimport boto3\nfrom boto3.s3.transfer import TransferConfig\n\ns3 = boto3.client(\"s3\", region_name=\"us-east-1\")\ns3.create_bucket(Bucket=\"demo-big-2026\")\nwith open(\"big.bin\", \"wb\") as f:\n    f.write(os.urandom(30 * 1024 * 1024))           # 30 MB test file\n\nclass Progress:\n    def __init__(self, size):\n        self.size, self.seen, self.lock = size, 0, threading.Lock()\n    def __call__(self, nbytes):                      # called from worker threads\n        with self.lock:\n            self.seen += nbytes\n\ncfg = TransferConfig(multipart_threshold=8 * 1024**2, multipart_chunksize=8 * 1024**2,\n                     max_concurrency=4)\np = Progress(os.path.getsize(\"big.bin\"))\ns3.upload_file(\"big.bin\", \"demo-big-2026\", \"data/big.bin\", Config=cfg, Callback=p,\n               ExtraArgs={\"ChecksumAlgorithm\": \"SHA256\"})\nprint(p.seen == p.size)                               # True\netag = s3.head_object(Bucket=\"demo-big-2026\", Key=\"data/big.bin\")[\"ETag\"]\nprint(etag.endswith('-4\"'))                           # True: 4 parts, not an MD5",
+   "code_lang": "python",
+   "takeaways": [
+    "upload_file/download_file use multipart and parallel threads automatically",
+    "TransferConfig sets threshold, chunk size and concurrency",
+    "Progress callbacks get byte deltas from worker threads",
+    "Abort incomplete multipart uploads with a lifecycle rule"
+   ],
+   "pitfalls": [
+    "Using the default 8 MB chunk size for multi-terabyte objects and hitting the 10,000-part limit."
+   ],
+   "quiz": [
+    {
+     "q": "Why is a multipart object's ETag not the MD5 of the file?",
+     "options": [
+      "It's the MD5 of the key name",
+      "S3 uses SHA-1 for ETags",
+      "It's derived from the parts' checksums and suffixed with the part count",
+      "It is random"
+     ],
+     "answer": 2,
+     "explain": "Multipart ETags hash the concatenated part digests and end with -<number of parts>."
+    }
+   ],
+   "docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/guide/s3.html",
+   "requires": [
+    "boto3.s3-basics",
+    "boto3.config-retries"
+   ]
+  },
+  {
+   "id": "boto3.threading",
+   "name": "Concurrency: threads, clients and sessions",
+   "module": "patterns",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Use boto3 safely from multiple threads: share clients, not sessions or resources, size the connection pool, and parallelize I/O-bound calls.",
+   "why": "Parallel API calls give big speedups for I/O-bound AWS work, but sharing the wrong objects across threads causes subtle bugs.",
+   "body": "boto3 calls are blocking network I/O, so threads parallelize them well despite the GIL. The thread-safety rules from the boto3 docs:\n\n- **Clients are generally thread-safe**: create one and share it among threads. (Mutating a client's event handlers or config while in use isn't safe, which ordinary code doesn't do.)\n- **Sessions are not thread-safe**: don't create clients from a shared session concurrently. Create clients up front in the main thread, or a session per thread.\n- **Resources are not thread-safe**: create one per thread.\n\nEach client has a connection pool of `max_pool_connections` (default 10). With 32 threads sharing a client, 22 wait for connections and urllib3 logs \"Connection pool is full\" warnings. Set `Config(max_pool_connections=32)` to match your thread count.\n\n`concurrent.futures.ThreadPoolExecutor` is the simple pattern: submit one task per key, region or account, collect results with `as_completed`, and handle exceptions per task.\n\nMind API quotas: parallel calls hit throttling sooner. Use the standard or adaptive retry mode and cap concurrency per service.\n\nFor multiprocessing, create clients in each child process after the fork; clients hold sockets and must not be shared across processes. For asyncio applications, the third-party aiobotocore and aioboto3 packages provide async clients.",
+   "code": "from concurrent.futures import ThreadPoolExecutor, as_completed\nimport boto3\nfrom botocore.config import Config\n\ns3 = boto3.client(\"s3\", region_name=\"us-east-1\",\n                  config=Config(max_pool_connections=16))   # match the pool to threads\ns3.create_bucket(Bucket=\"demo-threads-2026\")\nkeys = [f\"in/{i:03}.txt\" for i in range(40)]\nfor k in keys:\n    s3.put_object(Bucket=\"demo-threads-2026\", Key=k, Body=k.encode())\n\ndef size_of(key):                                   # shares the thread-safe client\n    return key, s3.head_object(Bucket=\"demo-threads-2026\", Key=key)[\"ContentLength\"]\n\nsizes = {}\nwith ThreadPoolExecutor(max_workers=16) as pool:\n    futures = [pool.submit(size_of, k) for k in keys]\n    for fut in as_completed(futures):\n        key, size = fut.result()                   # re-raises errors per task\n        sizes[key] = size\nprint(len(sizes), sum(sizes.values()))              # 40 400",
+   "code_lang": "python",
+   "takeaways": [
+    "Share clients across threads; not sessions or resources",
+    "Match max_pool_connections to the number of threads",
+    "ThreadPoolExecutor parallelizes I/O-bound AWS calls well",
+    "Create clients per process after forking; use aioboto3 for asyncio"
+   ],
+   "pitfalls": [
+    "Calling boto3.client() concurrently from many threads using the shared default session."
+   ],
+   "quiz": [
+    {
+     "q": "Which boto3 object is safe to share among threads?",
+     "options": [
+      "An S3 Bucket resource",
+      "None of them",
+      "A Session",
+      "A low-level client"
+     ],
+     "answer": 3,
+     "explain": "The docs state clients are generally thread-safe, while sessions and resources are not."
+    }
+   ],
+   "docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/guide/clients.html#multithreading-or-multiprocessing-with-clients",
+   "requires": [
+    "boto3.config-retries",
+    "python.threads-processes"
+   ]
+  },
+  {
+   "id": "boto3.botocore-internals",
+   "name": "How botocore works: models and events",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Look inside botocore: JSON service models, dynamically generated clients, the request lifecycle and the event system for hooks.",
+   "why": "Understanding models and events lets you debug odd requests, add cross-cutting behavior and read any service's API precisely.",
+   "body": "boto3 has almost no service-specific code. **botocore** ships a JSON **service model** per service and API version (`botocore/data/<service>/<version>/service-2.json`) describing operations, input and output shapes, errors and protocols; plus paginator and waiter definitions. When you call `boto3.client(\"s3\")`, botocore loads the model and **generates a client class at runtime**, creating a method for each operation. That's why new AWS features appear by upgrading botocore, and why client creation is relatively expensive.\n\nA call then flows through a pipeline:\n\n- Parameter validation against the input shape (`ParamValidationError`).\n- Serialization for the service's protocol (REST-JSON, JSON, query, REST-XML).\n- Endpoint resolution (region, FIPS, dual-stack, custom endpoints).\n- Signing with SigV4 using the resolved credentials.\n- Sending via urllib3, with retries handled by the retry handler.\n- Parsing the response into dicts (or raising modeled errors).\n\nAt each step, botocore emits **events** on the client's event system, such as `provide-client-params.s3.PutObject`, `before-parameter-build.*`, `before-call.*`, `before-sign.*`, `after-call.*` and `needs-retry.*`. Register handlers with `client.meta.events.register(\"before-call.s3.PutObject\", handler)` to inject parameters, add headers, log or measure calls. Wildcards like `before-call.*.*` apply to all operations.\n\n`client.meta.service_model` exposes the model at runtime: operation names, input shapes and documentation.",
+   "code": "import boto3\n\ns3 = boto3.client(\"s3\", region_name=\"us-east-1\")\nmodel = s3.meta.service_model\nop = model.operation_model(\"PutObject\")\nprint(model.protocol, op.http[\"method\"], op.http[\"requestUri\"])   # rest-xml PUT /{Bucket}/{Key+}\nprint(sorted(op.input_shape.required_members))                  # ['Bucket', 'Key']\nprint(len(model.operation_names) > 90)                          # True\n\ndef add_default_metadata(params, **kwargs):     # runs before parameters are built\n    params.setdefault(\"Metadata\", {})[\"app\"] = \"billing\"\n\ndef log_call(model, params, **kwargs):\n    print(\"calling\", model.name, params[\"headers\"].get(\"x-amz-meta-app\"))\n\ns3.meta.events.register(\"provide-client-params.s3.PutObject\", add_default_metadata)\ns3.meta.events.register(\"before-call.s3.PutObject\", log_call)\n\ns3.create_bucket(Bucket=\"demo-events-2026\")\ns3.put_object(Bucket=\"demo-events-2026\", Key=\"k\", Body=b\"v\")   # calling PutObject billing\nprint(s3.head_object(Bucket=\"demo-events-2026\", Key=\"k\")[\"Metadata\"])   # {'app': 'billing'}",
+   "code_lang": "python",
+   "takeaways": [
+    "Clients are generated at runtime from JSON service models",
+    "Calls flow: validate, serialize, resolve endpoint, sign, send, parse",
+    "client.meta.events.register hooks into named lifecycle events",
+    "client.meta.service_model exposes operations and shapes"
+   ],
+   "pitfalls": [
+    "Registering a handler on the default session's events in library code, affecting every client in the process."
+   ],
+   "quiz": [
+    {
+     "q": "Why does upgrading botocore add support for a new AWS API without boto3 code changes?",
+     "options": [
+      "Clients are generated from the JSON service models shipped in botocore",
+      "New APIs use the resource interface",
+      "It doesn't; boto3 must be patched",
+      "boto3 downloads models at runtime from AWS"
+     ],
+     "answer": 0,
+     "explain": "botocore's bundled models define every operation, and clients are built from them dynamically."
+    }
+   ],
+   "docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/guide/events.html",
+   "requires": [
+    "boto3.config-retries",
+    "boto3.testing"
+   ]
+  },
+  {
+   "id": "boto3.credential-chain",
+   "name": "The credential provider chain in depth",
+   "module": "security",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Exactly how botocore resolves and refreshes credentials: provider order, profiles, SSO and process providers, container and instance metadata, and caching.",
+   "why": "When the wrong identity is used in production, or credentials expire mid-job, the fix requires knowing the chain precisely.",
+   "body": "Credentials passed explicitly to `client()` or `Session()` always win. Otherwise botocore's resolver tries providers in order and uses the first that returns credentials:\n\n- **Environment variables** (`AWS_ACCESS_KEY_ID`, ...). Skipped when you pass `profile_name=` to a Session explicitly.\n- **Profile-based providers** for the active profile: assume role (`role_arn`), web identity (`web_identity_token_file`), IAM Identity Center/SSO (`sso_session`), the shared credentials file, console login, `credential_process` (an external command printing JSON), and static keys in the config file.\n- Legacy files (`/etc/boto.cfg`, `~/.boto`).\n- **Container credentials** (`AWS_CONTAINER_CREDENTIALS_RELATIVE_URI` / `_FULL_URI`, used by ECS tasks and EKS Pod Identity).\n- **Instance metadata** (IMDS) on EC2.\n\n`session.get_credentials().method` tells you which provider won: `env`, `assume-role`, `sso`, `shared-credentials-file`, `container-role`, `iam-role`.\n\nMost providers return **RefreshableCredentials**: botocore checks expiry before each request and refreshes ahead of time (advisory and mandatory refresh windows), thread-safely. Assume-role and SSO results are cached on disk under `~/.aws/cli/cache` and `~/.aws/sso/cache`.\n\nClassic surprises: stale `AWS_ACCESS_KEY_ID` in a shell overriding the instance role; a container without the metadata hop limit raised (IMDSv2 on Docker); a frozen credentials object (`get_frozen_credentials()`) used past expiry. Debug with `boto3.set_stream_logger(\"botocore.credentials\")`.",
+   "code": "import logging, os\nimport boto3\n\nos.environ[\"AWS_ACCESS_KEY_ID\"] = \"AKIAEXAMPLE\"          # simulate a stray env var\nos.environ[\"AWS_SECRET_ACCESS_KEY\"] = \"secret\"\n\ncreds = boto3.Session().get_credentials()\nprint(creds.method)                         # env: env vars beat profiles and roles\n\nfrozen = creds.get_frozen_credentials()     # a snapshot: never refreshes\nprint(frozen.access_key)                    # AKIAEXAMPLE\n\n# See which providers are tried, in order, and which one wins:\nboto3.set_stream_logger(\"botocore.credentials\", logging.DEBUG)\nboto3.Session().get_credentials()\n# ... Looking for credentials via: env\n# ... Found credentials in environment variables.\n\n# credential_process example (~/.aws/config):\n# [profile vault]\n# credential_process = /usr/local/bin/vault-aws-creds --role deploy",
+   "code_lang": "python",
+   "takeaways": [
+    "Explicit credentials > env vars > profile providers > container > instance metadata",
+    "profile_name= on a Session skips env var credentials",
+    "creds.method reveals which provider supplied credentials",
+    "Refreshable credentials renew themselves; frozen snapshots don't"
+   ],
+   "pitfalls": [
+    "A leftover AWS_ACCESS_KEY_ID in the environment silently overriding the role you expected to use."
+   ],
+   "quiz": [
+    {
+     "q": "On an EC2 instance with a role, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are also set. Which identity does boto3 use?",
+     "options": [
+      "It raises an ambiguity error",
+      "The instance role",
+      "The environment variable keys",
+      "Whichever has more permissions"
+     ],
+     "answer": 2,
+     "explain": "Environment variables come before instance metadata in the provider chain."
+    }
+   ],
+   "docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html#configuring-credentials",
+   "requires": [
+    "boto3.assume-role",
+    "boto3.sessions"
+   ]
+  },
+  {
+   "id": "boto3.high-throughput",
+   "name": "High-throughput patterns: batching and async",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Scale AWS workloads with batch APIs (DynamoDB batch_writer, SQS batches), client reuse, pool sizing and async clients.",
+   "why": "Moving millions of items through AWS is dominated by request count and latency, and batching changes the economics.",
+   "body": "Each AWS call costs a network round trip and often a per-request fee, so throughput work is about **fewer, fuller requests** and **more of them in flight**.\n\n**Batch APIs**:\n\n- DynamoDB `table.batch_writer()` buffers `put_item`/`delete_item` calls into `BatchWriteItem` requests of 25 items and **automatically resends unprocessed items**; `overwrite_by_pkeys=[...]` dedupes within a buffer. Reads use `batch_get_item` (100 keys), where you must handle `UnprocessedKeys` yourself.\n- SQS `send_message_batch` and `delete_message_batch` take up to 10 entries; check the `Failed` list in the response, since partial failures don't raise.\n- S3 `delete_objects` removes up to 1000 keys per call.\n\n**Concurrency**: share one client per service across a thread pool sized to the workload, with `max_pool_connections` matching. For asyncio services, **aiobotocore**/**aioboto3** give awaitable clients with the same API.\n\n**Overheads to remove**: create clients once (client creation parses models and can take tens of milliseconds), reuse connections (keep-alive is automatic), and avoid `head_object` before every `get_object` when the get alone tells you what you need.\n\n**Backpressure**: watch for throttling (`ProvisionedThroughputExceededException`, `SlowDown`, `ThrottlingException`), use adaptive retries for batch jobs, and spread hot keys. Measure with CloudWatch request metrics, not assumptions.",
+   "code": "from decimal import Decimal\nimport boto3\n\nddb = boto3.resource(\"dynamodb\", region_name=\"us-east-1\")\ntable = ddb.create_table(TableName=\"events\", BillingMode=\"PAY_PER_REQUEST\",\n    KeySchema=[{\"AttributeName\": \"id\", \"KeyType\": \"HASH\"}],\n    AttributeDefinitions=[{\"AttributeName\": \"id\", \"AttributeType\": \"S\"}])\ntable.wait_until_exists()\n\nwith table.batch_writer(overwrite_by_pkeys=[\"id\"]) as batch:   # 25 items per request\n    for i in range(1000):\n        batch.put_item(Item={\"id\": f\"evt-{i}\", \"value\": Decimal(i)})\nprint(table.scan(Select=\"COUNT\")[\"Count\"])     # 1000, written with 40 requests\n\nsqs = boto3.client(\"sqs\", region_name=\"us-east-1\")\nurl = sqs.create_queue(QueueName=\"jobs\")[\"QueueUrl\"]\nresp = sqs.send_message_batch(QueueUrl=url, Entries=[\n    {\"Id\": str(i), \"MessageBody\": f\"job {i}\"} for i in range(10)])\nprint(len(resp[\"Successful\"]), resp.get(\"Failed\", []))   # 10 []",
+   "code_lang": "python",
+   "takeaways": [
+    "Batch APIs cut request count: DynamoDB 25 writes, SQS 10 messages, S3 1000 deletes",
+    "batch_writer resends unprocessed items; batch_get_item and SQS batches need manual checks",
+    "Share clients across a sized thread pool, or use aioboto3 for asyncio",
+    "Create clients once; watch throttling metrics"
+   ],
+   "pitfalls": [
+    "Ignoring the Failed list of send_message_batch and silently losing messages."
+   ],
+   "quiz": [
+    {
+     "q": "What does DynamoDB's batch_writer do with UnprocessedItems returned by BatchWriteItem?",
+     "options": [
+      "Drops them silently",
+      "Writes them one by one with put_item",
+      "Raises an exception",
+      "Automatically resubmits them"
+     ],
+     "answer": 3,
+     "explain": "The batch writer keeps unprocessed items in its buffer and resends them."
+    }
+   ],
+   "docs": "https://boto3.amazonaws.com/v1/documentation/api/latest/guide/dynamodb.html#batch-writing",
+   "requires": [
+    "boto3.threading",
+    "boto3.dynamodb",
+    "boto3.sqs"
+   ]
+  }
+ ]
+}

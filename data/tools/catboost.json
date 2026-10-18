@@ -1,0 +1,725 @@
+{
+ "tool": {
+  "id": "catboost",
+  "name": "CatBoost",
+  "category": "library",
+  "tagline": "Gradient boosting on decision trees with native categorical feature support",
+  "description": "CatBoost is Yandex's open-source gradient boosting library. It handles categorical features natively with ordered target statistics, resists overfitting with ordered boosting, and builds symmetric trees that predict very fast. It gives strong results on tabular data with little tuning and exports models for production use.",
+  "icon": "CB",
+  "color": "#D97706",
+  "official_docs": "https://catboost.ai/docs/en/",
+  "version": "1.2",
+  "aliases": [
+   "cat boost",
+   "catboost python"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   },
+   {
+    "tool": "scikit-learn",
+    "level": 1
+   },
+   {
+    "tool": "pandas",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "First models"
+  },
+  {
+   "id": "data",
+   "name": "Data and features"
+  },
+  {
+   "id": "training",
+   "name": "Training and tuning"
+  },
+  {
+   "id": "insight",
+   "name": "Interpretation"
+  },
+  {
+   "id": "internals",
+   "name": "Algorithm internals"
+  },
+  {
+   "id": "production",
+   "name": "Production"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "catboost.first-model",
+   "name": "Your first CatBoost model",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Train CatBoostClassifier and CatBoostRegressor with the familiar fit/predict API and read predictions and probabilities.",
+   "why": "CatBoost often matches or beats tuned alternatives on tabular data with default settings, so it's a strong first model.",
+   "body": "CatBoost implements **gradient boosting**: it builds hundreds or thousands of small decision trees, each one fitted to correct the errors of the ensemble so far. The Python package (`pip install catboost`) follows scikit-learn conventions:\n\n- `CatBoostClassifier` for binary and multiclass problems, `CatBoostRegressor` for numbers, `CatBoostRanker` for ranking\n- `model.fit(X, y)`, `model.predict(X)`, and for classifiers `model.predict_proba(X)`\n- `X` can be a pandas DataFrame, a NumPy array or a CatBoost `Pool`\n\nDefaults are good: 1000 trees (`iterations`), depth 6, and a learning rate picked automatically from the data size and iteration count. Many datasets need little more.\n\nTwo practical settings you'll set constantly:\n\n- `verbose`: by default CatBoost prints a line per iteration. Use `verbose=0` to silence it, or `verbose=100` to print every 100 iterations.\n- `random_seed`: training has randomness; fix it for reproducible results.\n\nCatBoost also writes a `catboost_info/` folder of training logs by default; set `train_dir=` to choose the location or `allow_writing_files=False` to disable it.\n\nModels also work inside scikit-learn tooling such as `cross_val_score` and `Pipeline`, though CatBoost's native features (categorical handling, its own cross-validation, early stopping) are usually used directly.",
+   "code": "from catboost import CatBoostClassifier, CatBoostRegressor\nfrom sklearn.datasets import load_breast_cancer, load_diabetes\nfrom sklearn.model_selection import train_test_split\n\nX, y = load_breast_cancer(return_X_y=True, as_frame=True)\nX_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.25, random_state=0)\n\nclf = CatBoostClassifier(iterations=300, verbose=0, random_seed=0,\n                         allow_writing_files=False)\nclf.fit(X_tr, y_tr)\nprint(clf.predict(X_te[:3]))                 # e.g. [0 1 1] class labels\nprint(clf.predict_proba(X_te[:1]).round(3))  # [[p_class0 p_class1]]\nprint(round(clf.score(X_te, y_te), 3))       # accuracy, about 0.98\n\nXr, yr = load_diabetes(return_X_y=True)\nreg = CatBoostRegressor(iterations=300, verbose=0, random_seed=0,\n                        allow_writing_files=False)\nreg.fit(Xr[:350], yr[:350])\nprint(reg.predict(Xr[350:353]).round(1))     # three predicted values\nprint(reg.get_params()[\"iterations\"], reg.tree_count_)   # 300 300",
+   "code_lang": "python",
+   "takeaways": [
+    "CatBoostClassifier/Regressor follow the fit/predict/predict_proba API",
+    "Defaults (1000 trees, depth 6, automatic learning rate) are strong",
+    "Use verbose=0 and random_seed for quiet, reproducible runs",
+    "allow_writing_files=False stops the catboost_info log folder"
+   ],
+   "pitfalls": [
+    "Leaving the default verbose output on in loops or notebooks, flooding the output with thousands of lines."
+   ],
+   "quiz": [
+    {
+     "q": "What does each new tree in gradient boosting try to do?",
+     "options": [
+      "Correct the errors (gradients of the loss) of the current ensemble",
+      "Predict the target independently of earlier trees",
+      "Pick a random subset of features",
+      "Replace the previous tree"
+     ],
+     "answer": 0,
+     "explain": "Boosting adds trees sequentially, each fitted to the remaining errors."
+    },
+    {
+     "q": "Which call returns class probabilities for a CatBoostClassifier?",
+     "options": [
+      "model.predict(X)",
+      "model.score(X, y)",
+      "model.predict_proba(X)",
+      "model.get_params()"
+     ],
+     "answer": 2,
+     "explain": "predict_proba returns one probability per class for each row."
+    }
+   ],
+   "docs": "https://catboost.ai/docs/en/concepts/python-reference_catboostclassifier",
+   "requires": [
+    "python.modules-imports",
+    "python.functions"
+   ]
+  },
+  {
+   "id": "catboost.categorical-features",
+   "name": "Categorical features without encoding",
+   "module": "data",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Pass string or integer categories directly via cat_features and let CatBoost encode them safely.",
+   "why": "Native categorical handling is CatBoost's signature feature and removes most manual one-hot or target encoding work.",
+   "body": "Most boosting libraries need categories turned into numbers first. One-hot encoding explodes high-cardinality columns such as city or product id, and naive **target encoding** (replacing a category with its mean target) leaks the label and overfits.\n\nCatBoost does the encoding itself. Tell it which columns are categorical with **`cat_features`**, by column names or indices:\n\n```python\nmodel.fit(X, y, cat_features=[\"city\", \"device\"])\n```\n\nYou can also set `cat_features` in the constructor. Values must be strings or integers. Floats are rejected, so a numeric code column read as float needs `.astype(int)` or `.astype(str)`; **missing values** in categorical columns must be filled first, for example with `\"missing\"`, while numeric columns may contain NaN.\n\nInternally CatBoost:\n\n- one-hot encodes columns with very few values (up to `one_hot_max_size`, small by default),\n- converts others to **ordered target statistics**: each row's category value is replaced by a smoothed average of the target over *earlier* rows in a random permutation, so a row's own label never leaks into its feature,\n- builds **combinations** of categorical features (such as city x device) greedily during training.\n\nPandas `category` dtype columns are fine too, but you still list them in `cat_features`. At prediction time pass the raw categories in the same columns; unseen categories are handled gracefully.",
+   "code": "import pandas as pd\nfrom catboost import CatBoostClassifier\n\ndf = pd.DataFrame({\n    \"city\":   [\"Paris\", \"Lyon\", \"Paris\", \"Nice\", \"Lyon\", \"Paris\", \"Nice\", \"Lyon\"] * 25,\n    \"device\": [\"ios\", \"android\", \"web\", \"ios\", \"web\", \"android\", \"web\", \"ios\"] * 25,\n    \"visits\": [3, 1, 5, 2, 8, 1, 4, 6] * 25,\n    \"bought\": [1, 0, 1, 0, 1, 0, 0, 1] * 25,\n})\nX, y = df.drop(columns=\"bought\"), df[\"bought\"]\n\nmodel = CatBoostClassifier(iterations=100, verbose=0, allow_writing_files=False)\nmodel.fit(X, y, cat_features=[\"city\", \"device\"])     # no encoding needed\nprint(model.get_cat_feature_indices())               # [0, 1]\n\nnew = pd.DataFrame({\"city\": [\"Paris\", \"Berlin\"], \"device\": [\"ios\", \"web\"],\n                    \"visits\": [4, 2]})\nprint(model.predict_proba(new)[:, 1].round(2))      # Berlin was never seen: still works\n\nbad = X.copy(); bad.loc[0, \"city\"] = None\ntry:\n    model.fit(bad, y, cat_features=[\"city\", \"device\"])\nexcept Exception as e:\n    print(type(e).__name__)                          # CatBoostError: fill NaN first",
+   "code_lang": "python",
+   "takeaways": [
+    "List categorical columns in cat_features (names or indices)",
+    "Categorical values must be str or int, with missing values filled",
+    "CatBoost uses ordered target statistics instead of leaky target encoding",
+    "Unseen categories at prediction time are handled"
+   ],
+   "pitfalls": [
+    "Passing a categorical column containing NaN or floats, which raises an error."
+   ],
+   "quiz": [
+    {
+     "q": "Why is naive target encoding (category -> mean target over all rows) risky?",
+     "options": [
+      "It is slow",
+      "It only works for binary targets",
+      "It requires one-hot encoding first",
+      "Each row's own label leaks into its feature, so the model overfits"
+     ],
+     "answer": 3,
+     "explain": "Including the row's label in its own encoding leaks information that won't exist at prediction time."
+    },
+    {
+     "q": "A categorical column has some missing values. What should you do before fitting?",
+     "options": [
+      "Nothing, CatBoost handles NaN in categorical columns",
+      "Fill them with a placeholder string such as 'missing'",
+      "Drop the column",
+      "Convert it to float"
+     ],
+     "answer": 1,
+     "explain": "Categorical columns must not contain NaN; a placeholder category works well."
+    }
+   ],
+   "docs": "https://catboost.ai/docs/en/features/categorical-features",
+   "requires": [
+    "catboost.first-model",
+    "pandas.dataframe",
+    "pandas.categorical"
+   ]
+  },
+  {
+   "id": "catboost.pool",
+   "name": "The Pool data structure",
+   "module": "data",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Wrap data, labels, categorical, text and weight information in a Pool for training, evaluation and prediction.",
+   "why": "Pool keeps feature metadata with the data and avoids repeated preprocessing, which matters for eval sets and large data.",
+   "body": "A **`Pool`** bundles everything CatBoost needs to know about a dataset:\n\n```python\nPool(data=X, label=y, cat_features=[...], text_features=[...],\n     weight=w, group_id=g, baseline=b)\n```\n\n- `data`: DataFrame, NumPy array or a path to a file in CatBoost's TSV format (with a column description file)\n- `label`: the target (omit it for prediction-only pools)\n- `cat_features` and `text_features`: column names or indices\n- `weight`: per-row weights; `group_id`: query ids for ranking\n- `baseline`: starting predictions to boost from\n\nWhy use it instead of plain arrays?\n\n- Feature metadata travels with the data, so the training set and eval set can't disagree about which columns are categorical.\n- CatBoost converts the data to its internal format once. Re-using a Pool across several `fit` calls or for evaluation avoids repeating that work.\n- `Pool.quantize()` precomputes feature borders for large datasets, and file-based pools let the C++ core load data without going through pandas.\n\n`model.fit(train_pool, eval_set=valid_pool)` and `model.predict(test_pool)` accept pools directly. `pool.num_row()`, `pool.num_col()` and `pool.get_cat_feature_indices()` inspect them. `Pool.slice(indices)` takes a subset of rows.",
+   "code": "import numpy as np\nimport pandas as pd\nfrom catboost import CatBoostRegressor, Pool\n\nrng = np.random.default_rng(0)\ndf = pd.DataFrame({\"size\": rng.uniform(30, 150, 400),\n                   \"district\": rng.choice([\"north\", \"south\", \"center\"], 400)})\nprice = df[\"size\"] * 3 + df[\"district\"].map({\"north\": 50, \"south\": 0, \"center\": 120})\nw = np.where(df[\"district\"] == \"center\", 2.0, 1.0)     # weight center rows more\n\ntrain = Pool(df[:300], label=price[:300], cat_features=[\"district\"], weight=w[:300])\nvalid = Pool(df[300:], label=price[300:], cat_features=[\"district\"])\nprint(train.num_row(), train.num_col(), train.get_cat_feature_indices())   # 300 2 [1]\n\nmodel = CatBoostRegressor(iterations=300, verbose=0, random_seed=0,\n                          allow_writing_files=False)\nmodel.fit(train, eval_set=valid)\ntest = Pool(pd.DataFrame({\"size\": [100.0], \"district\": [\"center\"]}), cat_features=[1])\nprint(model.predict(test).round())           # about [420.]",
+   "code_lang": "python",
+   "takeaways": [
+    "Pool holds data, label, cat/text features, weights, group ids and baseline",
+    "Use pools so training and eval data share the same feature metadata",
+    "fit, eval_set and predict all accept Pools",
+    "Data is converted once, which saves time on large datasets"
+   ],
+   "pitfalls": [
+    "Declaring cat_features on the training data but passing a plain DataFrame without them as eval_set in older code paths; use Pools for both."
+   ],
+   "quiz": [
+    {
+     "q": "Which Pool argument tells CatBoost that some rows matter more than others?",
+     "options": [
+      "weight",
+      "baseline",
+      "group_id",
+      "label"
+     ],
+     "answer": 0,
+     "explain": "weight scales each row's contribution to the loss."
+    }
+   ],
+   "docs": "https://catboost.ai/docs/en/concepts/python-reference_pool",
+   "requires": [
+    "catboost.categorical-features"
+   ]
+  },
+  {
+   "id": "catboost.loss-metrics",
+   "name": "Loss functions and evaluation metrics",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Choose loss_function for the task (Logloss, MultiClass, RMSE, MAE, Quantile...) and track other metrics with eval_metric and custom_metric.",
+   "why": "The loss defines what the model optimises; picking the right one matters more than most hyperparameters.",
+   "body": "`loss_function` is what training minimises; **metrics** are what you watch. Common losses:\n\n- classification: `Logloss` (binary, default for the classifier), `CrossEntropy` (probabilistic labels), `MultiClass` (chosen automatically when there are more than two classes)\n- regression: `RMSE` (default), `MAE`, `Quantile:alpha=0.9` for prediction intervals, `MAPE`, `Poisson` and `Tweedie:variance_power=1.5` for counts and insurance-style targets, `Huber:delta=1.0` for robustness to outliers\n- ranking: `YetiRank`, `PairLogit`, `QueryRMSE` (with `group_id` in the Pool)\n\nParameters for a loss go after a colon, as above.\n\n`eval_metric` selects the metric used for early stopping and choosing the best iteration, for example `AUC` or `F1` while still optimising `Logloss`. `custom_metric=[\"AUC\", \"Precision\", \"Recall\"]` logs extra metrics without affecting training. After fitting, `model.get_best_score()` and `model.get_evals_result()` return the values, and `model.eval_metrics(pool, [\"AUC\"])` computes metrics per iteration on any data.\n\nFor classifiers, `predict` returns labels using a 0.5 probability threshold (binary). If the costs of errors are unequal, predict probabilities and choose your own threshold on validation data rather than relying on the default.",
+   "code": "import numpy as np\nfrom catboost import CatBoostClassifier, CatBoostRegressor, Pool\nfrom sklearn.datasets import make_classification, make_regression\n\nX, y = make_classification(n_samples=600, n_classes=3, n_informative=5, random_state=0)\nclf = CatBoostClassifier(iterations=200, verbose=0, allow_writing_files=False,\n                         custom_metric=[\"Accuracy\"])\nclf.fit(X[:500], y[:500], eval_set=(X[500:], y[500:]))\nprint(clf.get_all_params()[\"loss_function\"])            # MultiClass (auto)\nprint(sorted(clf.get_best_score()[\"validation\"]))       # ['Accuracy', 'MultiClass']\n\nXr, yr = make_regression(n_samples=500, noise=20, random_state=0)\nq90 = CatBoostRegressor(loss_function=\"Quantile:alpha=0.9\", iterations=300,\n                        verbose=0, allow_writing_files=False).fit(Xr, yr)\nprint(round(np.mean(yr <= q90.predict(Xr)), 2))        # about 0.9 below the 90% quantile\n\nf1 = clf.eval_metrics(Pool(X[500:], y[500:]), [\"TotalF1\"])   # per-iteration values\nprint(round(f1[\"TotalF1\"][-1], 2))                      # F1 after the last tree",
+   "code_lang": "python",
+   "takeaways": [
+    "loss_function is optimised; eval_metric picks the best iteration",
+    "Losses take parameters after a colon, e.g. Quantile:alpha=0.9",
+    "custom_metric logs extra metrics without changing training",
+    "Choose decision thresholds yourself when error costs differ"
+   ],
+   "pitfalls": [
+    "Optimising RMSE when the business cares about relative error or quantiles; pick the loss that matches the goal."
+   ],
+   "quiz": [
+    {
+     "q": "You want early stopping to select the iteration with the best AUC while still optimising log loss. What do you set?",
+     "options": [
+      "loss_function='AUC'",
+      "custom_metric='Logloss'",
+      "eval_metric='AUC'",
+      "metric_period=1"
+     ],
+     "answer": 2,
+     "explain": "eval_metric decides the best iteration; loss_function stays Logloss."
+    },
+    {
+     "q": "Which loss estimates the 90th percentile of the target?",
+     "options": [
+      "RMSE",
+      "MAE",
+      "Logloss",
+      "Quantile:alpha=0.9"
+     ],
+     "answer": 3,
+     "explain": "The quantile (pinball) loss with alpha 0.9 targets the 90th percentile."
+    }
+   ],
+   "docs": "https://catboost.ai/docs/en/concepts/loss-functions",
+   "requires": [
+    "catboost.first-model"
+   ]
+  },
+  {
+   "id": "catboost.early-stopping",
+   "name": "Validation sets and early stopping",
+   "module": "training",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Use eval_set with early_stopping_rounds and use_best_model to stop at the right number of trees and avoid overfitting.",
+   "why": "Choosing the number of iterations on validation data is the single most important guard against overfitting in boosting.",
+   "body": "More trees keep lowering the **training** loss forever, but the **validation** loss eventually bottoms out and rises: the model starts memorising noise. CatBoost's overfitting detector handles this.\n\n- `eval_set=(X_val, y_val)` or a validation Pool: data evaluated after every iteration\n- `early_stopping_rounds=50`: stop if the eval metric hasn't improved for 50 iterations\n- `use_best_model=True` (the default when an eval set is given): keep only the trees up to the best iteration\n\nAfter fitting, `model.get_best_iteration()` and `model.get_best_score()` report where it stopped, and `model.tree_count_` shows the final size. `plot=True` in `fit` draws live curves in Jupyter.\n\nSet `iterations` generously (several thousand) with a smaller `learning_rate` and let early stopping decide the actual count. Lower learning rates generally need more trees but generalise a little better.\n\nThe caveat: the validation set is now used to choose the model, so its score is optimistically biased. Keep a separate **test set** for the final, honest evaluation, or use cross-validation to choose the iteration count and then retrain on all the data with that fixed number.\n\nFor time series, the validation set must come **after** the training period, never a random split, or the stopping point will be chosen on leaked future information.",
+   "code": "from catboost import CatBoostClassifier\nfrom sklearn.datasets import make_classification\nfrom sklearn.model_selection import train_test_split\n\nX, y = make_classification(n_samples=3000, n_features=20, flip_y=0.1, random_state=1)\nX_tmp, X_test, y_tmp, y_test = train_test_split(X, y, test_size=0.2, random_state=0)\nX_tr, X_val, y_tr, y_val = train_test_split(X_tmp, y_tmp, test_size=0.25, random_state=0)\n\nmodel = CatBoostClassifier(iterations=5000, learning_rate=0.05, eval_metric=\"AUC\",\n                           early_stopping_rounds=100, verbose=0, random_seed=0,\n                           allow_writing_files=False)\nmodel.fit(X_tr, y_tr, eval_set=(X_val, y_val), use_best_model=True)\n\nprint(model.get_best_iteration() < 5000)       # True: stopped early\nprint(model.tree_count_ == model.get_best_iteration() + 1)   # True: trimmed\nprint(round(model.get_best_score()[\"validation\"][\"AUC\"], 3))  # best validation AUC\nprint(round(model.score(X_test, y_test), 3))   # honest accuracy on untouched test set",
+   "code_lang": "python",
+   "takeaways": [
+    "eval_set + early_stopping_rounds stop training when validation stops improving",
+    "use_best_model keeps only trees up to the best iteration",
+    "Set many iterations and a moderate learning rate; let early stopping decide",
+    "Keep a separate test set; the validation score is optimistically biased"
+   ],
+   "pitfalls": [
+    "Reporting the early-stopping validation score as the model's expected performance."
+   ],
+   "quiz": [
+    {
+     "q": "With iterations=5000, early_stopping_rounds=100 and best iteration 812, how many trees does the final model keep (use_best_model=True)?",
+     "options": [
+      "5000",
+      "912",
+      "813",
+      "100"
+     ],
+     "answer": 2,
+     "explain": "Training stops around iteration 912, and the model is shrunk to the best iteration, indices 0 to 812."
+    },
+    {
+     "q": "Why should the validation set for a time series come after the training period?",
+     "options": [
+      "CatBoost requires sorted data",
+      "A random split lets future information choose the stopping point, overstating accuracy",
+      "It makes training faster",
+      "Early stopping only works on the last rows"
+     ],
+     "answer": 1,
+     "explain": "Validation must mimic real use: predicting the future from the past."
+    }
+   ],
+   "docs": "https://catboost.ai/docs/en/concepts/overfitting-detector",
+   "requires": [
+    "catboost.loss-metrics",
+    "catboost.pool"
+   ]
+  },
+  {
+   "id": "catboost.key-parameters",
+   "name": "The parameters that matter",
+   "module": "training",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Know what learning_rate, iterations, depth, l2_leaf_reg, random_strength, bagging_temperature and border_count do, and what to tune first.",
+   "why": "A handful of parameters account for most of the gains; knowing them saves hours of blind tuning.",
+   "body": "CatBoost's defaults are tuned to be robust, so tune deliberately and in this rough order:\n\n- **`learning_rate` and `iterations`**: the step size of each tree and the number of trees. They trade off: halve the rate, roughly double the trees. Fix a reasonable rate (0.03 to 0.1) and let early stopping choose iterations.\n- **`depth`** (default 6): depth of each symmetric tree; a tree has 2^depth leaves. Typical range 4 to 10. Deeper trees capture more interactions but overfit faster and train slower.\n- **`l2_leaf_reg`** (default 3): L2 regularisation on leaf values. Increase it (5 to 30) when overfitting.\n- **`random_strength`**: noise added to split scores to diversify trees; higher values regularise.\n- **Row sampling**: `bootstrap_type` is `MVS` by default on CPU (`Bayesian` on GPU). Tune `subsample` for MVS and Bernoulli, or `bagging_temperature` for Bayesian, where higher means more aggressive sampling.\n- **`border_count`**: number of bins for numeric features (254 on CPU by default). Fewer bins train faster.\n- **`one_hot_max_size`**, **`max_ctr_complexity`**: control categorical encoding and feature combinations.\n\nSpeed knobs: `thread_count` (defaults to all cores), `task_type=\"GPU\"`, and keeping `boosting_type=\"Plain\"` rather than `\"Ordered\"` on large data.\n\n`model.get_all_params()` shows every value actually used, including those chosen automatically such as the learning rate. Always tune against a validation set or cross-validation, never the training score.",
+   "code": "from catboost import CatBoostRegressor\nfrom sklearn.datasets import make_friedman1\nfrom sklearn.model_selection import train_test_split\n\nX, y = make_friedman1(n_samples=2000, noise=1.0, random_state=0)\nX_tr, X_val, y_tr, y_val = train_test_split(X, y, random_state=0)\n\ndef val_rmse(**params):\n    m = CatBoostRegressor(iterations=2000, early_stopping_rounds=100, verbose=0,\n                          random_seed=0, allow_writing_files=False, **params)\n    m.fit(X_tr, y_tr, eval_set=(X_val, y_val))\n    return round(m.get_best_score()[\"validation\"][\"RMSE\"], 3), m.tree_count_\n\nprint(\"default lr:\", val_rmse())\nprint(\"lr=0.03:\", val_rmse(learning_rate=0.03))          # (rmse, trees) to compare\nprint(\"depth=3:\", val_rmse(depth=3))\nprint(\"depth=10:\", val_rmse(depth=10))\nprint(\"l2=20:\", val_rmse(l2_leaf_reg=20))\n\nm = CatBoostRegressor(iterations=500, verbose=0, allow_writing_files=False).fit(X_tr, y_tr)\np = m.get_all_params()\nprint(p[\"depth\"], p[\"l2_leaf_reg\"], round(p[\"learning_rate\"], 3))   # 6 3 <auto-chosen rate>",
+   "code_lang": "python",
+   "takeaways": [
+    "Fix a learning rate and let early stopping choose iterations",
+    "depth (4-10) and l2_leaf_reg are the main capacity/regularisation knobs",
+    "random_strength and row sampling (subsample, bagging_temperature) regularise",
+    "get_all_params shows the values actually used, including auto-chosen ones"
+   ],
+   "pitfalls": [
+    "Tuning learning_rate and iterations independently without early stopping, which mostly finds the same trade-off twice."
+   ],
+   "quiz": [
+    {
+     "q": "Your model overfits: training loss keeps falling but validation loss rises early. Which change helps most directly?",
+     "options": [
+      "Increase l2_leaf_reg and/or reduce depth",
+      "Increase depth to 12",
+      "Set border_count=1024",
+      "Disable early stopping"
+     ],
+     "answer": 0,
+     "explain": "Stronger regularisation and shallower trees reduce model capacity."
+    },
+    {
+     "q": "How many leaves does a CatBoost tree with depth=6 have?",
+     "options": [
+      "6",
+      "12",
+      "36",
+      "64"
+     ],
+     "answer": 3,
+     "explain": "Symmetric trees of depth d always have 2^d leaves."
+    }
+   ],
+   "docs": "https://catboost.ai/docs/en/references/training-parameters/",
+   "requires": [
+    "catboost.early-stopping"
+   ]
+  },
+  {
+   "id": "catboost.cross-validation-tuning",
+   "name": "Cross-validation and hyperparameter search",
+   "module": "training",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Estimate performance with catboost.cv and search parameters with grid_search, randomized_search or external tuners like Optuna.",
+   "why": "Cross-validation gives reliable estimates on small data and tells you how many iterations to use when retraining.",
+   "body": "**`catboost.cv(pool, params, fold_count=5, ...)`** runs k-fold cross-validation natively and returns a pandas DataFrame with the mean and standard deviation of each metric **per iteration**, for train and test folds. Combined with `early_stopping_rounds`, the row with the best mean test score tells you the iteration count to use when retraining on all the data. Pass `stratified=True` for classification and `shuffle=True` unless the data order matters; for time series use `type=\"TimeSeries\"`.\n\nFor hyperparameters, models have built-in search methods:\n\n- `model.grid_search(param_grid, X, y, cv=3)` tries every combination\n- `model.randomized_search(param_distributions, X, y, n_iter=20)` samples combinations\n\nBoth evaluate each candidate with cross-validation (or a train/test split), refit the model with the best parameters by default (`refit=True`), and return a dict containing `params` and `cv_results`.\n\nFor larger searches, Bayesian tuners such as **Optuna** or Hyperopt explore more efficiently; inside the objective, train with an eval set and early stopping and return the validation score. scikit-learn's `GridSearchCV` also works because CatBoost estimators follow the sklearn interface.\n\nTune a few impactful parameters (`depth`, `l2_leaf_reg`, `learning_rate`, `random_strength`, `bagging_temperature`) rather than everything. Small datasets show high variance across folds: compare the mean differences with the standard deviation before declaring a winner.",
+   "code": "from catboost import CatBoostClassifier, Pool, cv\nfrom sklearn.datasets import make_classification\n\nX, y = make_classification(n_samples=1500, n_features=15, flip_y=0.05, random_state=0)\nparams = {\"loss_function\": \"Logloss\", \"eval_metric\": \"AUC\", \"iterations\": 1000,\n          \"learning_rate\": 0.05, \"random_seed\": 0, \"logging_level\": \"Silent\"}\n\nscores = cv(Pool(X, y), params, fold_count=5, stratified=True, shuffle=True,\n            early_stopping_rounds=50)\nbest = scores[\"test-AUC-mean\"].idxmax()\nprint(best, round(scores.loc[best, \"test-AUC-mean\"], 3),\n      round(scores.loc[best, \"test-AUC-std\"], 3))   # e.g. 182 0.967 0.003\n\nmodel = CatBoostClassifier(iterations=200, logging_level=\"Silent\", random_seed=0,\n                           allow_writing_files=False)\nresult = model.grid_search({\"depth\": [4, 6], \"l2_leaf_reg\": [1, 5]}, X, y,\n                           cv=3, verbose=False, plot=False)\nprint(result[\"params\"])                  # e.g. {'depth': 4, 'l2_leaf_reg': 1}\nprint(model.is_fitted())                 # True: refit with the best params\n\nfinal = CatBoostClassifier(**{**params, \"iterations\": int(best) + 1}).fit(X, y)",
+   "code_lang": "python",
+   "takeaways": [
+    "catboost.cv returns per-iteration mean/std metrics across folds",
+    "The best mean iteration sets iterations when retraining on all data",
+    "grid_search/randomized_search evaluate with CV and refit the best model",
+    "Use Optuna or similar for larger searches; tune a few key parameters"
+   ],
+   "pitfalls": [
+    "Declaring one parameter set better when its advantage is smaller than the fold-to-fold standard deviation."
+   ],
+   "quiz": [
+    {
+     "q": "What does the DataFrame returned by catboost.cv contain?",
+     "options": [
+      "One row per fold with final scores",
+      "Feature importances",
+      "One row per iteration with mean and std of each metric across folds",
+      "Predictions for each row"
+     ],
+     "answer": 2,
+     "explain": "cv reports per-iteration statistics so you can pick the best iteration count."
+    }
+   ],
+   "docs": "https://catboost.ai/docs/en/concepts/python-reference_cv",
+   "requires": [
+    "catboost.early-stopping",
+    "catboost.key-parameters"
+   ]
+  },
+  {
+   "id": "catboost.feature-importance-shap",
+   "name": "Feature importance and SHAP values",
+   "module": "insight",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Explain models with PredictionValuesChange, LossFunctionChange and per-prediction SHAP values computed natively.",
+   "why": "Stakeholders need to know why a model predicts what it does, and importance analysis catches leakage and bugs.",
+   "body": "`model.get_feature_importance(type=...)` offers several views:\n\n- **`PredictionValuesChange`** (default for most models): how much predictions change, on average, when a feature's value changes. Fast and needs no data.\n- **`LossFunctionChange`**: how much the loss gets worse without the feature, computed on a dataset you pass; closer to \"how useful is this feature\" and better for feature selection.\n- **`ShapValues`**: per-row **SHAP** contributions, computed exactly and quickly for trees.\n- **`Interaction`**: strength of pairwise feature interactions.\n\n`prettified=True` returns a sorted DataFrame. Importances on categorical features cover the feature as a whole, including its use in combinations.\n\n**SHAP values** split each prediction into additive contributions: for every row, the expected value plus the sum of the row's SHAP values equals the model's raw prediction (log-odds for classifiers). `get_feature_importance(data=pool, type=\"ShapValues\")` returns an array with one column per feature plus a last column holding the expected value. The `shap` package can plot them (`shap.summary_plot`, waterfall plots) and also accepts the CatBoost model through `shap.TreeExplainer`.\n\nInterpretation cautions: importance is not causation, correlated features share and split credit unpredictably, and a suspiciously dominant feature often signals **target leakage** (for example an id or timestamp that encodes the label). Investigate before celebrating.",
+   "code": "import numpy as np\nimport pandas as pd\nfrom catboost import CatBoostClassifier, Pool\n\nrng = np.random.default_rng(0)\nX = pd.DataFrame({\"income\": rng.normal(50, 15, 800),\n                  \"age\": rng.integers(18, 70, 800),\n                  \"noise\": rng.normal(0, 1, 800)})\ny = ((X[\"income\"] > 55) ^ (X[\"age\"] < 25)).astype(int)\npool = Pool(X, y)\nmodel = CatBoostClassifier(iterations=300, verbose=0, random_seed=0,\n                           allow_writing_files=False).fit(pool)\n\nprint(model.get_feature_importance(prettified=True))\n# income and age at the top, noise near zero\nprint(model.get_feature_importance(pool, type=\"LossFunctionChange\").round(3))\n\nshap = model.get_feature_importance(pool, type=\"ShapValues\")\nprint(shap.shape)                                  # (800, 4): 3 features + expected value\nraw = model.predict(pool, prediction_type=\"RawFormulaVal\")\nprint(np.allclose(shap.sum(axis=1), raw))          # True: contributions add up\ninter = model.get_feature_importance(pool, type=\"Interaction\")\nprint(inter[0][:2])                                # strongest interacting pair (indices)",
+   "code_lang": "python",
+   "takeaways": [
+    "PredictionValuesChange is the fast default; LossFunctionChange measures usefulness on data",
+    "ShapValues give per-row contributions plus an expected-value column",
+    "SHAP contributions sum to the raw prediction (log-odds for classifiers)",
+    "A dominant feature can signal target leakage"
+   ],
+   "pitfalls": [
+    "Treating feature importance as causal effect, or comparing importances of strongly correlated features."
+   ],
+   "quiz": [
+    {
+     "q": "For a classifier, what do a row's SHAP values plus the expected value sum to?",
+     "options": [
+      "The predicted class",
+      "The predicted probability",
+      "The feature importance",
+      "The raw prediction in log-odds"
+     ],
+     "answer": 3,
+     "explain": "SHAP decomposes the raw model output, which is in log-odds for Logloss."
+    },
+    {
+     "q": "A customer_id feature tops the importance list of a churn model. What is the most likely explanation?",
+     "options": [
+      "IDs are highly predictive of behaviour",
+      "Target leakage or memorisation, such as ids assigned after churn",
+      "CatBoost always ranks ids first",
+      "The learning rate is too low"
+     ],
+     "answer": 1,
+     "explain": "A feature that shouldn't carry signal but dominates usually indicates leakage."
+    }
+   ],
+   "docs": "https://catboost.ai/docs/en/concepts/fstr",
+   "requires": [
+    "catboost.first-model",
+    "catboost.pool"
+   ]
+  },
+  {
+   "id": "catboost.class-imbalance",
+   "name": "Imbalanced and multiclass classification",
+   "module": "training",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Handle rare positive classes with auto_class_weights, scale_pos_weight and threshold tuning, and evaluate with the right metrics.",
+   "why": "Fraud, churn and defect detection are all imbalanced, and accuracy hides models that never predict the rare class.",
+   "body": "With 2% positives, a model predicting \"never\" is 98% accurate and useless. Fix the **evaluation** first: use `AUC`, `PRAUC` (precision-recall AUC), `F1`, or precision and recall at a chosen threshold, and set `eval_metric` accordingly so early stopping optimises what matters.\n\nTraining-side options:\n\n- `auto_class_weights=\"Balanced\"` weights classes inversely to their frequency; `\"SqrtBalanced\"` is a gentler version\n- `class_weights={0: 1, 1: 20}` or `scale_pos_weight=20` (binary) for explicit weights\n- `sample_weight` / Pool `weight` for row-level costs\n\nReweighting shifts predicted probabilities upward for the rare class, so they no longer represent real frequencies. If you need calibrated probabilities (for expected-cost calculations), either don't reweight and tune the **decision threshold** instead, or recalibrate afterwards. Threshold tuning is often the simplest and best lever: predict probabilities on validation data and pick the threshold that maximises F1 or meets a required precision. `catboost.utils.select_threshold` helps.\n\nFor **multiclass**, `MultiClass` is chosen automatically; `predict_proba` returns one column per class in the order of `model.classes_`. `MultiClassOneVsAll` treats classes independently. `TotalF1` with `average=Macro` (as `eval_metric=\"TotalF1:average=Macro\"`) weights small classes equally.",
+   "code": "import numpy as np\nfrom catboost import CatBoostClassifier\nfrom sklearn.datasets import make_classification\nfrom sklearn.metrics import f1_score, recall_score\nfrom sklearn.model_selection import train_test_split\n\nX, y = make_classification(n_samples=6000, weights=[0.97], flip_y=0.01, random_state=0)\nX_tr, X_val, y_tr, y_val = train_test_split(X, y, stratify=y, random_state=0)\nprint(round(y.mean(), 3))                         # about 0.03 positives\n\ncommon = dict(iterations=400, verbose=0, random_seed=0, allow_writing_files=False,\n              eval_metric=\"PRAUC\")\nplain = CatBoostClassifier(**common).fit(X_tr, y_tr)\nbalanced = CatBoostClassifier(auto_class_weights=\"Balanced\", **common).fit(X_tr, y_tr)\nfor name, m in [(\"plain\", plain), (\"balanced\", balanced)]:\n    pred = m.predict(X_val)\n    print(name, round(recall_score(y_val, pred), 2), round(f1_score(y_val, pred), 2))\n# balanced: higher recall, usually lower precision\n\nproba = plain.predict_proba(X_val)[:, 1]\nbest_t = max(np.arange(0.05, 0.95, 0.05), key=lambda t: f1_score(y_val, proba >= t))\nprint(round(best_t, 2), round(f1_score(y_val, proba >= best_t), 2))   # tuned threshold",
+   "code_lang": "python",
+   "takeaways": [
+    "Evaluate with PRAUC, AUC, F1 or precision/recall, not accuracy",
+    "auto_class_weights, class_weights and scale_pos_weight reweight classes",
+    "Reweighting distorts probabilities; threshold tuning keeps them calibrated",
+    "predict_proba columns follow model.classes_ for multiclass"
+   ],
+   "pitfalls": [
+    "Using the default 0.5 threshold on an imbalanced problem without checking precision and recall."
+   ],
+   "quiz": [
+    {
+     "q": "After training with auto_class_weights='Balanced', the predicted positive rate is 15% while the true rate is 3%. Why?",
+     "options": [
+      "Reweighting inflates the rare class's predicted probabilities",
+      "The model is broken",
+      "Balanced weighting only affects multiclass",
+      "The threshold changed to 0.15"
+     ],
+     "answer": 0,
+     "explain": "Upweighting positives pushes probabilities up, so they no longer match real frequencies."
+    },
+    {
+     "q": "Which metric is most informative for a 1% positive fraud dataset?",
+     "options": [
+      "Accuracy",
+      "RMSE",
+      "PRAUC (precision-recall AUC)",
+      "MultiClass"
+     ],
+     "answer": 2,
+     "explain": "PR AUC focuses on how well the rare class is ranked and retrieved."
+    }
+   ],
+   "docs": "https://catboost.ai/docs/en/concepts/loss-functions-classification",
+   "requires": [
+    "catboost.loss-metrics",
+    "catboost.early-stopping"
+   ]
+  },
+  {
+   "id": "catboost.text-features",
+   "name": "Text and embedding features",
+   "module": "data",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Feed raw text columns via text_features and dense vectors via embedding_features, and control the built-in text processing.",
+   "why": "Many tabular datasets include free text such as descriptions or reviews; CatBoost can use them without a separate NLP pipeline.",
+   "body": "Declare free-text columns with **`text_features`** (in `fit` or a Pool), alongside numeric and categorical ones. CatBoost then:\n\n- tokenizes and builds dictionaries of words or n-grams (**`tokenizers`** and **`dictionaries`** options),\n- computes **feature calcers** from them: `BoW` (bag of words), `NaiveBayes` and `BM25` scores per class,\n- feeds the resulting numeric features into the trees.\n\nDefaults are sensible; `text_processing` customises tokenization (lowercasing, separators), dictionary size and occurrence limits, n-grams and calcers. Text features work for classification and regression on CPU; GPU and other losses support fewer options, so check the docs for your setup. Text columns must be strings, with missing values filled (for example with an empty string).\n\nFor richer semantics, compute **embeddings** with a language model (such as a sentence-transformer) and pass each vector column as an **`embedding_features`** entry. In a DataFrame, one column holds a NumPy array per row. CatBoost derives features from them with `LDA` and `KNN` calcers.\n\nBuilt-in text handling is a cheap, strong baseline for short texts like titles and categories of complaints. For nuanced language, fine-tuned transformers or precomputed embeddings usually win; combining embeddings with the tabular features in CatBoost is a common, effective approach.",
+   "code": "import pandas as pd\nfrom catboost import CatBoostClassifier, Pool\n\nreviews = [\"great battery life\", \"screen cracked quickly\", \"fast and great\",\n           \"terrible battery\", \"love the screen\", \"broke after a week\",\n           \"great value\", \"awful support\"] * 30\nlabels = [1, 0, 1, 0, 1, 0, 1, 0] * 30\ndf = pd.DataFrame({\"review\": reviews, \"price\": [199, 249, 299, 149] * 60})\n\npool = Pool(df, labels, text_features=[\"review\"])\nmodel = CatBoostClassifier(iterations=100, verbose=0, random_seed=0,\n                           allow_writing_files=False)\nmodel.fit(pool)\n\ntest = pd.DataFrame({\"review\": [\"great screen\", \"terrible support\"],\n                     \"price\": [199, 199]})\nprint(model.predict(Pool(test, text_features=[\"review\"])))   # [1 0]\nprint(model.get_feature_importance(prettified=True).iloc[0, 0])   # review",
+   "code_lang": "python",
+   "takeaways": [
+    "text_features turns raw text into BoW, NaiveBayes and BM25 features",
+    "text_processing customises tokenizers, dictionaries and calcers",
+    "embedding_features accepts precomputed vectors (one array per row)",
+    "Fill missing text and check task/GPU support for your version"
+   ],
+   "pitfalls": [
+    "Passing a text column as a categorical feature, which treats every distinct sentence as one opaque category."
+   ],
+   "quiz": [
+    {
+     "q": "Why not declare a free-text 'review' column as a categorical feature?",
+     "options": [
+      "Categorical features can't be strings",
+      "It makes training faster but less accurate",
+      "CatBoost would raise an error",
+      "Almost every review is a unique value, so the category carries no reusable word-level information"
+     ],
+     "answer": 3,
+     "explain": "Text features split text into words and n-grams; categories treat each full string as one value."
+    }
+   ],
+   "docs": "https://catboost.ai/docs/en/features/text-features",
+   "requires": [
+    "catboost.categorical-features",
+    "catboost.pool"
+   ]
+  },
+  {
+   "id": "catboost.ordered-boosting",
+   "name": "Ordered target statistics and ordered boosting",
+   "module": "internals",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Understand prediction shift and how CatBoost's permutation-based target statistics and ordered boosting avoid it.",
+   "why": "These ideas are why CatBoost resists overfitting on categorical data, and they explain several parameters and speed trade-offs.",
+   "body": "Gradient boosting has a subtle leak called **prediction shift**. Each new tree is fitted to residuals computed by a model that was trained on the *same* rows. Those residuals are smaller than residuals on unseen data would be, so the model learns from an optimistic picture and overfits, especially on small datasets.\n\nTarget encoding of categories has the same flaw: if a row's category is replaced by the mean target over all rows, its own label is baked into its feature.\n\nCatBoost's fix is **ordering**. It draws random permutations of the training rows and, for each row, uses only rows that come **before** it:\n\n- **Ordered target statistics**: the encoding of row i's category is `(sum of targets of earlier rows with that category + prior) / (count of earlier rows + 1)`. The prior smooths rare categories; a row never sees its own label. Several permutations reduce the extra variance this creates for rows early in the order.\n- **Ordered boosting** (`boosting_type=\"Ordered\"`): residuals for row i come from a model trained only on earlier rows in the permutation, so gradients behave like those on unseen data.\n\nOrdered boosting costs time and memory, so the usual default is `boosting_type=\"Plain\"`, the classic scheme, which still applies ordered target statistics; set `\"Ordered\"` explicitly, mainly for small datasets where it helps most. `has_time=True` tells CatBoost to use the data's existing order instead of random permutations, which is what you want for time-ordered data.",
+   "code": "import numpy as np\n\n# Ordered target statistic for one categorical column, as CatBoost computes it\ncats = np.array([\"a\", \"b\", \"a\", \"a\", \"b\", \"c\", \"a\"])\ny = np.array([1, 0, 1, 0, 1, 1, 1])\nprior, a = y.mean(), 1.0                      # prior and its weight\n\ndef ordered_ts(cats, y, perm):\n    ts = np.empty(len(cats))\n    sums, counts = {}, {}\n    for i in perm:                            # walk rows in permutation order\n        c = cats[i]\n        ts[i] = (sums.get(c, 0) + a * prior) / (counts.get(c, 0) + a)\n        sums[c] = sums.get(c, 0) + y[i]       # only now add this row's label\n        counts[c] = counts.get(c, 0) + 1\n    return ts\n\nprint(ordered_ts(cats, y, np.arange(7)).round(2))\n# [0.71 0.71 0.86 0.9  0.36 0.71 0.68]  first 'a' sees only the prior\ngreedy = np.array([y[cats == c].mean() for c in cats])\nprint(greedy.round(2))   # [0.75 0.5 0.75 0.75 0.5 1. 0.75]  leaks own label ('c' = 1.0!)",
+   "code_lang": "python",
+   "takeaways": [
+    "Prediction shift: residuals on training rows are optimistically small",
+    "Ordered target statistics encode each row using only earlier rows' labels",
+    "Ordered boosting computes residuals from models that never saw the row",
+    "boosting_type='Plain' is faster; has_time=True uses the natural row order"
+   ],
+   "pitfalls": [
+    "Shuffling time-ordered data and leaving has_time off, so encodings use 'future' rows."
+   ],
+   "quiz": [
+    {
+     "q": "A category appears in exactly one training row. With greedy target encoding its feature equals that row's label. What does the ordered statistic use instead?",
+     "options": [
+      "The same label",
+      "The prior, because no earlier row has that category",
+      "Zero",
+      "The global maximum"
+     ],
+     "answer": 1,
+     "explain": "With no earlier occurrences, only the prior term remains, so the label can't leak."
+    },
+    {
+     "q": "Why does CatBoost use several permutations?",
+     "options": [
+      "Rows early in a single permutation have noisy statistics; multiple permutations reduce that variance",
+      "To shuffle the test set",
+      "To build more trees",
+      "It is required for GPU"
+     ],
+     "answer": 0,
+     "explain": "Early rows see little history, so averaging over permutations stabilises the estimates."
+    }
+   ],
+   "docs": "https://catboost.ai/docs/en/concepts/algorithm-main-stages_cat-to-numberic",
+   "requires": [
+    "catboost.categorical-features",
+    "catboost.key-parameters",
+    "python.dicts"
+   ]
+  },
+  {
+   "id": "catboost.oblivious-trees",
+   "name": "Symmetric (oblivious) trees and quantization",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Learn how CatBoost's symmetric trees, feature quantization and leaf estimation work, and when to use other grow policies.",
+   "why": "The tree structure explains CatBoost's very fast prediction, its regularising effect and its memory profile.",
+   "body": "By default CatBoost grows **oblivious (symmetric) trees**: every node at the same depth uses the **same split** (feature and threshold). A depth-6 tree is therefore just 6 binary conditions and a table of 64 leaf values. A row's leaf index is the 6-bit number formed by its condition results.\n\nConsequences:\n\n- **Prediction is extremely fast** and branch-free: evaluate d comparisons, build an index, look up a value. It vectorises well on CPUs and GPUs.\n- The structure is a strong **regulariser**. Each level must find a split that is good for all branches at once, so individual trees are weaker, and the ensemble generalises well with less tuning.\n- Some patterns need more trees or depth than with leaf-wise trees.\n\n`grow_policy` changes this: `\"Depthwise\"` (level by level, splits differ per node) and `\"Lossguide\"` (best leaf first, like LightGBM) with `max_leaves`. They can fit some data better but lose the speed advantage and some model-analysis features.\n\nBefore training, numeric features are **quantized** into at most `border_count` bins (254 on CPU by default), with borders chosen by `feature_border_type` (`GreedyLogSum` by default). Splits are only considered at these borders, which makes split search fast and memory-light. A Pool can be quantized once and reused.\n\nLeaf values are computed with a Newton or gradient step (`leaf_estimation_method`), possibly several iterations per tree (`leaf_estimation_iterations`), scaled by the learning rate.",
+   "code": "import numpy as np\nfrom catboost import CatBoostRegressor\n\nrng = np.random.default_rng(0)\nX = rng.uniform(0, 10, (500, 3))\ny = np.sin(X[:, 0]) + 0.5 * X[:, 1] + rng.normal(0, 0.1, 500)\n\nmodel = CatBoostRegressor(iterations=50, depth=3, border_count=32, verbose=0,\n                          random_seed=0, allow_writing_files=False).fit(X, y)\n\nborders = model.get_borders()\nprint({f: len(b) for f, b in borders.items()})     # at most 32 borders per feature\n\nprint(model.get_tree_leaf_counts()[:3])            # [8 8 8]: always 2**depth\n\nleaves = model.calc_leaf_indexes(X[:2])            # leaf index per row per tree\nprint(leaves.shape, leaves[:, 0])                  # (2, 50) and values in 0..7\n\nlossguide = CatBoostRegressor(iterations=50, grow_policy=\"Lossguide\", max_leaves=16,\n                              verbose=0, allow_writing_files=False).fit(X, y)\nprint(lossguide.get_tree_leaf_counts()[:3])        # leaf counts vary per tree",
+   "code_lang": "python",
+   "takeaways": [
+    "Oblivious trees use one split per level: depth d gives 2^d leaves",
+    "Prediction is a few comparisons plus a table lookup, very fast",
+    "Symmetric structure regularises; Depthwise/Lossguide trade that for flexibility",
+    "Numeric features are quantized into border_count bins before training"
+   ],
+   "pitfalls": [
+    "Raising border_count to thousands expecting better accuracy; it mostly slows training."
+   ],
+   "quiz": [
+    {
+     "q": "In an oblivious tree of depth 4, how many distinct split conditions are there?",
+     "options": [
+      "4",
+      "8",
+      "15",
+      "16"
+     ],
+     "answer": 0,
+     "explain": "Each level uses one shared condition, so there are exactly 4."
+    },
+    {
+     "q": "Why are CatBoost's default trees so fast at prediction time?",
+     "options": [
+      "They are evaluated on the GPU only",
+      "They have no leaves",
+      "The leaf index is computed from d comparisons and used to look up a value, with no per-node branching",
+      "Predictions are cached"
+     ],
+     "answer": 2,
+     "explain": "Symmetric structure turns tree traversal into building a bit index."
+    }
+   ],
+   "docs": "https://catboost.ai/docs/en/concepts/parameter-tuning",
+   "requires": [
+    "catboost.key-parameters",
+    "catboost.ordered-boosting"
+   ]
+  },
+  {
+   "id": "catboost.ctr-combinations",
+   "name": "CTR settings and feature combinations",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Control how categorical features become numbers: CTR types, priors, one_hot_max_size and greedy feature combinations.",
+   "why": "High-cardinality and interacting categorical features are where CatBoost wins or overfits, and these settings decide which.",
+   "body": "CatBoost calls the numeric encodings of categorical features **CTRs** (a term from click-through-rate modelling). Each categorical feature can generate several CTRs:\n\n- `Borders`: ordered target statistics over target bins (default for classification and regression)\n- `Counter`: how frequent the category is, which uses no labels and also works on test data\n- `Buckets` and `BinarizedTargetMeanValue`, plus GPU-specific types such as `FloatTargetMeanValue`\n\nSettings use a compact syntax, for example `simple_ctr=[\"Borders:Prior=0.5\", \"Counter\"]`. `simple_ctr` applies to single features, `combinations_ctr` to combinations, and `per_feature_ctr` targets specific columns. `counter_calc_method=\"Full\"` counts frequencies over train and test data together.\n\n**`one_hot_max_size`**: features with at most this many distinct values are one-hot encoded instead of getting CTRs. Raising it (say to 10) can help low-cardinality features; raising it far is costly.\n\n**Feature combinations**: when a tree already splits on categorical features, CatBoost greedily tries combining them with other categorical features, creating new CTR features such as `city x device`. `max_ctr_complexity` limits how many features one combination may contain; 1 disables combinations, and low values speed training and reduce overfitting on noisy categories.\n\n`model.get_feature_importance(prettified=True)` reports importance for the original features, while `get_feature_importance(type=\"Interaction\")` and the model's CTR tables reveal which combinations were used.",
+   "code": "import numpy as np\nimport pandas as pd\nfrom catboost import CatBoostClassifier\n\nrng = np.random.default_rng(0)\nn = 3000\ndf = pd.DataFrame({\"city\": rng.choice([f\"c{i}\" for i in range(40)], n),\n                   \"device\": rng.choice([\"ios\", \"android\", \"web\"], n),\n                   \"plan\": rng.choice([\"free\", \"pro\"], n)})\n# the label depends on an INTERACTION of city and device\ny = ((df[\"city\"].str[-1].astype(int) % 2 == 0) == (df[\"device\"] == \"ios\")).astype(int)\n\ndef fit(**kw):\n    m = CatBoostClassifier(iterations=200, verbose=0, random_seed=0,\n                           allow_writing_files=False, **kw)\n    m.fit(df[:2400], y[:2400], cat_features=[0, 1, 2], eval_set=(df[2400:], y[2400:]))\n    return round(m.get_best_score()[\"validation\"][\"Logloss\"], 3)\n\nprint(\"default:\", fit())                                   # ~0.0: combos find it\nprint(\"no combos:\", fit(max_ctr_complexity=1))             # ~0.57: much worse\nprint(\"one-hot small:\", fit(one_hot_max_size=4))           # device and plan one-hot\nprint(\"custom ctr:\", fit(simple_ctr=[\"Borders:Prior=0.5\", \"Counter\"]))",
+   "code_lang": "python",
+   "takeaways": [
+    "CTRs are numeric encodings of categories: Borders, Counter, Buckets...",
+    "simple_ctr / combinations_ctr / per_feature_ctr configure them",
+    "one_hot_max_size decides which features are one-hot encoded",
+    "max_ctr_complexity limits greedy categorical combinations"
+   ],
+   "pitfalls": [
+    "Setting max_ctr_complexity=1 to speed up training on data whose signal lives in category interactions."
+   ],
+   "quiz": [
+    {
+     "q": "Which CTR type uses no target information at all?",
+     "options": [
+      "Borders",
+      "Buckets",
+      "BinarizedTargetMeanValue",
+      "Counter"
+     ],
+     "answer": 3,
+     "explain": "Counter encodes how often a category occurs, independent of labels."
+    },
+    {
+     "q": "What does max_ctr_complexity=1 do?",
+     "options": [
+      "Disables categorical features",
+      "Prevents combining categorical features into new CTR features",
+      "Limits trees to depth 1",
+      "Uses one permutation"
+     ],
+     "answer": 1,
+     "explain": "Complexity 1 allows only single-feature CTRs, no combinations."
+    }
+   ],
+   "docs": "https://catboost.ai/docs/en/features/categorical-features",
+   "requires": [
+    "catboost.ordered-boosting",
+    "catboost.oblivious-trees"
+   ]
+  },
+  {
+   "id": "catboost.model-export",
+   "name": "Saving, exporting and serving models",
+   "module": "production",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Save models in CatBoost's binary format, export to JSON, ONNX, CoreML or C++, and keep training-serving consistency.",
+   "why": "A model only creates value once it serves predictions reliably, often outside Python.",
+   "body": "`model.save_model(path, format=\"cbm\")` writes CatBoost's native binary format, and `CatBoostClassifier().load_model(path)` reads it back. The `.cbm` format keeps everything: trees, CTR tables for categorical features, feature names and parameters. Pickle also works but ties you to Python and library versions.\n\nOther formats (`format=`):\n\n- `\"json\"`: human-readable, for inspection or custom evaluators\n- `\"onnx\"`: for ONNX Runtime and other platforms; **categorical features are not supported** in ONNX export, so it suits numeric-only models\n- `\"coreml\"` for Apple devices, `\"cpp\"` and `\"python\"` to generate standalone source code, `\"pmml\"` for PMML consumers\n\nFor serving, options include the Python package itself, the **C/C++ evaluation library** (`libcatboostmodel`) and the official Java and .NET appliers, all reading `.cbm` with categorical support. Prediction is fast thanks to symmetric trees; batch requests rather than predicting one row at a time.\n\nConsistency rules:\n\n- Feed the **same columns in the same order and types** as in training; categorical values as the same strings.\n- Record the feature list (`model.feature_names_`) and the version of CatBoost used.\n- `prediction_type` matters: `\"Probability\"`, `\"Class\"`, `\"RawFormulaVal\"` (log-odds) give different numbers.\n\n`model.shrink(ntree_end=...)` cuts trees for faster, smaller models; `sum_models` blends several models into one.",
+   "code": "import numpy as np\nimport pandas as pd\nfrom catboost import CatBoostClassifier\n\nrng = np.random.default_rng(0)\nX = pd.DataFrame({\"amount\": rng.uniform(1, 500, 400),\n                  \"country\": rng.choice([\"fr\", \"de\", \"us\"], 400)})\ny = ((X[\"amount\"] > 250) | (X[\"country\"] == \"us\")).astype(int)\nmodel = CatBoostClassifier(iterations=100, verbose=0, random_seed=0,\n                           allow_writing_files=False).fit(X, y, cat_features=[\"country\"])\n\nmodel.save_model(\"fraud.cbm\")                              # native, keeps CTRs\nloaded = CatBoostClassifier().load_model(\"fraud.cbm\")\nrow = pd.DataFrame({\"amount\": [120.0], \"country\": [\"us\"]})\nprint(np.allclose(model.predict_proba(row), loaded.predict_proba(row)))   # True\nprint(loaded.feature_names_)                               # ['amount', 'country']\n\nprint(loaded.predict(row, prediction_type=\"RawFormulaVal\").round(2))   # [3.83] log-odds\nprint(loaded.predict(row, prediction_type=\"Probability\").round(3))     # [[0.021 0.979]]\n\nnum = CatBoostClassifier(iterations=50, verbose=0, allow_writing_files=False)\nnum.fit(X[[\"amount\"]], y)\nnum.save_model(\"numeric.onnx\", format=\"onnx\")              # numeric-only for ONNX\nmodel.shrink(ntree_end=50)\nprint(model.tree_count_)                                    # 50",
+   "code_lang": "python",
+   "takeaways": [
+    "save_model/load_model with .cbm keeps trees and categorical CTR tables",
+    "Export to json, onnx (numeric only), coreml, cpp, python as needed",
+    "Serve with the same columns, order and types as training",
+    "Be explicit about prediction_type: Probability, Class or RawFormulaVal"
+   ],
+   "pitfalls": [
+    "Exporting a model with categorical features to ONNX and expecting it to work."
+   ],
+   "quiz": [
+    {
+     "q": "Your model uses categorical features and must run in a Java service. Which approach fits?",
+     "options": [
+      "Save as .cbm and use CatBoost's Java applier",
+      "Export to ONNX",
+      "Pickle the model",
+      "Export the training data"
+     ],
+     "answer": 0,
+     "explain": "The .cbm format keeps CTR tables, and the official appliers evaluate it with categorical support."
+    },
+    {
+     "q": "What does prediction_type='RawFormulaVal' return for a binary classifier?",
+     "options": [
+      "Class labels",
+      "Probabilities",
+      "Log-odds (the sum of tree outputs)",
+      "SHAP values"
+     ],
+     "answer": 2,
+     "explain": "The raw formula value is the untransformed sum of leaf values, i.e. log-odds."
+    }
+   ],
+   "docs": "https://catboost.ai/docs/en/concepts/python-reference_catboost_save_model",
+   "requires": [
+    "catboost.feature-importance-shap",
+    "catboost.oblivious-trees"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,670 @@
+{
+ "tool": {
+  "id": "celery",
+  "name": "Celery",
+  "category": "library",
+  "tagline": "Distributed task queue for running Python work in background workers",
+  "description": "Celery runs Python functions asynchronously in worker processes, fed by a message broker such as Redis or RabbitMQ. Web apps use it to move emails, reports, media processing and ML jobs out of the request path, to schedule periodic jobs and to build multi-step workflows. Learning it means learning reliable background processing: retries, idempotency, routing and monitoring.",
+  "icon": "Ce",
+  "color": "#37814A",
+  "official_docs": "https://docs.celeryq.dev/en/stable/",
+  "version": "5.6",
+  "aliases": [
+   "celery task queue",
+   "celery beat",
+   "celery worker",
+   "task queue"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 2
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Getting started"
+  },
+  {
+   "id": "tasks",
+   "name": "Writing tasks"
+  },
+  {
+   "id": "workflows",
+   "name": "Workflows, scheduling and routing"
+  },
+  {
+   "id": "operations",
+   "name": "Running in production"
+  },
+  {
+   "id": "internals",
+   "name": "Internals and scale"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "celery.first-app",
+   "name": "Brokers, workers and your first task",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Understand Celery's moving parts (client, broker, worker, result backend), define a task and start a worker.",
+   "why": "Celery is how Python apps move slow work (emails, reports, ML jobs) out of the request path, and every feature builds on this picture.",
+   "body": "**Celery** is a distributed task queue. Your application (the **client**) doesn't run a slow function itself; it sends a message describing the call to a **broker**, a message queue such as Redis or RabbitMQ. One or more **worker** processes, possibly on other machines, consume messages and execute the function. Optionally a **result backend** (Redis, a database) stores return values so the client can fetch them later.\n\nYou create a **Celery app** with a name and a broker URL, then turn functions into tasks with `@app.task`. The task's name defaults to its module path plus function name (`tasks.add`), and that name, not the function object, is what travels in the message. So the worker must import the same code.\n\nStart a worker from the shell with `celery -A tasks worker --loglevel=INFO`, where `-A` points to the module (or `package.module:app`) holding the app. The worker logs the tasks it registered and every task it receives.\n\nTwo rules to absorb now:\n\n- Task arguments and results are **serialized**, as JSON by default. Pass ids and plain data, not ORM objects, open files or sockets.\n- Tasks run in a different process, maybe much later. Don't rely on in-memory state from the caller.\n\nRedis is the easiest broker to start with locally (`docker run -p 6379:6379 redis`); RabbitMQ is the most feature-complete.",
+   "code": "# tasks.py\nfrom celery import Celery\n\napp = Celery(\n    \"tasks\",\n    broker=\"redis://localhost:6379/0\",\n    backend=\"redis://localhost:6379/1\",   # optional: store results\n)\n\n@app.task\ndef add(x, y):\n    return x + y\n\n@app.task\ndef send_welcome_email(user_id: int) -> None:\n    # load the user by id inside the task, not in the caller\n    print(f\"sending welcome email to user {user_id}\")\n\n# $ celery -A tasks worker --loglevel=INFO\n# [tasks]\n#   . tasks.add\n#   . tasks.send_welcome_email",
+   "code_lang": "python",
+   "takeaways": [
+    "Client sends messages to a broker; workers consume and run them",
+    "@app.task registers a function under a name like module.func",
+    "Start workers with celery -A <module> worker",
+    "Arguments are serialized: pass ids and plain data"
+   ],
+   "pitfalls": [
+    "Passing an ORM object or file handle as a task argument."
+   ],
+   "quiz": [
+    {
+     "q": "What actually travels through the broker when you call a task?",
+     "options": [
+      "The pickled function code",
+      "A message with the task name and serialized arguments",
+      "A network connection to the worker",
+      "The caller's process memory"
+     ],
+     "answer": 1,
+     "explain": "Workers look up the task by name in their own registry and run it with the deserialized arguments."
+    }
+   ],
+   "docs": "https://docs.celeryq.dev/en/stable/getting-started/first-steps-with-celery.html",
+   "requires": [
+    "python.functions",
+    "python.modules-imports"
+   ]
+  },
+  {
+   "id": "celery.calling-tasks",
+   "name": "Calling tasks: delay and apply_async",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Queue tasks with delay(), and use apply_async() for countdowns, ETAs, expiry and queue selection.",
+   "why": "How you call a task decides when and where it runs, and calling it the wrong way silently runs it inline.",
+   "body": "A task object has three ways to run:\n\n- `add(2, 3)` calls the function **directly** in the current process, like any function. No broker involved. Useful in tests, a bug in production code.\n- `add.delay(2, 3)` sends a message and returns immediately with an `AsyncResult`. It's a shortcut for `apply_async` with positional and keyword arguments.\n- `add.apply_async(args=(2, 3), kwargs={}, **options)` accepts execution options.\n\nThe most used options:\n\n- `countdown=60`: run no earlier than 60 seconds from now.\n- `eta=datetime`: run no earlier than an absolute (timezone-aware) time.\n- `expires=300` or a datetime: discard the task if it hasn't started by then, good for stale notifications.\n- `queue=\"emails\"`: send to a specific queue.\n- `priority`, `retry` and `retry_policy` (for publishing when the broker is briefly down).\n\nCountdown and ETA are \"not before\" times, not exact schedules: a busy worker starts it later. For recurring jobs use beat instead.\n\nA common pattern in web apps is to enqueue after the database transaction commits, so the worker doesn't look up a row that isn't visible yet. In Django that's `transaction.on_commit(lambda: task.delay(obj.id))`; in other frameworks, call `delay()` after `commit()`.",
+   "code": "from datetime import datetime, timedelta, timezone\nfrom celery import Celery\n\napp = Celery(\"tasks\", broker=\"redis://localhost:6379/0\")\n\n@app.task\ndef notify(user_id, message):\n    print(f\"notify {user_id}: {message}\")\n\nnotify(1, \"inline\")                       # runs right here, no broker\nr = notify.delay(1, \"queued\")             # message sent, returns at once\nprint(r.id)                               # e.g. 'd9b1c6e2-...'\n\nnotify.apply_async(args=(2, \"later\"), countdown=60)\nnotify.apply_async(\n    args=(3, \"flash sale\"),\n    eta=datetime.now(timezone.utc) + timedelta(hours=1),\n    expires=datetime.now(timezone.utc) + timedelta(hours=2),\n    queue=\"notifications\",\n)",
+   "code_lang": "python",
+   "takeaways": [
+    "task(...) runs inline; .delay(...) enqueues",
+    "apply_async adds options: countdown, eta, expires, queue",
+    "countdown/eta mean 'not before', not 'exactly at'",
+    "Enqueue after the database commit so workers see the data"
+   ],
+   "pitfalls": [
+    "Calling task(args) instead of task.delay(args) and blocking the request."
+   ],
+   "quiz": [
+    {
+     "q": "What does send_email(42) do when send_email is a Celery task?",
+     "options": [
+      "Queues it on the broker",
+      "Runs the function synchronously in the current process",
+      "Raises an error",
+      "Schedules it for beat"
+     ],
+     "answer": 1,
+     "explain": "Calling the task object directly behaves like calling the plain function; only delay/apply_async enqueue."
+    }
+   ],
+   "docs": "https://docs.celeryq.dev/en/stable/userguide/calling.html",
+   "requires": [
+    "celery.first-app"
+   ]
+  },
+  {
+   "id": "celery.results",
+   "name": "Results and task states",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Use AsyncResult to check state, fetch return values with get(), and decide when to ignore results altogether.",
+   "why": "Knowing what a result backend gives you, and what it costs, prevents both blocked web requests and a Redis full of unused results.",
+   "body": "`delay()` returns an **AsyncResult** that holds the task id. With a result backend configured, you can ask about the task later, even from another process, with `AsyncResult(task_id, app=app)`.\n\n- `r.state`: `PENDING`, `STARTED` (only if `task_track_started=True`), `RETRY`, `SUCCESS`, `FAILURE` or `REVOKED`.\n- `r.ready()`, `r.successful()`, `r.failed()`.\n- `r.get(timeout=10)` waits for the value and re-raises the task's exception if it failed; `propagate=False` returns the exception instead.\n- `r.result` holds the return value or exception without waiting.\n\nA subtle point: `PENDING` also means \"unknown\". Celery can't tell a queued task from a nonexistent id, so a typo in an id looks like a task waiting forever.\n\nAvoid calling `get()` inside a web request (you've just moved the slow work back into the request) and never inside another task, where it can deadlock the worker pool; Celery raises an error by default when you try. Use canvas workflows to chain work instead, and have the client poll or receive a notification.\n\nResults cost storage and network. If nobody reads a task's return value, set `ignore_result=True` on the task (or `task_ignore_result=True` globally), and set `result_expires` so old results are cleaned up (default one day).",
+   "code": "from celery import Celery\nfrom celery.result import AsyncResult\n\napp = Celery(\"tasks\", broker=\"redis://localhost:6379/0\",\n             backend=\"redis://localhost:6379/1\")\n\n@app.task\ndef add(x, y):\n    return x + y\n\n@app.task(ignore_result=True)\ndef log_visit(path):\n    print(\"visit\", path)\n\nr = add.delay(2, 3)\nprint(r.state)                 # PENDING (until a worker picks it up)\nprint(r.get(timeout=10))       # 5\nprint(r.state, r.successful()) # SUCCESS True\n\nsame = AsyncResult(r.id, app=app)   # e.g. from an HTTP polling endpoint\nprint(same.result)                  # 5",
+   "code_lang": "python",
+   "takeaways": [
+    "AsyncResult(id) lets any process check state and value",
+    "get() blocks and re-raises the task's exception",
+    "PENDING also means 'unknown id'",
+    "ignore_result=True for fire-and-forget tasks; set result_expires"
+   ],
+   "pitfalls": [
+    "Calling result.get() inside another task.",
+    "Storing results for millions of tasks nobody reads."
+   ],
+   "quiz": [
+    {
+     "q": "An AsyncResult for a mistyped task id reports which state?",
+     "options": [
+      "It raises KeyError",
+      "FAILURE",
+      "PENDING",
+      "REVOKED"
+     ],
+     "answer": 2,
+     "explain": "Celery has no record of the id, and unknown tasks are reported as PENDING."
+    }
+   ],
+   "docs": "https://docs.celeryq.dev/en/stable/userguide/tasks.html#task-states",
+   "requires": [
+    "celery.calling-tasks"
+   ]
+  },
+  {
+   "id": "celery.config",
+   "name": "Configuring a Celery app",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Configure Celery with app.conf or a config module: serializers, timezone, result expiry and framework integration.",
+   "why": "Real projects keep settings in one place, and a few defaults (serializer, timezone, prefetch) are worth setting deliberately.",
+   "body": "Celery settings are lowercase names like `task_serializer` or `broker_url`. Set them with `app.conf.update(...)`, or keep them in a module and load it with `app.config_from_object(\"celeryconfig\")`. With Django, the usual setup is `app.config_from_object(\"django.conf:settings\", namespace=\"CELERY\")`, so `CELERY_BROKER_URL` in settings.py maps to `broker_url`, plus `app.autodiscover_tasks()` to import each app's `tasks.py`.\n\nSettings worth knowing early:\n\n- `broker_url`, `result_backend`.\n- `task_serializer`, `result_serializer`, `accept_content`: JSON by default. Pickle is disabled by default because unpickling messages can execute arbitrary code.\n- `timezone` and `enable_utc` (on by default) for ETAs and beat schedules.\n- `result_expires` for result cleanup.\n- `task_acks_late`, `worker_prefetch_multiplier`: delivery behavior, covered later.\n- `task_default_queue` (default `celery`).\n\nA typical project layout is a package with `celery.py` defining the app and a `tasks.py` per area; the worker is started with `celery -A proj worker`, where `proj` is a package or module containing an attribute named `app` or `celery`.\n\nConfiguration must be loaded identically by clients and workers; mismatched serializers or task names are a frequent cause of tasks that \"never run\". `celery -A proj report` prints the effective configuration.",
+   "code": "# proj/celery.py\nfrom celery import Celery\n\napp = Celery(\"proj\")\napp.conf.update(\n    broker_url=\"redis://localhost:6379/0\",\n    result_backend=\"redis://localhost:6379/1\",\n    task_serializer=\"json\",\n    accept_content=[\"json\"],\n    result_expires=3600,          # seconds\n    timezone=\"Europe/Berlin\",\n    enable_utc=True,\n    include=[\"proj.tasks\"],       # modules the worker imports\n)\n\n# Django alternative:\n# app.config_from_object(\"django.conf:settings\", namespace=\"CELERY\")\n# app.autodiscover_tasks()\n\n# $ celery -A proj worker -l INFO",
+   "code_lang": "python",
+   "takeaways": [
+    "Settings are lowercase names set via app.conf or config_from_object",
+    "JSON is the default and safest serializer",
+    "With Django, namespace='CELERY' maps CELERY_* settings",
+    "Clients and workers must share the same configuration and task modules"
+   ],
+   "pitfalls": [
+    "Enabling pickle to pass complex objects, opening a code-execution hole if the broker is reachable."
+   ],
+   "quiz": [
+    {
+     "q": "With namespace='CELERY', which Django setting configures the broker?",
+     "options": [
+      "BROKER",
+      "CELERY_BROKER_URL",
+      "celery.broker_url",
+      "CELERYD_BROKER"
+     ],
+     "answer": 1,
+     "explain": "The namespace prefix plus the uppercase setting name gives CELERY_BROKER_URL for broker_url."
+    }
+   ],
+   "docs": "https://docs.celeryq.dev/en/stable/userguide/configuration.html",
+   "requires": [
+    "celery.first-app"
+   ]
+  },
+  {
+   "id": "celery.retries",
+   "name": "Retries and error handling",
+   "module": "tasks",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Retry failed tasks with self.retry() or autoretry_for, using exponential backoff, jitter and max_retries.",
+   "why": "Tasks talk to flaky networks and APIs, and well-configured retries turn transient failures into eventual success.",
+   "body": "A task that raises an exception ends in `FAILURE` by default. For transient errors (timeouts, 503s, deadlocks) you want **retries**.\n\nThe explicit way is a **bound task**: `@app.task(bind=True, max_retries=5)` passes the task instance as `self`, and inside an `except` block you call `raise self.retry(exc=exc, countdown=30)`. `retry()` re-publishes the task with the same id and arguments and raises a `Retry` exception to end the current run; the state becomes `RETRY`. `self.request.retries` tells you which attempt this is, so you can compute your own delay.\n\nThe declarative way is `autoretry_for=(ConnectionError, TimeoutError)` on the decorator, combined with:\n\n- `retry_backoff=True`: exponential delays (1s, 2s, 4s, ...), or a number for the base factor.\n- `retry_backoff_max=600`: cap the delay.\n- `retry_jitter=True` (default): randomize delays so a thousand failing tasks don't retry in lockstep.\n- `retry_kwargs={\"max_retries\": 5}`.\n\n`max_retries` defaults to 3; when exceeded, the original exception is raised and the task fails. `max_retries=None` retries forever, which is rarely wise.\n\nOnly retry errors that might succeed next time. Validation errors and missing records should fail fast. And since a retried task runs its body again, any side effects before the failure point run again too: make tasks idempotent.",
+   "code": "import random\nfrom celery import Celery\n\napp = Celery(\"tasks\", broker=\"memory://\")\napp.conf.task_always_eager = True     # run inline for this demo\n\nclass Flaky(Exception):\n    pass\n\n@app.task(bind=True, autoretry_for=(Flaky,), retry_backoff=True,\n          retry_backoff_max=60, retry_kwargs={\"max_retries\": 5})\ndef fetch_rate(self, currency):\n    print(\"attempt\", self.request.retries)\n    if self.request.retries < 2:\n        raise Flaky(\"upstream timeout\")\n    return {\"currency\": currency, \"rate\": 1.08}\n\nprint(fetch_rate.delay(\"EUR\").get())\n# attempt 0\n# attempt 1\n# attempt 2\n# {'currency': 'EUR', 'rate': 1.08}",
+   "code_lang": "python",
+   "takeaways": [
+    "bind=True gives self; raise self.retry(exc=..., countdown=...)",
+    "autoretry_for + retry_backoff + jitter for declarative retries",
+    "max_retries defaults to 3; then the task fails with the original error",
+    "Retry only transient errors and keep tasks idempotent"
+   ],
+   "pitfalls": [
+    "Calling self.retry() without raise, or outside an except block, and losing the original error."
+   ],
+   "quiz": [
+    {
+     "q": "Why is retry_jitter enabled by default?",
+     "options": [
+      "It makes retries faster",
+      "It spreads retries out so many failed tasks don't hammer a recovering service at the same moment",
+      "It is needed for exponential backoff to work",
+      "It prevents duplicate execution"
+     ],
+     "answer": 1,
+     "explain": "Randomized delays avoid synchronized retry storms (the thundering herd)."
+    }
+   ],
+   "docs": "https://docs.celeryq.dev/en/stable/userguide/tasks.html#retrying",
+   "requires": [
+    "celery.results",
+    "python.exceptions"
+   ]
+  },
+  {
+   "id": "celery.canvas",
+   "name": "Canvas: chains, groups and chords",
+   "module": "workflows",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Compose tasks into workflows with signatures, chain, group and chord instead of waiting on results.",
+   "why": "Multi-step pipelines (fetch, process, aggregate) need to pass results between tasks without blocking workers.",
+   "body": "A **signature** wraps a task call so it can be passed around: `add.s(2, 2)` (short for `add.signature((2, 2))`). Signatures can be partial; when used in a workflow, the previous task's result is prepended to the arguments. `add.si(2, 2)` is **immutable**: it ignores the parent's result.\n\nThe canvas primitives:\n\n- **chain**: `chain(fetch.s(url), parse.s(), store.s())` or with the pipe, `fetch.s(url) | parse.s() | store.s()`. Each task's return value becomes the first argument of the next.\n- **group**: `group(resize.s(img) for img in images)` runs tasks in parallel and returns a `GroupResult`.\n- **chord**: `chord(header_group)(callback.s())` runs the group, then calls the callback with the list of all results. The classic map-reduce. It needs a result backend.\n\nCall `.delay()` or `.apply_async()` on the whole workflow. Error handling attaches with `link_error=handler.s()` (an errback). In a chain, a failing task stops the rest.\n\nWorkflows replace the anti-pattern of calling `result.get()` inside a task. Keep payloads small, because each step's result passes through the backend and broker. Chaining a group into another task automatically upgrades it to a chord.",
+   "code": "from celery import Celery, chain, group, chord\n\napp = Celery(\"tasks\", broker=\"memory://\", backend=\"cache+memory://\")\napp.conf.task_always_eager = True     # run inline for this demo\n\n@app.task\ndef add(x, y): return x + y\n\n@app.task\ndef mul(x, y): return x * y\n\n@app.task\ndef total(numbers): return sum(numbers)\n\nprint(chain(add.s(2, 3), mul.s(10)).delay().get())        # 50: (2+3)*10\nprint((add.s(1, 1) | add.s(5) | mul.s(2)).delay().get())  # 14\nprint(group(add.s(i, i) for i in range(4)).delay().get()) # [0, 2, 4, 6]\nprint(chord(add.s(i, i) for i in range(4))(total.s()).get())  # 12\nprint(add.si(1, 1).id is None)                            # True: not sent yet",
+   "code_lang": "python",
+   "takeaways": [
+    "task.s(...) makes a signature; .si(...) ignores parent results",
+    "chain passes each result to the next; group runs in parallel",
+    "chord = group + callback receiving all results; needs a result backend",
+    "Use workflows instead of result.get() inside tasks"
+   ],
+   "pitfalls": [
+    "Using .s() where the parent result shouldn't be passed, producing a 'takes 2 positional arguments but 3 were given' error."
+   ],
+   "quiz": [
+    {
+     "q": "In chain(add.s(2, 3), mul.s(10)), what arguments does mul receive?",
+     "options": [
+      "(10,)",
+      "(5, 10)",
+      "(2, 3, 10)",
+      "(10, 5)"
+     ],
+     "answer": 1,
+     "explain": "The previous result 5 is prepended to mul's partial arguments, giving mul(5, 10)."
+    }
+   ],
+   "docs": "https://docs.celeryq.dev/en/stable/userguide/canvas.html",
+   "requires": [
+    "celery.results"
+   ]
+  },
+  {
+   "id": "celery.beat",
+   "name": "Periodic tasks with beat",
+   "module": "workflows",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Schedule recurring tasks with celery beat using intervals and crontab expressions, and run exactly one scheduler.",
+   "why": "Nightly reports, cache warmups and cleanup jobs are periodic tasks, and Celery replaces cron without extra infrastructure.",
+   "body": "**celery beat** is a separate scheduler process. It doesn't execute tasks; it sends them to the broker on schedule, and normal workers run them.\n\nDefine schedules in `app.conf.beat_schedule`, a dict of entries:\n\n- `\"task\"`: the registered task name.\n- `\"schedule\"`: seconds (`30.0`), a `timedelta`, or a `crontab(...)`.\n- `\"args\"` / `\"kwargs\"` and optional `\"options\"` (same as apply_async, e.g. a queue).\n\n`crontab(minute=0, hour=3)` is daily at 03:00; `crontab(minute=\"*/15\")` every 15 minutes; `crontab(hour=7, minute=30, day_of_week=\"mon-fri\")` weekdays at 7:30. Times use the app's `timezone` setting.\n\nStart it with `celery -A proj beat -l INFO`. In development you can embed it in a worker with `celery -A proj worker -B`, but not in production. Beat keeps its last-run times in a local `celerybeat-schedule` file by default; django-celery-beat stores schedules in the database and lets admins edit them.\n\nThe crucial rule: **run exactly one beat process**. Two schedulers send every task twice. In containers, beat gets its own single-replica deployment.\n\nIf a job must not overlap with its previous run (long reports), add a lock in the task, e.g. a Redis `SET NX` with expiry, because beat doesn't check whether the last run finished.",
+   "code": "# proj/celery.py\nfrom celery import Celery\nfrom celery.schedules import crontab\n\napp = Celery(\"proj\", broker=\"redis://localhost:6379/0\")\napp.conf.timezone = \"UTC\"\napp.conf.beat_schedule = {\n    \"cleanup-sessions-every-15-min\": {\n        \"task\": \"proj.tasks.cleanup_sessions\",\n        \"schedule\": crontab(minute=\"*/15\"),\n    },\n    \"nightly-report\": {\n        \"task\": \"proj.tasks.build_report\",\n        \"schedule\": crontab(hour=3, minute=0),\n        \"args\": (\"daily\",),\n        \"options\": {\"queue\": \"reports\"},\n    },\n    \"heartbeat\": {\"task\": \"proj.tasks.ping\", \"schedule\": 30.0},\n}\n# $ celery -A proj beat -l INFO        (one instance only)\n# $ celery -A proj worker -l INFO -Q celery,reports",
+   "code_lang": "python",
+   "takeaways": [
+    "beat only sends tasks on schedule; workers execute them",
+    "Schedules: seconds, timedelta or crontab(...) in the app timezone",
+    "Run exactly one beat instance in production",
+    "Use a lock if runs must not overlap"
+   ],
+   "pitfalls": [
+    "Running beat inside every worker replica with -B, so each job runs once per replica."
+   ],
+   "quiz": [
+    {
+     "q": "You scale workers to 4 replicas, each started with -B. What happens to a 'nightly-report' entry?",
+     "options": [
+      "It never runs",
+      "It runs once",
+      "It is sent four times per night",
+      "Beat elects a leader automatically"
+     ],
+     "answer": 2,
+     "explain": "Each embedded beat is an independent scheduler, so every replica sends the task."
+    }
+   ],
+   "docs": "https://docs.celeryq.dev/en/stable/userguide/periodic-tasks.html",
+   "requires": [
+    "celery.config",
+    "celery.calling-tasks"
+   ]
+  },
+  {
+   "id": "celery.routing",
+   "name": "Queues and routing",
+   "module": "workflows",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Send tasks to named queues with task_routes or queue=, and dedicate workers to queues with -Q.",
+   "why": "Separating slow and fast work into queues keeps a backlog of heavy jobs from delaying time-critical tasks.",
+   "body": "By default every task goes to one queue named `celery`, and every worker consumes it. That's fine until a burst of 10-minute video encodes blocks password-reset emails.\n\n**Routing** sends tasks to named queues:\n\n- Per call: `apply_async(queue=\"emails\")`.\n- Per task in config: `task_routes = {\"proj.tasks.send_email\": {\"queue\": \"emails\"}, \"proj.video.*\": {\"queue\": \"video\"}}`; glob patterns work.\n- Per task in the decorator: `@app.task(queue=\"emails\")`.\n\nThen start workers for specific queues: `celery -A proj worker -Q emails -c 8` and `celery -A proj worker -Q video -c 2`. A worker can consume several queues (`-Q celery,emails`). Queues are created automatically on first use (`task_create_missing_queues`, on by default).\n\nDesign queues by **workload characteristics**, not by feature: latency-sensitive vs batch, CPU-bound vs IO-bound, memory-hungry. Each kind then gets a worker pool sized and configured for it, and you can scale them independently.\n\nDon't forget: a task routed to a queue nobody consumes simply waits there forever with no error. When you add a queue, add a worker for it.",
+   "code": "# proj/celery.py\nfrom celery import Celery\n\napp = Celery(\"proj\", broker=\"redis://localhost:6379/0\")\napp.conf.task_routes = {\n    \"proj.tasks.send_email\": {\"queue\": \"emails\"},\n    \"proj.video.*\": {\"queue\": \"video\"},     # every task in proj.video\n}\n\n@app.task(name=\"proj.tasks.send_email\")\ndef send_email(to): ...\n\n@app.task(name=\"proj.tasks.cleanup\")\ndef cleanup(): ...                       # default queue: \"celery\"\n\ncleanup.apply_async(queue=\"maintenance\")   # per-call override\n\n# $ celery -A proj worker -Q emails -c 8 -n emails@%h\n# $ celery -A proj worker -Q video  -c 2 -n video@%h\n# $ celery -A proj worker -Q celery,maintenance -n default@%h",
+   "code_lang": "python",
+   "takeaways": [
+    "Default queue is 'celery'; route with task_routes, queue= or the decorator",
+    "Start workers per queue with -Q",
+    "Split queues by workload: latency, CPU vs IO, memory",
+    "A queue without a consumer silently accumulates tasks"
+   ],
+   "pitfalls": [
+    "Adding a route to a new queue but no worker consuming it."
+   ],
+   "quiz": [
+    {
+     "q": "Password-reset emails are delayed behind long report tasks. Best fix?",
+     "options": [
+      "Use countdown=0",
+      "Switch to the pickle serializer",
+      "Increase result_expires",
+      "Route emails to their own queue with a dedicated worker"
+     ],
+     "answer": 3,
+     "explain": "A dedicated queue and worker means email tasks never wait behind report tasks."
+    }
+   ],
+   "docs": "https://docs.celeryq.dev/en/stable/userguide/routing.html",
+   "requires": [
+    "celery.config",
+    "celery.calling-tasks"
+   ]
+  },
+  {
+   "id": "celery.testing",
+   "name": "Testing Celery tasks",
+   "module": "tasks",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Unit-test task logic directly, use eager mode or apply() for integration-style tests, and know the pytest helpers.",
+   "why": "Tasks are business logic that runs asynchronously, and testing them shouldn't require a broker in every test.",
+   "body": "The simplest and best tests call the task's function **directly**: `add(2, 3)` runs the body synchronously like a normal function. Keep task bodies thin, delegating to plain functions you can test without Celery at all.\n\nTo test the Celery call path without a broker:\n\n- `task.apply(args=(...))` executes the task locally and returns an `EagerResult`, including retries and state handling.\n- `task_always_eager=True` makes every `delay()` run inline. Pair it with `task_eager_propagates=True` so exceptions surface in tests. It's convenient, but eager mode doesn't serialize arguments or go through routing, so it can hide bugs like passing non-JSON objects.\n- For code that enqueues tasks, mock `task.delay` and assert it was called with the expected arguments; that tests the caller without running the task.\n\nCelery ships a pytest plugin (`celery.contrib.pytest`, enable with `-p celery.contrib.pytest` or in conftest) with fixtures like `celery_app` and `celery_worker`, which start a real in-process worker using an in-memory broker. Use those for a few integration tests of workflows.\n\nTest retries by mocking the failing dependency and asserting on the number of calls, and test idempotency by running a task twice with the same arguments.",
+   "code": "# test_tasks.py\nfrom unittest.mock import patch\nimport pytest\nfrom celery import Celery\n\napp = Celery(\"t\", broker=\"memory://\")\n\n@app.task\ndef add(x, y):\n    return x + y\n\ndef signup(user_id):\n    add.delay(user_id, 1)                 # code under test enqueues a task\n\ndef test_logic_directly():\n    assert add(2, 3) == 5                 # plain function call\n\ndef test_apply_runs_locally():\n    r = add.apply(args=(2, 3))\n    assert r.get() == 5 and r.successful()\n\ndef test_signup_enqueues():\n    with patch.object(add, \"delay\") as delay:\n        signup(7)\n    delay.assert_called_once_with(7, 1)\n# $ pytest -q   ->  3 passed",
+   "code_lang": "python",
+   "takeaways": [
+    "Call the task function directly to unit-test its logic",
+    "task.apply() runs through Celery locally without a broker",
+    "Mock .delay to test code that enqueues tasks",
+    "Eager mode skips serialization and routing: it can hide bugs"
+   ],
+   "pitfalls": [
+    "Relying only on task_always_eager and missing a non-serializable argument that fails in production."
+   ],
+   "quiz": [
+    {
+     "q": "Which bug can task_always_eager=True hide?",
+     "options": [
+      "A syntax error in the task",
+      "Passing an argument that can't be serialized to JSON",
+      "A wrong return value",
+      "An exception in the task"
+     ],
+     "answer": 1,
+     "explain": "Eager mode calls the function in-process without serializing arguments, so JSON problems only show with a real broker."
+    }
+   ],
+   "docs": "https://docs.celeryq.dev/en/stable/userguide/testing.html",
+   "requires": [
+    "celery.calling-tasks",
+    "python.testing"
+   ]
+  },
+  {
+   "id": "celery.reliability",
+   "name": "Delivery guarantees and idempotent tasks",
+   "module": "operations",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Understand acknowledgement timing, acks_late, visibility timeouts and why tasks must be idempotent.",
+   "why": "Workers crash, deploys kill processes and brokers redeliver, so production tasks must be safe to run more than once and not lost.",
+   "body": "A worker **acknowledges** a message to tell the broker it can be deleted. By default Celery acks **just before** executing the task (early ack): if the worker process dies mid-task, the task is lost. That's at-most-once.\n\nWith `acks_late=True` (per task) or `task_acks_late=True`, the ack happens **after** the task finishes. A crash before that means the broker redelivers the message to another worker: **at-least-once**. Add `task_reject_on_worker_lost=True` so a task whose process was killed (OOM, SIGKILL) is requeued too; beware that a task that always crashes its process then loops forever.\n\nAt-least-once delivery means **duplicates are possible**, so tasks must be **idempotent**: running twice has the same effect as once. Techniques:\n\n- Use natural keys and upserts instead of blind inserts.\n- Record a processed marker (unique task id or business key) in the same transaction as the work.\n- Check state before acting (\"already charged?\") and use idempotency keys with external APIs.\n\nWith the Redis or SQS brokers, unacknowledged messages become visible again after the **visibility timeout** (Redis default: one hour, `broker_transport_options={\"visibility_timeout\": ...}`). Tasks running longer than it get redelivered while still running, so set it above your longest task or ETA.\n\nLate acks also mean the prefetched messages of a worker are not lost on crash, making `worker_prefetch_multiplier=1` a common companion for long tasks.",
+   "code": "from celery import Celery\n\napp = Celery(\"proj\", broker=\"redis://localhost:6379/0\")\napp.conf.update(\n    task_acks_late=True,                 # ack after the task finishes\n    task_reject_on_worker_lost=True,     # requeue if the process is killed\n    worker_prefetch_multiplier=1,        # take one message at a time\n    broker_transport_options={\"visibility_timeout\": 4 * 3600},\n)\n\nPROCESSED: set[str] = set()   # stand-in for a DB table with a unique key\n\n@app.task(bind=True)\ndef charge_order(self, order_id: int):\n    key = f\"charge:{order_id}\"\n    if key in PROCESSED:                 # idempotency check\n        return \"already charged\"\n    # payment_api.charge(order_id, idempotency_key=key)\n    PROCESSED.add(key)                   # in real code: same DB transaction\n    return \"charged\"",
+   "code_lang": "python",
+   "takeaways": [
+    "Default early ack = at-most-once; acks_late = at-least-once",
+    "task_reject_on_worker_lost requeues tasks killed mid-run",
+    "At-least-once means duplicates: make tasks idempotent",
+    "Keep Redis/SQS visibility_timeout longer than tasks and ETAs"
+   ],
+   "pitfalls": [
+    "Enabling acks_late on non-idempotent tasks like sending payments or emails without a dedupe key."
+   ],
+   "quiz": [
+    {
+     "q": "A long task (2 h) on a Redis broker with the default visibility timeout keeps running twice. Why?",
+     "options": [
+      "Beat sends it twice",
+      "The result backend expires",
+      "acks_late is off",
+      "The message becomes visible again after 1 hour and another worker takes it"
+     ],
+     "answer": 3,
+     "explain": "Unacked messages are redelivered after the visibility timeout, which defaults to one hour on Redis."
+    }
+   ],
+   "docs": "https://docs.celeryq.dev/en/stable/userguide/tasks.html#tips-and-best-practices",
+   "requires": [
+    "celery.retries",
+    "celery.routing"
+   ]
+  },
+  {
+   "id": "celery.concurrency",
+   "name": "Worker pools, concurrency and prefetch",
+   "module": "operations",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Choose between prefork, threads, gevent and solo pools, size concurrency, and tune prefetch and child recycling.",
+   "why": "The right pool and prefetch settings decide throughput, memory use and how fairly long tasks are distributed.",
+   "body": "A worker runs tasks in an **execution pool**, chosen with `--pool`:\n\n- `prefork` (default): child processes via multiprocessing. Best for CPU-bound work and isolation; a crash or leak affects one child.\n- `threads`: a thread pool; light, good for IO-bound tasks that release the GIL.\n- `gevent` / `eventlet`: green threads for very high concurrency IO work (hundreds of HTTP calls); requires monkey-patch-friendly libraries.\n- `solo`: one task at a time in the main process; handy for debugging.\n\n`-c N` / `--concurrency` sets the number of processes or threads (default: number of CPUs).\n\n**Prefetch**: each worker reserves `worker_prefetch_multiplier x concurrency` messages ahead of time (multiplier default 4). Great for many short tasks, bad for long ones: a worker can sit on reserved messages while others are idle. For long tasks use a multiplier of 1, often with `acks_late`.\n\nLong-running workers can leak memory. `worker_max_tasks_per_child=1000` replaces a child after that many tasks, and `worker_max_memory_per_child=200_000` (KiB) after a memory threshold.\n\nScale by adding worker processes or machines rather than one giant `-c`. Remember each prefork child holds its own database connections, so pools and pool sizes multiply.",
+   "code": "# CPU-heavy image processing: processes, one message at a time\n# $ celery -A proj worker -Q images --pool=prefork -c 4 \\\n#       --prefetch-multiplier=1 --max-tasks-per-child=200\n\n# IO-heavy webhooks: many green threads\n# $ celery -A proj worker -Q webhooks --pool=gevent -c 200\n\n# Local debugging: one task at a time in the main process\n# $ celery -A proj worker --pool=solo -l DEBUG\n\n# Equivalent settings in config:\nfrom celery import Celery\napp = Celery(\"proj\", broker=\"redis://localhost:6379/0\")\napp.conf.update(\n    worker_prefetch_multiplier=1,\n    worker_max_tasks_per_child=200,\n    worker_max_memory_per_child=300_000,   # KiB, about 300 MB\n)",
+   "code_lang": "python",
+   "takeaways": [
+    "prefork for CPU work, threads/gevent for IO-bound work, solo for debugging",
+    "Prefetch = multiplier x concurrency messages reserved per worker",
+    "Use prefetch 1 for long tasks to keep distribution fair",
+    "Recycle children with max_tasks_per_child / max_memory_per_child"
+   ],
+   "pitfalls": [
+    "Using gevent with libraries that block (e.g. a C database driver without patching), stalling the whole worker."
+   ],
+   "quiz": [
+    {
+     "q": "A worker with -c 4 and the default prefetch multiplier reserves how many messages at most?",
+     "options": [
+      "16",
+      "1",
+      "Unlimited",
+      "4"
+     ],
+     "answer": 0,
+     "explain": "Prefetch limit = worker_prefetch_multiplier (4) x concurrency (4) = 16."
+    }
+   ],
+   "docs": "https://docs.celeryq.dev/en/stable/userguide/workers.html#concurrency",
+   "requires": [
+    "celery.routing",
+    "python.threads-processes"
+   ]
+  },
+  {
+   "id": "celery.time-limits",
+   "name": "Time limits and revoking tasks",
+   "module": "operations",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Stop runaway tasks with soft and hard time limits, clean up on SoftTimeLimitExceeded, and revoke tasks.",
+   "why": "A single hung task can occupy a worker slot forever, and limits keep the system responsive.",
+   "body": "Celery offers two limits, per task (`@app.task(soft_time_limit=60, time_limit=90)`) or globally (`task_soft_time_limit`, `task_time_limit`):\n\n- The **soft time limit** raises `SoftTimeLimitExceeded` inside the task, giving it a chance to clean up (delete temp files, mark the job failed) and exit.\n- The **hard time limit** kills the worker child process and replaces it. No cleanup; the task fails with `TimeLimitExceeded`.\n\nSet the hard limit a bit above the soft one. Time limits are enforced by the prefork pool using signals; other pools have limited or no support, and limits don't work on Windows.\n\nTime limits complement, not replace, timeouts in your own code: always pass `timeout=` to HTTP clients and database calls, which fail faster and more precisely.\n\n**Revoking**: `result.revoke()` or `app.control.revoke(task_id)` tells workers to skip a task that hasn't started. `revoke(task_id, terminate=True)` also kills a running task's process, a blunt last resort. Revocations are kept in worker memory, so they're lost when all workers restart unless you configure persistent revokes (`--statedb`).\n\nUse `expires` when calling tasks that are pointless after a deadline; it's cheaper than revoking.",
+   "code": "import time\nfrom celery import Celery\nfrom celery.exceptions import SoftTimeLimitExceeded\n\napp = Celery(\"proj\", broker=\"redis://localhost:6379/0\")\n\n@app.task(soft_time_limit=30, time_limit=40)\ndef render_video(job_id):\n    try:\n        for frame in range(10_000):\n            time.sleep(0.01)              # real work here\n        return \"done\"\n    except SoftTimeLimitExceeded:\n        print(f\"job {job_id}: out of time, cleaning up\")\n        # remove temp files, mark job as failed in the DB\n        raise\n\n# r = render_video.delay(7)\n# r.revoke()                          # skip it if not started yet\n# app.control.revoke(r.id, terminate=True)   # kill it if running",
+   "code_lang": "python",
+   "takeaways": [
+    "Soft limit raises SoftTimeLimitExceeded so the task can clean up",
+    "Hard limit kills the child process, no cleanup",
+    "Limits rely on the prefork pool's signals",
+    "revoke() skips pending tasks; terminate=True kills running ones"
+   ],
+   "pitfalls": [
+    "Catching SoftTimeLimitExceeded with a bare except: Exception and continuing the work until the hard kill."
+   ],
+   "quiz": [
+    {
+     "q": "What happens when a task hits its hard time_limit?",
+     "options": [
+      "The child process running it is killed and replaced",
+      "The task is retried automatically",
+      "The broker deletes the queue",
+      "SoftTimeLimitExceeded is raised in the task"
+     ],
+     "answer": 0,
+     "explain": "The hard limit terminates the process; only the soft limit gives the task a chance to react."
+    }
+   ],
+   "docs": "https://docs.celeryq.dev/en/stable/userguide/workers.html#time-limits",
+   "requires": [
+    "celery.retries",
+    "celery.concurrency"
+   ]
+  },
+  {
+   "id": "celery.monitoring",
+   "name": "Monitoring, inspect and signals",
+   "module": "operations",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Watch workers with celery inspect and control, Flower and events, and hook into task lifecycle signals.",
+   "why": "Queues fail quietly: without monitoring you learn about a stuck worker or growing backlog from angry users.",
+   "body": "Celery has built-in **remote control** over the broker:\n\n- `celery -A proj status` lists live workers.\n- `celery -A proj inspect active` shows running tasks; `inspect reserved` prefetched ones; `inspect scheduled` ETA tasks; `inspect registered` the task names each worker knows (great for \"task never runs\" bugs).\n- `celery -A proj control rate_limit proj.tasks.send_email 10/m` or `control shutdown` change behavior at runtime.\n\n**Events**: start workers with `-E` (or `worker_send_task_events=True`) and they publish task-received/started/succeeded/failed events. **Flower** (`pip install flower`, `celery -A proj flower`, port 5555) consumes them for a web dashboard with task history, worker status and a Prometheus metrics endpoint.\n\nWhat to alert on: **queue length** (read directly from the broker, e.g. `LLEN` on the Redis list named after the queue), task failure rate, task runtime percentiles and the age of the oldest message.\n\n**Signals** let your code hook into the lifecycle without touching tasks: `task_prerun` and `task_postrun` for timing and context (request ids for logs), `task_failure` to report to an error tracker, `worker_process_init` to set up per-process resources such as a database engine after fork.",
+   "code": "import time\nfrom celery import Celery\nfrom celery.signals import task_prerun, task_postrun, task_failure\n\napp = Celery(\"proj\", broker=\"redis://localhost:6379/0\")\n_started: dict[str, float] = {}\n\n@task_prerun.connect\ndef on_start(task_id=None, task=None, **kw):\n    _started[task_id] = time.monotonic()\n\n@task_postrun.connect\ndef on_end(task_id=None, task=None, state=None, **kw):\n    took = time.monotonic() - _started.pop(task_id, time.monotonic())\n    print(f\"{task.name} {state} in {took:.2f}s\")   # or emit a metric\n\n@task_failure.connect\ndef on_failure(task_id=None, exception=None, sender=None, **kw):\n    print(f\"{sender.name} failed: {exception!r}\")  # send to error tracker\n\n# $ celery -A proj inspect active\n# $ celery -A proj flower --port=5555",
+   "code_lang": "python",
+   "takeaways": [
+    "inspect active/reserved/scheduled/registered for live introspection",
+    "Enable events (-E) and use Flower for dashboards",
+    "Alert on queue length, failure rate and runtime",
+    "Signals hook into task and worker lifecycles"
+   ],
+   "pitfalls": [
+    "Monitoring only worker liveness and missing a queue that grows for hours."
+   ],
+   "quiz": [
+    {
+     "q": "Tasks are sent but never run, and workers look healthy. Which command helps most first?",
+     "options": [
+      "celery -A proj purge",
+      "celery -A proj inspect registered (and check the queues workers consume)",
+      "celery -A proj beat",
+      "celery -A proj report --json"
+     ],
+     "answer": 1,
+     "explain": "It shows whether workers know the task name; a routing or import mismatch is the usual cause."
+    }
+   ],
+   "docs": "https://docs.celeryq.dev/en/stable/userguide/monitoring.html",
+   "requires": [
+    "celery.concurrency"
+   ]
+  },
+  {
+   "id": "celery.message-protocol",
+   "name": "Task messages and the protocol",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "What a Celery task message contains (protocol v2 headers and body), how Kombu transports it, and what that means for compatibility.",
+   "why": "Knowing the wire format lets you debug stuck messages, evolve task signatures safely and interoperate with other producers.",
+   "body": "Celery sends tasks through **Kombu**, its messaging library, which abstracts transports (AMQP, Redis, SQS). A task message (protocol version 2, the default since Celery 4) has:\n\n- **Headers**: `task` (the name), `id`, `root_id` and `parent_id` (workflow lineage), `group`, `retries`, `eta`, `expires`, `timelimit`, `argsrepr`/`kwargsrepr` (safe string forms for logs and monitoring), `origin`.\n- **Body**: a serialized tuple `(args, kwargs, embed)`, where `embed` holds `callbacks`, `errbacks`, `chain` and `chord` for canvas workflows.\n- **Properties**: `correlation_id` (the task id), `reply_to`, content type and encoding.\n\nThe worker's consumer receives the message, looks up the task name in its **registry**, deserializes the body (only accepting `accept_content` types), and hands the request to the pool. An unknown name produces a \"Received unregistered task\" error and the message is rejected.\n\nPractical consequences:\n\n- **Renaming a task or module** breaks queued messages; deploy new code alongside old names or use explicit `name=` strings.\n- **Changing a task's signature** must stay compatible with messages already queued: add parameters with defaults and keep accepting old ones during a rollout.\n- Non-Python producers can enqueue Celery tasks by writing this format, and `app.send_task(\"name\", args=...)` lets Python clients send by name without importing the task code.",
+   "code": "from celery import Celery\n\napp = Celery(\"proj\", broker=\"memory://\")\n\n@app.task(name=\"billing.charge\")\ndef charge(order_id, amount, currency=\"EUR\"):\n    return f\"{order_id}:{amount}{currency}\"\n\n# Build the message the client would publish, without sending it\nsig = charge.s(42, 9.99)\nmsg = app.amqp.create_task_message(\n    \"a1b2\", \"billing.charge\", sig.args, sig.kwargs)\nprint(msg.headers[\"task\"], msg.headers[\"id\"], msg.headers[\"argsrepr\"])\n# billing.charge a1b2 (42, 9.99)\nargs, kwargs, embed = msg.body\nprint(args, kwargs, sorted(embed))\n# (42, 9.99) {} ['callbacks', 'chain', 'chord', 'errbacks']\n\n# Send by name, without importing the task's code:\n# app.send_task(\"billing.charge\", args=(42, 9.99))",
+   "code_lang": "python",
+   "takeaways": [
+    "Protocol v2: routing info in headers, (args, kwargs, embed) in the body",
+    "Workers dispatch by task name from their registry",
+    "Renames and signature changes must stay compatible with queued messages",
+    "send_task() enqueues by name without importing the task"
+   ],
+   "pitfalls": [
+    "Renaming a task module in a deploy while thousands of messages with the old name are still queued."
+   ],
+   "quiz": [
+    {
+     "q": "You add a required parameter to a task and deploy. What happens to messages already in the queue?",
+     "options": [
+      "They are discarded",
+      "They wait until the parameter is supplied",
+      "They are upgraded automatically",
+      "They run with the old argument list and fail with a TypeError"
+     ],
+     "answer": 3,
+     "explain": "Queued messages carry the old args; the new function signature rejects them, so add new parameters with defaults."
+    }
+   ],
+   "docs": "https://docs.celeryq.dev/en/stable/internals/protocol.html",
+   "requires": [
+    "celery.canvas",
+    "celery.reliability"
+   ]
+  },
+  {
+   "id": "celery.chord-internals",
+   "name": "How groups and chords really work",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "How chords track completion in the result backend, why they need results stored, and their failure and performance characteristics.",
+   "why": "Chords are the most fragile canvas primitive, and their behavior under failure surprises even experienced Celery users.",
+   "body": "A **group** is simple: each signature is sent as its own message carrying a shared `group` id, and a `GroupResult` holds their `AsyncResult`s. Nothing coordinates them on the worker side.\n\nA **chord** must run its callback exactly when all header tasks are done, and workers don't talk to each other, so coordination happens in the **result backend**:\n\n- With Redis (and other key-value backends supporting it), each header task, on finishing, stores its result and atomically **increments a counter** for the chord. The task that brings the counter to the header size triggers the callback, which receives all results read back from the backend.\n- Backends without that support fall back to a `celery.chord_unlock` task that **polls** periodically until all header results are ready, which is slower and adds load.\n\nConsequences:\n\n- Header tasks must store results: `ignore_result=True` on them breaks the chord.\n- If any header task fails, the callback is not called; the chord fails with a `ChordError`, and you need `link_error` on the chord to react.\n- The callback receives every result at once, so huge headers with large results mean big backend reads and memory use. Prefer returning ids or small summaries.\n- Chords inside chains and nested groups are supported but harder to debug; keep workflows shallow, and test failure paths explicitly.",
+   "code": "from celery import Celery, chord, group\n\napp = Celery(\"proj\", broker=\"memory://\", backend=\"cache+memory://\")\napp.conf.task_always_eager = True        # demo inline\n\n@app.task\ndef count_words(doc): return len(doc.split())\n\n@app.task\ndef summarize(counts): return {\"docs\": len(counts), \"words\": sum(counts)}\n\ndocs = [\"a b c\", \"d e\", \"f\"]\ng = group(count_words.s(d) for d in docs)\nprint(g.apply_async().get())                         # [3, 2, 1]\n\nres = chord(g)(summarize.s())\nprint(res.get())                                     # {'docs': 3, 'words': 6}\n\n# Real backends: the last finishing header task increments the chord\n# counter to 3 and triggers summarize([...all results...]).",
+   "code_lang": "python",
+   "takeaways": [
+    "Groups are independent messages sharing a group id",
+    "Chords coordinate via the result backend (counter on Redis, polling elsewhere)",
+    "Header tasks must store results; failures skip the callback",
+    "Keep header results small: the callback reads them all"
+   ],
+   "pitfalls": [
+    "Setting task_ignore_result=True globally and then using chords."
+   ],
+   "quiz": [
+    {
+     "q": "Why do chords require a result backend?",
+     "options": [
+      "Completion of header tasks is tracked and their results collected in the backend",
+      "Because groups can't run without one",
+      "To store the beat schedule",
+      "To serialize the callback"
+     ],
+     "answer": 0,
+     "explain": "Workers don't communicate directly; the backend counts finished header tasks and supplies their results."
+    }
+   ],
+   "docs": "https://docs.celeryq.dev/en/stable/userguide/canvas.html#chords",
+   "requires": [
+    "celery.canvas",
+    "celery.message-protocol"
+   ]
+  },
+  {
+   "id": "celery.at-scale",
+   "name": "At scale: ETAs, priorities and backpressure",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Avoid the scaling traps: ETA tasks held in worker memory, broker-specific priorities, oversized payloads and unbounded queues.",
+   "why": "Systems processing millions of tasks per day fail in ways small ones never show, mostly through broker and memory behavior.",
+   "body": "**ETA and countdown tasks** are not held by the broker until due. The worker receives them immediately and keeps them in memory, unacknowledged, until their time comes. Thousands of far-future ETAs inflate worker memory, block prefetch slots, and on Redis or SQS get **redelivered** after the visibility timeout, creating duplicates. For long delays, store the job in your database with a run-at time and let a periodic task enqueue due jobs.\n\n**Priorities** depend on the broker. RabbitMQ supports real per-queue priorities (`x-max-priority` on the queue plus `priority=` on calls). Redis emulates them with several lists, and prefetching dilutes the effect. Separate queues with dedicated workers are more predictable than priorities everywhere.\n\n**Payload size**: messages and results live in broker and backend memory. Pass references (ids, object-store keys), not megabytes of data.\n\n**Backpressure**: Celery won't stop producers when consumers fall behind. Monitor queue depth, set `expires` on tasks that lose value with time, use rate limits (`rate_limit=\"100/m\"`, enforced per worker) for fragile downstream APIs, and consider autoscaling workers on queue length.\n\n**Result backend load** grows with every stored result; disable results where unused and expire the rest.\n\nFinally, broker choice matters: RabbitMQ gives the strongest delivery semantics and features; Redis is simpler but trades durability and priority fidelity.",
+   "code": "from datetime import datetime, timedelta, timezone\nfrom celery import Celery\n\napp = Celery(\"proj\", broker=\"redis://localhost:6379/0\")\n\n@app.task(rate_limit=\"100/m\", ignore_result=True)\ndef call_partner_api(item_id): ...\n\n@app.task(ignore_result=True)\ndef enqueue_due_jobs():\n    # runs every minute via beat: query rows with run_at <= now\n    due = [101, 102]                    # stand-in for a DB query\n    for job_id in due:\n        call_partner_api.apply_async(args=(job_id,), expires=300)\n\n# Anti-pattern for long delays: the worker holds this in memory for 3 days\n# and Redis redelivers it every visibility_timeout.\n# call_partner_api.apply_async(args=(7,), eta=datetime.now(timezone.utc) + timedelta(days=3))\n\napp.conf.beat_schedule = {\"due-jobs\": {\"task\": enqueue_due_jobs.name, \"schedule\": 60.0}}",
+   "code_lang": "python",
+   "takeaways": [
+    "ETA/countdown tasks sit unacked in worker memory until due",
+    "For long delays, store run-at times in a database and enqueue when due",
+    "Priorities are broker-specific; separate queues are more predictable",
+    "Pass references, not big payloads; watch queue depth and use expires"
+   ],
+   "pitfalls": [
+    "Scheduling password-expiry reminders 30 days out with eta on a Redis broker."
+   ],
+   "quiz": [
+    {
+     "q": "Where does a task sent with eta three days in the future wait?",
+     "options": [
+      "In the result backend",
+      "In celery beat",
+      "In the broker until it's due",
+      "In a worker's memory, reserved and unacknowledged"
+     ],
+     "answer": 3,
+     "explain": "Workers fetch ETA tasks immediately and hold them until due, which is why long ETAs are an anti-pattern."
+    }
+   ],
+   "docs": "https://docs.celeryq.dev/en/stable/userguide/calling.html#eta-and-countdown",
+   "requires": [
+    "celery.reliability",
+    "celery.time-limits",
+    "celery.monitoring"
+   ]
+  }
+ ]
+}

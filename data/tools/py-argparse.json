@@ -1,0 +1,537 @@
+{
+ "tool": {
+  "id": "py-argparse",
+  "name": "argparse",
+  "category": "library",
+  "tagline": "Build command-line interfaces with arguments, options, help and subcommands",
+  "description": "argparse is the standard library module for parsing command-line arguments. You declare the positional arguments, options and subcommands your script accepts, and it converts and validates them, generates --help output and reports usage errors. It's the dependency-free way to turn a script into a proper CLI tool.",
+  "icon": "ap",
+  "color": "#3C6E71",
+  "official_docs": "https://docs.python.org/3/library/argparse.html",
+  "version": "Python 3.13",
+  "aliases": [
+   "python argparse",
+   "command line arguments",
+   "cli parsing",
+   "sys.argv"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Arguments and options"
+  },
+  {
+   "id": "interface",
+   "name": "Designing the interface"
+  },
+  {
+   "id": "robust",
+   "name": "Validation and testing"
+  },
+  {
+   "id": "advanced",
+   "name": "Extending argparse"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "py-argparse.first-parser",
+   "name": "Your first parser",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Create an ArgumentParser, declare arguments with add_argument, and read them from parse_args().",
+   "why": "Any script that takes input from the command line needs this instead of hand-parsing sys.argv.",
+   "body": "The raw command line is `sys.argv`, a list of strings. Parsing it by hand quickly gets messy. argparse does it declaratively in three steps:\n\n- create a parser: `parser = argparse.ArgumentParser(description=\"...\")`,\n- declare arguments: `parser.add_argument(\"filename\")`,\n- parse: `args = parser.parse_args()`.\n\n`parse_args()` reads `sys.argv[1:]` and returns a `Namespace`, a simple object whose attributes are named after your arguments: `args.filename`. You can also pass an explicit list, `parser.parse_args([\"data.csv\"])`, which is how you test parsers and how the examples in these lessons run.\n\nFor free you get:\n\n- `-h` / `--help`, which prints a usage line and a description of every argument, then exits,\n- error handling: a missing or unknown argument prints usage and an error message to stderr and exits with status 2,\n- the program name in messages, from `sys.argv[0]` (override with `prog=`).\n\nPut the parser in a function and call it from a `main()` guarded by `if __name__ == \"__main__\":`. That keeps the script importable and testable.",
+   "code": "import argparse\n\nparser = argparse.ArgumentParser(prog=\"count\", description=\"Count lines in a file.\")\nparser.add_argument(\"filename\", help=\"file to read\")\n\nargs = parser.parse_args([\"notes.txt\"])   # normally: parser.parse_args()\nprint(args)                                # Namespace(filename='notes.txt')\nprint(args.filename)                       # notes.txt\n\nparser.print_help()\n# usage: count [-h] filename\n#\n# Count lines in a file.\n#\n# positional arguments:\n#   filename    file to read\n#\n# options:\n#   -h, --help  show this help message and exit",
+   "code_lang": "python",
+   "takeaways": [
+    "ArgumentParser + add_argument + parse_args is the whole basic workflow",
+    "parse_args() returns a Namespace with one attribute per argument",
+    "--help and usage errors (exit status 2) come for free"
+   ],
+   "pitfalls": [
+    "Calling parse_args() at import time in a module, so importing it in tests reads pytest's arguments."
+   ],
+   "quiz": [
+    {
+     "q": "What does parse_args() do when a required positional argument is missing?",
+     "options": [
+      "Returns None for it",
+      "Raises KeyError",
+      "Prompts the user for it",
+      "Prints usage and an error to stderr and exits with status 2"
+     ],
+     "answer": 3,
+     "explain": "argparse calls parser.error(), which prints and calls sys.exit(2)."
+    }
+   ],
+   "docs": "https://docs.python.org/3/howto/argparse.html",
+   "requires": [
+    "python.functions",
+    "python.lists"
+   ]
+  },
+  {
+   "id": "py-argparse.positional-optional",
+   "name": "Positional arguments vs options",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Distinguish required positional arguments from optional flags like -o and --output.",
+   "why": "Choosing the right kind of argument is the core of a pleasant command-line interface.",
+   "body": "argparse decides the kind of argument from its name.\n\n**Positional** arguments have plain names (`\"src\"`). They are identified by position, are required by default, and appear in the Namespace under that name.\n\n**Optional** arguments (options) start with `-` or `--`. You can give a short and a long form: `add_argument(\"-o\", \"--output\")`. They may appear in any order and are optional by default; if absent, their value is `None` unless you set a default. The attribute name comes from the first long name, with dashes turned into underscores: `--dry-run` becomes `args.dry_run`. Use `dest=` to choose another name.\n\nOptions take a value either as the next word (`-o out.txt`, `--output out.txt`) or attached (`--output=out.txt`, `-oout.txt`).\n\nConventions that users expect:\n\n- positionals for the main inputs (files, names),\n- options for modifiers with sensible defaults,\n- long names that read like English, short names only for frequently used options.\n\nYou can make an option mandatory with `required=True`, but the docs consider that bad form: if it is always needed, it is probably a positional.",
+   "code": "import argparse\n\np = argparse.ArgumentParser(prog=\"copy\")\np.add_argument(\"src\")\np.add_argument(\"dst\")\np.add_argument(\"-o\", \"--output-format\")\np.add_argument(\"--dry-run\", action=\"store_true\")\n\nprint(p.parse_args([\"a.txt\", \"b.txt\"]))\n# Namespace(src='a.txt', dst='b.txt', output_format=None, dry_run=False)\na = p.parse_args([\"--output-format=json\", \"a.txt\", \"--dry-run\", \"b.txt\"])\nprint(a.output_format, a.src, a.dst, a.dry_run)   # json a.txt b.txt True\nprint(p.parse_args([\"-ojson\", \"x\", \"y\"]).output_format)  # json",
+   "code_lang": "python",
+   "takeaways": [
+    "Plain names are positional and required; dashed names are optional",
+    "--long-name becomes args.long_name",
+    "Option values can follow as the next word or with ="
+   ],
+   "pitfalls": [
+    "Expecting args.output-format to work; the attribute uses underscores: args.output_format."
+   ],
+   "quiz": [
+    {
+     "q": "add_argument('--max-retries') stores its value under which attribute?",
+     "options": [
+      "args.max_retries",
+      "args.max-retries",
+      "args.maxRetries",
+      "args['--max-retries']"
+     ],
+     "answer": 0,
+     "explain": "The dest is derived from the long name with dashes replaced by underscores."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/argparse.html#name-or-flags",
+   "requires": [
+    "py-argparse.first-parser"
+   ]
+  },
+  {
+   "id": "py-argparse.types-defaults",
+   "name": "Types and defaults",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Convert arguments with type=int, float or pathlib.Path, and give options defaults.",
+   "why": "Everything on the command line is a string; converting early gives clean errors and simple code.",
+   "body": "Command-line arguments arrive as strings. `type=` names a callable that converts each one: `type=int`, `type=float`, `type=pathlib.Path`. If conversion raises `ValueError` or `TypeError`, argparse reports a friendly usage error such as `argument -n: invalid int value: 'x'` instead of a traceback.\n\n`default=` sets the value used when an option is absent. String defaults are passed through `type` too, so `default=\"8080\"` with `type=int` gives the int `8080`; non-string defaults are used as is.\n\nIn help text, `%(default)s` inserts the default, so the help stays accurate:\n\n```python\np.add_argument(\"--port\", type=int, default=8080, help=\"port (default: %(default)s)\")\n```\n\nOr pass `formatter_class=argparse.ArgumentDefaultsHelpFormatter` to the parser to append defaults to every help line automatically.\n\nAvoid `type=bool`: `bool(\"False\")` is `True`, because any non-empty string is truthy. Use a flag action instead (next lesson). Similarly, `type=open` opens files at parse time and leaves them open on errors; take a `Path` and open it yourself with a `with` block.",
+   "code": "import argparse\nfrom pathlib import Path\n\np = argparse.ArgumentParser(prog=\"serve\")\np.add_argument(\"root\", type=Path)\np.add_argument(\"--port\", type=int, default=8080, help=\"port (default: %(default)s)\")\np.add_argument(\"--ratio\", type=float, default=\"0.5\")   # string default is converted\n\na = p.parse_args([\"site\"])\nprint(repr(a.root), a.port, a.ratio)   # PosixPath('site') 8080 0.5\nprint(p.parse_args([\"site\", \"--port\", \"9000\"]).port + 1)   # 9001\n\ntry:\n    p.parse_args([\"site\", \"--port\", \"http\"])\nexcept SystemExit as e:\n    print(\"exit status\", e.code)\n# serve: error: argument --port: invalid int value: 'http'  (stderr)\n# exit status 2",
+   "code_lang": "python",
+   "takeaways": [
+    "type= converts each value; conversion errors become usage errors",
+    "String defaults are converted by type too",
+    "Never use type=bool"
+   ],
+   "pitfalls": [
+    "type=bool, which turns '--debug False' into True."
+   ],
+   "quiz": [
+    {
+     "q": "With add_argument('--n', type=int, default='3'), what is args.n when --n is not given?",
+     "options": [
+      "'3'",
+      "3",
+      "None",
+      "An error: defaults must be ints"
+     ],
+     "answer": 1,
+     "explain": "String defaults are passed through the type converter."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/argparse.html#type",
+   "requires": [
+    "py-argparse.positional-optional"
+   ]
+  },
+  {
+   "id": "py-argparse.actions",
+   "name": "Flags and actions",
+   "module": "basics",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Use actions such as store_true, count, append and BooleanOptionalAction for flags and repeatable options.",
+   "why": "Flags like --verbose and repeatable options like --include are in almost every CLI.",
+   "body": "`action=` tells argparse what to do when it sees an option. The default, `store`, saves the following value. Others:\n\n- `store_true` / `store_false`: a flag with no value; sets True (or False). Default is the opposite.\n- `count`: counts occurrences, so `-vvv` gives 3. Set `default=0`, otherwise the default is `None`.\n- `append`: repeatable option collecting values into a list: `--include a --include b` gives `['a', 'b']`.\n- `extend`: like append but each occurrence can take several values (with `nargs`), flattened into one list.\n- `store_const` / `append_const`: store a fixed `const` value.\n- `version`: prints `version=` text and exits: `add_argument(\"--version\", action=\"version\", version=\"%(prog)s 1.2\")`.\n- `argparse.BooleanOptionalAction`: creates a `--color` / `--no-color` pair in one call.\n\nOne gotcha with `append` and a list default: the values are appended **to** the default list, so `default=[\"x\"]` plus `--include a` gives `['x', 'a']`, not `['a']`. Use `default=None` and fill in the fallback after parsing.",
+   "code": "import argparse\n\np = argparse.ArgumentParser(prog=\"tool\")\np.add_argument(\"-v\", \"--verbose\", action=\"count\", default=0)\np.add_argument(\"--dry-run\", action=\"store_true\")\np.add_argument(\"-I\", \"--include\", action=\"append\")\np.add_argument(\"--color\", action=argparse.BooleanOptionalAction, default=True)\np.add_argument(\"--version\", action=\"version\", version=\"%(prog)s 1.2\")\n\na = p.parse_args([\"-vvv\", \"-I\", \"src\", \"--include\", \"lib\", \"--no-color\"])\nprint(a.verbose, a.dry_run, a.include, a.color)   # 3 False ['src', 'lib'] False\nprint(p.parse_args([]))\n# Namespace(verbose=0, dry_run=False, include=None, color=True)\ntry:\n    p.parse_args([\"--version\"])                   # tool 1.2\nexcept SystemExit:\n    pass",
+   "code_lang": "python",
+   "takeaways": [
+    "store_true for on/off flags, count for -vvv, append for repeatable options",
+    "BooleanOptionalAction gives --x and --no-x",
+    "action='version' prints and exits"
+   ],
+   "pitfalls": [
+    "Giving an append option a non-empty list default; user values are added to it rather than replacing it."
+   ],
+   "quiz": [
+    {
+     "q": "add_argument('-v', action='count') with no default. What is args.v when -v is absent?",
+     "options": [
+      "0",
+      "False",
+      "1",
+      "None"
+     ],
+     "answer": 3,
+     "explain": "count's default is None unless you pass default=0."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/argparse.html#action",
+   "requires": [
+    "py-argparse.positional-optional"
+   ]
+  },
+  {
+   "id": "py-argparse.choices-nargs",
+   "name": "choices and nargs",
+   "module": "interface",
+   "level": 2,
+   "minutes": 9,
+   "summary": "Restrict values with choices and accept zero, one or many values per argument with nargs.",
+   "why": "These two options cover most validation and multi-value needs without custom code.",
+   "body": "`choices=` limits an argument to a fixed set: `choices=[\"json\", \"csv\"]`. Invalid values get a clear error listing the options, and help shows them. Checking happens **after** `type` conversion, so `type=int, choices=range(1, 6)` works.\n\n`nargs=` controls how many command-line words an argument consumes:\n\n- an integer `N`: exactly N values, as a list (`nargs=2` for `--size W H`),\n- `\"?\"`: zero or one. An option given without a value takes `const`; absent, it takes `default`,\n- `\"*\"`: zero or more, as a list,\n- `\"+\"`: one or more, error if none,\n- `argparse.REMAINDER`: everything that's left (rarely needed; prefer `--` separation).\n\nA common pattern is `add_argument(\"files\", nargs=\"+\", type=Path)` for \"one or more files\".\n\nThe `?` + `const` combination gives three-state options:\n\n```python\np.add_argument(\"--log\", nargs=\"?\", const=\"app.log\", default=None)\n# absent -> None; --log -> 'app.log'; --log x.log -> 'x.log'\n```\n\nBe careful with several variable-length positionals in one parser: argparse matches greedily, so the split between them may not be what users expect.",
+   "code": "import argparse\nfrom pathlib import Path\n\np = argparse.ArgumentParser(prog=\"conv\")\np.add_argument(\"files\", nargs=\"+\", type=Path)\np.add_argument(\"--to\", choices=[\"json\", \"csv\"], default=\"json\")\np.add_argument(\"--size\", nargs=2, type=int, metavar=(\"W\", \"H\"))\np.add_argument(\"--log\", nargs=\"?\", const=\"app.log\")\n\na = p.parse_args([\"a.txt\", \"b.txt\", \"--size\", \"640\", \"480\", \"--log\"])\nprint([f.name for f in a.files], a.to, a.size, a.log)\n# ['a.txt', 'b.txt'] json [640, 480] app.log\nprint(p.parse_args([\"x\", \"--log\", \"debug.log\"]).log)   # debug.log\ntry:\n    p.parse_args([\"x\", \"--to\", \"xml\"])\nexcept SystemExit:\n    pass\n# conv: error: argument --to: invalid choice: 'xml' (choose from 'json', 'csv')",
+   "code_lang": "python",
+   "takeaways": [
+    "choices restricts values and is checked after type conversion",
+    "nargs: N, '?', '*', '+' control how many values are consumed",
+    "nargs='?' with const gives absent / flag / value behaviour"
+   ],
+   "pitfalls": [
+    "Using nargs='*' for a required list; use '+' so an empty list is an error."
+   ],
+   "quiz": [
+    {
+     "q": "add_argument('--log', nargs='?', const='a.log', default=None). What is args.log for the input '--log' alone?",
+     "options": [
+      "'a.log'",
+      "None",
+      "''",
+      "An error: value expected"
+     ],
+     "answer": 0,
+     "explain": "With nargs='?', an option present without a value takes const."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/argparse.html#nargs",
+   "requires": [
+    "py-argparse.types-defaults",
+    "py-argparse.actions"
+   ]
+  },
+  {
+   "id": "py-argparse.help-text",
+   "name": "Writing good help output",
+   "module": "interface",
+   "level": 2,
+   "minutes": 8,
+   "summary": "Shape --help with description, epilog, help strings, metavar and formatter classes.",
+   "why": "Help text is your CLI's documentation; users read it before anything else.",
+   "body": "argparse builds `--help` from what you declare, so a little effort pays off:\n\n- `ArgumentParser(description=..., epilog=...)`: text before and after the argument list. Use the epilog for examples.\n- `help=` on each argument: one short phrase. `%(default)s`, `%(type)s`, `%(choices)s` and `%(prog)s` are substituted.\n- `metavar=`: the placeholder name in usage, such as `--output FILE` instead of `--output OUTPUT`. A tuple names each value for `nargs=N`.\n- `help=argparse.SUPPRESS` hides an argument from help entirely.\n\nFormatter classes change layout:\n\n- `RawDescriptionHelpFormatter` keeps your line breaks in description and epilog (by default text is re-wrapped).\n- `RawTextHelpFormatter` keeps line breaks in argument help too.\n- `ArgumentDefaultsHelpFormatter` appends \"(default: ...)\" automatically.\n- `MetavarTypeHelpFormatter` uses type names as metavars.\n\nYou can combine two with multiple inheritance in a tiny subclass.\n\nSince 3.13, `add_argument(..., deprecated=True)` and `add_parser(..., deprecated=True)` let you keep an old option working while printing a deprecation warning when it's used. In 3.13 the usage line no longer repeats the metavar for options with short and long forms (`-o, --output FILE`).",
+   "code": "import argparse\n\nclass Fmt(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):\n    pass\n\np = argparse.ArgumentParser(\n    prog=\"resize\", formatter_class=Fmt, description=\"Resize images.\",\n    epilog=\"examples:\\n  resize photo.jpg --width 800\")\np.add_argument(\"image\", help=\"input image\")\np.add_argument(\"-w\", \"--width\", type=int, default=1024, metavar=\"PX\", help=\"target width\")\np.add_argument(\"--quality\", type=int, default=85, help=argparse.SUPPRESS)\np.add_argument(\"--old-flag\", action=\"store_true\", deprecated=True, help=\"use --width\")\np.print_help()\np.parse_args([\"x.jpg\", \"--old-flag\"])\n# usage: resize [-h] [-w PX] [--old-flag] image\n# ...\n#   -w, --width PX  target width (default: 1024)\n# ...\n# examples:\n#   resize photo.jpg --width 800\n# resize: warning: option '--old-flag' is deprecated   (stderr)",
+   "code_lang": "python",
+   "takeaways": [
+    "description, epilog and per-argument help build --help",
+    "metavar names placeholders; SUPPRESS hides arguments",
+    "Formatter classes control wrapping and default display; deprecated= is new in 3.13"
+   ],
+   "pitfalls": [
+    "Writing multi-line examples in the epilog without RawDescriptionHelpFormatter; argparse re-wraps them into one paragraph."
+   ],
+   "quiz": [
+    {
+     "q": "Your epilog's example lines are merged into one paragraph in --help. What fixes it?",
+     "options": [
+      "help=argparse.SUPPRESS",
+      "formatter_class=argparse.RawDescriptionHelpFormatter",
+      "metavar='EXAMPLES'",
+      "add_help=False"
+     ],
+     "answer": 1,
+     "explain": "The raw description formatter keeps the line breaks of description and epilog."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/argparse.html#formatter-class",
+   "requires": [
+    "py-argparse.choices-nargs"
+   ]
+  },
+  {
+   "id": "py-argparse.subcommands",
+   "name": "Subcommands",
+   "module": "interface",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Build git-style CLIs with add_subparsers, one parser per command, and dispatch with set_defaults.",
+   "why": "Any tool with more than one job (init, run, deploy) is easier to use with subcommands.",
+   "body": "Tools like `git commit` and `pip install` use **subcommands**: the first positional chooses a command, and each command has its own arguments.\n\n```python\nsub = parser.add_subparsers(dest=\"command\", required=True)\nrun = sub.add_parser(\"run\", help=\"run the app\")\nrun.add_argument(\"--port\", type=int, default=8000)\n```\n\n`add_subparsers()` returns a special action; each `add_parser(name)` returns an ordinary `ArgumentParser` for that command. `dest=\"command\"` stores which command was chosen, and `required=True` makes omitting it an error (subcommands are optional by default).\n\nThe neat dispatch idiom is `set_defaults`: attach the handler function to each subparser and call it after parsing.\n\n```python\nrun.set_defaults(func=cmd_run)\nargs = parser.parse_args()\nargs.func(args)\n```\n\nUseful extras:\n\n- `add_parser(\"install\", aliases=[\"i\"])` for short names,\n- options defined on the main parser go **before** the subcommand (`tool -v run`), while subparser options go after it,\n- shared options can be added via parent parsers (an expert lesson),\n- each subparser gets its own `--help`: `tool run --help`.",
+   "code": "import argparse\n\ndef cmd_init(args):\n    print(f\"init in {args.path}\")\n\ndef cmd_run(args):\n    print(f\"run on port {args.port}, verbose={args.verbose}\")\n\np = argparse.ArgumentParser(prog=\"app\")\np.add_argument(\"-v\", \"--verbose\", action=\"store_true\")\nsub = p.add_subparsers(dest=\"command\", required=True)\n\ninit = sub.add_parser(\"init\", help=\"create a project\")\ninit.add_argument(\"path\", nargs=\"?\", default=\".\")\ninit.set_defaults(func=cmd_init)\n\nrun = sub.add_parser(\"run\", aliases=[\"r\"], help=\"start the server\")\nrun.add_argument(\"--port\", type=int, default=8000)\nrun.set_defaults(func=cmd_run)\n\nfor argv in ([\"init\"], [\"-v\", \"r\", \"--port\", \"9000\"]):\n    args = p.parse_args(argv)\n    args.func(args)\n# init in .\n# run on port 9000, verbose=True",
+   "code_lang": "python",
+   "takeaways": [
+    "add_subparsers() + add_parser(name) gives each command its own parser",
+    "Use dest= and required=True to record and require the command",
+    "set_defaults(func=handler) makes dispatch a one-liner"
+   ],
+   "pitfalls": [
+    "Putting a main-parser option after the subcommand name, where the subparser doesn't recognise it."
+   ],
+   "quiz": [
+    {
+     "q": "Given main parser option -v and subcommand run, which command line works?",
+     "options": [
+      "app -v run",
+      "app run -v",
+      "Both work",
+      "Neither: options can't mix with subcommands"
+     ],
+     "answer": 0,
+     "explain": "Main-parser options must come before the subcommand; after it, the subparser parses the rest."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/argparse.html#sub-commands",
+   "requires": [
+    "py-argparse.choices-nargs",
+    "python.functions"
+   ]
+  },
+  {
+   "id": "py-argparse.groups",
+   "name": "Argument groups and mutual exclusion",
+   "module": "robust",
+   "level": 3,
+   "minutes": 9,
+   "summary": "Organise help with argument groups and forbid conflicting options with mutually exclusive groups.",
+   "why": "Large CLIs need readable help sections and must reject combinations like --quiet --verbose.",
+   "body": "**Argument groups** only affect help output. `g = parser.add_argument_group(\"output\", \"description\")` creates a titled section; arguments added with `g.add_argument(...)` are listed under it instead of the default \"options\" heading. Parsing is unchanged.\n\n**Mutually exclusive groups** affect parsing: at most one of their arguments may be given.\n\n```python\nmx = parser.add_mutually_exclusive_group()\nmx.add_argument(\"--quiet\", action=\"store_true\")\nmx.add_argument(\"--verbose\", action=\"store_true\")\n```\n\nSupplying both gives `argument --verbose: not allowed with argument --quiet`. Pass `required=True` to demand exactly one. Usage shows the group as `[--quiet | --verbose]`.\n\nYou can nest a mutually exclusive group inside an argument group to get both a heading and exclusivity: `group.add_mutually_exclusive_group()`. Other nesting (groups inside mutually exclusive groups) is deprecated.\n\nMutually exclusive groups only handle \"pick one\". For richer rules (\"--key requires --cert\", \"at least one of A or B\") check after parsing and call `parser.error(\"...\")`, which prints usage and exits with status 2 exactly like built-in errors, so your custom checks feel native.",
+   "code": "import argparse\n\np = argparse.ArgumentParser(prog=\"sync\")\nmx = p.add_mutually_exclusive_group()\nmx.add_argument(\"-q\", \"--quiet\", action=\"store_true\")\nmx.add_argument(\"-v\", \"--verbose\", action=\"store_true\")\n\nnet = p.add_argument_group(\"network\", \"connection settings\")\nnet.add_argument(\"--cert\")\nnet.add_argument(\"--key\")\n\nfor argv in ([\"-v\"], [\"-q\", \"-v\"], [\"--key\", \"k.pem\"]):\n    try:\n        a = p.parse_args(argv)\n        if a.key and not a.cert:\n            p.error(\"--key requires --cert\")\n        print(\"ok\", argv)\n    except SystemExit as e:\n        print(\"exit\", e.code, argv)\n# ok ['-v']\n# sync: error: argument -v/--verbose: not allowed with argument -q/--quiet\n# exit 2 ['-q', '-v']\n# sync: error: --key requires --cert\n# exit 2 ['--key', 'k.pem']",
+   "code_lang": "python",
+   "takeaways": [
+    "Argument groups only change help layout",
+    "Mutually exclusive groups reject combinations; required=True demands one",
+    "Use parser.error() for custom cross-argument rules"
+   ],
+   "pitfalls": [
+    "Expecting add_argument_group to enforce anything; it is purely cosmetic."
+   ],
+   "quiz": [
+    {
+     "q": "How do you report a custom validation failure so it looks like argparse's own errors?",
+     "options": [
+      "raise ValueError",
+      "print and return None",
+      "parser.error('message')",
+      "sys.exit(1)"
+     ],
+     "answer": 2,
+     "explain": "parser.error prints usage plus the message to stderr and exits with status 2."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/argparse.html#mutual-exclusion",
+   "requires": [
+    "py-argparse.subcommands"
+   ]
+  },
+  {
+   "id": "py-argparse.custom-types",
+   "name": "Custom types and validation",
+   "module": "robust",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Write your own type= functions and raise ArgumentTypeError for clear validation messages.",
+   "why": "Validating at parse time gives users immediate, specific errors instead of failures deep in your code.",
+   "body": "`type=` accepts any callable taking one string. That makes it the natural place for validation and conversion beyond `int` and `float`:\n\n```python\ndef port(s):\n    n = int(s)\n    if not 1 <= n <= 65535:\n        raise argparse.ArgumentTypeError(f\"{n} is not a valid port\")\n    return n\n```\n\nHow errors are reported:\n\n- `argparse.ArgumentTypeError(\"msg\")`: your message is shown verbatim: `argument --port: 70000 is not a valid port`.\n- `ValueError` or `TypeError`: a generic message using the function's name: `invalid port value: 'x'`. Name your functions well.\n\nGood candidates: positive integers, durations like `\"5m\"`, comma-separated lists, `datetime.date.fromisoformat`, key=value pairs, existing paths. Standard-library constructors often work directly: `type=date.fromisoformat`, `type=Decimal`.\n\nKeep type functions pure: don't open network connections or files at parse time. Checking that a path exists is fine, but opening it is better left to your main code inside a `with` block.\n\nThe `choices` check runs after `type`, so a custom type that normalises case (`str.lower`) pairs nicely with lowercase `choices`.",
+   "code": "import argparse\nfrom datetime import date\n\ndef positive_int(s):\n    n = int(s)                                  # ValueError -> generic message\n    if n <= 0:\n        raise argparse.ArgumentTypeError(f\"must be > 0, got {n}\")\n    return n\n\ndef csv_list(s):\n    return [part.strip() for part in s.split(\",\") if part.strip()]\n\np = argparse.ArgumentParser(prog=\"report\")\np.add_argument(\"--since\", type=date.fromisoformat)\np.add_argument(\"--top\", type=positive_int, default=10)\np.add_argument(\"--tags\", type=csv_list, default=[])\np.add_argument(\"--fmt\", type=str.lower, choices=[\"md\", \"html\"], default=\"md\")\n\na = p.parse_args([\"--since\", \"2026-01-31\", \"--tags\", \"a, b,,c\", \"--fmt\", \"HTML\"])\nprint(a.since.month, a.top, a.tags, a.fmt)   # 1 10 ['a', 'b', 'c'] html\nfor bad in ([\"--top\", \"0\"], [\"--top\", \"x\"]):\n    try: p.parse_args(bad)\n    except SystemExit: pass\n# report: error: argument --top: must be > 0, got 0\n# report: error: argument --top: invalid positive_int value: 'x'",
+   "code_lang": "python",
+   "takeaways": [
+    "type= takes any str -> value callable",
+    "ArgumentTypeError shows your message; ValueError shows a generic one",
+    "type runs before choices, so normalise there"
+   ],
+   "pitfalls": [
+    "Opening files or network resources inside a type function, leaking them if parsing later fails."
+   ],
+   "quiz": [
+    {
+     "q": "A type function raises ValueError for input 'abc'. What error does the user see?",
+     "options": [
+      "A Python traceback",
+      "The ValueError's message verbatim",
+      "Nothing; the default is used",
+      "argument --n: invalid <function name> value: 'abc'"
+     ],
+     "answer": 3,
+     "explain": "argparse catches ValueError and reports a generic message using the callable's name."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/argparse.html#type",
+   "requires": [
+    "py-argparse.types-defaults",
+    "py-argparse.groups"
+   ]
+  },
+  {
+   "id": "py-argparse.testing",
+   "name": "Structuring and testing CLIs",
+   "module": "robust",
+   "level": 3,
+   "minutes": 11,
+   "summary": "Write main(argv=None), test parsers with explicit lists, and control exit behaviour with exit_on_error and parse_known_args.",
+   "why": "A CLI you can call from tests is a CLI you can change safely.",
+   "body": "A testable layout separates parsing from work:\n\n```python\ndef build_parser(): ...\ndef main(argv=None):\n    args = build_parser().parse_args(argv)\n    ...\n    return 0\nif __name__ == \"__main__\":\n    raise SystemExit(main())\n```\n\n`parse_args(None)` reads `sys.argv[1:]`, so the real CLI works, while tests call `main([\"--port\", \"1\"])` directly. Return an exit code from `main` and pass it to `SystemExit`.\n\nUsage errors call `sys.exit(2)`, which raises `SystemExit`. In tests, assert on it: `with pytest.raises(SystemExit) as e: ...` then `e.value.code == 2`, and capture stderr to check the message.\n\n`ArgumentParser(exit_on_error=False)` makes some errors (such as invalid type conversions) raise `argparse.ArgumentError` instead of exiting, useful when embedding a parser in a larger program, though not every error path respects it, so tests should still expect `SystemExit` for others.\n\n`parse_known_args(argv)` returns `(namespace, leftovers)` instead of failing on unknown arguments. Use it for wrappers that pass the rest to another program. `parse_intermixed_args` allows options in between positionals that have `nargs`.",
+   "code": "import argparse, contextlib, io\n\ndef build_parser():\n    p = argparse.ArgumentParser(prog=\"greet\")\n    p.add_argument(\"name\")\n    p.add_argument(\"--times\", type=int, default=1)\n    return p\n\ndef main(argv=None):\n    args = build_parser().parse_args(argv)\n    for _ in range(args.times):\n        print(f\"hello {args.name}\")\n    return 0\nassert main([\"ada\", \"--times\", \"2\"]) == 0         # hello ada / hello ada\n\nerr = io.StringIO()\nwith contextlib.redirect_stderr(err):\n    try:\n        main([])\n    except SystemExit as e:\n        print(\"exit code:\", e.code)               # exit code: 2\nprint(err.getvalue().splitlines()[-1])            # greet: error: the following arguments are required: name\n\nknown, rest = build_parser().parse_known_args([\"bob\", \"--color\", \"-x\"])\nprint(known.name, rest)                           # bob ['--color', '-x']",
+   "code_lang": "python",
+   "takeaways": [
+    "main(argv=None) + parse_args(argv) makes the CLI callable from tests",
+    "Usage errors raise SystemExit(2); assert on it and on stderr",
+    "parse_known_args returns leftovers instead of failing"
+   ],
+   "pitfalls": [
+    "Testing by patching sys.argv globally instead of passing argv explicitly."
+   ],
+   "quiz": [
+    {
+     "q": "How does a test check that main(['--bad']) is rejected as a usage error?",
+     "options": [
+      "Assert main returns None",
+      "Expect ValueError",
+      "Expect SystemExit with code 2",
+      "Check that it returns 1"
+     ],
+     "answer": 2,
+     "explain": "argparse reports usage errors by calling sys.exit(2)."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/argparse.html#exit-on-error",
+   "requires": [
+    "py-argparse.first-parser",
+    "py-argparse.groups",
+    "python.testing"
+   ]
+  },
+  {
+   "id": "py-argparse.custom-actions",
+   "name": "Custom Action classes",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Subclass argparse.Action to run your own logic when an argument is parsed, such as KEY=VALUE options.",
+   "why": "Some argument behaviours can't be expressed with type and the built-in actions alone.",
+   "body": "An action is an object called each time its argument appears on the command line. Subclass `argparse.Action` and implement `__call__`:\n\n```python\nclass KeyValue(argparse.Action):\n    def __call__(self, parser, namespace, values, option_string=None):\n        ...\n        setattr(namespace, self.dest, result)\n```\n\nThe arguments:\n\n- `parser`: the parser, so you can call `parser.error(...)`,\n- `namespace`: the result object being filled in; read and write `self.dest` on it,\n- `values`: the already type-converted value(s), a list when `nargs` is set,\n- `option_string`: which flag was used (`None` for positionals).\n\n`__init__` receives the `add_argument` keywords (`option_strings`, `dest`, `nargs`, `default`...); override it to validate your options or fix `nargs`, and call `super().__init__`.\n\nImportant behaviours:\n\n- Actions run in command-line order, only when the argument appears. Defaults are set beforehand, not through your action.\n- Accumulating actions must copy before mutating: a list default is shared, so `items = list(getattr(namespace, self.dest) or [])`.\n- Since 3.9 an action may define `format_usage()`; `BooleanOptionalAction` uses it to show `--x | --no-x`.\n\nPrefer a `type=` function when you only convert single values; use an Action when behaviour depends on state across occurrences.",
+   "code": "import argparse\n\nclass KeyValue(argparse.Action):\n    \"\"\"Collect --set KEY=VALUE pairs into a dict.\"\"\"\n    def __call__(self, parser, namespace, values, option_string=None):\n        if \"=\" not in values:\n            parser.error(f\"{option_string} expects KEY=VALUE, got {values!r}\")\n        key, value = values.split(\"=\", 1)\n        current = dict(getattr(namespace, self.dest) or {})   # copy, don't mutate default\n        current[key] = value\n        setattr(namespace, self.dest, current)\n\np = argparse.ArgumentParser(prog=\"deploy\")\np.add_argument(\"--set\", action=KeyValue, metavar=\"KEY=VALUE\", default={})\na = p.parse_args([\"--set\", \"region=eu\", \"--set\", \"replicas=3\"])\nprint(a.set)                            # {'region': 'eu', 'replicas': '3'}\nprint(p.parse_args([]).set)             # {}\ntry:\n    p.parse_args([\"--set\", \"oops\"])\nexcept SystemExit:\n    pass\n# deploy: error: --set expects KEY=VALUE, got 'oops'",
+   "code_lang": "python",
+   "takeaways": [
+    "Subclass Action and implement __call__(parser, namespace, values, option_string)",
+    "Write results with setattr(namespace, self.dest, ...)",
+    "Copy mutable defaults before changing them"
+   ],
+   "pitfalls": [
+    "Mutating the default list or dict in place, so state leaks between parse_args calls."
+   ],
+   "quiz": [
+    {
+     "q": "When is a custom Action's __call__ invoked?",
+     "options": [
+      "Each time its argument appears on the command line",
+      "Once per parse, even if the option is absent",
+      "Only when --help is used",
+      "After all arguments are parsed"
+     ],
+     "answer": 0,
+     "explain": "Actions fire per occurrence; absent arguments just get their default."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/argparse.html#action-classes",
+   "requires": [
+    "py-argparse.custom-types",
+    "py-argparse.actions",
+    "python.classes"
+   ]
+  },
+  {
+   "id": "py-argparse.parents-config",
+   "name": "Parent parsers, files and layered config",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Share arguments with parents=, read arguments from @files, and layer defaults from config files and environment variables.",
+   "why": "Real tools combine CLI flags, config files and env vars without duplicating argument definitions.",
+   "body": "**Parent parsers** share argument definitions. Build a parser with `add_help=False` holding common options, then pass `parents=[common]` to each parser or subparser that needs them. The arguments are copied in.\n\n**Argument files**: `ArgumentParser(fromfile_prefix_chars=\"@\")` lets users write `tool @args.txt`; each line of the file is read as one argument. Override `convert_arg_line_to_args` to split lines differently, for example by whitespace.\n\n**Layered configuration** usually follows precedence: command line > environment > config file > built-in default. argparse has no built-in support, but `set_defaults` and `get_default` make it straightforward:\n\n- parse once with only a `--config` option using `parse_known_args`,\n- load the file (`tomllib`, `json`) and the relevant environment variables,\n- call `parser.set_defaults(**loaded)`, which overrides the defaults declared in `add_argument`,\n- parse the full command line; explicit flags win.\n\n`argparse.SUPPRESS` as a parser's `argument_default` omits unspecified options from the Namespace entirely, which lets you tell \"not given\" from \"given the default value\" when merging layers yourself.",
+   "code": "import argparse, os\n\ncommon = argparse.ArgumentParser(add_help=False)\ncommon.add_argument(\"--region\", default=\"us\")\ncommon.add_argument(\"--profile\", default=\"default\")\n\np = argparse.ArgumentParser(prog=\"cloud\", parents=[common], fromfile_prefix_chars=\"@\")\np.add_argument(\"--replicas\", type=int, default=1)\n\nwith open(\"prod.args\", \"w\") as f:\n    f.write(\"--region\\neu\\n--replicas\\n5\\n\")\nprint(vars(p.parse_args([\"@prod.args\"])))\n# {'region': 'eu', 'profile': 'default', 'replicas': 5}\n\nos.environ[\"CLOUD_PROFILE\"] = \"ci\"\nfile_config = {\"replicas\": 3, \"region\": \"ap\"}           # e.g. from tomllib\np.set_defaults(**file_config, profile=os.environ.get(\"CLOUD_PROFILE\", \"default\"))\nprint(vars(p.parse_args([\"--region\", \"eu\"])))\n# {'region': 'eu', 'profile': 'ci', 'replicas': 3}     CLI > env > file",
+   "code_lang": "python",
+   "takeaways": [
+    "parents=[common] copies shared arguments into several parsers",
+    "fromfile_prefix_chars='@' reads arguments from files",
+    "set_defaults() lets config files and env vars supply defaults the CLI can override"
+   ],
+   "pitfalls": [
+    "Forgetting add_help=False on a parent parser, causing a conflicting -h option."
+   ],
+   "quiz": [
+    {
+     "q": "Why must a parent parser be created with add_help=False?",
+     "options": [
+      "Parents can't have help text",
+      "add_help=False makes its arguments optional",
+      "Otherwise its -h/--help conflicts with the child parser's own",
+      "It is required for fromfile_prefix_chars"
+     ],
+     "answer": 2,
+     "explain": "Both parsers would define -h, raising an ArgumentError about conflicting option strings."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/argparse.html#parents",
+   "requires": [
+    "py-argparse.subcommands",
+    "py-argparse.testing",
+    "python.dicts"
+   ]
+  },
+  {
+   "id": "py-argparse.parsing-rules",
+   "name": "How argparse parses edge cases",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Understand prefix matching, negative numbers, the -- separator and how argparse assigns words to arguments.",
+   "why": "Odd inputs (values starting with '-', abbreviations, greedy nargs) cause the most confusing CLI bugs.",
+   "body": "argparse first classifies each word as an option (`O`) or argument (`A`), then matches patterns of these against your arguments using regular expressions over the `O`/`A` string. Several rules follow from that:\n\n- **Prefix matching**: `--verb` is accepted for `--verbose` if unambiguous. That can break scripts when you later add `--verbatim`. Disable with `allow_abbrev=False`.\n- **Negative numbers**: `-5` is treated as a value, not an option, unless the parser has options that look like negative numbers (such as `-1`). Then users must write `--offset=-5`.\n- **The `--` separator**: everything after `--` is positional, even if it starts with a dash, so `rm -- -weird-file` works.\n- **Values starting with `-`**: `--pattern -x` fails because `-x` looks like an option; use `--pattern=-x`.\n- **Greedy nargs**: positionals are matched greedily left to right, so `nargs=\"*\"` followed by another positional can steal values.\n- **Intermixing**: by default, positionals with `nargs` must be contiguous; `parse_intermixed_args()` allows options in between.\n\nWhen in doubt, print `parser.parse_args(argv)` for a list of tricky inputs and add them to your tests.",
+   "code": "import argparse\n\np = argparse.ArgumentParser(prog=\"calc\")\np.add_argument(\"--verbose\", action=\"store_true\")\np.add_argument(\"--offset\", type=int, default=0)\np.add_argument(\"--pattern\")\np.add_argument(\"files\", nargs=\"*\")\n\nprint(p.parse_args([\"--verb\", \"--offset\", \"-5\"]))       # prefix match; -5 is a value\n# Namespace(verbose=True, offset=-5, pattern=None, files=[])\nprint(p.parse_args([\"--pattern=-x\", \"--\", \"-file.txt\"]).files)   # ['-file.txt']\n\nstrict = argparse.ArgumentParser(prog=\"strict\", allow_abbrev=False)\nstrict.add_argument(\"--verbose\", action=\"store_true\")\ntry:\n    strict.parse_args([\"--verb\"])\nexcept SystemExit:\n    pass\n# strict: error: unrecognized arguments: --verb\n\nq = argparse.ArgumentParser()\nq.add_argument(\"cmd\"); q.add_argument(\"--n\"); q.add_argument(\"rest\", nargs=\"*\")\nprint(q.parse_intermixed_args([\"go\", \"a\", \"--n\", \"1\", \"b\"]))\n# Namespace(cmd='go', n='1', rest=['a', 'b'])",
+   "code_lang": "python",
+   "takeaways": [
+    "Long options can be abbreviated unless allow_abbrev=False",
+    "Use --opt=-value or -- for values that start with a dash",
+    "parse_intermixed_args allows options between positional values"
+   ],
+   "pitfalls": [
+    "Shipping a CLI with prefix matching on, then breaking users' abbreviations by adding a new option."
+   ],
+   "quiz": [
+    {
+     "q": "How can a user pass the value '-x' to --pattern?",
+     "options": [
+      "--pattern -x",
+      "--pattern=-x",
+      "--pattern '-x'",
+      "It is impossible"
+     ],
+     "answer": 1,
+     "explain": "With = the value is attached, so it isn't mistaken for an option; quotes don't help since the shell removes them."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/argparse.html#allow-abbrev",
+   "requires": [
+    "py-argparse.custom-actions",
+    "py-argparse.choices-nargs"
+   ]
+  }
+ ]
+}

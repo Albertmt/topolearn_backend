@@ -1,0 +1,569 @@
+{
+ "tool": {
+  "id": "helm",
+  "name": "Helm",
+  "category": "tool",
+  "tagline": "The package manager for Kubernetes: install, configure and upgrade apps as charts",
+  "description": "Helm packages Kubernetes manifests into versioned, configurable charts and manages installed releases with upgrades and rollbacks. It is how most third-party software (databases, ingress controllers, monitoring stacks) is installed on clusters, and a common way to ship your own services.",
+  "icon": "He",
+  "color": "#0F1689",
+  "official_docs": "https://helm.sh/docs/",
+  "version": "4",
+  "aliases": [
+   "helm charts",
+   "helm 4"
+  ],
+  "requires": [
+   {
+    "tool": "kubernetes",
+    "level": 2
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "using",
+   "name": "Using charts"
+  },
+  {
+   "id": "authoring",
+   "name": "Writing charts"
+  },
+  {
+   "id": "lifecycle",
+   "name": "Lifecycle and distribution"
+  },
+  {
+   "id": "advanced",
+   "name": "Advanced Helm"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "helm.what-is-helm",
+   "name": "What Helm is: charts, releases, repos",
+   "module": "using",
+   "level": 1,
+   "minutes": 7,
+   "summary": "A chart is a package of templated manifests; installing it creates a release you can upgrade and roll back.",
+   "why": "Knowing Helm's three core nouns makes every command and every chart's README make sense.",
+   "body": "Deploying a real application to Kubernetes takes many objects: Deployments, Services, ConfigMaps, ServiceAccounts, RBAC, Ingress. **Helm** bundles them into one installable, configurable unit.\n\nThree concepts:\n\n- **Chart**: a directory (or `.tgz` archive) of templated Kubernetes manifests plus default configuration (`values.yaml`) and metadata (`Chart.yaml`).\n- **Release**: one installation of a chart in a cluster, with a name. The same chart can be installed many times (`redis-cache`, `redis-sessions`). Helm records each release's history, which is what makes upgrades and rollbacks possible.\n- **Repository**: where charts are published, either a classic HTTP chart repo with an `index.yaml`, or an **OCI registry** (the same registries that hold container images). Artifact Hub is the search engine for public charts.\n\nHelm is a client-side tool: there is no server component in the cluster. It renders templates on your machine (or in CI), sends the resulting manifests to the API server with your kubeconfig credentials, and stores release records as Secrets in the release's namespace.\n\nHelm 4, released in late 2025, keeps the same chart format (apiVersion v2) as Helm 3, so charts work with both; differences are mostly in the CLI, plugins and how changes are applied.",
+   "code": "helm version\n# version.BuildInfo{Version:\"v4.0.0\", ...}\n\nhelm search hub postgresql | head -3        # search Artifact Hub\nhelm list -A                                # releases in all namespaces\n# NAME        NAMESPACE  REVISION  STATUS    CHART             APP VERSION\n# monitoring  obs        7         deployed  kube-prometheus-stack-77.0.0  v0.85.0\n\nkubectl get secrets -n obs -l owner=helm\n# sh.helm.release.v1.monitoring.v7   helm.sh/release.v1   ...",
+   "code_lang": "bash",
+   "takeaways": [
+    "Chart = package, release = installed instance, repository = where charts live",
+    "Helm runs client-side and stores release history as Secrets",
+    "One chart can be installed as several releases"
+   ],
+   "pitfalls": [],
+   "quiz": [
+    {
+     "q": "You install the same Redis chart twice with different names. What do you have?",
+     "options": [
+      "Two releases from one chart",
+      "One release with two revisions",
+      "Two charts",
+      "An error: charts install once per cluster"
+     ],
+     "answer": 0,
+     "explain": "Each install with a new name creates a separate release."
+    }
+   ],
+   "docs": "https://helm.sh/docs/intro/using_helm/",
+   "requires": [
+    "kubernetes.deployments",
+    "kubernetes.services"
+   ]
+  },
+  {
+   "id": "helm.install-repos",
+   "name": "Installing charts from repos and OCI",
+   "module": "using",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Add repositories, search them, and install, list and uninstall releases.",
+   "why": "This is how you install most third-party software on a cluster.",
+   "body": "For a classic repository, add it once and refresh its index:\n\n- `helm repo add prometheus-community https://prometheus-community.github.io/helm-charts` then `helm repo update`.\n- `helm search repo prometheus` searches added repos; `--versions` lists all versions.\n- `helm show values prometheus-community/prometheus` prints the chart's default values: read them before installing.\n\nCharts in **OCI registries** need no `repo add`; you reference them directly: `helm install cache oci://registry.example.com/charts/redis --version 1.2.0`.\n\nInstalling:\n\n- `helm install <release> <chart> -n <ns> --create-namespace`.\n- Always pin `--version`: otherwise you get the latest chart, which can change under you.\n- `helm upgrade --install` installs if the release doesn't exist and upgrades if it does, the idempotent form used in scripts and CI.\n- `--wait` waits until the resources are ready, and `--timeout 10m` bounds it.\n\nInspecting and removing:\n\n- `helm list -n ns`, `helm status <release>` (shows the chart's NOTES), `helm get manifest <release>` (what was applied), `helm get values <release>` (what you supplied).\n- `helm uninstall <release> -n ns` deletes the resources and history. PVCs created by StatefulSets are usually left behind on purpose.\n\nCheck whether a chart's publisher still maintains it; public chart catalogues do change.",
+   "code": "helm repo add prometheus-community https://prometheus-community.github.io/helm-charts\nhelm repo update\nhelm search repo prometheus-community/kube-prometheus-stack --versions | head -3\n\nhelm show values prometheus-community/kube-prometheus-stack > defaults.yaml\n\nhelm upgrade --install monitoring prometheus-community/kube-prometheus-stack \\\n  --version 77.0.0 -n obs --create-namespace --wait --timeout 10m\n\nhelm status monitoring -n obs\nhelm get manifest monitoring -n obs | grep -c '^kind:'\nhelm uninstall monitoring -n obs",
+   "code_lang": "bash",
+   "takeaways": [
+    "helm repo add + update for HTTP repos; oci:// references need no add",
+    "Pin --version; use upgrade --install in automation",
+    "helm get manifest/values shows what a release really contains"
+   ],
+   "pitfalls": [
+    "Installing without --version and getting a new major chart version on the next run."
+   ],
+   "quiz": [
+    {
+     "q": "Which command is safe to run repeatedly in CI whether or not the release already exists?",
+     "options": [
+      "helm install",
+      "helm upgrade --install",
+      "helm repo add",
+      "helm create"
+     ],
+     "answer": 1,
+     "explain": "upgrade --install creates the release the first time and upgrades it afterwards."
+    }
+   ],
+   "docs": "https://helm.sh/docs/intro/using_helm/",
+   "requires": [
+    "helm.what-is-helm"
+   ]
+  },
+  {
+   "id": "helm.values",
+   "name": "Configuring with values",
+   "module": "using",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Override a chart's defaults with -f values files and --set flags, and understand how they merge.",
+   "why": "Every chart is configured through values; merge rules decide what your release actually gets.",
+   "body": "A chart's `values.yaml` holds its defaults. You override them at install or upgrade time:\n\n- `-f my-values.yaml` (or `--values`): your overrides as a YAML file. Several `-f` files are merged in order, later ones winning: a common pattern is `-f base.yaml -f prod.yaml`.\n- `--set image.tag=1.5.0`: a single value on the command line. Nested keys use dots, lists use indexes (`--set ingress.hosts[0]=a.example.com`), and `--set-string` forces a string. `--set` beats `-f`.\n- `--set-file key=path` reads a value from a file (certificates, scripts).\n\nMerge rules: maps are **deep-merged**, so you only specify the keys you change. Lists are **replaced** wholesale, not merged, so overriding one element of a list means repeating the whole list. Setting a key to `null` removes a default.\n\nKeep values files in git and prefer them to long `--set` chains: they are reviewable and reproducible.\n\nOn upgrade, `helm upgrade` without values resets to chart defaults. Helm 3 had `--reuse-values` and `--reset-then-reuse-values` to carry previous values over, but they hide drift between releases and git; passing the same values files every time is the clear, repeatable approach.\n\n`helm get values <release> --all` shows the merged result.",
+   "code": "# prod.yaml\nreplicaCount: 3\nimage:\n  tag: \"1.5.0\"          # deep-merged: image.repository keeps its default\nresources:\n  requests: {cpu: 250m, memory: 256Mi}\ningress:\n  enabled: true\n  hosts:                # lists are replaced entirely\n    - host: shop.example.com\n      paths: [{path: /, pathType: Prefix}]\n# helm upgrade --install shop ./shop -n shop -f values-base.yaml -f prod.yaml \\\n#   --set image.tag=1.5.1      # --set wins over both files\n# helm get values shop -n shop --all",
+   "code_lang": "yaml",
+   "takeaways": [
+    "-f files merge in order; --set overrides them",
+    "Maps deep-merge, lists are replaced",
+    "Pass the same values files on every upgrade instead of relying on reuse"
+   ],
+   "pitfalls": [
+    "Overriding one entry of a list in values and silently losing the other default entries."
+   ],
+   "quiz": [
+    {
+     "q": "Defaults have image: {repository: nginx, tag: 1.26}. Your file sets image: {tag: 1.27}. What is image.repository?",
+     "options": [
+      "empty",
+      "an error",
+      "nginx",
+      "1.27"
+     ],
+     "answer": 2,
+     "explain": "Maps are deep-merged, so repository keeps its default."
+    }
+   ],
+   "docs": "https://helm.sh/docs/chart_template_guide/values_files/",
+   "requires": [
+    "helm.install-repos"
+   ]
+  },
+  {
+   "id": "helm.upgrade-rollback",
+   "name": "Upgrades, history and rollbacks",
+   "module": "using",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Upgrade releases, inspect their revision history and roll back to a previous revision.",
+   "why": "Changing running software safely, and undoing it fast, is Helm's main value after install.",
+   "body": "Every `helm upgrade` creates a new **revision** of the release: the rendered manifests and values are stored, and Helm applies the differences to the cluster. Resources that disappeared from the chart are deleted; new ones are created.\n\n- `helm history shop -n shop` lists revisions with status (`deployed`, `superseded`, `failed`) and description.\n- `helm rollback shop 4 -n shop` re-applies revision 4's manifests as a **new** revision (say 7), so history is never rewritten.\n- `helm upgrade ... --wait` waits for readiness; with `--rollback-on-failure` (named `--atomic` in Helm 3) a failed or timed-out upgrade rolls back automatically.\n- `--dry-run=server` renders and validates against the cluster without changing anything; the **helm-diff** plugin (`helm diff upgrade ...`) shows a kubectl-style diff and is popular in CI.\n\nLimits to remember:\n\n- Rollback restores Kubernetes objects, not data. A database migration run by the new version isn't undone.\n- `helm rollback` changes the cluster but not your values in git; fix git too, or the next pipeline run upgrades again.\n- If a release is stuck in `pending-upgrade` after an interrupted run, roll back to the last good revision before upgrading again.\n- `--history-max` (default 10) limits how many revisions are kept.",
+   "code": "helm upgrade shop ./shop -n shop -f prod.yaml --wait --timeout 5m\nhelm history shop -n shop\n# REVISION  STATUS      CHART       APP VERSION  DESCRIPTION\n# 5         superseded  shop-1.3.0  1.4.2        Upgrade complete\n# 6         deployed    shop-1.4.0  1.5.0        Upgrade complete\n\nhelm rollback shop 5 -n shop --wait\nhelm history shop -n shop --max 1\n# 7         deployed    shop-1.3.0  1.4.2        Rollback to 5\n\n# one-step safety net in CI (Helm 4 flag name)\nhelm upgrade --install shop ./shop -n shop -f prod.yaml --rollback-on-failure --timeout 5m",
+   "code_lang": "bash",
+   "takeaways": [
+    "Each upgrade or rollback is a new revision",
+    "Rollback restores objects, not data or your git",
+    "--wait plus automatic rollback-on-failure is a cheap CI safety net"
+   ],
+   "pitfalls": [
+    "Treating rollback as undoing a schema migration."
+   ],
+   "quiz": [
+    {
+     "q": "After rolling revision 6 back to 4, what revision number is now deployed?",
+     "options": [
+      "4",
+      "6",
+      "5",
+      "7"
+     ],
+     "answer": 3,
+     "explain": "A rollback creates a new revision with revision 4's content."
+    }
+   ],
+   "docs": "https://helm.sh/docs/helm/helm_rollback/",
+   "requires": [
+    "helm.values"
+   ]
+  },
+  {
+   "id": "helm.chart-structure",
+   "name": "Anatomy of a chart",
+   "module": "authoring",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Learn the files of a chart: Chart.yaml, values.yaml, templates/, helpers, NOTES.txt and .helmignore.",
+   "why": "You need to read charts you install and write charts for your own services.",
+   "body": "`helm create shop` scaffolds a working chart:\n\n- `Chart.yaml`: metadata. `apiVersion: v2`, `name`, `version` (the **chart's** SemVer version, bump it on every chart change) and `appVersion` (the version of the app it deploys, informational). Also `type` (`application` or `library`), `dependencies`, `kubeVersion` constraints.\n- `values.yaml`: defaults, documented with comments. This is the chart's public interface.\n- `templates/`: manifests with Go template expressions. Every file is rendered; files starting with `_` (like `_helpers.tpl`) are not output and hold named templates.\n- `templates/NOTES.txt`: rendered and printed after install, used for usage hints.\n- `charts/`: packaged dependencies.\n- `values.schema.json` (optional): JSON Schema that validates values.\n- `.helmignore`: files to leave out of the package.\n\n`helm template shop ./shop -f prod.yaml` renders locally so you can read the YAML that would be applied, without a cluster. `helm package ./shop` creates `shop-1.4.0.tgz`.\n\nKeep the chart close to the code it deploys (a `chart/` or `deploy/` directory) unless several services share a generic chart. Delete the scaffold's parts you don't use; a smaller chart is easier to maintain.",
+   "code": "helm create shop\ntree shop\n# shop/\n#   Chart.yaml  values.yaml  .helmignore  charts/\n#   templates/  _helpers.tpl  deployment.yaml  service.yaml  ingress.yaml\n#               hpa.yaml  serviceaccount.yaml  NOTES.txt  tests/\n\ncat shop/Chart.yaml\n# apiVersion: v2\n# name: shop\n# type: application\n# version: 0.1.0\n# appVersion: \"1.16.0\"\n\nhelm template shop ./shop --set replicaCount=2 | grep -A2 'kind: Deployment'",
+   "code_lang": "bash",
+   "takeaways": [
+    "version = chart version (bump on every change); appVersion = the app's",
+    "Files starting with _ hold helpers and aren't rendered as manifests",
+    "helm template renders locally for review"
+   ],
+   "pitfalls": [
+    "Changing templates without bumping the chart version, so two different packages share one version."
+   ],
+   "quiz": [
+    {
+     "q": "Which field must change when you modify a chart's templates and publish it?",
+     "options": [
+      "version",
+      "appVersion",
+      "apiVersion",
+      "name"
+     ],
+     "answer": 0,
+     "explain": "version identifies the chart package itself; appVersion describes the deployed app."
+    }
+   ],
+   "docs": "https://helm.sh/docs/topics/charts/",
+   "requires": [
+    "helm.what-is-helm",
+    "kubernetes.manifests"
+   ]
+  },
+  {
+   "id": "helm.templates-basics",
+   "name": "Templates, values and built-in objects",
+   "module": "authoring",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Write templates using .Values, .Release, .Chart and pipelines of template functions.",
+   "why": "Templates turn one chart into configurable manifests; most chart bugs are template bugs.",
+   "body": "Templates use Go's `text/template` syntax plus the **Sprig** function library and Helm extras. Expressions live in `{{ }}`; `{{-` and `-}}` trim whitespace on that side.\n\nBuilt-in objects:\n\n- `.Values`: merged values.\n- `.Release.Name`, `.Release.Namespace`, `.Release.IsUpgrade`, `.Release.Revision`.\n- `.Chart.Name`, `.Chart.Version`, `.Chart.AppVersion`.\n- `.Capabilities.KubeVersion`, `.Capabilities.APIVersions.Has \"policy/v1\"`.\n- `.Files.Get \"conf/app.conf\"` to read non-template files from the chart.\n\n**Pipelines** pass a value through functions left to right: `{{ .Values.name | default \"web\" | quote }}`. Useful functions: `default`, `quote`, `upper`, `toYaml`, `indent`/`nindent`, `required \"msg\"`, `b64enc`, `sha256sum`, `printf`.\n\nBase names on the release (`{{ .Release.Name }}-web`) so several releases can coexist in one namespace.\n\nYAML is whitespace-sensitive and templates are plain text, so indentation is the classic problem: when inserting a block, use `toYaml .Values.resources | nindent 12`. `nindent` adds a newline first, which keeps the template readable.\n\nA good trick: put a checksum of the rendered ConfigMap in a pod annotation (`checksum/config`) so config changes roll the pods.",
+   "code": "# templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {{ .Release.Name }}-web\n  labels:\n    app.kubernetes.io/instance: {{ .Release.Name }}\nspec:\n  replicas: {{ .Values.replicaCount | default 1 }}\n  selector:\n    matchLabels: {app.kubernetes.io/instance: {{ .Release.Name }}}\n  template:\n    metadata:\n      labels: {app.kubernetes.io/instance: {{ .Release.Name }}}\n      annotations:\n        checksum/config: {{ include (print $.Template.BasePath \"/configmap.yaml\") . | sha256sum }}\n    spec:\n      containers:\n        - name: web\n          image: \"{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}\"\n          resources:\n            {{- toYaml .Values.resources | nindent 12 }}",
+   "code_lang": "yaml",
+   "takeaways": [
+    ".Values, .Release, .Chart, .Capabilities, .Files are the built-ins",
+    "Pipelines: value | function | function",
+    "toYaml | nindent N inserts blocks with correct indentation"
+   ],
+   "pitfalls": [
+    "Forgetting quote on values like \"yes\" or \"1.10\" that YAML would turn into a boolean or a number."
+   ],
+   "quiz": [
+    {
+     "q": "What does {{ .Values.image.tag | default .Chart.AppVersion }} produce when image.tag is empty?",
+     "options": [
+      "An empty string",
+      "The chart's appVersion",
+      "An error",
+      "The chart's version"
+     ],
+     "answer": 1,
+     "explain": "default returns its argument when the piped value is empty."
+    }
+   ],
+   "docs": "https://helm.sh/docs/chart_template_guide/getting_started/",
+   "requires": [
+    "helm.chart-structure",
+    "helm.values"
+   ]
+  },
+  {
+   "id": "helm.control-named-templates",
+   "name": "Control flow and named templates",
+   "module": "authoring",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Use if, with, range and variables, and share snippets with define, include and _helpers.tpl.",
+   "why": "Optional features and repeated label blocks need conditionals and reusable templates.",
+   "body": "Control structures:\n\n- `{{ if .Values.ingress.enabled }} ... {{ else }} ... {{ end }}`: values that are false, 0, empty strings, empty lists/maps and nil are false. Combine with `and`, `or`, `not`, `eq`.\n- `{{ with .Values.nodeSelector }} ... {{ end }}`: runs the block only if the value is non-empty, and sets `.` to it.\n- `{{ range .Values.hosts }} ... {{ end }}` loops over lists; `{{ range $key, $val := .Values.env }}` loops over maps in sorted key order.\n- Variables: `{{ $name := .Release.Name }}`. Inside `with` and `range` the dot changes, so use `$` for the root context (`$.Release.Name`).\n\n**Named templates** avoid copy-paste. Define them in `templates/_helpers.tpl`:\n\n`{{- define \"shop.labels\" -}} ... {{- end }}`\n\nand use them with `{{ include \"shop.labels\" . | nindent 4 }}`. Prefix names with the chart name, because template names are global across a chart and its subcharts. Prefer `include` over the built-in `template` action, because `include` returns a string you can pipe to `nindent`.\n\nPass the right context: `include \"x\" .` passes the current dot; inside a `range` you may need `include \"x\" $` or a `dict` with several values.",
+   "code": "{{/* templates/_helpers.tpl */}}\n{{- define \"shop.labels\" -}}\napp.kubernetes.io/name: {{ .Chart.Name }}\napp.kubernetes.io/instance: {{ .Release.Name }}\napp.kubernetes.io/version: {{ .Chart.AppVersion | quote }}\n{{- end }}\n\n{{/* templates/configmap.yaml */}}\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: {{ .Release.Name }}-env\n  labels:\n    {{- include \"shop.labels\" . | nindent 4 }}\ndata:\n  {{- range $key, $val := .Values.env }}\n  {{ $key }}: {{ $val | quote }}\n  {{- end }}\n  {{- with .Values.extraConfig }}\n  extra.conf: {{ . | quote }}\n  {{- end }}",
+   "code_lang": "yaml",
+   "takeaways": [
+    "if/with/range with Go truthiness; $ is the root inside with/range",
+    "define in _helpers.tpl, use with include ... | nindent",
+    "Prefix template names with the chart name"
+   ],
+   "pitfalls": [
+    "Using .Release.Name inside a range block, where the dot is the current item; use $.Release.Name."
+   ],
+   "quiz": [
+    {
+     "q": "Inside {{ range .Values.hosts }}, how do you reach the release name?",
+     "options": [
+      "{{ .Release.Name }}",
+      "{{ Release.Name }}",
+      "{{ $.Release.Name }}",
+      "It's not available inside range"
+     ],
+     "answer": 2,
+     "explain": "range rebinds the dot to each item; $ always refers to the root context."
+    }
+   ],
+   "docs": "https://helm.sh/docs/chart_template_guide/control_structures/",
+   "requires": [
+    "helm.templates-basics"
+   ]
+  },
+  {
+   "id": "helm.dependencies",
+   "name": "Chart dependencies and subcharts",
+   "module": "authoring",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Declare dependencies in Chart.yaml, configure subcharts through values, and toggle them with conditions.",
+   "why": "Umbrella charts and bundled databases are built from dependencies; their values scoping trips people up.",
+   "body": "A chart can depend on other charts, listed in `Chart.yaml` under `dependencies` with `name`, `version` (a SemVer range like `~16.4.0`), `repository` (an HTTP repo URL, `oci://...`, or `file://../common`), and optionally `condition`, `tags` and `alias`.\n\n- `helm dependency update` downloads them into `charts/` and writes `Chart.lock` with exact versions; `helm dependency build` restores from the lock file. Commit `Chart.lock`.\n- Values for a subchart go under its **name** (or alias) in the parent's values: `postgresql.auth.database: shop`.\n- `condition: postgresql.enabled` lets users switch the subchart off, for example to use a managed database in production.\n- `alias` lets you include the same chart twice under different names.\n\nScoping rules: a subchart sees only its own section of values, never the parent's. The exception is `global`: `.Values.global.*` is shared with every subchart. A parent can read a subchart's values, not the other way around.\n\nTemplates in a subchart can't refer to the parent's helpers, but named templates are global, which is why `common` **library charts** work.\n\nAn **umbrella chart** with only dependencies is a popular way to install a whole stack in one release; but one release also means one blast radius and one upgrade, so keep umbrellas small.",
+   "code": "# Chart.yaml\napiVersion: v2\nname: shop\nversion: 1.4.0\nappVersion: \"1.5.0\"\ndependencies:\n  - name: postgresql\n    version: \"~16.4.0\"\n    repository: oci://registry.example.com/charts\n    condition: postgresql.enabled\n\n# values.yaml\npostgresql:\n  enabled: true\n  auth: {database: shop, username: shop}\nglobal:\n  imageRegistry: registry.example.com   # visible to all subcharts\n\n# helm dependency update ./shop   -> charts/postgresql-16.4.x.tgz + Chart.lock",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Declare in Chart.yaml; helm dependency update; commit Chart.lock",
+    "Configure a subchart under its name; global is shared",
+    "condition/tags toggle subcharts on and off"
+   ],
+   "pitfalls": [
+    "Expecting a subchart template to read the parent's top-level values."
+   ],
+   "quiz": [
+    {
+     "q": "How can a value be seen by both the parent chart and all its subcharts?",
+     "options": [
+      "Put it at the top level of values.yaml",
+      "Define it in Chart.yaml",
+      "Use --set-string",
+      "Put it under global"
+     ],
+     "answer": 3,
+     "explain": "Only .Values.global is passed down to every subchart."
+    }
+   ],
+   "docs": "https://helm.sh/docs/chart_template_guide/subcharts_and_globals/",
+   "requires": [
+    "helm.chart-structure",
+    "helm.values"
+   ]
+  },
+  {
+   "id": "helm.hooks-tests",
+   "name": "Hooks and chart tests",
+   "module": "lifecycle",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Run Jobs at points in the release lifecycle with hooks, and verify installs with helm test.",
+   "why": "Database migrations before an upgrade and smoke tests after it are common release steps.",
+   "body": "A **hook** is a normal template with the annotation `helm.sh/hook`, which makes Helm run it at a lifecycle point instead of applying it with the rest of the release:\n\n- `pre-install`, `post-install`, `pre-upgrade`, `post-upgrade`, `pre-delete`, `post-delete`, `pre-rollback`, `post-rollback`, and `test`.\n\nHelm waits for hook Jobs and Pods to complete before continuing; a failed hook fails the operation. Order several hooks with `helm.sh/hook-weight` (lower runs first). Hook resources are **not** part of the release, so clean them up with `helm.sh/hook-delete-policy`: `before-hook-creation` (delete the old one before re-running, the usual choice), `hook-succeeded` or `hook-failed`.\n\nTypical use: a `pre-upgrade` Job runs schema migrations with the new image before new pods start. Make migrations backward compatible, because old pods still run during the rollout, and a rollback won't reverse them.\n\nCaveat: `pre-install` hooks run before the release's ConfigMaps and Secrets exist, so a hook that needs them must create its own or run `post-install`.\n\n**Chart tests** are hooks with `helm.sh/hook: test`, usually a pod that curls the service. `helm test shop -n shop` runs them on demand, an easy smoke test after deploy in CI.\n\nGitOps tools map Helm hooks to their own mechanisms, sometimes with differences; check before relying on exotic hook combinations.",
+   "code": "apiVersion: batch/v1\nkind: Job\nmetadata:\n  name: {{ .Release.Name }}-migrate\n  annotations:\n    \"helm.sh/hook\": pre-install,pre-upgrade\n    \"helm.sh/hook-weight\": \"0\"\n    \"helm.sh/hook-delete-policy\": before-hook-creation\nspec:\n  backoffLimit: 1\n  template:\n    spec:\n      restartPolicy: Never\n      containers:\n        - name: migrate\n          image: \"{{ .Values.image.repository }}:{{ .Values.image.tag }}\"\n          args: [\"migrate\", \"--to\", \"latest\"]\n          envFrom: [{secretRef: {name: {{ .Values.db.secretName }}}}]\n# helm upgrade shop ./shop --wait   -> Job runs and must succeed first\n# helm test shop                    -> runs templates annotated \"helm.sh/hook\": test",
+   "code_lang": "yaml",
+   "takeaways": [
+    "helm.sh/hook annotations run resources at lifecycle points",
+    "Hooks aren't release resources: set a delete policy",
+    "helm test runs test hooks for post-deploy smoke checks"
+   ],
+   "pitfalls": [
+    "Migrations that break the old version still running during the rollout."
+   ],
+   "quiz": [
+    {
+     "q": "Why add hook-delete-policy: before-hook-creation to a migration Job hook?",
+     "options": [
+      "So the previous Job is removed and the hook can be created again on the next upgrade",
+      "To make it run faster",
+      "To roll back the migration",
+      "To skip it on install"
+     ],
+     "answer": 0,
+     "explain": "Job names are reused; deleting the old one first avoids an 'already exists' failure."
+    }
+   ],
+   "docs": "https://helm.sh/docs/topics/charts_hooks/",
+   "requires": [
+    "helm.upgrade-rollback",
+    "helm.templates-basics",
+    "kubernetes.jobs-cronjobs"
+   ]
+  },
+  {
+   "id": "helm.lint-schema-test",
+   "name": "Linting, schemas and testing charts",
+   "module": "lifecycle",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Catch chart bugs early with helm lint, values.schema.json, rendered-output checks and helm-unittest.",
+   "why": "Template errors otherwise surface in production deploys; charts deserve tests like code.",
+   "body": "Layers of checking, cheapest first:\n\n- `helm lint ./shop -f prod.yaml` checks structure, renders templates, and flags common mistakes. Run it with each environment's values.\n- **values.schema.json**: a JSON Schema for values. Helm validates against it on install, upgrade, lint and template, rejecting typos and wrong types with a clear message. Mark required keys, set `additionalProperties: false` where you can, and use enums.\n- `required` in templates: `{{ required \"image.tag is required\" .Values.image.tag }}` fails rendering with your message.\n- `helm template ... | kubeconform -strict` validates rendered manifests against Kubernetes schemas offline; policy tools (conftest, Kyverno CLI) check rules such as \"every container has limits\".\n- **helm-unittest** (a plugin) asserts on rendered output: given these values, the Deployment has 3 replicas and no hostPath. Fast and needs no cluster.\n- **chart-testing** (`ct lint`, `ct install`) lints changed charts and installs them into a kind cluster in CI, checking version bumps too.\n\nA sensible CI pipeline for a chart repo: lint, schema, unit tests, kubeconform on each values file, then install into a throwaway kind cluster and run `helm test`.",
+   "code": "{\n  \"$schema\": \"https://json-schema.org/draft-07/schema#\",\n  \"type\": \"object\",\n  \"required\": [\"image\"],\n  \"properties\": {\n    \"replicaCount\": {\"type\": \"integer\", \"minimum\": 1},\n    \"image\": {\n      \"type\": \"object\",\n      \"required\": [\"repository\", \"tag\"],\n      \"properties\": {\n        \"repository\": {\"type\": \"string\"},\n        \"tag\": {\"type\": \"string\", \"pattern\": \"^[0-9]+\\\\.[0-9]+\\\\.[0-9]+$\"},\n        \"pullPolicy\": {\"enum\": [\"Always\", \"IfNotPresent\", \"Never\"]}\n      },\n      \"additionalProperties\": false\n    }\n  }\n}",
+   "code_lang": "json",
+   "takeaways": [
+    "helm lint and helm template per environment's values",
+    "values.schema.json rejects bad values before anything is applied",
+    "helm-unittest for fast assertions; chart-testing + kind for real installs"
+   ],
+   "pitfalls": [
+    "Writing a schema but leaving additionalProperties open, so typos like replicaCont still pass."
+   ],
+   "quiz": [
+    {
+     "q": "A user sets replicaCount: \"three\". What stops this at install time?",
+     "options": [
+      "helm lint only",
+      "A values.schema.json declaring replicaCount as an integer",
+      "The Deployment's readiness probe",
+      "Chart.lock"
+     ],
+     "answer": 1,
+     "explain": "Helm validates values against the schema on install and upgrade and rejects the wrong type."
+    }
+   ],
+   "docs": "https://helm.sh/docs/topics/charts/#schema-files",
+   "requires": [
+    "helm.control-named-templates"
+   ]
+  },
+  {
+   "id": "helm.oci-publishing",
+   "name": "Packaging and publishing to OCI registries",
+   "module": "lifecycle",
+   "level": 3,
+   "minutes": 8,
+   "summary": "Package charts, push them to OCI registries, sign them, and version them with SemVer.",
+   "why": "Sharing charts across teams or publicly means publishing versioned, verifiable artifacts.",
+   "body": "The modern way to distribute charts is an **OCI registry**: GHCR, Docker Hub, ECR, Artifact Registry, ACR, Harbor. Charts sit next to images, with the same authentication and access control.\n\n- `helm registry login ghcr.io -u USER --password-stdin`\n- `helm package ./shop` produces `shop-1.4.0.tgz` (the version comes from `Chart.yaml`; `--version` and `--app-version` override it in CI).\n- `helm push shop-1.4.0.tgz oci://ghcr.io/acme/charts` stores it as `ghcr.io/acme/charts/shop:1.4.0`.\n- Consumers install with `helm install shop oci://ghcr.io/acme/charts/shop --version 1.4.0`, or list it as a dependency with that repository URL.\n\nClassic HTTP repos (an `index.yaml` plus `.tgz` files, often on GitHub Pages via chart-releaser) still work, but they need the index to be rebuilt and fetched as a whole, while OCI needs nothing extra.\n\nVersioning: follow SemVer for the chart version. A breaking change to values (renamed keys, removed features) is a major bump; document migrations in the chart's README or changelog.\n\nIntegrity: Helm's own `--sign`/`--verify` uses PGP provenance files; many teams instead sign OCI artifacts with **cosign** (Sigstore) and verify the digest. Referencing a chart by digest pins it immutably.",
+   "code": "echo \"$GITHUB_TOKEN\" | helm registry login ghcr.io -u acme-bot --password-stdin\n\nhelm package ./shop --version 1.4.0 --app-version 1.5.0\n# Successfully packaged chart and saved it to: shop-1.4.0.tgz\n\nhelm push shop-1.4.0.tgz oci://ghcr.io/acme/charts\n# Pushed: ghcr.io/acme/charts/shop:1.4.0\n# Digest: sha256:9c1e...\n\nhelm show chart oci://ghcr.io/acme/charts/shop --version 1.4.0\ncosign sign --yes ghcr.io/acme/charts/shop@sha256:9c1e...",
+   "code_lang": "bash",
+   "takeaways": [
+    "Package, then push to oci://registry/path; install with --version",
+    "OCI registries need no index file",
+    "SemVer the chart; sign artifacts (cosign) and pin by digest for integrity"
+   ],
+   "pitfalls": [
+    "Re-pushing a changed chart under an existing version tag, so consumers get different content for the same version."
+   ],
+   "quiz": [
+    {
+     "q": "What determines the version tag a chart gets when pushed to an OCI registry?",
+     "options": [
+      "The registry assigns one",
+      "appVersion",
+      "The chart version from Chart.yaml (or --version when packaging)",
+      "The git commit"
+     ],
+     "answer": 2,
+     "explain": "The packaged chart's version becomes the OCI tag."
+    }
+   ],
+   "docs": "https://helm.sh/docs/topics/registries/",
+   "requires": [
+    "helm.dependencies",
+    "helm.upgrade-rollback"
+   ]
+  },
+  {
+   "id": "helm.release-internals",
+   "name": "How Helm applies changes and stores releases",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Release records in Secrets, three-way merges versus server-side apply, ownership annotations and drift.",
+   "why": "Stuck releases, adoption errors and fights with other controllers all come from these mechanics.",
+   "body": "**Release storage**: each revision is a Secret named `sh.helm.release.v1.<release>.v<revision>` in the release namespace, labelled `owner=helm`. Its data is the release (chart, values, rendered manifest, status) gzipped and base64-encoded. Anyone who can read Secrets in that namespace can read your values, including passwords. The storage driver can be switched (`HELM_DRIVER=configmap`, `sql`), and `--history-max` keeps it bounded.\n\n**Ownership**: Helm labels and annotates what it creates (`app.kubernetes.io/managed-by: Helm`, `meta.helm.sh/release-name`, `meta.helm.sh/release-namespace`). Installing a chart over an existing object without these fails with an \"invalid ownership metadata\" error; adding the annotations by hand lets Helm **adopt** it. `helm.sh/resource-policy: keep` leaves an object behind on uninstall (useful for PVCs or CRDs).\n\n**Applying changes**: Helm 3 computes a **three-way merge** between the previous release manifest, the new manifest and the live object, so changes made by others to fields Helm never set survive. Helm 4 uses Kubernetes **server-side apply** for new releases, with field ownership tracked by the API server; conflicts with other managers (an HPA owning `replicas`) are then explicit.\n\n**Drift**: Helm only compares against what it rendered; it does not continuously correct manual edits. GitOps controllers fill that gap.\n\n**CRDs** in a chart's `crds/` folder are installed once and never upgraded or deleted by Helm, on purpose; manage CRD upgrades separately.",
+   "code": "kubectl -n shop get secret sh.helm.release.v1.shop.v7 -o jsonpath='{.data.release}' \\\n  | base64 -d | base64 -d | gunzip | jq '{name, version, status: .info.status, values: .config}'\n# {\"name\":\"shop\",\"version\":7,\"status\":\"deployed\",\"values\":{\"image\":{\"tag\":\"1.5.0\"}}}\n\n# adopt an existing object into a release\nkubectl -n shop annotate svc shop-web meta.helm.sh/release-name=shop \\\n  meta.helm.sh/release-namespace=shop\nkubectl -n shop label svc shop-web app.kubernetes.io/managed-by=Helm\n\nkubectl get deploy shop-web -n shop --show-managed-fields -o yaml | grep 'manager:'",
+   "code_lang": "bash",
+   "takeaways": [
+    "Release revisions are gzipped Secrets: protect read access",
+    "Ownership annotations decide what Helm manages; resource-policy keep",
+    "Helm 3 three-way merge vs Helm 4 server-side apply; CRDs in crds/ are never upgraded"
+   ],
+   "pitfalls": [
+    "Assuming Helm will reconcile manual kubectl edits back to the chart's state on its own."
+   ],
+   "quiz": [
+    {
+     "q": "Why does upgrading a chart not update the CRDs in its crds/ directory?",
+     "options": [
+      "A bug in older versions",
+      "They update only with --force",
+      "CRDs are cluster-scoped and Helm can't touch them",
+      "Helm deliberately installs crds/ only once to avoid destructive CRD changes"
+     ],
+     "answer": 3,
+     "explain": "CRD changes can delete data cluster-wide, so Helm leaves upgrades of crds/ to you."
+    }
+   ],
+   "docs": "https://helm.sh/docs/topics/advanced/",
+   "requires": [
+    "helm.upgrade-rollback",
+    "helm.hooks-tests"
+   ]
+  },
+  {
+   "id": "helm.advanced-templating",
+   "name": "lookup, tpl and library charts",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Query the cluster with lookup, render values as templates with tpl, fail clearly, and share code via library charts.",
+   "why": "Large chart estates and platform teams rely on these to stay DRY and correct.",
+   "body": "Powerful functions, each with a catch:\n\n- `lookup \"v1\" \"Secret\" .Release.Namespace \"shop-db\"` reads a live object during rendering, e.g. to keep a generated password stable across upgrades instead of regenerating it. It returns an empty map under `helm template` and client-side dry runs (no cluster access), so templates must handle that case, and it makes rendering depend on cluster state, which GitOps tools often can't provide.\n- `tpl .Values.annotationsTemplate .` renders a value string as a template, so users can write `{{ .Release.Name }}` inside values. Handy for chart authors, but it's easy to make values unreadable.\n- `fail \"message\"` and `required` stop rendering with a clear error when values are inconsistent (ingress enabled with no hosts).\n- `dict`, `list`, `merge`, `mergeOverwrite`, `deepCopy`, `toJson`, `fromYaml` let helpers take structured arguments and build objects.\n\n**Library charts** (`type: library` in Chart.yaml) contain only named templates and can't be installed. Application charts depend on one and call its helpers, e.g. `{{ include \"common.deployment\" (dict \"root\" . \"name\" \"api\") }}`. Platform teams use this to give dozens of services identical labels, probes and security contexts while each service chart stays tiny.\n\nKeep charts boring: templating everything is the road to an unmaintainable chart. If you need real logic, consider generating manifests with a proper language or using an operator.",
+   "code": "{{/* Keep a generated password stable across upgrades */}}\n{{- $existing := lookup \"v1\" \"Secret\" .Release.Namespace (printf \"%s-db\" .Release.Name) }}\n{{- $pw := \"\" }}\n{{- if $existing }}\n{{-   $pw = index $existing.data \"password\" | b64dec }}\n{{- else }}\n{{-   $pw = randAlphaNum 24 }}\n{{- end }}\napiVersion: v1\nkind: Secret\nmetadata:\n  name: {{ .Release.Name }}-db\n  annotations:\n    {{- tpl (toYaml .Values.extraAnnotations) . | nindent 4 }}\nstringData:\n  password: {{ $pw | quote }}\n{{- if and .Values.ingress.enabled (not .Values.ingress.hosts) }}\n{{-   fail \"ingress.enabled requires at least one ingress.hosts entry\" }}\n{{- end }}",
+   "code_lang": "yaml",
+   "takeaways": [
+    "lookup reads live objects but is empty during helm template",
+    "tpl renders values as templates; fail/required give clear errors",
+    "Library charts share helpers across many service charts"
+   ],
+   "pitfalls": [
+    "Relying on lookup in a chart deployed by a GitOps tool that renders without cluster access, regenerating secrets each time."
+   ],
+   "quiz": [
+    {
+     "q": "What does lookup return when you run helm template without a cluster?",
+     "options": [
+      "An empty result",
+      "The live object",
+      "An error",
+      "The value from values.yaml"
+     ],
+     "answer": 0,
+     "explain": "helm template has no cluster connection, so lookup returns an empty map."
+    }
+   ],
+   "docs": "https://helm.sh/docs/chart_template_guide/functions_and_pipelines/",
+   "requires": [
+    "helm.control-named-templates",
+    "helm.dependencies"
+   ]
+  },
+  {
+   "id": "helm.gitops-postrender",
+   "name": "Helm with GitOps and post-renderers",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Run charts through Argo CD or Flux, patch rendered output with post-renderers, and choose who owns the release.",
+   "why": "At scale, charts are deployed by controllers from git, not by people typing helm upgrade.",
+   "body": "With **GitOps**, a controller in the cluster continuously makes it match git, correcting drift. Both major tools consume Helm charts but differently:\n\n- **Flux** `HelmRelease` objects run real Helm operations through its helm-controller: releases appear in `helm list`, hooks and history behave as in Helm, and it can remediate failed upgrades with rollbacks.\n- **Argo CD** renders the chart with the equivalent of `helm template` and applies the output itself. There is no Helm release object; Argo tracks resources and drift itself, maps hooks to its own sync phases, and `lookup` has no cluster to read.\n\nChoose knowingly: charts that depend on release state, `lookup` or exotic hooks behave differently under Argo CD.\n\n**Post-renderers** let you change the rendered manifests after templating and before applying, without forking the chart: `helm install --post-renderer ./kustomize-wrapper`. In Helm 4, post-renderers are provided as plugins. The usual implementation pipes the YAML into Kustomize to add labels, sidecars or patches the chart's values don't expose. Flux supports Kustomize post-renderers declaratively in `HelmRelease`.\n\nPromotion between environments then becomes a git change: bump the chart version or values in the staging folder, verify, then in production. Pair it with the chart's schema and CI rendering checks so broken values never reach the cluster.",
+   "code": "apiVersion: helm.toolkit.fluxcd.io/v2\nkind: HelmRelease\nmetadata: {name: shop, namespace: shop}\nspec:\n  interval: 10m\n  chart:\n    spec:\n      chart: shop\n      version: \"1.4.x\"\n      sourceRef: {kind: HelmRepository, name: acme-charts}\n  values:\n    replicaCount: 3\n  upgrade:\n    remediation: {retries: 2}   # roll back after failed upgrades\n  postRenderers:\n    - kustomize:\n        patches:\n          - target: {kind: Deployment, name: shop-web}\n            patch: |\n              - {op: add, path: /spec/template/metadata/annotations/team, value: payments}",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Flux runs real Helm releases; Argo CD renders and applies itself",
+    "Post-renderers patch output without forking charts",
+    "Promote by changing versions/values in git"
+   ],
+   "pitfalls": [
+    "Moving a chart to Argo CD without checking its use of lookup and hooks."
+   ],
+   "quiz": [
+    {
+     "q": "Under Argo CD, why might helm list show no release for an app deployed from a chart?",
+     "options": [
+      "Argo CD deletes release Secrets",
+      "Argo CD renders templates and applies manifests itself rather than running helm install",
+      "The chart is a library chart",
+      "Releases are stored in another namespace"
+     ],
+     "answer": 1,
+     "explain": "Argo CD uses Helm only as a renderer; it manages the resources directly."
+    }
+   ],
+   "docs": "https://helm.sh/docs/topics/advanced/#post-rendering",
+   "requires": [
+    "helm.release-internals",
+    "kubernetes.kustomize"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,634 @@
+{
+ "tool": {
+  "id": "beautifulsoup",
+  "name": "Beautiful Soup",
+  "category": "library",
+  "tagline": "Parse, search and edit HTML and XML in Python, even when it's badly broken",
+  "description": "Beautiful Soup (the bs4 package) parses HTML and XML into a tree of Python objects that you can search with find_all or CSS selectors, navigate and modify. It's the most popular tool for web scraping and for cleaning or transforming HTML, and it copes gracefully with the malformed markup found on real websites.",
+  "icon": "BS",
+  "color": "#8B4513",
+  "official_docs": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/",
+  "version": "4.15",
+  "aliases": [
+   "bs4",
+   "beautifulsoup4",
+   "beautiful soup",
+   "soup",
+   "html parsing"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Parsing basics"
+  },
+  {
+   "id": "searching",
+   "name": "Searching and navigating"
+  },
+  {
+   "id": "practical",
+   "name": "Scraping in practice"
+  },
+  {
+   "id": "transforming",
+   "name": "Editing, parsers and encodings"
+  },
+  {
+   "id": "internals",
+   "name": "Internals and performance"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "beautifulsoup.parsing",
+   "name": "Parsing HTML into a soup",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Install bs4, turn an HTML string into a BeautifulSoup tree with an explicit parser, and look at it.",
+   "why": "Every Beautiful Soup task starts by parsing markup into a navigable tree, and picking the parser explicitly avoids surprises.",
+   "body": "**Beautiful Soup** turns HTML or XML, even badly broken HTML, into a tree of Python objects you can search and navigate. Install it as `pip install beautifulsoup4` and import it from the `bs4` package (the old `BeautifulSoup` package is version 3, long dead).\n\nCreate a soup with `BeautifulSoup(markup, \"html.parser\")`. The markup can be a string, bytes or an open file. The second argument chooses the **parser**:\n\n- `\"html.parser\"`: Python's built-in parser, no extra install.\n- `\"lxml\"`: much faster, needs `pip install lxml`.\n- `\"html5lib\"`: parses exactly like a browser, slowest.\n\nAlways pass the parser explicitly. If you omit it, Beautiful Soup picks the best one installed and warns, which means the same code can produce different trees on different machines.\n\nThe resulting `BeautifulSoup` object is the root of the tree. Useful first steps:\n\n- `soup.title` gives the first `<title>` tag; `soup.title.string` its text.\n- `soup.prettify()` returns the document re-indented, one tag per line, for reading.\n- `print(soup)` or `str(soup)` gives the (repaired) HTML back.\n\nBeautiful Soup doesn't download pages or run JavaScript; it only parses what you give it. Pair it with an HTTP client like requests for fetching.",
+   "code": "from bs4 import BeautifulSoup\n\nhtml = \"\"\"\n<html><head><title>Daily News</title></head>\n<body>\n  <h1 id=\"top\">Headlines</h1>\n  <p class=\"story\">Markets rally</p><p class=\"story\">Rain expected</p>\n</body></html>\n\"\"\"\n\nsoup = BeautifulSoup(html, \"html.parser\")\nprint(soup.title)          # <title>Daily News</title>\nprint(soup.title.string)   # Daily News\nprint(soup.h1[\"id\"])       # top\nprint(soup.p)              # <p class=\"story\">Markets rally</p>\nprint(soup.prettify()[:40].splitlines()[:3])\n# ['<html>', ' <head>', '  <title>']",
+   "code_lang": "python",
+   "takeaways": [
+    "pip install beautifulsoup4, import from bs4",
+    "BeautifulSoup(markup, 'html.parser') builds the tree",
+    "Always name the parser explicitly",
+    "It parses only; fetching and JavaScript are not its job"
+   ],
+   "pitfalls": [
+    "Omitting the parser argument and getting different results on another machine."
+   ],
+   "quiz": [
+    {
+     "q": "Why should you pass the parser name to BeautifulSoup()?",
+     "options": [
+      "It enables CSS selectors",
+      "It is required, or it raises",
+      "Otherwise the best installed parser is chosen, so results can differ between environments",
+      "It makes parsing asynchronous"
+     ],
+     "answer": 2,
+     "explain": "Different parsers repair broken HTML differently; naming one makes output reproducible."
+    }
+   ],
+   "docs": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/#making-the-soup",
+   "requires": [
+    "python.strings",
+    "python.modules-imports"
+   ]
+  },
+  {
+   "id": "beautifulsoup.tags-attributes",
+   "name": "Tags, attributes and text",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Read a tag's name, attributes and text with ['attr'], .get(), .attrs, .string and get_text().",
+   "why": "Extracting data means reading attributes like href and the text inside tags correctly.",
+   "body": "Each element in the tree is a **Tag**. Accessing `soup.a` returns the first `<a>` anywhere below; chaining like `soup.body.p` goes one level of \"first match\" at a time.\n\n**Attributes** work like a dict:\n\n- `tag[\"href\"]` returns the value, raising `KeyError` if absent.\n- `tag.get(\"href\")` returns `None` (or a default) instead: use it for optional attributes.\n- `tag.attrs` is the full dict; `tag.has_attr(\"data-id\")` tests presence.\n- Multi-valued attributes, most importantly `class`, come back as a **list**: `[\"btn\", \"primary\"]`.\n\n**Text** has several accessors:\n\n- `tag.string`: the single string child, or `None` when the tag contains more than one child (such as text plus a `<b>`).\n- `tag.get_text()`: all text inside, concatenated. Use `get_text(\" \", strip=True)` to join pieces with a space and strip whitespace, which is what you usually want.\n- `tag.stripped_strings`: a generator over non-blank text pieces.\n\n`tag.name` is the tag name (`\"a\"`), and you can rename it by assignment. Entities like `&amp;` are decoded for you: text is plain Unicode.\n\nMost bugs at this stage are about `None`: a missing tag (`soup.find(...)` returning `None`) or `.string` being `None`. Check before chaining.",
+   "code": "from bs4 import BeautifulSoup\n\nhtml = \"\"\"<div class=\"card featured\" data-id=\"42\">\n  <a href=\"/item/42\" title=\"Lamp\">Desk <b>lamp</b> &amp; bulb</a>\n  <span class=\"price\"> 19.99 </span>\n</div>\"\"\"\nsoup = BeautifulSoup(html, \"html.parser\")\ncard, link = soup.div, soup.a\n\nprint(card[\"class\"])               # ['card', 'featured']\nprint(card[\"data-id\"], card.get(\"missing\"))   # 42 None\nprint(link.attrs)                  # {'href': '/item/42', 'title': 'Lamp'}\nprint(link.string)                 # None: several children\nprint(link.get_text())             # Desk lamp & bulb\nprint(soup.find(\"span\").get_text(strip=True))   # 19.99\nprint(list(card.stripped_strings)) # ['Desk', 'lamp', '& bulb', '19.99']",
+   "code_lang": "python",
+   "takeaways": [
+    "tag['x'] raises on missing attributes; tag.get('x') returns None",
+    "class is a list of classes",
+    ".string is None when a tag has several children; use get_text()",
+    "get_text(' ', strip=True) for clean text"
+   ],
+   "pitfalls": [
+    "Calling .string on a tag with nested markup and getting None."
+   ],
+   "quiz": [
+    {
+     "q": "For <p>Hello <b>world</b></p>, what is p.string?",
+     "options": [
+      "'Hello world'",
+      "None",
+      "'Hello '",
+      "'world'"
+     ],
+     "answer": 1,
+     "explain": "The p has two children (a string and a b tag), so .string can't pick one and returns None."
+    }
+   ],
+   "docs": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/#kinds-of-objects",
+   "requires": [
+    "beautifulsoup.parsing",
+    "python.dicts"
+   ]
+  },
+  {
+   "id": "beautifulsoup.find",
+   "name": "Searching with find and find_all",
+   "module": "searching",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Search the tree with find() and find_all() by tag name, attributes, class_, string and limit.",
+   "why": "find and find_all are the workhorses of extraction; nearly every scraper is built from them.",
+   "body": "`find_all(name, attrs, recursive, string, limit, **kwargs)` returns a list-like `ResultSet` of all matching tags below the current one; `find()` returns the first match or **`None`**.\n\nWays to filter:\n\n- By name: `soup.find_all(\"a\")`.\n- By attribute keyword: `soup.find_all(id=\"main\")`, `soup.find_all(href=True)` for \"has the attribute\".\n- By class: `soup.find_all(\"div\", class_=\"price\")`. The underscore is needed because `class` is a Python keyword. Matching works on any one of the tag's classes.\n- Attributes whose names aren't valid Python identifiers, such as `data-id`, go in a dict: `attrs={\"data-id\": \"42\"}`.\n- By text: `string=\"Next\"` matches tags whose `.string` is exactly that.\n- `limit=5` stops after five matches; `recursive=False` searches direct children only.\n\nCalling a tag like a function is shorthand for `find_all`: `soup(\"a\")` equals `soup.find_all(\"a\")`.\n\nYou can call these methods on any tag to search only its subtree, which is the main way to scope a search: find a container first, then search inside it.\n\nRemember that `find()` returning `None` is normal for optional content; `soup.find(\"span\").text` crashes with `AttributeError: 'NoneType'` when the span is missing.",
+   "code": "from bs4 import BeautifulSoup\n\nhtml = \"\"\"<ul id=\"products\">\n  <li class=\"item sale\" data-id=\"1\"><a href=\"/p/1\">Kettle</a> <span class=\"price\">25</span></li>\n  <li class=\"item\" data-id=\"2\"><a href=\"/p/2\">Toaster</a> <span class=\"price\">40</span></li>\n  <li class=\"item\" data-id=\"3\"><a>Blender</a></li>\n</ul>\"\"\"\nsoup = BeautifulSoup(html, \"html.parser\")\n\nitems = soup.find_all(\"li\", class_=\"item\")\nprint(len(items))                                   # 3\nprint(soup.find(\"li\", class_=\"sale\").a.string)      # Kettle\nprint([a[\"href\"] for a in soup.find_all(\"a\", href=True)])  # ['/p/1', '/p/2']\nprint(soup.find(attrs={\"data-id\": \"2\"}).a.string)   # Toaster\nprint(soup.find(\"a\", string=\"Blender\"))             # <a>Blender</a>\nfor li in items:\n    price = li.find(\"span\", class_=\"price\")\n    print(li.a.string, price.string if price else \"n/a\")\n# Kettle 25 / Toaster 40 / Blender n/a",
+   "code_lang": "python",
+   "takeaways": [
+    "find_all returns all matches, find the first or None",
+    "class_= for classes, attrs={...} for names like data-id",
+    "href=True means 'has this attribute'",
+    "Search inside a container tag to scope results"
+   ],
+   "pitfalls": [
+    "Chaining .text on find() results without handling None."
+   ],
+   "quiz": [
+    {
+     "q": "Which call finds <div class=\"price big\"> by class?",
+     "options": [
+      "soup.find('div', classes=['price', 'big'])",
+      "soup.find('div', class='price')",
+      "soup.find('div', class_='price')",
+      "soup.find('div.price')"
+     ],
+     "answer": 2,
+     "explain": "class_ avoids the keyword clash and matches any one of the tag's classes."
+    }
+   ],
+   "docs": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/#find-all",
+   "requires": [
+    "beautifulsoup.tags-attributes"
+   ]
+  },
+  {
+   "id": "beautifulsoup.css-select",
+   "name": "CSS selectors with select()",
+   "module": "searching",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Use select() and select_one() with CSS selectors for concise, precise queries.",
+   "why": "CSS selectors are a compact, familiar language for locating elements, and they map directly from browser dev tools.",
+   "body": "`soup.select(\"css selector\")` returns a list of all matching tags; `soup.select_one(...)` returns the first or `None`. They're powered by the **soupsieve** library, installed with Beautiful Soup.\n\nSelectors you'll use constantly:\n\n- `div.price`, `#main`, `a[href]`, `a[href^=\"https\"]` (starts with), `img[src$=\".png\"]` (ends with), `[data-id=\"42\"]`.\n- Descendant `ul li`, child `ul > li`, adjacent sibling `h2 + p`, general sibling `h2 ~ p`.\n- Pseudo-classes: `li:nth-of-type(2)`, `tr:not(.header)`, `p:-soup-contains(\"Price\")` for text matching (a soupsieve extension).\n- Grouping: `h1, h2, h3`.\n\nLike `find_all`, `select` works on any tag to scope the search: `card.select_one(\".price\")`.\n\nWhen to prefer which? `select` shines for structural queries (child of, nth, attribute prefix) and when you can copy a selector from the browser's developer tools; `find_all` is more convenient with Python values like regex or functions. Many scrapers mix both.\n\nA caution about selectors copied from dev tools: they're often absurdly specific (`div:nth-child(3) > div > span`) and break with the next redesign. Prefer selectors based on stable classes, ids or data attributes.",
+   "code": "from bs4 import BeautifulSoup\n\nhtml = \"\"\"<article id=\"post\">\n  <h2>Specs</h2><p>Weight: 1.2 kg</p><p>Color: red</p>\n  <ul class=\"links\"><li><a href=\"https://x.io/a\">A</a></li>\n    <li><a href=\"/b\">B</a></li><li class=\"ad\"><a href=\"https://ads.io\">Ad</a></li></ul>\n</article>\"\"\"\nsoup = BeautifulSoup(html, \"html.parser\")\n\nprint(soup.select_one(\"#post > h2\").string)              # Specs\nprint([p.string for p in soup.select(\"h2 ~ p\")])         # ['Weight: 1.2 kg', 'Color: red']\nprint([a[\"href\"] for a in soup.select('ul.links li:not(.ad) a[href^=\"https\"]')])\n# ['https://x.io/a']\nprint(soup.select_one('p:-soup-contains(\"Color\")').string)  # Color: red\nprint(soup.select_one(\".missing\"))                       # None",
+   "code_lang": "python",
+   "takeaways": [
+    "select() returns a list, select_one() the first match or None",
+    "Attribute operators ^= $= *= and combinators > + ~ are supported",
+    ":-soup-contains() matches by text",
+    "Prefer stable classes, ids and data attributes over positional selectors"
+   ],
+   "pitfalls": [
+    "Pasting long nth-child selectors from dev tools that break on the next layout change."
+   ],
+   "quiz": [
+    {
+     "q": "What does soup.select('ul > li') match?",
+     "options": [
+      "Every li anywhere in the document",
+      "li elements that are direct children of a ul",
+      "The first li of each ul",
+      "ul elements containing an li"
+     ],
+     "answer": 1,
+     "explain": "> is the child combinator, so only li tags directly inside a ul match."
+    }
+   ],
+   "docs": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/#css-selectors",
+   "requires": [
+    "beautifulsoup.find"
+   ]
+  },
+  {
+   "id": "beautifulsoup.navigation",
+   "name": "Navigating the tree",
+   "module": "searching",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Move around the tree with parent, children, descendants, siblings and the find_parent/find_next_sibling family.",
+   "why": "Data often lives next to a label or inside an ancestor, and navigation methods let you reach it relative to something you can find.",
+   "body": "Once you have a tag, you can move from it:\n\n- **Down**: `.contents` (list of direct children), `.children` (iterator), `.descendants` (every node below, recursively, including strings).\n- **Up**: `.parent`, `.parents` (iterator up to the soup).\n- **Sideways**: `.next_sibling`, `.previous_sibling`, `.next_siblings`.\n- **Document order**: `.next_element` / `.previous_element` walk in parse order, crossing tag boundaries.\n\nThe classic gotcha: whitespace between tags is a text node. In `<td>a</td>\\n<td>b</td>`, the first td's `.next_sibling` is the string `\"\\n\"`, not the next td.\n\nThat's why the **search-while-navigating** methods are usually better:\n\n- `find_next_sibling(\"td\")`, `find_next_siblings(...)`, `find_previous_sibling(...)`.\n- `find_parent(\"table\")`, `find_parents(...)`.\n- `find_next(\"a\")`, `find_all_next(...)`: anything later in the document.\n\nThey accept the same filters as `find`, so `label.find_next_sibling(\"span\", class_=\"value\")` skips whitespace and unrelated tags.\n\nA common scraping pattern: locate a stable **label** by its text (`soup.find(\"th\", string=\"Price\")`) and navigate to the value next to it, rather than relying on positions that change.",
+   "code": "from bs4 import BeautifulSoup\n\nhtml = \"\"\"<table id=\"specs\">\n  <tr><th>Brand</th><td>Acme</td></tr>\n  <tr><th>Price</th><td>49 EUR</td></tr>\n</table>\"\"\"\nsoup = BeautifulSoup(html, \"html.parser\")\n\nth = soup.find(\"th\", string=\"Price\")\nprint(th.find_next_sibling(\"td\").string)     # 49 EUR\nprint(th.parent.name, th.find_parent(\"table\")[\"id\"])   # tr specs\n\nfirst_row = soup.find(\"tr\")\nprint(repr(first_row.next_sibling))          # '\\n': whitespace text node\nprint(first_row.find_next_sibling(\"tr\").th.string)     # Price\n\nprint([c.name for c in first_row.children])  # ['th', 'td']\nprint([type(n).__name__ for n in soup.table.descendants][:4])\n# ['NavigableString', 'Tag', 'Tag', 'NavigableString']",
+   "code_lang": "python",
+   "takeaways": [
+    ".children/.descendants go down, .parent/.parents up, siblings sideways",
+    "Whitespace between tags is a text node in .next_sibling",
+    "find_next_sibling / find_parent filter while navigating",
+    "Find a stable label, then navigate to its value"
+   ],
+   "pitfalls": [
+    "Using .next_sibling and getting '\\n' instead of the next tag."
+   ],
+   "quiz": [
+    {
+     "q": "Why can tr.next_sibling be '\\n' instead of the next <tr>?",
+     "options": [
+      "It's a parser bug",
+      "The whitespace between tags is kept as a text node in the tree",
+      "next_sibling only returns strings",
+      "The table was not closed"
+     ],
+     "answer": 1,
+     "explain": "Newlines and indentation between tags are NavigableStrings and count as siblings."
+    }
+   ],
+   "docs": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/#navigating-the-tree",
+   "requires": [
+    "beautifulsoup.tags-attributes",
+    "beautifulsoup.find"
+   ]
+  },
+  {
+   "id": "beautifulsoup.filters",
+   "name": "Advanced filters: regex, lists and functions",
+   "module": "searching",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Pass regular expressions, lists, True and custom functions to find_all for flexible matching.",
+   "why": "Real pages need fuzzy matching (any heading, links to PDFs, tags with some attribute) that plain strings can't express.",
+   "body": "Wherever `find_all` accepts a value (the tag name, an attribute, `string`), you can pass richer **filters**:\n\n- A **compiled regex**: `soup.find_all(re.compile(r\"^h[1-6]$\"))` matches all headings; `href=re.compile(r\"\\.pdf$\")` matches PDF links. The regex is applied with `search`, so anchor it if needed.\n- A **list**: `soup.find_all([\"h1\", \"h2\"])` matches any of them.\n- **`True`**: matches anything present: `find_all(True)` is every tag; `attrs={\"data-id\": True}` is \"has data-id\".\n- A **function**: called with each tag, returning `True` to keep it. For example `lambda t: t.name == \"a\" and \"download\" in t.get(\"class\", [])`. When passed as an attribute filter (`href=func`), it receives the attribute value (or `None`) instead.\n\nThe `string=` argument also accepts these, matching text nodes: `soup.find_all(string=re.compile(\"total\", re.I))` returns the matching **strings**, from which `.parent` leads back to the tag.\n\nFunctions are the escape hatch for any condition, like \"a `<td>` with exactly two children\" or \"an element whose text parses as a number\". Keep them small and named for readability.\n\nFor the same patterns in CSS you'd use attribute operators and `:-soup-contains`; choose whichever reads clearer.",
+   "code": "import re\nfrom bs4 import BeautifulSoup\n\nhtml = \"\"\"<h1>Report</h1><h3>Q1</h3><p>Total: 120</p>\n<a href=\"/files/q1.pdf\">Q1 PDF</a> <a href=\"/about\">About</a>\n<span data-id=\"7\">x</span><span>y</span>\"\"\"\nsoup = BeautifulSoup(html, \"html.parser\")\n\nprint([h.name for h in soup.find_all(re.compile(r\"^h[1-6]$\"))])  # ['h1', 'h3']\nprint([a.string for a in soup.find_all(\"a\", href=re.compile(r\"\\.pdf$\"))])  # ['Q1 PDF']\nprint(soup.find_all(\"span\", attrs={\"data-id\": True}))  # [<span data-id=\"7\">x</span>]\n\ndef is_numeric_total(tag):\n    return tag.name == \"p\" and re.search(r\"\\d+$\", tag.get_text()) is not None\n\nprint(soup.find(is_numeric_total).get_text())          # Total: 120\ns = soup.find(string=re.compile(\"total\", re.I))\nprint(repr(s), s.parent.name)                          # 'Total: 120' p",
+   "code_lang": "python",
+   "takeaways": [
+    "Filters can be strings, regexes, lists, True or functions",
+    "A function filter receives each tag and returns True to keep it",
+    "string= with a regex returns matching text nodes; use .parent",
+    "Regexes are searched, so anchor with ^ and $ when needed"
+   ],
+   "pitfalls": [
+    "Passing a regex string instead of re.compile(...), which is matched literally."
+   ],
+   "quiz": [
+    {
+     "q": "What does soup.find_all(['th', 'td']) return?",
+     "options": [
+      "Only tags that are both th and td",
+      "All th and all td tags",
+      "An error: name must be a string",
+      "th tags containing td"
+     ],
+     "answer": 1,
+     "explain": "A list as a filter matches any of its values."
+    }
+   ],
+   "docs": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/#kinds-of-filters",
+   "requires": [
+    "beautifulsoup.find",
+    "python.functions"
+   ]
+  },
+  {
+   "id": "beautifulsoup.scraping-requests",
+   "name": "Scraping real pages with requests",
+   "module": "practical",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Fetch pages with requests, parse them, resolve relative links with urljoin, and scrape politely.",
+   "why": "Beautiful Soup is almost always paired with an HTTP client, and the glue code decides whether the scraper is correct and polite.",
+   "body": "A minimal scraper: fetch with **requests**, check the status, parse, extract.\n\n- Use a `requests.Session()` to reuse connections and set headers once, including an honest `User-Agent` with contact info.\n- Always pass a `timeout=` and call `resp.raise_for_status()` so errors don't parse as content.\n- Pass `resp.content` (bytes) to Beautiful Soup and let it detect the encoding from the document; `resp.text` relies on HTTP headers that are often wrong.\n\nLinks in pages are often **relative** (`/p/2`, `../img.png`). Resolve them against the page URL with `urllib.parse.urljoin(resp.url, href)`; use `resp.url` rather than the URL you requested, since redirects may have moved you.\n\nPagination usually means following a \"next\" link until there isn't one.\n\nBe a good citizen:\n\n- Check `robots.txt` (the standard library's `urllib.robotparser` reads it) and the site's terms.\n- Rate-limit with a delay between requests and avoid parallel hammering.\n- Prefer an official API or a JSON endpoint the page already calls (look in the browser's network tab), which is more stable than HTML.\n- Cache pages while developing so you don't refetch on every run.\n\nIf the content isn't in the HTML at all because JavaScript renders it, Beautiful Soup can't see it; see the lesson on robust scrapers.",
+   "code": "import time\nfrom urllib.parse import urljoin\nimport requests\nfrom bs4 import BeautifulSoup\n\nsession = requests.Session()\nsession.headers[\"User-Agent\"] = \"price-bot/1.0 (+mailto:me@example.com)\"\n\ndef scrape_titles(start_url, max_pages=3):\n    url, titles = start_url, []\n    for _ in range(max_pages):\n        resp = session.get(url, timeout=10)\n        resp.raise_for_status()\n        soup = BeautifulSoup(resp.content, \"html.parser\")\n        titles += [a.get_text(strip=True) for a in soup.select(\"h3 a\")]\n        nxt = soup.select_one(\"li.next a\")\n        if nxt is None:\n            break\n        url = urljoin(resp.url, nxt[\"href\"])     # resolve relative link\n        time.sleep(1)                             # be polite\n    return titles\n\nprint(scrape_titles(\"https://books.toscrape.com/\")[:2])\n# ['A Light in the ...', 'Tipping the Velvet']",
+   "code_lang": "python",
+   "takeaways": [
+    "requests.Session with User-Agent, timeout and raise_for_status",
+    "Pass resp.content (bytes) so Beautiful Soup detects the encoding",
+    "urljoin(resp.url, href) for relative links",
+    "Respect robots.txt, rate-limit, and prefer APIs when they exist"
+   ],
+   "pitfalls": [
+    "Building next-page URLs by string concatenation and breaking on relative paths."
+   ],
+   "quiz": [
+    {
+     "q": "Why use urljoin(resp.url, href) instead of start_url + href?",
+     "options": [
+      "It resolves relative paths correctly against the final page URL, including after redirects",
+      "It adds query parameters",
+      "It checks robots.txt",
+      "It is faster"
+     ],
+     "answer": 0,
+     "explain": "urljoin implements RFC URL resolution; resp.url reflects redirects."
+    }
+   ],
+   "docs": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/#quick-start",
+   "requires": [
+    "beautifulsoup.css-select"
+   ]
+  },
+  {
+   "id": "beautifulsoup.tables",
+   "name": "Extracting tables and lists into data",
+   "module": "practical",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Turn HTML tables and repeated blocks into lists of dicts, cleaning text and converting numbers.",
+   "why": "Scraped data is only useful once it's structured, typed and ready for CSV, a database or pandas.",
+   "body": "Most extraction tasks reduce to: find the repeated container, then build one record per container.\n\nFor **tables**:\n\n- Read headers from `thead th` (or the first row), normalized with `get_text(strip=True)`.\n- Iterate rows from `tbody tr`, skipping rows without `td` cells (sub-headers, spacers).\n- Zip headers with cell texts into a dict.\n- Watch for `colspan`/`rowspan`, which break simple zipping; handle or reject them explicitly.\n\nFor **card lists** (products, articles), select each card and pull fields with `select_one` relative to the card, using a helper that returns `None` for missing fields instead of crashing.\n\n**Clean and convert** at extraction time: strip whitespace, remove currency symbols and thousands separators, parse numbers and dates, and keep raw text when parsing fails, so you can investigate rather than silently drop data.\n\nFor simple, well-formed tables, `pandas.read_html()` does all of this in one call (it uses lxml or Beautiful Soup underneath). Beautiful Soup is the tool when tables are irregular, when you need attributes such as links inside cells, or when data isn't a table at all.\n\nFinally, validate: count records, check required fields, and log anomalies. Silent partial scrapes are the classic failure.",
+   "code": "from bs4 import BeautifulSoup\n\nhtml = \"\"\"<table id=\"t\"><thead><tr><th>City</th><th>Pop.</th><th>Link</th></tr></thead>\n<tbody>\n  <tr><td> Paris </td><td>2,102,650</td><td><a href=\"/paris\">wiki</a></td></tr>\n  <tr class=\"spacer\"><th colspan=\"3\">Germany</th></tr>\n  <tr><td>Berlin</td><td>3,878,100</td><td></td></tr>\n</tbody></table>\"\"\"\nsoup = BeautifulSoup(html, \"html.parser\")\n\nheaders = [th.get_text(strip=True) for th in soup.select(\"#t thead th\")]\nrows = []\nfor tr in soup.select(\"#t tbody tr\"):\n    cells = tr.find_all(\"td\")\n    if not cells:\n        continue                                   # skip sub-header rows\n    rec = dict(zip(headers, (td.get_text(strip=True) for td in cells)))\n    rec[\"Pop.\"] = int(rec[\"Pop.\"].replace(\",\", \"\"))\n    link = cells[2].find(\"a\")\n    rec[\"Link\"] = link[\"href\"] if link else None\n    rows.append(rec)\nprint(rows)\n# [{'City': 'Paris', 'Pop.': 2102650, 'Link': '/paris'}, {'City': 'Berlin', 'Pop.': 3878100, 'Link': None}]",
+   "code_lang": "python",
+   "takeaways": [
+    "One record per repeated container (row or card)",
+    "Zip header names with cell texts; skip rows without td",
+    "Clean and convert types at extraction time",
+    "pandas.read_html for simple tables; Beautiful Soup for irregular ones"
+   ],
+   "pitfalls": [
+    "Zipping headers with cells on tables using colspan, misaligning every column after it."
+   ],
+   "quiz": [
+    {
+     "q": "A table row contains a single <th colspan=3> section title. What should the row loop do?",
+     "options": [
+      "Skip it (or record it as a group label), since it has no td cells",
+      "Zip it with the headers",
+      "Remove the whole table",
+      "Crash, the table is invalid"
+     ],
+     "answer": 0,
+     "explain": "Sub-header rows aren't records; detect them (no td cells) and skip or use them as context."
+    }
+   ],
+   "docs": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/#searching-the-tree",
+   "requires": [
+    "beautifulsoup.css-select",
+    "beautifulsoup.navigation",
+    "python.loops"
+   ]
+  },
+  {
+   "id": "beautifulsoup.modifying",
+   "name": "Modifying and cleaning HTML",
+   "module": "transforming",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Change the tree: remove elements with decompose(), edit attributes and text, create tags, and unwrap or replace elements.",
+   "why": "Sanitizing content, rewriting links and preparing HTML for emails or text extraction all require editing the tree.",
+   "body": "The tree is mutable, and changes show up when you convert it back to a string.\n\n**Removing**:\n\n- `tag.decompose()` removes a tag and destroys it with its children: use it to strip `<script>`, `<style>`, ads or nav before extracting text.\n- `tag.extract()` removes and **returns** it, so you can insert it elsewhere.\n- `tag.clear()` empties the tag's contents but keeps the tag.\n\n**Editing**:\n\n- Attributes: `tag[\"href\"] = \"...\"`, `del tag[\"style\"]`.\n- Text: `tag.string = \"new text\"` replaces all contents with that string.\n- Name: `tag.name = \"strong\"`.\n\n**Building and moving**:\n\n- `soup.new_tag(\"a\", href=\"/x\")` creates a tag (set `.string` for its text); `tag.append(child)`, `tag.insert(i, child)`, `insert_before` / `insert_after`.\n- `old.replace_with(new)` swaps an element.\n- `tag.unwrap()` replaces a tag with its children (dropping `<span>` wrappers while keeping text); `tag.wrap(soup.new_tag(\"div\"))` does the opposite.\n\nDon't mutate while iterating over a generator of the same tree (like `.descendants`); collect targets into a list first (`find_all` already returns one).\n\nBeautiful Soup is not a security sanitizer: removing `<script>` by hand misses event-handler attributes, `javascript:` URLs and more. For untrusted HTML use a dedicated allow-list sanitizer such as nh3 or bleach.",
+   "code": "from bs4 import BeautifulSoup\n\nhtml = \"\"\"<div id=\"post\"><script>track()</script>\n<p style=\"color:red\">Read <span>the</span> <a href=\"/docs\">docs</a>.</p>\n<div class=\"ad\">Buy now!</div></div>\"\"\"\nsoup = BeautifulSoup(html, \"html.parser\")\n\nfor t in soup.find_all([\"script\", \"style\"]) + soup.select(\".ad\"):\n    t.decompose()                                  # drop noise\nfor t in soup.find_all(style=True):\n    del t[\"style\"]                                 # strip inline styles\nsoup.span.unwrap()                                 # keep text, drop wrapper\na = soup.a\na[\"href\"] = \"https://example.com\" + a[\"href\"]      # absolute link\na[\"rel\"] = \"nofollow\"\nnote = soup.new_tag(\"em\")\nnote.string = \" (updated)\"\nsoup.p.append(note)\n\nprint(\" \".join(str(soup).split()))\n# <div id=\"post\"> <p>Read the <a href=\"https://example.com/docs\" rel=\"nofollow\">docs</a>.<em> (updated)</em></p> </div>",
+   "code_lang": "python",
+   "takeaways": [
+    "decompose() deletes, extract() removes and returns",
+    "Edit attributes like a dict; set .string to replace contents",
+    "new_tag + append/insert to build; replace_with, unwrap, wrap to restructure",
+    "Use a real sanitizer (nh3, bleach) for untrusted HTML"
+   ],
+   "pitfalls": [
+    "Treating script-tag removal as XSS protection.",
+    "Modifying the tree while iterating over a live generator like .descendants."
+   ],
+   "quiz": [
+    {
+     "q": "You want to drop <span> wrappers but keep the text inside. Which method?",
+     "options": [
+      "extract()",
+      "clear()",
+      "decompose()",
+      "unwrap()"
+     ],
+     "answer": 3,
+     "explain": "unwrap() replaces the tag with its contents; the others remove the text too."
+    }
+   ],
+   "docs": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/#modifying-the-tree",
+   "requires": [
+    "beautifulsoup.navigation"
+   ]
+  },
+  {
+   "id": "beautifulsoup.parsers",
+   "name": "Parsers compared: html.parser, lxml, html5lib",
+   "module": "transforming",
+   "level": 3,
+   "minutes": 12,
+   "summary": "How the three HTML parsers differ on broken markup, speed and output, and how to parse XML.",
+   "why": "Different parsers build different trees from the same broken HTML, which explains 'it works on my machine' scraping bugs.",
+   "body": "Valid HTML parses the same everywhere. **Broken** HTML, which is most of the web, doesn't: each parser repairs it with its own rules.\n\n- **html.parser** (standard library): decent speed, no dependencies, lenient but not browser-accurate; doesn't add `<html>`/`<body>` wrappers.\n- **lxml**: C-based and the fastest; adds `<html><body>` around fragments; its repairs can differ from browsers.\n- **html5lib**: implements the HTML5 parsing algorithm, so the tree matches what a browser builds (including `<head>`, implicit `<tbody>` in tables); pure Python and slow.\n\nExample: for `<a></p>`, html.parser gives `<a></a>`, lxml gives `<html><body><a></a></body></html>`, and html5lib gives `<html><head></head><body><a><p></p></a></body></html>`.\n\nThis matters when selectors are written against browser dev tools: the browser inserted a `<tbody>` that html.parser and lxml don't add, so `table > tbody > tr` matches nothing. Using html5lib, or selectors that skip `tbody` (`table tr`), fixes it.\n\n**XML** needs lxml's XML mode: `BeautifulSoup(data, \"xml\")` (also spelled `\"lxml-xml\"`). It preserves case-sensitive tag names, handles namespaces and self-closing tags properly, which HTML parsers don't.\n\nChoose by need: lxml for speed, html5lib for fidelity, html.parser for zero dependencies.",
+   "code": "from bs4 import BeautifulSoup\n\nbroken = \"<a></p>\"\nfor parser in [\"html.parser\", \"lxml\", \"html5lib\"]:\n    try:\n        print(f\"{parser:12}\", BeautifulSoup(broken, parser))\n    except Exception as e:            # FeatureNotFound if not installed\n        print(f\"{parser:12} not installed: {type(e).__name__}\")\n# html.parser  <a></a>\n# lxml         <html><body><a></a></body></html>\n# html5lib     <html><head></head><body><a><p></p></a></body></html>\n\ntable = \"<table><tr><td>1</td></tr></table>\"\nprint(BeautifulSoup(table, \"html.parser\").select(\"table > tbody > tr\"))  # []\nprint(BeautifulSoup(table, \"html.parser\").select(\"table tr\"))  # [<tr><td>1</td></tr>]\n\nxml = '<Feed><Item id=\"1\"/><Item id=\"2\"/></Feed>'\nprint([i[\"id\"] for i in BeautifulSoup(xml, \"xml\").find_all(\"Item\")])  # ['1', '2']",
+   "code_lang": "python",
+   "takeaways": [
+    "Parsers agree on valid HTML and differ on broken HTML",
+    "lxml is fastest; html5lib matches browsers; html.parser needs nothing",
+    "Browsers add <tbody>; html.parser and lxml don't",
+    "Use the 'xml' feature (lxml) for XML documents"
+   ],
+   "pitfalls": [
+    "Writing selectors with tbody copied from dev tools and getting empty results."
+   ],
+   "quiz": [
+    {
+     "q": "A selector 'table > tbody > tr' copied from Chrome returns [] with html.parser. Likely cause?",
+     "options": [
+      "The page uses JavaScript",
+      "The browser inserted a tbody that isn't in the raw HTML",
+      "html.parser doesn't support >",
+      "The table is empty"
+     ],
+     "answer": 1,
+     "explain": "Browsers add implicit tbody elements; html.parser keeps the HTML as written."
+    }
+   ],
+   "docs": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/#differences-between-parsers",
+   "requires": [
+    "beautifulsoup.parsing",
+    "beautifulsoup.navigation"
+   ]
+  },
+  {
+   "id": "beautifulsoup.encoding",
+   "name": "Encodings and Unicode, Dammit",
+   "module": "transforming",
+   "level": 3,
+   "minutes": 10,
+   "summary": "How Beautiful Soup detects document encodings from bytes, how to override it, and how output encoding works.",
+   "why": "Mojibake (garbled accented characters) is the most common silent data-quality bug in scraped text.",
+   "body": "Beautiful Soup always works in Unicode internally. Give it a `str` and it's used as is. Give it **bytes** and the **Unicode, Dammit** component works out the encoding, in roughly this order: an encoding you pass, a byte-order mark, the document's own declaration (`<meta charset>` or the XML declaration), then a statistical guess using chardet, cchardet or charset-normalizer if one is installed, and finally fallbacks like UTF-8 and Windows-1252.\n\nAfter parsing, `soup.original_encoding` tells you what it decided.\n\nControls:\n\n- `BeautifulSoup(data, \"html.parser\", from_encoding=\"iso-8859-1\")` when you know better.\n- `exclude_encodings=[\"windows-1252\"]` to rule out a wrong guess.\n- `UnicodeDammit(data).unicode_markup` converts bytes without parsing, and `UnicodeDammit.detwingle(data)` fixes documents mixing UTF-8 and Windows-1252.\n\nWith requests, prefer passing `resp.content` (bytes) over `resp.text`: requests decodes using the HTTP header and, for `text/html` without a charset, defaults to ISO-8859-1, which mangles UTF-8 pages whose charset is only in a `<meta>` tag.\n\nOn output, `str(soup)` and `soup.decode()` give Unicode; `soup.encode(\"utf-8\")` or `soup.prettify(\"utf-8\")` give bytes, and Beautiful Soup updates the document's meta charset to match.",
+   "code": "from bs4 import BeautifulSoup, UnicodeDammit\n\npage = '<meta charset=\"utf-8\"><p>Café crème, naïve résumé</p>'.encode(\"utf-8\")\n\nsoup = BeautifulSoup(page, \"html.parser\")          # bytes in: detection\nprint(soup.original_encoding, soup.p.string)       # utf-8 Café crème, naïve résumé\n\n# What resp.text does for text/html without a charset header:\nwrong = page.decode(\"iso-8859-1\")\nprint(BeautifulSoup(wrong, \"html.parser\").p.string)  # CafÃ© crÃ¨me, naÃ¯ve rÃ©sumÃ©\n\nlegacy = \"Grüße\".encode(\"cp1252\")                  # no declaration at all\ndammit = UnicodeDammit(legacy, [\"cp1252\"])\nprint(dammit.unicode_markup, dammit.original_encoding)   # Grüße cp1252\n\nprint(soup.p.encode(\"utf-8\"))  # b'<p>Caf\\xc3\\xa9 cr\\xc3\\xa8me, na\\xc3\\xafve r\\xc3\\xa9sum\\xc3\\xa9</p>'",
+   "code_lang": "python",
+   "takeaways": [
+    "Pass bytes so Beautiful Soup can detect the encoding",
+    "soup.original_encoding shows the detected encoding",
+    "from_encoding / exclude_encodings override detection",
+    "resp.text can mis-decode HTML; resp.content is safer"
+   ],
+   "pitfalls": [
+    "Feeding resp.text to the parser and storing mojibake like 'CafÃ©' in the database."
+   ],
+   "quiz": [
+    {
+     "q": "Text shows 'CafÃ©' instead of 'Café'. What usually happened?",
+     "options": [
+      "The page is in Latin-1",
+      "UTF-8 bytes were decoded as ISO-8859-1/Windows-1252",
+      "The parser dropped accents",
+      "The font is missing"
+     ],
+     "answer": 1,
+     "explain": "Each UTF-8 multibyte character decoded as Latin-1 turns into two odd characters like Ã©."
+    }
+   ],
+   "docs": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/#encodings",
+   "requires": [
+    "beautifulsoup.parsing",
+    "beautifulsoup.scraping-requests"
+   ]
+  },
+  {
+   "id": "beautifulsoup.robust-scrapers",
+   "name": "Robust scrapers and dynamic pages",
+   "module": "practical",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Write scrapers that survive layout changes and missing fields, detect JavaScript-rendered content, and know when to switch tools.",
+   "why": "Scrapers break constantly; the design choices here decide whether a break is a crash, silent bad data or an easy fix.",
+   "body": "Pages change without notice. A few habits make scrapers resilient:\n\n- **Anchor on meaning, not position**: ids, data attributes, semantic classes, label text (\"Price\") and structured data, not `div:nth-child(4)`.\n- **Use structured data when present**: many pages embed JSON-LD in `<script type=\"application/ld+json\">` or Open Graph `<meta property=\"og:...\">` tags. Parsing that JSON is far more stable than scraping visible markup.\n- **Isolate field extraction** in small functions that return `None` for missing data, and validate records afterwards: a required field going missing across all records means the layout changed, so fail loudly.\n- **Save raw HTML** of fetched pages so you can re-parse after fixing a bug without refetching.\n\n**Dynamic pages**: if the data you see in the browser isn't in `resp.content`, JavaScript loads it. Check \"View source\" (not the inspector, which shows the live DOM). Options, from best to worst:\n\n- Find the underlying JSON API in the browser's network tab and call it directly.\n- Read the initial state embedded in a script tag (`window.__INITIAL_STATE__ = {...}`).\n- Render with a headless browser (Playwright) and pass `page.content()` to Beautiful Soup.\n\nFor large crawls with many pages, retries and pipelines, a framework like Scrapy is a better fit than a loop around requests.",
+   "code": "import json\nfrom bs4 import BeautifulSoup\n\nhtml = \"\"\"<html><head>\n<meta property=\"og:title\" content=\"Steel Kettle\">\n<script type=\"application/ld+json\">\n{\"@type\": \"Product\", \"name\": \"Steel Kettle\", \"offers\": {\"price\": \"29.90\", \"priceCurrency\": \"EUR\"}}\n</script></head><body><h1 class=\"pdp-title-x7\">Steel Kettle</h1></body></html>\"\"\"\nsoup = BeautifulSoup(html, \"html.parser\")\n\ndef product_from_jsonld(soup):\n    for s in soup.find_all(\"script\", type=\"application/ld+json\"):\n        data = json.loads(s.string or \"{}\")\n        if data.get(\"@type\") == \"Product\":\n            return {\"name\": data[\"name\"], \"price\": float(data[\"offers\"][\"price\"])}\n    return None\n\ndef og(soup, prop):\n    tag = soup.find(\"meta\", property=f\"og:{prop}\")\n    return tag[\"content\"] if tag else None\n\nprint(product_from_jsonld(soup))   # {'name': 'Steel Kettle', 'price': 29.9}\nprint(og(soup, \"title\"), og(soup, \"image\"))   # Steel Kettle None",
+   "code_lang": "python",
+   "takeaways": [
+    "Prefer ids, data attributes, labels and structured data over positions",
+    "JSON-LD and Open Graph tags are stable data sources",
+    "Validate records and fail loudly when required fields vanish",
+    "Content missing from the raw HTML is rendered by JavaScript: find the API or render"
+   ],
+   "pitfalls": [
+    "Scraping a generated class like pdp-title-x7 that changes with every frontend build."
+   ],
+   "quiz": [
+    {
+     "q": "Data is visible in the browser's inspector but not in resp.content. Best first step?",
+     "options": [
+      "Look in the network tab for the JSON request that loads it",
+      "Add more retries",
+      "Use find_all(True)",
+      "Switch to the lxml parser"
+     ],
+     "answer": 0,
+     "explain": "The data is fetched by JavaScript; calling that endpoint directly is simpler and more stable than rendering."
+    }
+   ],
+   "docs": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/#quick-start",
+   "requires": [
+    "beautifulsoup.scraping-requests",
+    "beautifulsoup.tables",
+    "beautifulsoup.filters"
+   ]
+  },
+  {
+   "id": "beautifulsoup.performance",
+   "name": "Performance: SoupStrainer, lxml and memory",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Speed up parsing with lxml and SoupStrainer, reduce memory by releasing trees, and know when Beautiful Soup is the bottleneck.",
+   "why": "At thousands of pages, parsing time and memory dominate, and a few switches make a several-fold difference.",
+   "body": "Beautiful Soup is written in Python on top of a parser, building a full object tree with every tag and string. That's convenient but costly. Ways to speed it up:\n\n- **Use lxml** as the parser: typically several times faster than html.parser and far faster than html5lib.\n- **Parse only what you need** with a `SoupStrainer`: `BeautifulSoup(html, \"lxml\", parse_only=SoupStrainer(\"a\"))` builds a tree of just the matching tags, skipping everything else. It accepts the same filters as `find_all`. It doesn't work with html5lib, which always builds the whole tree.\n- **Pass bytes with a known encoding** (`from_encoding=`) or install a fast charset detector, since encoding detection can be surprisingly expensive.\n- **Search narrowly**: find a container once, then search inside it, instead of repeated `find_all` over the whole document.\n\n**Memory**: every `NavigableString` you keep holds a reference into the tree, keeping the whole document alive. Convert results to plain `str` (`str(tag.string)` or `get_text()`) before storing them, and call `soup.decompose()` when done with large documents in long-running processes.\n\nWhen parsing is still the bottleneck, use lxml's own API (`lxml.html` with XPath or CSS via cssselect), or a fast HTML5 parser such as selectolax, and keep Beautiful Soup for the messy cases. Measure with `time.perf_counter()` or a profiler before optimizing.",
+   "code": "import time\nfrom bs4 import BeautifulSoup, SoupStrainer\n\nhtml = \"<html><body>\" + \"\".join(\n    f'<div class=\"row\"><p>Item {i}</p><a href=\"/i/{i}\">more</a></div>' for i in range(5000)\n) + \"</body></html>\"\n\ndef timed(label, fn):\n    t = time.perf_counter(); result = fn()\n    print(f\"{label:22} {time.perf_counter() - t:.3f}s  {len(result)} links\")\n\ntimed(\"html.parser, full\", lambda: BeautifulSoup(html, \"html.parser\").find_all(\"a\"))\ntimed(\"lxml, full\", lambda: BeautifulSoup(html, \"lxml\").find_all(\"a\"))\nonly_links = SoupStrainer(\"a\")\ntimed(\"lxml + SoupStrainer\", lambda: BeautifulSoup(html, \"lxml\", parse_only=only_links).find_all(\"a\"))\n# html.parser, full      1.339s  5000 links  (timings vary by machine)\n# lxml, full             0.725s  5000 links\n# lxml + SoupStrainer    0.582s  5000 links\n\nhrefs = [str(a[\"href\"]) for a in BeautifulSoup(html, \"lxml\", parse_only=only_links).find_all(\"a\")]\nprint(hrefs[:2])        # ['/i/0', '/i/1']: plain strings, tree can be freed",
+   "code_lang": "python",
+   "takeaways": [
+    "lxml is the fastest parser backend for Beautiful Soup",
+    "SoupStrainer + parse_only builds only the parts you need",
+    "Convert results to plain str so the tree can be garbage-collected",
+    "For extreme throughput, drop down to lxml or selectolax"
+   ],
+   "pitfalls": [
+    "Storing NavigableString objects in a long-lived list, keeping every parsed document in memory."
+   ],
+   "quiz": [
+    {
+     "q": "What does parse_only=SoupStrainer('a') change?",
+     "options": [
+      "Only matching tags (and their contents) are added to the tree, saving time and memory",
+      "It forces the html5lib parser",
+      "It removes all <a> tags",
+      "It filters results after parsing the full tree"
+     ],
+     "answer": 0,
+     "explain": "The strainer is applied while building the tree, so non-matching parts are never materialized."
+    }
+   ],
+   "docs": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/#parsing-only-part-of-a-document",
+   "requires": [
+    "beautifulsoup.parsers",
+    "beautifulsoup.filters"
+   ]
+  },
+  {
+   "id": "beautifulsoup.object-model",
+   "name": "Object model: Tag, NavigableString and more",
+   "module": "internals",
+   "level": 4,
+   "minutes": 10,
+   "summary": "Understand the node classes Beautiful Soup creates (Tag, NavigableString, Comment, Script, Doctype) and how they affect text extraction.",
+   "why": "Knowing the node types explains why comments or script contents show up (or don't) in your text and how to handle them precisely.",
+   "body": "Every node in the tree is an instance of a few classes, all in `bs4.element`:\n\n- **`BeautifulSoup`**: the document root, itself a subclass of `Tag`.\n- **`Tag`**: an element with `name`, `attrs` and `contents`.\n- **`NavigableString`**: text; a subclass of `str` with tree links (`.parent`, `.next_sibling`), so you can navigate from a string back to its tag.\n- Special string subclasses: **`Comment`** (`<!-- ... -->`), **`CData`**, **`ProcessingInstruction`**, **`Declaration`**, **`Doctype`**, and for HTML, **`Script`**, **`Stylesheet`** and **`TemplateString`** for the contents of `<script>`, `<style>` and `<template>`.\n\nBecause they're all strings, a naive `find_all(string=True)` returns comments and script code along with visible text. Check types with `isinstance(s, Comment)`, or use `get_text()`, which by default only includes ordinary `NavigableString`s and CData, leaving out comments, scripts and styles. That's why `get_text()` on a whole page usually gives readable text without JavaScript.\n\nAttribute values are plain strings, or lists for multi-valued attributes like `class`, `rel` and `headers`; `multi_valued_attributes=None` in the constructor turns that off.\n\n`copy.copy(tag)` makes a detached deep copy you can modify without touching the original tree, useful for producing cleaned variants.",
+   "code": "import copy\nfrom bs4 import BeautifulSoup, Comment\nfrom bs4.element import Script, NavigableString\n\nhtml = \"\"\"<div><!-- tracking id 99 --><p>Hello <b>world</b></p>\n<script>var x = 1;</script></div>\"\"\"\nsoup = BeautifulSoup(html, \"html.parser\")\n\nfor s in soup.find_all(string=True):\n    print(type(s).__name__, repr(s))\n# Comment ' tracking id 99 '\n# NavigableString 'Hello '\n# NavigableString 'world'\n# NavigableString '\\n'\n# Script 'var x = 1;'\n\nprint(repr(soup.get_text()))           # 'Hello world\\n': no comment or script\nb_text = soup.b.string\nprint(isinstance(b_text, str), b_text.parent.name)   # True b\nclean = copy.copy(soup.div)\nclean.p.decompose()\nprint(soup.div.p is not None)          # True: original untouched",
+   "code_lang": "python",
+   "takeaways": [
+    "Tag, NavigableString and special string subclasses make up the tree",
+    "NavigableString is a str that knows its place in the tree",
+    "get_text() skips comments, scripts and styles by default",
+    "copy.copy(tag) gives a detached copy for safe edits"
+   ],
+   "pitfalls": [
+    "Collecting find_all(string=True) as 'visible text' and including comments and JavaScript."
+   ],
+   "quiz": [
+    {
+     "q": "Which node type represents <!-- note --> in the tree?",
+     "options": [
+      "It is discarded",
+      "Tag",
+      "Comment, a NavigableString subclass",
+      "Doctype"
+     ],
+     "answer": 2,
+     "explain": "Comments are kept as Comment objects, which are strings with tree links."
+    }
+   ],
+   "docs": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/#special-strings",
+   "requires": [
+    "beautifulsoup.modifying",
+    "beautifulsoup.parsers"
+   ]
+  },
+  {
+   "id": "beautifulsoup.output-formatting",
+   "name": "Output: formatters, prettify and entities",
+   "module": "internals",
+   "level": 4,
+   "minutes": 10,
+   "summary": "Control how trees are serialized: str versus prettify, entity formatters, void elements and indentation.",
+   "why": "Generating HTML for emails, templates or diffs needs faithful, predictable output rather than a re-indented approximation.",
+   "body": "There are several ways to turn a tree back into markup:\n\n- `str(tag)` or `tag.decode()`: compact HTML as parsed (after repairs). Whitespace text nodes are preserved.\n- `tag.prettify()`: one tag per line, indented. Meant for **reading**: it changes whitespace, which can change rendering of inline elements and `<pre>` content, and it makes diffs noisy. Don't use it to write documents back.\n- `tag.encode(\"utf-8\")`: bytes.\n\n**Formatters** control escaping of text and attributes, via `formatter=` on `decode`, `prettify` or `encode`:\n\n- `\"minimal\"` (default): escapes only `&`, `<` and `>`, enough for valid output.\n- `\"html\"`: converts characters to named HTML entities where possible (`é` becomes `&eacute;`).\n- `\"html5\"`: like `\"html\"`, but writes void elements HTML5-style (`<br>` instead of `<br/>`) and leaves ampersands unescaped where HTML5 allows it.\n- `None`: no escaping at all, which can produce invalid or unsafe HTML.\n- An `HTMLFormatter` instance for full control (indentation, void elements). Note that a bare `HTMLFormatter()` does no entity escaping unless you pass `entity_substitution`.\n\nRemember that **entities are decoded on parsing**: `&nbsp;` becomes `\\xa0` in the text, and the default formatter writes it back as a raw character, not as `&nbsp;`. If output must keep entities, use `formatter=\"html\"`.\n\nAttribute order is preserved as parsed, and Beautiful Soup quotes attribute values with double quotes, switching to single quotes when the value contains double quotes.",
+   "code": "from bs4 import BeautifulSoup\n\nsoup = BeautifulSoup(\"<p>Caf&eacute; &amp; bar&nbsp;<br>R&amp;D <b>now</b></p>\", \"html.parser\")\np = soup.p\n\nprint(repr(p.get_text()))            # 'Café & bar\\xa0R&D now'\nprint(p.decode())                    # minimal: <p>Café &amp; bar <br/>R&amp;D <b>now</b></p>\nprint(p.decode(formatter=\"html\"))    # <p>Caf&eacute; &amp; bar&nbsp;<br/>R&amp;D <b>now</b></p>\nprint(p.decode(formatter=\"html5\"))   # <p>Caf&eacute; & bar&nbsp;<br>R&D <b>now</b></p>\nprint(p.prettify())\n# <p>\n#  Café &amp; bar\n#  <br/>\n#  R&amp;D\n#  <b>\n#   now\n#  </b>\n# </p>",
+   "code_lang": "python",
+   "takeaways": [
+    "str()/decode() keep the parsed structure; prettify() is for reading",
+    "Default 'minimal' formatter escapes only &, < and >",
+    "formatter='html' writes named entities, 'html5' also uses <br> style",
+    "Entities are decoded on parse; choose a formatter to write them back"
+   ],
+   "pitfalls": [
+    "Saving prettify() output as the cleaned document and changing whitespace-sensitive content."
+   ],
+   "quiz": [
+    {
+     "q": "After parsing '&nbsp;', how does str(soup) write it with the default formatter?",
+     "options": [
+      "As &nbsp;",
+      "As the raw non-breaking space character",
+      "As a normal space",
+      "It is removed"
+     ],
+     "answer": 1,
+     "explain": "Parsing decodes the entity to \\xa0, and the minimal formatter doesn't turn it back into an entity."
+    }
+   ],
+   "docs": "https://www.crummy.com/software/BeautifulSoup/bs4/doc/#output-formatters",
+   "requires": [
+    "beautifulsoup.modifying",
+    "beautifulsoup.encoding"
+   ]
+  }
+ ]
+}

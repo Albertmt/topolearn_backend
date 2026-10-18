@@ -1,0 +1,623 @@
+{
+ "tool": {
+  "id": "jq",
+  "name": "jq",
+  "category": "tool",
+  "tagline": "Command-line JSON processor: query, filter and reshape JSON",
+  "description": "jq is a small, fast command-line program and language for slicing, filtering, transforming and generating JSON. It is the standard way to read API responses, cloud CLI output and JSON logs in shell scripts and pipelines.",
+  "icon": "jq",
+  "color": "#3E4A55",
+  "official_docs": "https://jqlang.org/manual/",
+  "version": "1.8",
+  "aliases": [
+   "jqlang",
+   "json processor"
+  ],
+  "requires": [
+   {
+    "tool": "bash",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Filter basics"
+  },
+  {
+   "id": "transform",
+   "name": "Transforming data"
+  },
+  {
+   "id": "cli",
+   "name": "jq in scripts"
+  },
+  {
+   "id": "logic",
+   "name": "Logic, reduce and functions"
+  },
+  {
+   "id": "advanced",
+   "name": "Advanced jq"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "jq.identity-fields",
+   "name": "Pretty-printing and field access",
+   "module": "basics",
+   "level": 1,
+   "minutes": 6,
+   "summary": "jq '.' pretty-prints JSON, .name extracts a field, .a.b goes deeper and -r prints strings without quotes.",
+   "why": "Pulling one value out of a big JSON response is the most common thing you will ever do with jq.",
+   "body": "jq reads JSON from standard input (or files) and runs a **filter** on it. The simplest filter is `.`, the **identity**: it outputs its input unchanged, pretty-printed and coloured. That alone makes jq worth installing: `curl ... | jq .`\n\nTo pick fields:\n\n- `.name` outputs the value of key `name`.\n- `.user.address.city` follows nested objects.\n- `.[\"first name\"]` or `.\"first name\"` accesses keys that are not simple identifiers.\n- A missing key gives `null`, not an error: `.nope` outputs `null`.\n\nStrings are output as JSON, with quotes. Add `-r` (raw output) to print the plain text, which is what you want when assigning to a shell variable: `name=$(jq -r .name user.json)`.\n\nIf the input is not an object, field access is an error: `.name` on an array fails with \"Cannot index array with name\". Adding `?` suppresses the error: `.name?`.\n\nAlways put the filter in **single quotes** in the shell. jq programs are full of characters the shell would otherwise interpret, such as `|`, `[`, `$` and `\"`.",
+   "code": "echo '{\"user\":{\"name\":\"Ann\",\"address\":{\"city\":\"Oslo\"}},\"first name\":\"A\"}' > u.json\njq . u.json                    # pretty-printed and coloured\njq .user.name u.json           # \"Ann\"\njq -r .user.name u.json        # Ann\njq '.user.address.city' u.json # \"Oslo\"\njq '.\"first name\"' u.json      # \"A\"\njq .user.phone u.json          # null\nname=$(jq -r .user.name u.json); echo \"hi $name\"   # hi Ann",
+   "code_lang": "bash",
+   "takeaways": [
+    "jq . pretty-prints; .a.b extracts nested fields",
+    "-r prints strings raw, without JSON quotes",
+    "Single-quote jq programs in the shell"
+   ],
+   "pitfalls": [
+    "Forgetting -r when capturing a value into a shell variable, ending up with literal quotes."
+   ],
+   "quiz": [
+    {
+     "q": "What does `echo '{\"a\":{\"b\":1}}' | jq .a.c` print?",
+     "options": [
+      "An error",
+      "Nothing",
+      "null",
+      "{}"
+     ],
+     "answer": 2,
+     "explain": "Accessing a missing key on an object yields null rather than an error."
+    }
+   ],
+   "docs": "https://jqlang.org/tutorial/",
+   "requires": []
+  },
+  {
+   "id": "jq.arrays-iterate",
+   "name": "Arrays: index, slice and iterate",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Index arrays with .[0], slice with .[2:4], and iterate every element with .[] to get a stream of outputs.",
+   "why": "Almost every API returns lists, and .[] is how you process each item.",
+   "body": "Arrays are indexed from zero: `.[0]` is the first element, `.[-1]` the last. Slices `.[2:4]` return a sub-array (start inclusive, end exclusive); `.[:3]` takes the first three. Out-of-range indexes return `null`.\n\nThe **iterator** `.[]` is the key idea of jq. It does not output an array; it outputs **each element separately**, as a stream of results. Following filters then run once per element:\n\n`jq '.[].name'` prints the name of every object in a top-level array, one per line.\n\n`.[]` works on objects too, producing each value. Combined with field access you can dig through nested lists: `.orders[].items[].sku`.\n\nBecause each element becomes a separate output, wrap the expression in brackets to collect results back into an array: `[.[].name]` gives `[\"Ann\",\"Bob\"]`. That pair, iterate then collect, is the basis of most transformations.\n\n`length` gives the number of elements of an array, keys of an object, or characters of a string. `.[]?` iterates without error if the input might not be iterable.\n\nMany JSON tools output **newline-delimited JSON** (one object per line). jq handles that natively: it runs the filter once for each input value.",
+   "code": "echo '[{\"name\":\"Ann\",\"tags\":[\"a\",\"b\"]},{\"name\":\"Bob\",\"tags\":[\"c\"]}]' > p.json\njq '.[0].name' p.json         # \"Ann\"\njq '.[-1].name' p.json        # \"Bob\"\njq -r '.[].name' p.json       # Ann\n                              # Bob\njq -c '[.[].name]' p.json     # [\"Ann\",\"Bob\"]\njq -c '.[].tags[]' p.json     # \"a\"  \"b\"  \"c\"  (three outputs)\njq 'length' p.json            # 2\njq -c '.[0].tags[:1]' p.json  # [\"a\"]",
+   "code_lang": "bash",
+   "takeaways": [
+    ".[0], .[-1], .[a:b] index and slice",
+    ".[] outputs each element as a separate result",
+    "Wrap in [ ... ] to collect results back into an array"
+   ],
+   "pitfalls": [
+    "Expecting .[] to return an array; it produces a stream, so wrap it in [] when you need a list."
+   ],
+   "quiz": [
+    {
+     "q": "Input `[1,2,3]`. How many separate outputs does `.[]` produce?",
+     "options": [
+      "1",
+      "0",
+      "2",
+      "3"
+     ],
+     "answer": 3,
+     "explain": "The iterator emits each element as its own result."
+    }
+   ],
+   "docs": "https://jqlang.org/manual/",
+   "requires": [
+    "jq.identity-fields"
+   ]
+  },
+  {
+   "id": "jq.pipes-construct",
+   "name": "Pipes, commas and building JSON",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Chain filters with |, produce several outputs with a comma, and build new objects and arrays with {} and [].",
+   "why": "Reshaping API output into exactly the fields you need is jq's everyday job.",
+   "body": "A jq program is built from small filters combined with operators.\n\n- The **pipe** `a | b` feeds every output of `a` into `b`. `.users[] | .email` is the same as `.users[].email`, but pipes let you add any filter in between.\n- The **comma** `a, b` runs both filters on the same input and outputs the results of both: `.name, .age`.\n\n**Object construction** creates new JSON:\n\n- `{name: .user.name, id: .user.id}` builds an object with the given keys.\n- Shorthand: `{name, id}` means `{name: .name, id: .id}`.\n- Keys can be computed with parentheses: `{(.key): .value}`.\n- If a value produces several outputs, you get several objects, which can surprise you.\n\n**Array construction** `[ ... ]` collects all outputs of the inner expression into one array: `[.items[].price]`.\n\nPutting it together, `.users[] | {name, email: .contact.email}` turns a verbose API response into a compact list of objects, one per user. Add `-c` for compact one-line output, handy for further processing or `grep`.\n\nParentheses group as you would expect, and `|` binds more loosely than `,`, so `.a, .b | f` means `(.a, .b) | f`.",
+   "code": "cat > r.json <<'EOF'\n{\"users\":[{\"name\":\"Ann\",\"id\":1,\"contact\":{\"email\":\"ann@x.io\"}},\n          {\"name\":\"Bob\",\"id\":2,\"contact\":{\"email\":\"bob@x.io\"}}]}\nEOF\njq -c '.users[] | {name, email: .contact.email}' r.json\n# {\"name\":\"Ann\",\"email\":\"ann@x.io\"}\n# {\"name\":\"Bob\",\"email\":\"bob@x.io\"}\njq -c '[.users[].id]' r.json                      # [1,2]\njq -r '.users[0] | .name, .id' r.json             # Ann  1\njq -c '.users | map({(.name): .id}) | add' r.json # {\"Ann\":1,\"Bob\":2}",
+   "code_lang": "bash",
+   "takeaways": [
+    "a | b pipes each output of a into b",
+    "a, b emits the outputs of both",
+    "{name, id: .x} builds objects; [ ... ] collects outputs"
+   ],
+   "pitfalls": [
+    "Writing {name: .tags[]} and getting one object per tag; a multi-output value multiplies objects."
+   ],
+   "quiz": [
+    {
+     "q": "What does `jq -c '{a: (1,2)}' <<< 'null'` output?",
+     "options": [
+      "{\"a\":[1,2]}",
+      "An error",
+      "{\"a\":2}",
+      "Two objects: {\"a\":1} and {\"a\":2}"
+     ],
+     "answer": 3,
+     "explain": "Each output of the value expression produces a separate object."
+    }
+   ],
+   "docs": "https://jqlang.org/manual/",
+   "requires": [
+    "jq.arrays-iterate"
+   ]
+  },
+  {
+   "id": "jq.select-map",
+   "name": "Filtering with select and map",
+   "module": "transform",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Keep only matching items with select(condition), transform every element with map(f), and compare with ==, <, and, or, not.",
+   "why": "Filtering a list down to what you care about, like failed jobs or large files, is the core of most jq one-liners.",
+   "body": "`select(cond)` outputs its input **if** the condition is true, and nothing otherwise. Used after `.[]`, it filters a stream:\n\n`.[] | select(.status == \"failed\")`\n\nConditions use `==`, `!=`, `<`, `<=`, `>`, `>=`, combined with `and`, `or` and `not` (which is a filter, written `cond | not`). In jq only `false` and `null` are falsy; `0`, `\"\"` and `[]` count as true.\n\n`map(f)` applies `f` to every element of an array and returns a new array. It is exactly `[.[] | f]`. So these two are equivalent ways to filter an array while keeping it an array:\n\n- `map(select(.price > 100))`\n- `[.[] | select(.price > 100)]`\n\nUseful tests inside `select`: `has(\"key\")`, `.tags | index(\"urgent\")`, `.name | startswith(\"tmp\")`, `test(\"regex\")`, and `IN(...)` for membership: `select(.env | IN(\"prod\",\"staging\"))`.\n\n`map_values(f)` does the same for an object's values. Note that `select` drops non-matching inputs entirely, so `map(select(...))` can shorten an array, while `map(if ... then ... else . end)` keeps its length.",
+   "code": "cat > jobs.json <<'EOF'\n[{\"id\":1,\"status\":\"ok\",\"ms\":120},{\"id\":2,\"status\":\"failed\",\"ms\":900},\n {\"id\":3,\"status\":\"failed\",\"ms\":40},{\"id\":4,\"status\":\"ok\",\"ms\":3000}]\nEOF\njq -c '.[] | select(.status == \"failed\") | .id' jobs.json   # 2  3\njq -c 'map(select(.ms > 500) | .id)' jobs.json              # [2,4]\njq -c 'map(select(.status == \"ok\" and .ms < 1000))' jobs.json\n# [{\"id\":1,\"status\":\"ok\",\"ms\":120}]\njq -c 'map(.ms * 2)' jobs.json                              # [240,1800,80,6000]\njq -c '[.[] | select(.id | IN(1,4)) | .id]' jobs.json        # [1,4]\njq 'map(select(.status != \"ok\")) | length' jobs.json        # 2",
+   "code_lang": "bash",
+   "takeaways": [
+    "select(cond) passes input through only when cond is true",
+    "map(f) = [.[] | f]; map(select(...)) filters an array",
+    "Only false and null are falsy in jq"
+   ],
+   "pitfalls": [
+    "Using select on an array directly (select(.x) on [...]) instead of on its elements; iterate or map first."
+   ],
+   "quiz": [
+    {
+     "q": "Which filter returns an array of only the items whose price is above 10?",
+     "options": [
+      "select(.price > 10)",
+      "map(.price > 10)",
+      "map(select(.price > 10))",
+      ".[] | .price > 10"
+     ],
+     "answer": 2,
+     "explain": "map applies select to each element and collects the survivors into a new array."
+    },
+    {
+     "q": "What is `0 | if . then \"yes\" else \"no\" end`?",
+     "options": [
+      "\"no\"",
+      "An error",
+      "\"yes\"",
+      "null"
+     ],
+     "answer": 2,
+     "explain": "0 is truthy in jq; only false and null are falsy."
+    }
+   ],
+   "docs": "https://jqlang.org/manual/",
+   "requires": [
+    "jq.pipes-construct"
+   ]
+  },
+  {
+   "id": "jq.cli-options",
+   "name": "Command-line options and passing variables",
+   "module": "cli",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Use -r, -c, -n, -s and -e, and pass shell values safely into a filter with --arg, --argjson and $ENV.",
+   "why": "Scripts need clean output, correct exit codes and safe injection of shell variables, never string-pasting into the filter.",
+   "body": "The flags you will use constantly:\n\n- `-r` raw strings, `-c` compact one-line output, `-j` like -r without newlines.\n- `-n` (null input) runs the filter once with `null` as input instead of reading stdin, used to **generate** JSON.\n- `-s` (slurp) reads all inputs into **one array**, e.g. to sort or count newline-delimited JSON records.\n- `-e` sets the exit status from the last output: 1 if it was `false` or `null`, 0 otherwise. Great for `if jq -e '.ready' status.json; then ...`.\n- `-S` sorts object keys, `--tab` / `--indent n` control formatting.\n- `-R` reads raw lines of text as strings; `-Rs` reads the whole input as one string.\n\n**Passing values in.** Never build the filter with shell interpolation like `\"select(.name == \\\"$name\\\")\"`: quotes in the value break it, and it is an injection risk. Instead:\n\n- `--arg name \"$value\"` defines `$name` as a **string**.\n- `--argjson n 5` parses the value as JSON (number, object...).\n- `--slurpfile x file.json` loads a file's values as an array in `$x`.\n- `$ENV.HOME` or `env.HOME` reads environment variables.\n- `--args` after the filter makes remaining arguments available in `$ARGS.positional`.\n\nCombine `-n` with `--arg` to build request bodies safely for curl.",
+   "code": "echo '[{\"name\":\"Ann\",\"age\":31},{\"name\":\"Bob\",\"age\":25}]' > p.json\nn=\"Ann\"\njq --arg n \"$n\" '.[] | select(.name == $n) | .age' p.json   # 31\njq --argjson min 30 -c 'map(select(.age >= $min))' p.json    # [{\"name\":\"Ann\",\"age\":31}]\njq -n --arg user \"$USER\" --argjson admin true '{user: $user, admin: $admin}' -c\n# {\"user\":\"alice\",\"admin\":true}\nprintf '{\"v\":1}\n{\"v\":2}\n' | jq -s 'map(.v) | add'          # 3\nprintf 'a\nb\n' | jq -R -c '[., length]'                    # [\"a\",1] [\"b\",1]\necho '{\"ready\":false}' | jq -e .ready >/dev/null; echo $?  # 1\njq -n '$ENV.HOME'                                          # \"/home/alice\"",
+   "code_lang": "bash",
+   "takeaways": [
+    "-r raw, -c compact, -n no input, -s slurp, -e exit status",
+    "--arg (string) and --argjson (JSON) pass values safely",
+    "-n with --arg builds JSON for other tools"
+   ],
+   "pitfalls": [
+    "Splicing shell variables into the filter text instead of using --arg."
+   ],
+   "quiz": [
+    {
+     "q": "`count=5` in the shell. Which passes it as a number to jq?",
+     "options": [
+      "--arg count \"$count\"",
+      "--argjson count \"$count\"",
+      "--env count",
+      "\"$count\" inside the filter"
+     ],
+     "answer": 1,
+     "explain": "--argjson parses the value as JSON, giving the number 5; --arg would give the string \"5\"."
+    },
+    {
+     "q": "What does `-s` do with three newline-separated JSON objects on stdin?",
+     "options": [
+      "Reads them into a single array of three objects",
+      "Processes them one at a time",
+      "Keeps only the first",
+      "Sorts their keys"
+     ],
+     "answer": 0,
+     "explain": "Slurp collects all inputs into one array, so the filter runs once."
+    }
+   ],
+   "docs": "https://jqlang.org/manual/",
+   "requires": [
+    "jq.pipes-construct"
+   ]
+  },
+  {
+   "id": "jq.strings",
+   "name": "Strings, regex and output formats",
+   "module": "transform",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Interpolate with \"\\(.x)\", split, join and test with regexes, and emit CSV, TSV or shell-safe text with @csv, @tsv and @sh.",
+   "why": "Turning JSON into text other tools consume, such as CSV, log lines or shell arguments, is a classic jq job.",
+   "body": "**String interpolation** puts values into text: `\"\\(.name) is \\(.age)\"`. Any expression works inside `\\( )`, and non-strings are converted to JSON text.\n\nCommon string functions:\n\n- `split(\", \")` and `join(\"-\")` convert between strings and arrays; `ascii_downcase`, `ascii_upcase`, `ltrimstr(\"v\")`, `rtrimstr(\".json\")`, `startswith`, `endswith`.\n- `tostring` and `tonumber` convert; `length` counts characters.\n- Regexes (PCRE-like, via Oniguruma): `test(\"^err\"; \"i\")` returns a boolean, `capture(\"(?<user>\\\\w+)@(?<host>.+)\")` returns an object of named groups, `sub(re; repl)` and `gsub` replace, `scan(re)` emits all matches. Backslashes must be doubled inside jq strings.\n\n**Format strings** turn data into text safely:\n\n- `@csv` and `@tsv` turn an **array** into a CSV or TSV row, with correct quoting. Use with `-r`.\n- `@sh` quotes values for use as shell arguments, `@uri` percent-encodes, `@base64` / `@base64d` encode and decode, `@html` and `@json` escape.\n- They also prefix a string: `@uri \"https://x.io/q?s=\\(.term)\"` encodes only the interpolated parts.\n\nA typical report: `jq -r '.[] | [.id, .name, .email] | @csv'` produces a CSV file you can open in a spreadsheet.",
+   "code": "echo '[{\"id\":1,\"name\":\"Ann Lee\",\"email\":\"ann@x.io\"},{\"id\":2,\"name\":\"Bob, Jr\",\"email\":\"BOB@X.IO\"}]' > u.json\njq -r '.[] | \"\\(.id): \\(.name)\"' u.json                 # 1: Ann Lee   2: Bob, Jr\njq -r '.[] | [.id, .name, .email] | @csv' u.json         # 1,\"Ann Lee\",\"ann@x.io\"\n                                                         # 2,\"Bob, Jr\",\"BOB@X.IO\"\njq -c '.[] | .email | ascii_downcase | capture(\"(?<user>[^@]+)@(?<host>.+)\")' u.json\n# {\"user\":\"ann\",\"host\":\"x.io\"}  {\"user\":\"bob\",\"host\":\"x.io\"}\njq -c 'map(.name | split(\" \") | .[0])' u.json            # [\"Ann\",\"Bob,\"]\njq -r '.[] | select(.email | test(\"x\\\\.io$\"; \"i\")) | .id' u.json   # 1  2\njq -r '@uri \"https://s.io/?q=\\(.[0].name)\"' u.json       # https://s.io/?q=Ann%20Lee",
+   "code_lang": "bash",
+   "takeaways": [
+    "\"\\(expr)\" interpolates values into strings",
+    "test, capture, sub, gsub, split, join for text work",
+    "@csv/@tsv on arrays, @sh, @uri, @base64 for safe output"
+   ],
+   "pitfalls": [
+    "Using @csv on an object or a string; it needs an array, so build one with [ ... ] first."
+   ],
+   "quiz": [
+    {
+     "q": "Which produces a correctly quoted CSV row from fields id and name?",
+     "options": [
+      "[.id, .name] | @csv",
+      "\"\\(.id),\\(.name)\"",
+      "{id, name} | @csv",
+      ".id, .name | @csv"
+     ],
+     "answer": 0,
+     "explain": "@csv takes an array and handles quoting of strings containing commas or quotes."
+    }
+   ],
+   "docs": "https://jqlang.org/manual/",
+   "requires": [
+    "jq.select-map"
+   ]
+  },
+  {
+   "id": "jq.objects",
+   "name": "Working with objects: keys, entries, merge",
+   "module": "transform",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Inspect keys, rename and filter keys with with_entries, delete fields with del and merge objects with + and *.",
+   "why": "Cleaning, renaming and combining JSON objects is needed for config files, API payloads and reports.",
+   "body": "Basic object functions:\n\n- `keys` returns sorted key names (`keys_unsorted` keeps input order), `has(\"k\")` tests for a key, `length` counts keys.\n- `del(.password, .internal)` removes keys; `pick(.a, .b.c)` (1.7+) keeps only the given paths.\n- `to_entries` converts `{\"a\":1}` into `[{\"key\":\"a\",\"value\":1}]`, and `from_entries` converts back.\n- `with_entries(f)` is `to_entries | map(f) | from_entries`: the standard tool to **rename**, **filter** or **transform keys**.\n\nExamples: `with_entries(select(.value != null))` drops null fields; `with_entries(.key |= ascii_upcase)` uppercases keys; `with_entries(select(.key | startswith(\"_\") | not))` drops private keys.\n\n**Merging**: `+` merges two objects, with the right side winning for duplicate keys, shallowly. `*` merges **recursively**, combining nested objects: perfect for applying an override on top of default config. `add` on an array of objects merges them all with `+`.\n\nTo combine two files, read both and merge: `jq -s '.[0] * .[1]' defaults.json overrides.json`.\n\nObject key order is preserved in output, but most jq functions that list keys sort them; add `-S` to sort all output keys for stable diffs.",
+   "code": "echo '{\"name\":\"api\",\"port\":8080,\"_debug\":true,\"db\":{\"host\":\"x\",\"pool\":5},\"tls\":null}' > c.json\njq -c 'keys' c.json                                # [\"_debug\",\"db\",\"name\",\"port\",\"tls\"]\njq -c 'del(._debug, .tls)' c.json                  # {\"name\":\"api\",\"port\":8080,\"db\":{\"host\":\"x\",\"pool\":5}}\njq -c 'with_entries(select(.value != null))' c.json | jq -c 'has(\"tls\")'   # false\njq -c 'with_entries(select(.key | startswith(\"_\") | not)) | keys' c.json\n# [\"db\",\"name\",\"port\",\"tls\"]\njq -c '{db: .db} + {db: {pool: 20}}' c.json        # {\"db\":{\"pool\":20}}\njq -c '{db: .db} * {db: {pool: 20}}' c.json        # {\"db\":{\"host\":\"x\",\"pool\":20}}\njq -c 'to_entries[0]' c.json                       # {\"key\":\"name\",\"value\":\"api\"}",
+   "code_lang": "bash",
+   "takeaways": [
+    "keys, has, del, pick for inspecting and trimming",
+    "with_entries(f) renames/filters keys via {key, value}",
+    "+ merges shallowly (right wins), * merges recursively"
+   ],
+   "pitfalls": [
+    "Using + to apply nested config overrides and losing sibling keys; use * for deep merges."
+   ],
+   "quiz": [
+    {
+     "q": "What is `{\"a\":{\"x\":1}} * {\"a\":{\"y\":2}}`?",
+     "options": [
+      "{\"a\":{\"y\":2}}",
+      "{\"a\":{\"x\":1}}",
+      "{\"a\":{\"x\":1,\"y\":2}}",
+      "An error"
+     ],
+     "answer": 2,
+     "explain": "* merges nested objects recursively; + would replace .a entirely."
+    }
+   ],
+   "docs": "https://jqlang.org/manual/",
+   "requires": [
+    "jq.select-map"
+   ]
+  },
+  {
+   "id": "jq.aggregation",
+   "name": "Sorting, grouping and aggregating",
+   "module": "transform",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Summarise arrays with sort_by, group_by, unique_by, min_by, max_by, add and length.",
+   "why": "Quick counts, totals and top-N lists from JSON data answer many questions without a spreadsheet or script.",
+   "body": "jq has the aggregation tools you need for quick analysis. They all work on **arrays**, so start from an array (or collect a stream with `[...]` or `-s`).\n\n- `sort` and `sort_by(.field)` order elements; `sort_by(.a, .b)` sorts by several keys; `reverse` flips the result for descending order.\n- `group_by(.field)` sorts and splits the array into an array of groups, each an array of elements with the same key.\n- `unique` and `unique_by(.field)` remove duplicates (and sort).\n- `min_by(.f)` / `max_by(.f)` return the element with the smallest / largest value; `min` / `max` work on plain values.\n- `add` sums numbers, concatenates strings or arrays, merges objects. `add / length` is the average.\n- `length` counts; `first`, `last`, `limit(n; expr)` take parts.\n\nThe classic count-by pattern:\n\n`group_by(.status) | map({status: .[0].status, count: length})`\n\nIt yields one object per status. To get a dictionary instead, build entries: `map({key: .[0].status, value: length}) | from_entries`.\n\nTop N: `sort_by(.ms) | reverse | .[:3]`. For newline-delimited logs, slurp them first: `jq -s 'group_by(.level) | map({level: .[0].level, n: length})' app.log`.",
+   "code": "cat > s.json <<'EOF'\n[{\"svc\":\"api\",\"status\":\"ok\",\"ms\":120},{\"svc\":\"web\",\"status\":\"err\",\"ms\":900},\n {\"svc\":\"api\",\"status\":\"err\",\"ms\":40},{\"svc\":\"api\",\"status\":\"ok\",\"ms\":300}]\nEOF\njq -c 'group_by(.status) | map({status: .[0].status, count: length})' s.json\n# [{\"status\":\"err\",\"count\":2},{\"status\":\"ok\",\"count\":2}]\njq -c 'group_by(.svc) | map({key: .[0].svc, value: (map(.ms) | add / length)}) | from_entries' s.json\n# {\"api\":153.33333333333334,\"web\":900}\njq -c 'sort_by(.ms) | reverse | .[:2] | map(.ms)' s.json     # [900,300]\njq -c 'max_by(.ms) | .svc' s.json                            # \"web\"\njq -c 'map(.svc) | unique' s.json                            # [\"api\",\"web\"]\njq 'map(.ms) | add' s.json                                   # 1360",
+   "code_lang": "bash",
+   "takeaways": [
+    "sort_by, group_by, unique_by, min_by/max_by work on arrays",
+    "group_by(.k) | map({k: .[0].k, n: length}) counts per key",
+    "add sums; add / length averages"
+   ],
+   "pitfalls": [
+    "Calling group_by on a stream (.[] | group_by...) instead of on the array itself."
+   ],
+   "quiz": [
+    {
+     "q": "What does `group_by(.t)` return for `[{\"t\":\"a\"},{\"t\":\"b\"},{\"t\":\"a\"}]`?",
+     "options": [
+      "[[{\"t\":\"a\"},{\"t\":\"a\"}],[{\"t\":\"b\"}]]",
+      "{\"a\":2,\"b\":1}",
+      "[\"a\",\"b\"]",
+      "[{\"t\":\"a\"},{\"t\":\"b\"}]"
+     ],
+     "answer": 0,
+     "explain": "group_by returns an array of groups, each an array of elements sharing the key, sorted by key."
+    }
+   ],
+   "docs": "https://jqlang.org/manual/",
+   "requires": [
+    "jq.select-map"
+   ]
+  },
+  {
+   "id": "jq.conditionals-errors",
+   "name": "Conditionals, defaults and error handling",
+   "module": "logic",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Branch with if-then-elif-else-end, supply defaults with //, and handle bad input with try, catch and the ? operator.",
+   "why": "Real-world JSON is messy: missing fields, nulls and unexpected types need graceful handling.",
+   "body": "**if** expressions always need an `else` before jq 1.7 (since 1.7 it may be omitted and defaults to `.`): `if .ms > 1000 then \"slow\" elif .ms > 200 then \"ok\" else \"fast\" end`. Like everything in jq, `if` is an expression producing a value, so it can appear inside object construction.\n\nThe **alternative operator** `a // b` outputs `a` unless it produces only `false` or `null` (or nothing), in which case it outputs `b`. It is the idiomatic default: `.name // \"unknown\"`, `.tags // []`. Careful: `false // true` is `true`, so it is not suitable for defaulting booleans that may legitimately be false; use `if .flag == null then true else .flag end` there.\n\n**Errors**: indexing the wrong type (`.foo` on a string), `tonumber` on `\"abc\"` and explicit `error(\"msg\")` raise errors that stop jq with exit code 5.\n\n- `try expr` swallows errors, producing no output for that input.\n- `try expr catch handler` runs the handler with the error message as input: `try tonumber catch \"bad: \\(.)\"`.\n- `expr?` is shorthand for `try expr`: `.[] | .id?` skips elements that are not objects.\n\nCombine them to normalise sloppy data: `(.port | tonumber? ) // 80` converts a port string or falls back to 80.",
+   "code": "echo '[{\"ms\":1500},{\"ms\":300},{\"ms\":20},{\"name\":\"x\"}]' > t.json\njq -c 'map(if .ms == null then \"n/a\" elif .ms > 1000 then \"slow\" elif .ms > 200 then \"ok\" else \"fast\" end)' t.json\n# [\"slow\",\"ok\",\"fast\",\"n/a\"]\njq -c 'map(.name // \"unknown\")' t.json        # [\"unknown\",\"unknown\",\"unknown\",\"x\"]\necho '[\"8080\",\"abc\",null]' | jq -c 'map((tonumber? // 80))'   # [8080,80,80]\necho '\"abc\"' | jq 'try tonumber catch \"bad input\"'       # \"bad input\"\necho '[1,{\"id\":2},\"x\"]' | jq -c '[.[] | .id?]'           # [2]\necho 'false' | jq '. // true'                            # true  (beware!)\necho '{}' | jq 'error(\"missing id\")'; echo \"exit $?\"     # jq: error ... exit 5",
+   "code_lang": "bash",
+   "takeaways": [
+    "if/elif/else/end is an expression",
+    "a // b defaults when a is null, false or empty",
+    "try/catch and ? handle errors per value"
+   ],
+   "pitfalls": [
+    "Using // to default booleans: a real false value is replaced by the default."
+   ],
+   "quiz": [
+    {
+     "q": "What does `{\"enabled\": false} | .enabled // true` return?",
+     "options": [
+      "false",
+      "null",
+      "An error",
+      "true"
+     ],
+     "answer": 3,
+     "explain": "// treats false like null, so the alternative true is returned."
+    },
+    {
+     "q": "What does `[.[] | .id?]` do with an element that is a string?",
+     "options": [
+      "Skips it silently",
+      "Errors and stops",
+      "Outputs null for it",
+      "Converts it to an object"
+     ],
+     "answer": 0,
+     "explain": ".id? catches the indexing error and produces no output for that element."
+    }
+   ],
+   "docs": "https://jqlang.org/manual/",
+   "requires": [
+    "jq.select-map",
+    "jq.cli-options"
+   ]
+  },
+  {
+   "id": "jq.reduce-functions",
+   "name": "Variables, reduce and defining functions",
+   "module": "logic",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Bind values with as $x, fold a stream with reduce, and define your own reusable functions with def.",
+   "why": "Complex transformations, like joining datasets or building lookup tables, need variables, folds and helpers.",
+   "body": "**Variables**: `expr as $x | body` evaluates `body` with `$x` bound to each output of `expr`. It is how you keep an outer value while descending: `.team as $t | .members[] | {team: $t, name}`. Destructuring works too: `. as {name: $n, tags: [$first]} | ...`.\n\n**reduce** folds a stream into one value: `reduce .[] as $item (init; update)`. Inside `update`, `.` is the accumulator.\n\n- Sum: `reduce .[] as $x (0; . + $x)`.\n- Build a lookup object: `reduce .[] as $u ({}; .[$u.id | tostring] = $u.name)`.\n\n`foreach` is similar but outputs each intermediate state, useful for running totals.\n\n**Functions** are defined with `def name: body;` or with parameters `def name(f): body;`. Parameters are **filters**, not values: `def twice(f): f | f;`. Prefix a parameter with `$` to receive a value instead: `def add_tax($rate): . * (1 + $rate);`. Functions can be recursive and can be kept in a file loaded with `-L dir` and `import \"name\" as n;` or `include`.\n\nA powerful join pattern combines these: load one file into a lookup object with `--slurpfile` or `INDEX(.[]; .id)`, then enrich the other: `INDEX(users[]; .id) as $u | orders[] | .user = $u[.user_id | tostring].name`.",
+   "code": "echo '[3,5,7]' | jq 'reduce .[] as $x (0; . + $x)'          # 15\necho '[1,2,3]' | jq -c '[foreach .[] as $x (0; . + $x)]'    # [1,3,6] running total\necho '{\"team\":\"core\",\"members\":[{\"name\":\"Ann\"},{\"name\":\"Bob\"}]}' |\n  jq -c '.team as $t | .members[] | {team: $t, name}'\n# {\"team\":\"core\",\"name\":\"Ann\"}  {\"team\":\"core\",\"name\":\"Bob\"}\necho '[100,250]' | jq -c 'def add_tax($r): . * (1 + $r); map(add_tax(0.25))'   # [125,312.5]\necho '[1,2]' | jq -c 'def twice(f): f | f; map(twice(. * 10))'                 # [100,200]\ncat > d.json <<'EOF'\n{\"users\":[{\"id\":1,\"name\":\"Ann\"},{\"id\":2,\"name\":\"Bob\"}],\"orders\":[{\"oid\":7,\"user_id\":2}]}\nEOF\njq -c 'INDEX(.users[]; .id) as $u | .orders[] | .user = $u[.user_id | tostring].name' d.json\n# {\"oid\":7,\"user_id\":2,\"user\":\"Bob\"}",
+   "code_lang": "bash",
+   "takeaways": [
+    "expr as $x | body binds variables",
+    "reduce .[] as $x (init; update) folds a stream",
+    "def f(g): ...; takes filters; def f($v): takes values"
+   ],
+   "pitfalls": [
+    "Expecting a function parameter without $ to be a value; it is a filter evaluated against the current input."
+   ],
+   "quiz": [
+    {
+     "q": "What does `reduce .[] as $x (1; . * $x)` return for `[2,3,4]`?",
+     "options": [
+      "24",
+      "9",
+      "[2,6,24]",
+      "1"
+     ],
+     "answer": 0,
+     "explain": "Starting from 1, the accumulator is multiplied by each element: 1*2*3*4 = 24."
+    }
+   ],
+   "docs": "https://jqlang.org/manual/",
+   "requires": [
+    "jq.aggregation",
+    "jq.conditionals-errors"
+   ]
+  },
+  {
+   "id": "jq.update-assign",
+   "name": "Updating JSON: |=, +=, del and in-place edits",
+   "module": "logic",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Modify parts of a document while keeping the rest with update-assignment |=, arithmetic updates like +=, and plain = for setting values.",
+   "why": "Editing config files, bumping versions and patching API payloads require changing a field without rebuilding the whole document.",
+   "body": "Most jq filters **extract**. Assignment operators instead return the **whole input** with something changed.\n\n- `.version = \"2.0\"` sets a field (creating it if missing). The right side is evaluated against the **original input**, so `.b = .a` copies `.a` into `.b`.\n- `.price |= . * 1.1` **updates**: the right side runs with the **current value at that path** as input. This is the one you want most of the time.\n- Arithmetic shortcuts: `.count += 1`, `-=`, `*=`, `/=`, and `//=` which sets a default only if the value is null or false.\n\nThe left side can be any path expression, including iterators and `select`:\n\n- `.items[].price |= . * 0.9` discounts every item.\n- `(.items[] | select(.sku == \"A1\") | .qty) += 5` updates only matching items.\n- `.users |= map(select(.active))` filters a nested list in place.\n\n`del(path)` removes; `to_entries`-style rewrites are rarely needed.\n\njq never edits files in place. Write to a temporary file and move it: `jq '.version = \"2.0\"' package.json > tmp && mv tmp package.json` (or `sponge` from moreutils). Redirecting to the same file you read (`> package.json`) truncates it before jq reads it, leaving it empty.",
+   "code": "echo '{\"version\":\"1.0\",\"items\":[{\"sku\":\"A1\",\"qty\":1,\"price\":10},{\"sku\":\"B2\",\"qty\":3,\"price\":20}]}' > o.json\njq -c '.version = \"2.0\" | .version' o.json                     # \"2.0\"\njq -c '.items[].price |= . * 0.5 | [.items[].price]' o.json    # [5,10]\njq -c '(.items[] | select(.sku == \"A1\") | .qty) += 5 | .items[0].qty' o.json   # 6\njq -c '.items |= map(select(.qty > 1)) | .items | length' o.json   # 1\njq -c '.owner //= \"nobody\" | .owner' o.json                     # \"nobody\"\njq -c 'del(.items[] | select(.sku == \"B2\")) | .items' o.json\n# [{\"sku\":\"A1\",\"qty\":1,\"price\":10}]\njq '.version = \"2.0\"' o.json > o.tmp && mv o.tmp o.json        # safe \"in-place\" edit",
+   "code_lang": "bash",
+   "takeaways": [
+    "|= updates with the value at the path as input; = uses the whole input",
+    "Left side can use .[] and select to update many places",
+    "Write to a temp file then mv; never > the same file"
+   ],
+   "pitfalls": [
+    "Running jq ... file.json > file.json, which empties the file before jq reads it."
+   ],
+   "quiz": [
+    {
+     "q": "Input `{\"a\":1,\"b\":5}`. What is `.a |= . + 1`?",
+     "options": [
+      "2",
+      "{\"a\":6,\"b\":5}",
+      "{\"a\":2,\"b\":5}",
+      "{\"a\":1,\"b\":5}"
+     ],
+     "answer": 2,
+     "explain": "|= updates .a using its current value (1) as input, and returns the whole object."
+    },
+    {
+     "q": "Input `{\"a\":1,\"b\":5}`. What is `.a = .b`?",
+     "options": [
+      "{\"a\":1,\"b\":1}",
+      "5",
+      "An error",
+      "{\"a\":5,\"b\":5}"
+     ],
+     "answer": 3,
+     "explain": "With plain =, the right side is evaluated against the whole input, so .b is 5."
+    }
+   ],
+   "docs": "https://jqlang.org/manual/",
+   "requires": [
+    "jq.objects",
+    "jq.conditionals-errors"
+   ]
+  },
+  {
+   "id": "jq.paths-recursion",
+   "name": "Recursion and paths: .., paths, walk",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Search entire documents with .. and paths, read and write by path with getpath/setpath, and transform every node with walk.",
+   "why": "Schemaless or deeply nested JSON, like Kubernetes manifests or Terraform state, needs tools that work at any depth.",
+   "body": "`..` (recurse) outputs the input and **every value nested inside it**, depth-first. It answers \"find X anywhere\": `.. | .image? // empty` lists every `image` field no matter how deep, and `.. | numbers` every number. (`?` and `// empty` skip non-objects and nulls.)\n\nA **path** is an array of keys and indexes, like `[\"spec\",\"containers\",0,\"image\"]`.\n\n- `paths` outputs the path of every node; `paths(type == \"number\")` filters by a predicate on the value; `leaf_paths` is `paths(scalars)`.\n- `path(expr)` gives the paths an expression would access: `path(..|select(type==\"string\" and test(\"secret\")))`.\n- `getpath(p)`, `setpath(p; v)` and `delpaths([p...])` read and write by path array. With `reduce` they enable generic transformations.\n- `to_entries` works on one level; `paths` works on all of them.\n\n`walk(f)` applies `f` to every node **bottom-up**, rebuilding the document: `walk(if type == \"object\" then del(.managedFields) else . end)` strips a key everywhere, and `walk(if type == \"string\" then ascii_downcase else . end)` lowercases all strings.\n\nCombining them, you can flatten a document to dotted keys: `[paths(scalars) as $p | {key: $p | map(tostring) | join(\".\"), value: getpath($p)}] | from_entries`. This is invaluable for diffing two large configs.",
+   "code": "cat > k.json <<'EOF'\n{\"spec\":{\"containers\":[{\"name\":\"app\",\"image\":\"app:1.2\"},{\"name\":\"log\",\"image\":\"fluent:2\"}],\n \"meta\":{\"managedFields\":[1],\"labels\":{\"tier\":\"Web\"}}}}\nEOF\njq -c '[.. | .image? // empty]' k.json                        # [\"app:1.2\",\"fluent:2\"]\njq -c '[paths(type == \"string\")] | .[0]' k.json               # [\"spec\",\"containers\",0,\"name\"]\njq -c 'getpath([\"spec\",\"meta\",\"labels\",\"tier\"])' k.json       # \"Web\"\njq -c 'setpath([\"spec\",\"replicas\"]; 3) | .spec.replicas' k.json   # 3\njq -c 'walk(if type == \"object\" then del(.managedFields) else . end) | .spec.meta' k.json\n# {\"labels\":{\"tier\":\"Web\"}}\njq -c '[paths(scalars) as $p | {key: ($p | map(tostring) | join(\".\")), value: getpath($p)}]\n       | from_entries | keys[:2]' k.json\n# [\"spec.containers.0.image\",\"spec.containers.0.name\"]",
+   "code_lang": "bash",
+   "takeaways": [
+    ".. visits every nested value; combine with ? and // empty",
+    "paths, getpath, setpath, delpaths work with path arrays",
+    "walk(f) transforms every node bottom-up"
+   ],
+   "pitfalls": [
+    "Using .. | .field without ?, which errors as soon as it reaches an array or scalar."
+   ],
+   "quiz": [
+    {
+     "q": "Which removes every `managedFields` key at any depth?",
+     "options": [
+      "del(.managedFields)",
+      "walk(if type == \"object\" then del(.managedFields) else . end)",
+      "del(..managedFields)",
+      "paths | del(.managedFields)"
+     ],
+     "answer": 1,
+     "explain": "walk visits every node, deleting the key from each object; del(.managedFields) only touches the top level."
+    }
+   ],
+   "docs": "https://jqlang.org/manual/",
+   "requires": [
+    "jq.update-assign",
+    "jq.reduce-functions"
+   ]
+  },
+  {
+   "id": "jq.streaming-large",
+   "name": "Large inputs: inputs, --stream and limits",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Process huge files and endless streams with -n and inputs, the --stream event format, and early-exit helpers like first and limit.",
+   "why": "jq normally loads each JSON value fully into memory; multi-gigabyte files and long log streams need different techniques.",
+   "body": "By default jq parses each top-level JSON value completely before running the filter. For newline-delimited JSON that is fine: each line is small and processed independently, so jq streams naturally. Trouble starts with one **huge** value, such as a 5 GB array, or when you need state across many records.\n\n**inputs**: with `-n`, the filter starts with `null` and calls `input` (next value) or `inputs` (all remaining values, lazily). `jq -n 'reduce inputs as $r (0; . + $r.bytes)' access.log` sums a field across millions of lines **without** slurping them into an array, unlike `-s`, which holds everything in memory.\n\n**--stream** parses incrementally and emits **events** `[path, leaf]` for every scalar, plus closing markers `[path]`. Memory stays small no matter how big the document is.\n\n- `fromstream(...)` reassembles values from events; `1 | truncate_stream(inputs)` removes the first path element, so `jq -cn --stream 'fromstream(1 | truncate_stream(inputs))' big.json` emits each element of a giant top-level array one at a time.\n\n**Stopping early** saves time: `first(f)`, `limit(n; f)`, `until`, and `input` exit after what they need. `jq -n 'first(inputs | select(.level == \"error\"))' app.log` stops at the first error.\n\nAlso useful: `--seq` for RFC 7464 record separators, `input_filename` to know which file a value came from, and `$__loc__` for debugging.",
+   "code": "printf '{\"bytes\":10}\\n{\"bytes\":32}\\n{\"bytes\":8}\\n' > access.log\njq -n 'reduce inputs as $r (0; . + $r.bytes)' access.log     # 50  (constant memory)\njq -n '[limit(2; inputs | .bytes)]' -c access.log            # [10,32]\njq -n 'first(inputs | select(.bytes > 20))' -c access.log    # {\"bytes\":32}\n\necho '[{\"id\":1},{\"id\":2}]' > big.json\njq -c --stream . big.json\n# [[0,\"id\"],1]  [[0,\"id\"]]  [[1,\"id\"],2]  [[1,\"id\"]]  [[1]]\njq -cn --stream 'fromstream(1 | truncate_stream(inputs))' big.json\n# {\"id\":1}\n# {\"id\":2}\njq -r 'input_filename' access.log big.json | uniq           # access.log  big.json",
+   "code_lang": "bash",
+   "takeaways": [
+    "-n with inputs processes records lazily, unlike -s",
+    "--stream emits [path, leaf] events for huge single documents",
+    "fromstream(1 | truncate_stream(inputs)) splits a giant array"
+   ],
+   "pitfalls": [
+    "Using -s on a multi-gigabyte log just to count or sum; reduce over inputs instead."
+   ],
+   "quiz": [
+    {
+     "q": "Why is `jq -n 'reduce inputs as $x (0; .+1)'` better than `jq -s 'length'` for a huge NDJSON file?",
+     "options": [
+      "It is shorter",
+      "It never holds all records in memory at once",
+      "It sorts the input",
+      "-s cannot read NDJSON"
+     ],
+     "answer": 1,
+     "explain": "inputs reads values one by one, while -s builds a single array of everything first."
+    }
+   ],
+   "docs": "https://jqlang.org/manual/",
+   "requires": [
+    "jq.paths-recursion",
+    "jq.cli-options"
+   ]
+  },
+  {
+   "id": "jq.generators-semantics",
+   "name": "Generators, backtracking and empty",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 12,
+   "summary": "jq expressions are generators that can produce zero, one or many outputs; understanding this explains cartesian products, empty and label/break.",
+   "why": "Every 'why did I get four results?' or 'why did nothing print?' puzzle in jq comes from its generator semantics.",
+   "body": "Every jq expression is a **generator**: for one input it can emit **zero, one or many** outputs. `.[]` emits many, `select` emits zero or one, `empty` emits **none**, and `,` concatenates generators.\n\nWhen an operator combines two generators, jq evaluates **all combinations**. That gives cartesian products:\n\n- `(1,2) + (10,20)` outputs four values: `11, 12, 21, 22` (the right operand varies in the outer loop).\n- `{a: (1,2), b: (3,4)}` produces four objects.\n- `[.[] | .x] | length` is safe, but `.[].x + .[].y` combines every x with every y, a common accidental blow-up.\n\n`empty` is meaningful: in `if cond then . else empty end` it removes the value, and `select(f)` is defined as `if f then . else empty end`. A function that produces `empty` inside `[...]` simply contributes nothing.\n\nUnder the hood jq **backtracks**: after emitting an output downstream, it resumes the generator for the next one. `limit(n; f)` and `first(f)` stop a generator early using `label $out | ... break $out`, which you can use yourself to exit a loop.\n\n`range(n)`, `range(from; upto; by)`, `recurse(f)`, `repeat` and `until(cond; next)` are generator building blocks. For loops with state prefer `reduce`/`foreach`, which run in constant stack, over deep recursive defs.",
+   "code": "jq -nc '[(1,2) + (10,20)]'                  # [11,12,21,22]\njq -nc '{a: (1,2), b: (3,4)} | [.a,.b]'      # [1,3] [1,4] [2,3] [2,4]\njq -nc '[1,2,3] | [.[] | if . % 2 == 1 then . else empty end]'   # [1,3]\njq -nc '[range(0; 10; 3)]'                   # [0,3,6,9]\njq -nc '[limit(3; repeat(1))]'               # [1,1,1]\njq -nc '[label $out | range(10) | if . == 4 then break $out else . end]'  # [0,1,2,3]\njq -nc '[1 | recurse(if . < 50 then . * 3 else empty end)]'      # [1,3,9,27,81]\njq -nc '[2 | until(. > 100; . * 2)]'         # [128]",
+   "code_lang": "bash",
+   "takeaways": [
+    "Expressions emit zero, one or many outputs",
+    "Binary operators combine all output pairs (cartesian product)",
+    "empty emits nothing; label/break and limit stop generators early"
+   ],
+   "pitfalls": [
+    "Combining two .[] expressions in one arithmetic or object expression and getting N x M results."
+   ],
+   "quiz": [
+    {
+     "q": "How many outputs does `(1,2,3) * (1,2)` produce?",
+     "options": [
+      "6",
+      "2",
+      "3",
+      "1"
+     ],
+     "answer": 0,
+     "explain": "Every combination of the 3 left and 2 right outputs is evaluated: 6 results."
+    },
+    {
+     "q": "What does `[1, empty, 2]` evaluate to?",
+     "options": [
+      "[1,null,2]",
+      "[1,2]",
+      "An error",
+      "[]"
+     ],
+     "answer": 1,
+     "explain": "empty produces no output, so it contributes nothing to the array."
+    }
+   ],
+   "docs": "https://jqlang.org/manual/",
+   "requires": [
+    "jq.reduce-functions"
+   ]
+  }
+ ]
+}

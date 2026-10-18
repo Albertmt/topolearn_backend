@@ -1,0 +1,708 @@
+{
+ "tool": {
+  "id": "scrapy",
+  "name": "Scrapy",
+  "category": "framework",
+  "tagline": "Python framework for fast, polite, large-scale web crawling and scraping",
+  "description": "Scrapy is a Python framework for crawling websites and extracting structured data. You write spiders that yield requests and items, and Scrapy handles scheduling, concurrency, retries, throttling, deduplication, pipelines and export. It's the standard choice when scraping goes beyond a few pages: whole sites, recurring crawls and production data pipelines.",
+  "icon": "Sc",
+  "color": "#4E8A3C",
+  "official_docs": "https://docs.scrapy.org/en/latest/",
+  "version": "2.19",
+  "aliases": [
+   "scrapy framework",
+   "web crawler",
+   "spiders",
+   "web scraping framework"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 2
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Getting started"
+  },
+  {
+   "id": "extraction",
+   "name": "Extracting data"
+  },
+  {
+   "id": "crawling",
+   "name": "Crawling"
+  },
+  {
+   "id": "data",
+   "name": "Items and pipelines"
+  },
+  {
+   "id": "advanced",
+   "name": "Middlewares, errors and production"
+  },
+  {
+   "id": "internals",
+   "name": "Architecture and scale"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "scrapy.project-setup",
+   "name": "Projects and your first spider",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Create a Scrapy project, write a Spider with start_urls and a parse callback, and run it with scrapy crawl.",
+   "why": "Scrapy's project layout and spider lifecycle are the frame every crawler you write will fit into.",
+   "body": "**Scrapy** is a framework for crawling websites and extracting structured data. Unlike a requests-plus-parser script, it handles scheduling, concurrency, retries, throttling, deduplication and export for you; you write **spiders** that say what to fetch and how to parse it.\n\nInstall it with `pip install scrapy`, then:\n\n- `scrapy startproject bookstore` creates a project: `settings.py`, `items.py`, `pipelines.py`, `middlewares.py` and a `spiders/` package.\n- `scrapy genspider quotes quotes.toscrape.com` adds a spider skeleton.\n- `scrapy crawl quotes` runs the spider by its `name`.\n- For a single file without a project, `scrapy runspider quotes.py` works too.\n\nA spider is a class subclassing `scrapy.Spider` with:\n\n- `name`: unique id used by `scrapy crawl`.\n- `allowed_domains`: requests to other domains are dropped by the offsite middleware.\n- `start_urls`: the first pages to fetch. For custom start requests, define `async def start(self)` and yield `scrapy.Request` objects. Older code uses `start_requests()`, deprecated in 2.13 and since removed, so current versions never call it.\n- `parse(self, response)`: the default **callback**, called with each downloaded response. It's a generator that **yields** extracted items (dicts) and new requests.\n\nEverything is asynchronous: yielding a request doesn't download it immediately; Scrapy schedules it and calls your callback later, possibly interleaved with many other pages.",
+   "code": "# quotes.py   (run with: scrapy runspider quotes.py -O quotes.json)\nimport scrapy\n\nclass QuotesSpider(scrapy.Spider):\n    name = \"quotes\"\n    allowed_domains = [\"quotes.toscrape.com\"]\n    start_urls = [\"https://quotes.toscrape.com/\"]\n\n    def parse(self, response):\n        self.logger.info(\"Visited %s (status %s)\", response.url, response.status)\n        for quote in response.css(\"div.quote\"):\n            yield {\n                \"text\": quote.css(\"span.text::text\").get(),\n                \"author\": quote.css(\"small.author::text\").get(),\n            }\n\n# $ scrapy startproject bookstore && cd bookstore\n# $ scrapy genspider quotes quotes.toscrape.com\n# $ scrapy crawl quotes\n# ... 'item_scraped_count': 10, 'response_received_count': 2, ...",
+   "code_lang": "python",
+   "takeaways": [
+    "startproject creates the layout; genspider adds a spider",
+    "A Spider has name, start_urls (or async start()) and parse callbacks",
+    "Callbacks yield items and new requests",
+    "Requests are scheduled and downloaded asynchronously"
+   ],
+   "pitfalls": [
+    "Returning a list once at the end of parse instead of yielding items as you go (works, but delays everything and holds memory)."
+   ],
+   "quiz": [
+    {
+     "q": "What does `scrapy crawl quotes` use to find the spider?",
+     "options": [
+      "The first entry of start_urls",
+      "The file name quotes.py",
+      "The spider's name attribute",
+      "The class name"
+     ],
+     "answer": 2,
+     "explain": "Scrapy looks up spiders in the project by their name attribute."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/intro/tutorial.html",
+   "requires": [
+    "python.classes",
+    "python.iterators-generators"
+   ]
+  },
+  {
+   "id": "scrapy.selectors",
+   "name": "Selectors: CSS and XPath",
+   "module": "extraction",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Extract data from responses with response.css() and response.xpath(), using ::text, ::attr(), get() and getall().",
+   "why": "Selectors are how every value gets out of a page, and knowing both CSS and XPath lets you handle any structure.",
+   "body": "A response offers `response.css(query)` and `response.xpath(query)`. Both return a **SelectorList**, which you can query further or extract from:\n\n- `.get()` returns the first match as a string, or `None` (or `get(default=\"\")`).\n- `.getall()` returns a list of all matches.\n- `.re(r\"pattern\")` / `.re_first(...)` apply a regex to the matches.\n\nCSS in Scrapy has two extensions (from the **parsel** library) to select text and attributes:\n\n- `span.text::text` selects the text nodes of the element.\n- `a::attr(href)` selects an attribute's value. Alternatively `response.css(\"a\").attrib[\"href\"]` reads an attribute of the first match.\n\n**XPath** is more powerful for some tasks: `//a[contains(text(), \"Next\")]/@href`, `//th[text()=\"Price\"]/following-sibling::td/text()`, or `string(.)` for all text inside an element. CSS queries are actually translated to XPath under the hood, and you can chain both: `response.css(\"div.product\").xpath(\".//h2/text()\")`.\n\nWhen looping over elements, query **relative** to each one: `quote.css(\"span.text::text\")` stays inside that quote. In XPath, start relative expressions with `.//` instead of `//`, which would search the whole document again.\n\n`::text` only returns direct text nodes; for text spread over nested tags use `*::text` with `getall()` and join, or XPath `string()`.",
+   "code": "from scrapy.http import HtmlResponse\n\nbody = b\"\"\"<div class=\"product\" data-sku=\"A1\"><h2>Kettle <small>steel</small></h2>\n  <table><tr><th>Price</th><td>29.90 EUR</td></tr></table>\n  <a class=\"next\" href=\"/page/2\">Next page</a></div>\"\"\"\nresponse = HtmlResponse(url=\"https://shop.example/\", body=body, encoding=\"utf-8\")\n\np = response.css(\"div.product\")\nprint(p.attrib[\"data-sku\"])                          # A1\nprint(p.css(\"h2::text\").get())                       # 'Kettle '\nprint(\"\".join(p.css(\"h2 *::text, h2::text\").getall()).strip())  # Kettle steel\nprint(p.xpath(\"string(.//h2)\").get())                # Kettle steel\nprint(p.xpath('.//th[text()=\"Price\"]/following-sibling::td/text()').re_first(r\"[\\d.]+\"))  # 29.90\nprint(response.css(\"a.next::attr(href)\").get())      # /page/2\nprint(response.css(\"span.missing::text\").get(default=\"n/a\"))   # n/a",
+   "code_lang": "python",
+   "takeaways": [
+    "get() for the first match, getall() for all, re()/re_first() for regex",
+    "::text and ::attr(name) are Scrapy's CSS extensions",
+    "Query relative to each element; in XPath use .// not //",
+    "XPath handles text conditions and siblings; string() joins nested text"
+   ],
+   "pitfalls": [
+    "Using // inside a loop over elements and getting matches from the whole page every time."
+   ],
+   "quiz": [
+    {
+     "q": "Inside `for q in response.css('div.quote')`, which XPath stays within q?",
+     "options": [
+      "q.xpath('.//span/text()')",
+      "response.xpath('.//span/text()')",
+      "q.xpath('/span/text()')",
+      "q.xpath('//span/text()')"
+     ],
+     "answer": 0,
+     "explain": "A leading // searches from the document root; .// searches below the current node."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/topics/selectors.html",
+   "requires": [
+    "scrapy.project-setup"
+   ]
+  },
+  {
+   "id": "scrapy.feeds",
+   "name": "Yielding items and exporting feeds",
+   "module": "extraction",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Yield dict items from callbacks and export them to JSON, JSON Lines or CSV with -O/-o or the FEEDS setting.",
+   "why": "Getting clean output files without writing any export code is one of Scrapy's biggest time savers.",
+   "body": "Whatever a callback **yields** that isn't a request is treated as an **item**: a dict, a Scrapy `Item`, a dataclass or an attrs object. Items flow through the item pipelines and then to the configured **feed exports**.\n\nFrom the command line:\n\n- `scrapy crawl quotes -O quotes.json` writes (overwriting) a JSON array.\n- `-o quotes.jsonl` **appends**; use JSON Lines (`.jsonl`) for appending, since appending to a JSON array produces an invalid file.\n- `.csv` and `.xml` work too; the format follows the extension, or force it with `-o out.txt:jsonlines`.\n\nIn code or settings, the `FEEDS` setting configures one or more outputs with options:\n\n- `FEEDS = {\"data/%(name)s-%(time)s.jsonl\": {\"format\": \"jsonlines\", \"encoding\": \"utf8\"}}` uses placeholders for the spider name and time.\n- `\"fields\"` selects and orders CSV columns; `\"overwrite\": True` replaces existing files.\n- URIs can point to S3 (`s3://bucket/key`), FTP or Google Cloud Storage with the right extras installed.\n\nSet `FEED_EXPORT_ENCODING = \"utf-8\"` (the generated project template already does) so non-ASCII text isn't written as `\\u00e9` escapes in JSON.\n\nYield items as soon as they're extracted rather than collecting lists: memory stays flat and results stream out even if the crawl stops halfway.",
+   "code": "import scrapy\n\nclass QuotesSpider(scrapy.Spider):\n    name = \"quotes\"\n    start_urls = [\"https://quotes.toscrape.com/\"]\n    custom_settings = {\n        \"FEEDS\": {\n            \"out/%(name)s.jsonl\": {\"format\": \"jsonlines\", \"overwrite\": True},\n            \"out/%(name)s.csv\": {\"format\": \"csv\", \"fields\": [\"author\", \"text\"]},\n        },\n        \"FEED_EXPORT_ENCODING\": \"utf-8\",\n    }\n\n    def parse(self, response):\n        for q in response.css(\"div.quote\"):\n            yield {\n                \"text\": q.css(\"span.text::text\").get(),\n                \"author\": q.css(\"small.author::text\").get(),\n                \"tags\": q.css(\"a.tag::text\").getall(),\n            }\n\n# $ scrapy runspider quotes.py            -> out/quotes.jsonl and out/quotes.csv\n# $ scrapy runspider quotes.py -O q.json  -> also a JSON array",
+   "code_lang": "python",
+   "takeaways": [
+    "Anything yielded that isn't a Request is an item",
+    "-O overwrites, -o appends; append only to .jsonl",
+    "FEEDS configures formats, fields, paths and remote storage",
+    "Set FEED_EXPORT_ENCODING = 'utf-8' for readable JSON"
+   ],
+   "pitfalls": [
+    "Appending with -o to an existing .json file, producing two concatenated JSON arrays."
+   ],
+   "quiz": [
+    {
+     "q": "Which output is safe to append to across multiple runs?",
+     "options": [
+      "None of them",
+      "quotes.json",
+      "quotes.jsonl",
+      "quotes.xml"
+     ],
+     "answer": 2,
+     "explain": "JSON Lines has one object per line, so appended runs remain a valid file."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/topics/feed-exports.html",
+   "requires": [
+    "scrapy.selectors"
+   ]
+  },
+  {
+   "id": "scrapy.following-links",
+   "name": "Following links and pagination",
+   "module": "crawling",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Crawl beyond the first page with response.follow and follow_all, separate callbacks per page type, and pass data with cb_kwargs.",
+   "why": "Real crawls span listing pages, detail pages and pagination, and Scrapy's request model makes that natural.",
+   "body": "To crawl further, a callback yields **requests**. The convenient way is `response.follow(url, callback=...)`:\n\n- It accepts relative URLs (`/page/2/`) and resolves them against the response URL.\n- It also accepts a selector for an `<a>` element directly: `response.follow(a_selector, ...)`.\n- `response.follow_all(css=\"li.next a\", callback=self.parse)` creates requests for every match.\n\nThe callback defaults to `self.parse`. Use **different callbacks for different page types**: `parse` for listing pages yields requests to detail pages with `callback=self.parse_author`, and a request for the next listing page with `callback=self.parse`.\n\n**Deduplication**: Scrapy remembers request fingerprints and drops requests for URLs it has already seen, so following the same author link from many quotes fetches it once. Pass `dont_filter=True` to bypass that when needed.\n\nTo pass data from one page to the next, use `cb_kwargs={\"category\": name}`: the values arrive as keyword arguments of the callback. That's the clean replacement for stuffing data into `request.meta`.\n\nPagination ends naturally when there's no next link. Guard deep or infinite crawls with `DEPTH_LIMIT` or `CLOSESPIDER_PAGECOUNT`, and keep `allowed_domains` set so links to other sites are ignored.",
+   "code": "import scrapy\n\nclass AuthorsSpider(scrapy.Spider):\n    name = \"authors\"\n    allowed_domains = [\"quotes.toscrape.com\"]\n    start_urls = [\"https://quotes.toscrape.com/\"]\n\n    def parse(self, response):\n        for q in response.css(\"div.quote\"):\n            about = q.css(\"span a\")      # the (about) link\n            yield response.follow(about[0], callback=self.parse_author,\n                                  cb_kwargs={\"first_quote\": q.css(\"span.text::text\").get()})\n        yield from response.follow_all(css=\"li.next a\", callback=self.parse)\n\n    def parse_author(self, response, first_quote):\n        yield {\n            \"name\": response.css(\"h3.author-title::text\").get().strip(),\n            \"born\": response.css(\"span.author-born-date::text\").get(),\n            \"first_quote_seen\": first_quote[:30],\n        }\n# Each author page is fetched once, even if linked from many quotes.",
+   "code_lang": "python",
+   "takeaways": [
+    "response.follow resolves relative URLs and accepts <a> selectors",
+    "Use separate callbacks per page type",
+    "Duplicate URLs are filtered automatically (dont_filter=True to override)",
+    "cb_kwargs passes data to the next callback"
+   ],
+   "pitfalls": [
+    "Building absolute URLs by string concatenation instead of response.follow / response.urljoin."
+   ],
+   "quiz": [
+    {
+     "q": "Twenty quotes link to the same author page. How many times does Scrapy download it by default?",
+     "options": [
+      "Once",
+      "Zero",
+      "Twice",
+      "Twenty"
+     ],
+     "answer": 0,
+     "explain": "The duplicate filter drops requests whose fingerprint has already been seen."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/intro/tutorial.html#following-links",
+   "requires": [
+    "scrapy.selectors"
+   ]
+  },
+  {
+   "id": "scrapy.shell",
+   "name": "Exploring pages in scrapy shell",
+   "module": "extraction",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Use scrapy shell to fetch a page and try selectors interactively before putting them in a spider.",
+   "why": "Developing selectors interactively is far faster than rerunning a whole crawl after every tweak.",
+   "body": "`scrapy shell \"https://quotes.toscrape.com/\"` downloads the page with Scrapy's own downloader (same settings, headers and middlewares as your project when run inside it) and opens a Python shell (IPython if installed) with objects ready:\n\n- `response`: the downloaded page; try `response.css(...)` and `response.xpath(...)` right away.\n- `request`, `settings`, `spider`, `crawler`.\n- `fetch(url_or_request)`: download another page and replace `response`.\n- `view(response)`: open the response in your browser **as Scrapy received it**, which is the fastest way to see whether content is missing because JavaScript renders it.\n- `shelp()`: list the available objects and shortcuts.\n\nYou can also run the shell on a local file (`scrapy shell ./page.html`) to work offline with a saved page.\n\nInside a running spider, `from scrapy.shell import inspect_response` and calling `inspect_response(response, self)` in a callback drops you into a shell at exactly that point, with the live response, great for debugging pages that behave differently from what you expected.\n\nA related command, `scrapy fetch --nolog URL`, prints the raw body as Scrapy sees it, and `scrapy view URL` opens it in a browser.\n\nWorkflow: explore in the shell, copy the selector into the spider, then run the spider on a few pages with `-s CLOSESPIDER_ITEMCOUNT=5` to check output.",
+   "code": "# $ scrapy shell \"https://quotes.toscrape.com/\"\n>>> response.status\n200\n>>> response.css(\"title::text\").get()\n'Quotes to Scrape'\n>>> q = response.css(\"div.quote\")[0]\n>>> q.css(\"small.author::text\").get()\n'Albert Einstein'\n>>> q.css(\"a.tag::text\").getall()\n['change', 'deep-thoughts', 'thinking', 'world']\n>>> fetch(\"https://quotes.toscrape.com/page/2/\")\n>>> response.url\n'https://quotes.toscrape.com/page/2/'\n>>> view(response)          # opens the downloaded HTML in your browser\nTrue",
+   "code_lang": "python",
+   "takeaways": [
+    "scrapy shell URL gives you response, fetch() and view()",
+    "view(response) shows the page as Scrapy got it, without JavaScript",
+    "inspect_response(response, self) opens a shell inside a callback",
+    "Develop selectors in the shell, then paste them into the spider"
+   ],
+   "pitfalls": [
+    "Testing selectors in the browser's dev tools (which show the JavaScript-rendered DOM) instead of the raw response."
+   ],
+   "quiz": [
+    {
+     "q": "Selectors that work in Chrome's inspector return nothing in Scrapy. Which shell tool helps most?",
+     "options": [
+      "settings",
+      "shelp()",
+      "view(response)",
+      "fetch(response)"
+     ],
+     "answer": 2,
+     "explain": "view() shows the HTML Scrapy actually received, revealing content added later by JavaScript."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/topics/shell.html",
+   "requires": [
+    "scrapy.selectors"
+   ]
+  },
+  {
+   "id": "scrapy.items-loaders",
+   "name": "Items and ItemLoaders",
+   "module": "data",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Define item schemas with scrapy.Item or dataclasses, and populate them cleanly with ItemLoader input and output processors.",
+   "why": "Declared item fields catch typos and document your data, and loaders keep cleaning logic out of callbacks.",
+   "body": "Plain dicts work, but larger projects declare **item types**. Scrapy supports, through the `itemadapter` library:\n\n- `scrapy.Item` subclasses with `scrapy.Field()` attributes: assigning an undeclared field raises `KeyError`, which catches typos.\n- **dataclasses** and attrs classes, giving type hints and defaults.\n\nPipelines and exporters handle all of them uniformly via `ItemAdapter(item)`.\n\n**ItemLoader** separates *where* data comes from and *how* it's cleaned:\n\n- `loader = ItemLoader(item=Product(), response=response)` (or `selector=` for a sub-element).\n- `loader.add_css(\"name\", \"h1::text\")`, `add_xpath(...)`, `add_value(\"url\", response.url)`; each call can add several values to a field.\n- `loader.load_item()` returns the populated item.\n\nEvery value passes through **processors** from the `itemloaders.processors` module:\n\n- **Input processors** run on each extracted value as it's added: `MapCompose(str.strip, to_float)` applies functions in order and drops `None` results.\n- **Output processors** run once on the collected list when loading: `TakeFirst()` returns the first non-empty value, `Join(\", \")` concatenates.\n\nConfigure them per field (`name_in`, `price_out` attributes on a loader subclass, or `Field(input_processor=...)`) and set `default_output_processor = TakeFirst()`, since otherwise every field is a list.\n\nLoaders shine on sites with many similar pages; for a quick spider, plain dicts with careful selectors are fine.",
+   "code": "from dataclasses import dataclass\nfrom itemloaders.processors import MapCompose, TakeFirst, Join\nfrom scrapy.http import HtmlResponse\nfrom scrapy.loader import ItemLoader\n@dataclass\nclass Product:\n    name: str | None = None\n    price: float | None = None\n    tags: str | None = None\n\nclass ProductLoader(ItemLoader):\n    default_item_class = Product\n    default_output_processor = TakeFirst()\n    name_in = MapCompose(str.strip)\n    price_in = MapCompose(lambda s: s.replace(\"EUR\", \"\").strip(), float)\n    tags_out = Join(\", \")\n\nbody = b'<h1> Kettle </h1><span class=\"price\">29.90 EUR</span><a class=\"tag\">home</a><a class=\"tag\">steel</a>'\nresponse = HtmlResponse(url=\"https://shop.example/p/1\", body=body, encoding=\"utf-8\")\nloader = ProductLoader(response=response)\nloader.add_css(\"name\", \"h1::text\")\nloader.add_css(\"price\", \"span.price::text\")\nloader.add_css(\"tags\", \"a.tag::text\")\nprint(loader.load_item())\n# Product(name='Kettle', price=29.9, tags='home, steel')",
+   "code_lang": "python",
+   "takeaways": [
+    "scrapy.Item, dataclasses and attrs all work as items via ItemAdapter",
+    "ItemLoader: add_css / add_xpath / add_value, then load_item()",
+    "Input processors clean each value; output processors combine the list",
+    "Set default_output_processor = TakeFirst() to avoid list fields"
+   ],
+   "pitfalls": [
+    "Forgetting an output processor and exporting every field as a one-element list."
+   ],
+   "quiz": [
+    {
+     "q": "What does MapCompose(str.strip, float) do as an input processor?",
+     "options": [
+      "Joins all values into a float",
+      "Validates that values are floats without converting",
+      "Strips and converts the first value only",
+      "Applies str.strip then float to each extracted value"
+     ],
+     "answer": 3,
+     "explain": "MapCompose applies its functions in sequence to every input value."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/topics/loaders.html",
+   "requires": [
+    "scrapy.feeds",
+    "python.dataclasses"
+   ]
+  },
+  {
+   "id": "scrapy.pipelines",
+   "name": "Item pipelines",
+   "module": "data",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Validate, clean, deduplicate and store items in pipeline classes enabled and ordered through ITEM_PIPELINES.",
+   "why": "Pipelines keep storage and validation out of spiders, so the same logic applies to every spider in a project.",
+   "body": "After a callback yields an item, it passes through the **item pipelines**: classes with a `process_item(self, item)` method, enabled in settings:\n\n`ITEM_PIPELINES = {\"bookstore.pipelines.ValidatePipeline\": 100, \"bookstore.pipelines.PostgresPipeline\": 800}`\n\nThe numbers (0 to 1000) set the order: **lower runs first**. Each `process_item` must either **return the item** (possibly modified) to pass it on, or **raise `DropItem`** to discard it, which is logged and counted in the stats.\n\nTypical pipelines, in order:\n\n- Validation: drop items missing required fields.\n- Cleaning and normalization: prices to numbers, dates to ISO format.\n- Deduplication: keep a set of seen keys and drop repeats.\n- Storage: write to a database or API.\n\nLifecycle hooks: `open_spider()` and `close_spider()` run once per crawl, the place to open and close database connections. A `from_crawler(cls, crawler)` classmethod gives access to settings (connection strings) and the crawler.\n\nUse `ItemAdapter(item)` to read and write fields so the pipeline works with dicts, Items and dataclasses alike.\n\n`process_item` may also be an `async def` coroutine, which suits async database drivers. Older Scrapy versions passed a `spider` argument to these methods; current versions deprecate requiring it in favor of `from_crawler` and `crawler.spider`.",
+   "code": "# bookstore/pipelines.py\nfrom itemadapter import ItemAdapter\nfrom scrapy.exceptions import DropItem\n\nclass ValidatePipeline:\n    def process_item(self, item):\n        a = ItemAdapter(item)\n        if not a.get(\"title\") or a.get(\"price\") is None:\n            raise DropItem(f\"missing fields: {a.asdict()}\")\n        a[\"price\"] = round(float(a[\"price\"]), 2)\n        return item\n\nclass DedupePipeline:\n    def open_spider(self):\n        self.seen = set()\n    def process_item(self, item):\n        key = ItemAdapter(item)[\"title\"].lower()\n        if key in self.seen:\n            raise DropItem(f\"duplicate: {key}\")\n        self.seen.add(key)\n        return item\n\n# settings.py\nITEM_PIPELINES = {\"bookstore.pipelines.ValidatePipeline\": 100,\n                  \"bookstore.pipelines.DedupePipeline\": 200}",
+   "code_lang": "python",
+   "takeaways": [
+    "process_item returns the item to pass it on or raises DropItem",
+    "ITEM_PIPELINES numbers set the order: lower first",
+    "open_spider / close_spider manage resources; from_crawler reads settings",
+    "Use ItemAdapter to support every item type"
+   ],
+   "pitfalls": [
+    "Forgetting to return the item, so every later pipeline and the feed receive None."
+   ],
+   "quiz": [
+    {
+     "q": "Pipelines A: 300 and B: 100 are enabled. In what order do they see an item?",
+     "options": [
+      "Alphabetical order",
+      "A then B",
+      "B then A",
+      "In parallel"
+     ],
+     "answer": 2,
+     "explain": "Lower numbers run first, so B (100) processes the item before A (300)."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/topics/item-pipeline.html",
+   "requires": [
+    "scrapy.items-loaders"
+   ]
+  },
+  {
+   "id": "scrapy.politeness",
+   "name": "Settings and polite crawling",
+   "module": "crawling",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Configure robots.txt obedience, delays, concurrency, AutoThrottle, user agent and HTTP cache through Scrapy settings.",
+   "why": "Crawling too aggressively gets you blocked and can hurt the sites you depend on; Scrapy has the knobs built in.",
+   "body": "Settings come from several levels, lowest to highest priority: Scrapy defaults, project `settings.py`, the spider's `custom_settings` dict, and the command line (`-s NAME=value`).\n\nPoliteness and identity:\n\n- `ROBOTSTXT_OBEY = True`: respect robots.txt (the project template enables it; the global default is False).\n- `USER_AGENT`: identify your bot, ideally with a contact URL.\n- `DOWNLOAD_DELAY = 1`: seconds between requests to the same site, randomized between 0.5x and 1.5x by default (`DOWNLOAD_DELAY_JITTER = 0.5`; older versions used `RANDOMIZE_DOWNLOAD_DELAY`).\n- `CONCURRENT_REQUESTS` (default 16 overall) and `CONCURRENT_REQUESTS_PER_DOMAIN` (default 8; the project template sets 1).\n\n**AutoThrottle** (`AUTOTHROTTLE_ENABLED = True`) adapts the delay to the server's response latency, aiming at `AUTOTHROTTLE_TARGET_CONCURRENCY` parallel requests per server. It slows down automatically when the site does, which is usually better than a fixed guess.\n\nDevelopment helpers:\n\n- `HTTPCACHE_ENABLED = True` caches responses on disk, so reruns while you tweak parsing don't hit the site.\n- `CLOSESPIDER_ITEMCOUNT` / `CLOSESPIDER_PAGECOUNT` stop early.\n- `LOG_LEVEL = \"INFO\"` cuts noise.\n\nRead settings in code via `self.settings.getint(\"DOWNLOAD_DELAY\")` in a spider or `crawler.settings` in components. `scrapy settings --get NAME` shows the effective value inside a project.",
+   "code": "# settings.py\nBOT_NAME = \"bookstore\"\nUSER_AGENT = \"bookstore-bot/1.0 (+https://example.com/bot)\"\nROBOTSTXT_OBEY = True\n\nCONCURRENT_REQUESTS_PER_DOMAIN = 2\nDOWNLOAD_DELAY = 0.5\n\nAUTOTHROTTLE_ENABLED = True\nAUTOTHROTTLE_START_DELAY = 1\nAUTOTHROTTLE_MAX_DELAY = 30\nAUTOTHROTTLE_TARGET_CONCURRENCY = 1.0\n\nHTTPCACHE_ENABLED = True          # dev only: reuse downloaded pages\nHTTPCACHE_EXPIRATION_SECS = 3600\nFEED_EXPORT_ENCODING = \"utf-8\"\n\n# One-off overrides from the command line:\n# $ scrapy crawl books -s LOG_LEVEL=INFO -s CLOSESPIDER_ITEMCOUNT=20",
+   "code_lang": "python",
+   "takeaways": [
+    "Priority: defaults < settings.py < custom_settings < -s on the command line",
+    "Obey robots.txt, identify yourself, and limit per-domain concurrency",
+    "AutoThrottle adapts delays to server latency",
+    "HTTPCACHE_ENABLED speeds up development reruns"
+   ],
+   "pitfalls": [
+    "Leaving HTTPCACHE_ENABLED on in production and scraping stale pages."
+   ],
+   "quiz": [
+    {
+     "q": "A spider sets custom_settings = {'DOWNLOAD_DELAY': 2} and you run with -s DOWNLOAD_DELAY=0.5. Which delay applies?",
+     "options": [
+      "The default 0",
+      "2",
+      "0.5",
+      "The project setting"
+     ],
+     "answer": 2,
+     "explain": "Command-line settings have the highest priority."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/topics/settings.html",
+   "requires": [
+    "scrapy.following-links"
+   ]
+  },
+  {
+   "id": "scrapy.crawlspider",
+   "name": "CrawlSpider and link extraction rules",
+   "module": "crawling",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Crawl whole sections of a site declaratively with CrawlSpider, Rule and LinkExtractor patterns.",
+   "why": "Many crawls are 'follow these kinds of links, parse those kinds of pages', which rules express in a few lines.",
+   "body": "`CrawlSpider` is a Spider subclass driven by **rules**. Each `Rule` wraps a **`LinkExtractor`** that finds links in every response, plus what to do with them:\n\n- `LinkExtractor(allow=r\"/catalogue/category/\")`: regexes the URL must match; `deny=` excludes; `restrict_css=` / `restrict_xpaths=` limit extraction to a page region such as the main content or pagination.\n- `Rule(extractor, callback=\"parse_book\")`: parse the linked pages with that method.\n- `follow=True` (default when there's no callback): keep applying the rules to those pages too.\n\nRules are applied in order, and a link is handled by the **first** rule that matches it, so put specific rules before general ones.\n\nA typical setup has one rule that follows category and pagination links without a callback, and one rule that sends product pages to `parse_item`.\n\nThe crucial gotcha: **don't define a method called `parse`** in a CrawlSpider. CrawlSpider uses `parse` internally to apply the rules; overriding it silently disables the crawling. Name callbacks `parse_item` or similar. To also parse the start pages, override `parse_start_url`.\n\n`LinkExtractor` is useful outside CrawlSpider too: `LinkExtractor(...).extract_links(response)` returns `Link` objects with `.url` and `.text`, deduplicated and absolute.\n\nFor sites that publish one, `SitemapSpider` crawls from `sitemap.xml` instead, often the most efficient way to reach every page.",
+   "code": "from scrapy.linkextractors import LinkExtractor\nfrom scrapy.spiders import CrawlSpider, Rule\n\nclass BooksSpider(CrawlSpider):\n    name = \"books\"\n    allowed_domains = [\"books.toscrape.com\"]\n    start_urls = [\"https://books.toscrape.com/\"]\n\n    rules = (\n        # book detail pages -> parse_book (and don't follow further)\n        Rule(LinkExtractor(restrict_css=\"article.product_pod h3\"),\n             callback=\"parse_book\", follow=False),\n        # category and pagination pages -> just follow\n        Rule(LinkExtractor(restrict_css=[\"ul.nav-list\", \"li.next\"])),\n    )\n\n    def parse_book(self, response):          # never name this \"parse\"\n        yield {\n            \"title\": response.css(\"div.product_main h1::text\").get(),\n            \"price\": response.css(\"p.price_color::text\").get(),\n            \"url\": response.url,\n        }",
+   "code_lang": "python",
+   "takeaways": [
+    "CrawlSpider + Rule(LinkExtractor(...)) crawls declaratively",
+    "allow/deny regexes and restrict_css focus link extraction",
+    "The first matching rule handles a link: order matters",
+    "Never override parse in a CrawlSpider"
+   ],
+   "pitfalls": [
+    "Naming a CrawlSpider callback parse and wondering why no links are followed."
+   ],
+   "quiz": [
+    {
+     "q": "Why must a CrawlSpider not define its own parse method?",
+     "options": [
+      "Rules only call methods starting with rule_",
+      "It makes the spider run twice",
+      "parse is reserved for errors",
+      "CrawlSpider uses parse internally to apply the rules"
+     ],
+     "answer": 3,
+     "explain": "Overriding parse replaces the logic that extracts links and applies rules."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/topics/spiders.html#crawlspider",
+   "requires": [
+    "scrapy.following-links"
+   ]
+  },
+  {
+   "id": "scrapy.requests-forms",
+   "name": "Requests, forms and JSON APIs",
+   "module": "crawling",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Build custom Requests with headers and methods, submit HTML forms with form2request, and consume JSON APIs.",
+   "why": "Logins, search forms and the JSON endpoints behind modern pages are where most valuable data hides.",
+   "body": "Beyond `response.follow`, you can construct requests explicitly: `scrapy.Request(url, method=\"POST\", headers={...}, body=..., callback=..., cb_kwargs=..., meta=...)`. To post form-encoded data you already know, `FormRequest(url, formdata={...})` url-encodes it for you.\n\n**HTML forms**: logins and search pages usually carry hidden fields (CSRF tokens, view state) you must send back. Recent Scrapy versions recommend the **form2request** library for this (`pip install form2request`): `form2request(response.css(\"form#login\"), {\"username\": \"u\", \"password\": \"p\"})` reads the form, keeps its hidden inputs, applies your values, and resolves the action URL and method; `.to_scrapy(callback=...)` turns the result into a Scrapy request. Older code uses `FormRequest.from_response(response, formdata=...)`, which does the same but is deprecated in current releases.\n\nCookies are handled automatically by the cookies middleware, so after logging in, later requests in the same crawl stay logged in.\n\n**JSON APIs**: many sites load data from JSON endpoints visible in the browser's network tab. Call them directly:\n\n- `response.json()` parses a JSON response body.\n- `scrapy.http.JsonRequest(url, data={...})` sends a JSON body with the right headers (POST by default when data is given).\n- Paginate by computing the next page from the JSON (`page + 1`, a cursor field) and yielding a new request until it's empty.\n\nAPIs are usually faster, more stable and lighter on the server than HTML pages. Still respect the site's terms, authentication and rate limits.",
+   "code": "import scrapy\nfrom form2request import form2request\n\nclass AccountSpider(scrapy.Spider):\n    name = \"account\"\n    start_urls = [\"https://quotes.toscrape.com/login\"]\n\n    def parse(self, response):\n        # keeps hidden fields like csrf_token, fills in ours\n        req = form2request(response.css(\"form\"), {\"username\": \"demo\", \"password\": \"demo\"})\n        yield req.to_scrapy(callback=self.after_login)\n\n    def after_login(self, response):\n        if \"Logout\" not in response.text:\n            self.logger.error(\"login failed\"); return\n        yield response.follow(\"/api/quotes?page=1\", callback=self.parse_api)\n\n    def parse_api(self, response):\n        data = response.json()\n        for q in data[\"quotes\"]:\n            yield {\"author\": q[\"author\"][\"name\"], \"text\": q[\"text\"]}\n        if data[\"has_next\"]:\n            yield response.follow(f\"/api/quotes?page={data['page'] + 1}\",\n                                  callback=self.parse_api)",
+   "code_lang": "python",
+   "takeaways": [
+    "scrapy.Request takes method, headers, body, callback, cb_kwargs",
+    "form2request builds a submission from a real form, keeping hidden fields",
+    "Cookies persist across requests automatically",
+    "response.json() and JsonRequest for JSON APIs"
+   ],
+   "pitfalls": [
+    "Posting login data with a plain FormRequest and missing the page's CSRF token."
+   ],
+   "quiz": [
+    {
+     "q": "Why build a login request from the page's <form> instead of posting the fields yourself?",
+     "options": [
+      "It includes the form's hidden fields (like CSRF tokens) and its real action and method",
+      "It bypasses robots.txt",
+      "It disables cookies",
+      "It is faster"
+     ],
+     "answer": 0,
+     "explain": "Reading the real form submits required hidden inputs along with your values."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/topics/request-response.html",
+   "requires": [
+    "scrapy.following-links"
+   ]
+  },
+  {
+   "id": "scrapy.middlewares",
+   "name": "Downloader and spider middlewares",
+   "module": "advanced",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Hook into every request and response with downloader middlewares (headers, proxies, custom responses) and know where spider middlewares fit.",
+   "why": "Proxies, authentication, header rotation and custom caching are all implemented as middlewares in real Scrapy projects.",
+   "body": "Requests travel from the engine to the downloader through the **downloader middlewares**, and responses travel back through them in reverse order. Each is a class with optional methods:\n\n- `process_request(request, spider)`: return `None` to continue, a `Response` to short-circuit the download (a cache hit, say), a new `Request` to reschedule, or raise `IgnoreRequest`.\n- `process_response(request, response, spider)`: return the response (possibly replaced) or a `Request` to retry differently.\n- `process_exception(request, exception, spider)`: handle download errors such as timeouts.\n\nEnable them with `DOWNLOADER_MIDDLEWARES = {\"proj.middlewares.ProxyMiddleware\": 543}`. The number positions it among the built-ins in `DOWNLOADER_MIDDLEWARES_BASE` (robots.txt at 100, user agent at 500, retry at 550, redirect at 600, cookies at 700, HTTP proxy at 750, cache at 900). Lower numbers are closer to the engine: their `process_request` runs **first** and their `process_response` runs **last**. Set a built-in to `None` to disable it.\n\nCommon uses: setting proxies via `request.meta[\"proxy\"]`, adding auth headers, rotating user agents, detecting ban pages and retrying.\n\n**Spider middlewares** sit between the engine and your spider callbacks, processing responses going in and items and requests coming out (`process_spider_output`, `process_start`). The built-ins handle HTTP error filtering, depth limits and referer headers; custom ones are rarer than downloader middlewares.\n\nImplement `from_crawler(cls, crawler)` to read settings and connect signals.",
+   "code": "# proj/middlewares.py\nimport random\nfrom scrapy.exceptions import IgnoreRequest\n\nclass ProxyAndBanMiddleware:\n    def __init__(self, proxies):\n        self.proxies = proxies\n    @classmethod\n    def from_crawler(cls, crawler):\n        return cls(crawler.settings.getlist(\"PROXY_LIST\"))\n    def process_request(self, request, spider):\n        if self.proxies and \"proxy\" not in request.meta:\n            request.meta[\"proxy\"] = random.choice(self.proxies)\n        return None                                  # continue downloading\n    def process_response(self, request, response, spider):\n        if response.status == 403 or b\"captcha\" in response.body.lower():\n            if request.meta.get(\"ban_retries\", 0) >= 3:\n                raise IgnoreRequest(f\"banned: {request.url}\")\n            retry = request.replace(dont_filter=True)\n            retry.meta[\"ban_retries\"] = request.meta.get(\"ban_retries\", 0) + 1\n            retry.meta.pop(\"proxy\", None)            # pick another proxy\n            return retry\n        return response\n\n# settings.py: DOWNLOADER_MIDDLEWARES = {\"proj.middlewares.ProxyAndBanMiddleware\": 610}",
+   "code_lang": "python",
+   "takeaways": [
+    "process_request: None continues, Response short-circuits, Request reschedules",
+    "process_response can replace the response or return a new Request",
+    "Order numbers: lower = closer to the engine (request first, response last)",
+    "Spider middlewares wrap callbacks; downloader middlewares wrap downloads"
+   ],
+   "pitfalls": [
+    "Returning a retried Request without dont_filter=True, so the duplicate filter silently drops it."
+   ],
+   "quiz": [
+    {
+     "q": "A downloader middleware's process_request returns a Response object. What happens?",
+     "options": [
+      "The request is downloaded anyway",
+      "The download is skipped and that response goes back through process_response methods",
+      "Scrapy raises an error",
+      "The spider is closed"
+     ],
+     "answer": 1,
+     "explain": "Returning a Response short-circuits the downloader, which is how caching middlewares work."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/topics/downloader-middleware.html",
+   "requires": [
+    "scrapy.politeness",
+    "scrapy.pipelines"
+   ]
+  },
+  {
+   "id": "scrapy.errors-retries",
+   "name": "Errors, retries and errbacks",
+   "module": "advanced",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Handle failed requests with errbacks, control retries and HTTP error filtering, and keep partial failures visible.",
+   "why": "Networks fail, servers return 500s and pages vanish, and a crawler must cope without silently losing data.",
+   "body": "By default, responses with non-2xx status codes are dropped before reaching your callback by the **HttpError spider middleware**. To receive them anyway, set `handle_httpstatus_list = [404]` on the spider, `meta={\"handle_httpstatus_list\": [404]}` on a request, or `HTTPERROR_ALLOWED_CODES` globally.\n\nThe **RetryMiddleware** retries connection errors, timeouts and the codes in `RETRY_HTTP_CODES` (500, 502, 503, 504, 522, 524, 408, 429) up to `RETRY_TIMES` (default 2) extra times. Adjust per request with `meta={\"max_retry_times\": 5}` or disable with `dont_retry`. To retry from your own code (an error page served with status 200), use `get_retry_request(response.request, spider=self, reason=\"empty page\")`, which respects the same limits and stats.\n\nAn **errback** is a function called when a request fails for good: `scrapy.Request(url, callback=..., errback=self.on_error)`. It receives a Twisted `Failure`:\n\n- `failure.check(HttpError)`, `DNSLookupError`, `TimeoutError` identify the cause.\n- `failure.request` is the failed request; for HttpError, `failure.value.response` holds the response.\n\nUse errbacks to log, record failed URLs as items for later reprocessing, or yield alternative requests.\n\nAt the end of a crawl, check the **stats** (`downloader/response_status_count/404`, `retry/max_reached`, `log_count/ERROR`). A crawl that \"finished\" with thousands of errors is a failure; alert on these numbers.",
+   "code": "import scrapy\nfrom scrapy.downloadermiddlewares.retry import get_retry_request\nfrom scrapy.spidermiddlewares.httperror import HttpError\nfrom twisted.internet.error import DNSLookupError, TimeoutError\n\nclass RobustSpider(scrapy.Spider):\n    name = \"robust\"\n    handle_httpstatus_list = [404]\n    custom_settings = {\"RETRY_TIMES\": 3}\n    async def start(self):\n        for url in [\"https://quotes.toscrape.com/\", \"https://quotes.toscrape.com/nope\"]:\n            yield scrapy.Request(url, callback=self.parse, errback=self.on_error)\n    def parse(self, response):\n        if response.status == 404:\n            yield {\"url\": response.url, \"status\": \"missing\"}; return\n        if not response.css(\"div.quote\"):\n            retry = get_retry_request(response.request, spider=self, reason=\"empty\")\n            if retry: yield retry\n            return\n        yield {\"url\": response.url, \"quotes\": len(response.css(\"div.quote\"))}\n    def on_error(self, failure):\n        if failure.check(HttpError):\n            self.logger.error(\"HTTP %s on %s\", failure.value.response.status, failure.request.url)\n        elif failure.check(DNSLookupError, TimeoutError):\n            self.logger.error(\"Network error on %s\", failure.request.url)",
+   "code_lang": "python",
+   "takeaways": [
+    "Non-2xx responses are filtered unless allowed via handle_httpstatus_list",
+    "RetryMiddleware retries network errors and 5xx/429; tune RETRY_TIMES",
+    "get_retry_request retries from callbacks with the same limits",
+    "errback receives a Failure; check its type and log or record it"
+   ],
+   "pitfalls": [
+    "Expecting a 404 page in the callback without handle_httpstatus_list, and never seeing it."
+   ],
+   "quiz": [
+    {
+     "q": "Your callback never sees 404 responses. Why?",
+     "options": [
+      "The HttpError middleware filters non-2xx responses unless they're explicitly allowed",
+      "404s go to parse_start_url",
+      "The duplicate filter drops them",
+      "Scrapy retries 404s forever"
+     ],
+     "answer": 0,
+     "explain": "Only successful responses reach callbacks by default; allow specific codes with handle_httpstatus_list."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/topics/request-response.html#errbacks",
+   "requires": [
+    "scrapy.requests-forms",
+    "scrapy.politeness"
+   ]
+  },
+  {
+   "id": "scrapy.dynamic-pages",
+   "name": "JavaScript-rendered pages",
+   "module": "advanced",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Handle pages whose content is rendered by JavaScript: find the underlying API, parse embedded JSON, or render with scrapy-playwright.",
+   "why": "Many modern sites ship empty HTML shells, and choosing the right technique decides between a fast crawler and a slow, fragile one.",
+   "body": "Scrapy downloads HTML; it doesn't run JavaScript. If `view(response)` in the shell shows a page without the data, the content is rendered client-side. In order of preference:\n\n- **Find the data source**: open the browser's network tab, filter by XHR/fetch, and look for JSON responses containing the data. Reproduce the request in Scrapy (same URL, query parameters and important headers) and parse with `response.json()`. This is usually the fastest, most robust option.\n- **Embedded state**: frameworks often put initial data in the HTML, in `<script id=\"__NEXT_DATA__\" type=\"application/json\">`, `window.__INITIAL_STATE__ = {...}` or JSON-LD. Extract the script text with a selector and `json.loads` it (a regex or the chompjs library helps with JavaScript object literals).\n- **Render the page** with a headless browser via **scrapy-playwright**: install it, configure its download handler and the asyncio reactor, and mark requests with `meta={\"playwright\": True}`. You can wait for selectors, click and scroll via page methods. Rendering is orders of magnitude slower and heavier, so render only the pages that need it.\n\nHosted rendering and anti-bot services exist too (for example Zyte API), integrated as download handlers or middlewares.\n\nWhatever you choose, keep extraction code separate from fetching, so switching from rendered HTML to a discovered API later doesn't require rewriting your parsers.",
+   "code": "import json\nimport scrapy\n\nclass ListingsSpider(scrapy.Spider):\n    name = \"listings\"\n    start_urls = [\"https://example.com/listings\"]\n\n    def parse(self, response):\n        # Option 1: data embedded by a Next.js app\n        raw = response.css(\"script#__NEXT_DATA__::text\").get()\n        if raw:\n            for item in json.loads(raw)[\"props\"][\"pageProps\"][\"listings\"]:\n                yield {\"id\": item[\"id\"], \"title\": item[\"title\"]}\n            return\n        # Option 2: render with a browser (scrapy-playwright)\n        yield scrapy.Request(response.url, callback=self.parse_rendered,\n                             meta={\"playwright\": True}, dont_filter=True)\n\n    def parse_rendered(self, response):\n        for card in response.css(\"div.listing\"):\n            yield {\"title\": card.css(\"h2::text\").get()}\n\n# settings.py for scrapy-playwright:\n# DOWNLOAD_HANDLERS = {\"https\": \"scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler\",\n#                      \"http\": \"scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler\"}",
+   "code_lang": "python",
+   "takeaways": [
+    "Check view(response): missing data means client-side rendering",
+    "Best: call the JSON API the page uses",
+    "Next: parse embedded JSON state from script tags",
+    "Last resort: render with scrapy-playwright, only for pages that need it"
+   ],
+   "pitfalls": [
+    "Rendering every page with a browser when one JSON endpoint would return all the data."
+   ],
+   "quiz": [
+    {
+     "q": "Which approach is usually fastest and most stable for a JavaScript-heavy site?",
+     "options": [
+      "Increasing DOWNLOAD_DELAY",
+      "Using html5lib to parse",
+      "Rendering each page with Playwright",
+      "Calling the JSON endpoint the page itself uses"
+     ],
+     "answer": 3,
+     "explain": "The JSON API returns structured data directly, without running a browser."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/topics/dynamic-content.html",
+   "requires": [
+    "scrapy.requests-forms",
+    "scrapy.shell"
+   ]
+  },
+  {
+   "id": "scrapy.running-deploying",
+   "name": "Running from scripts and in production",
+   "module": "advanced",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Run crawls from Python with CrawlerProcess, persist and resume long crawls with JOBDIR, and deploy spiders to schedulers or Scrapyd.",
+   "why": "Crawlers in production run unattended on schedules, must survive restarts and report what happened.",
+   "body": "Besides `scrapy crawl`, you can start crawls from Python. **`AsyncCrawlerProcess`** (or the older-style `CrawlerProcess`, whose methods return Twisted Deferreds instead of coroutines) starts the reactor, runs one or more spiders and blocks until they finish: `process = AsyncCrawlerProcess(settings); process.crawl(MySpider, category=\"books\"); process.start()`. Keyword arguments become spider attributes (the same as `-a category=books` on the command line). Use `get_project_settings()` to load the project's settings.py. If your application already runs an event loop, `AsyncCrawlerRunner` / `CrawlerRunner` give you control without starting the reactor for you.\n\nThe reactor can't be restarted in the same process, so to run crawls repeatedly (in a scheduler, say), start a fresh process per crawl, for example via `subprocess` or a job runner.\n\n**Pause and resume**: `scrapy crawl big -s JOBDIR=crawls/big-1` persists the scheduler queue and seen-request fingerprints to disk. Stop with a single Ctrl-C (graceful shutdown) and rerun the same command to continue. Requests must be serializable for this, so callbacks must be spider methods.\n\nDeployment options:\n\n- Containers run by cron, Kubernetes CronJobs or Airflow tasks: simple and common.\n- **Scrapyd**, a daemon with an HTTP API to deploy projects and schedule spiders.\n- Hosted platforms such as Zyte Scrapy Cloud.\n\nIn all cases, ship logs and the final stats (item counts, error counts, finish reason) to your monitoring.",
+   "code": "# run_crawl.py\nimport scrapy\nfrom scrapy.crawler import AsyncCrawlerProcess\n\nclass TitleSpider(scrapy.Spider):\n    name = \"titles\"\n\n    def __init__(self, start=\"https://quotes.toscrape.com/\", **kw):\n        super().__init__(**kw)\n        self.start_urls = [start]\n\n    def parse(self, response):\n        yield {\"url\": response.url, \"title\": response.css(\"title::text\").get()}\n\nprocess = AsyncCrawlerProcess(settings={\n    \"FEEDS\": {\"titles.jsonl\": {\"format\": \"jsonlines\", \"overwrite\": True}},\n    \"LOG_LEVEL\": \"INFO\",\n    # \"JOBDIR\": \"crawls/titles-1\",    # enable pause/resume\n})\ncrawler = process.create_crawler(TitleSpider)\nprocess.crawl(crawler, start=\"https://quotes.toscrape.com/\")\nprocess.start()                        # blocks until the crawl finishes\nprint(crawler.stats.get_value(\"item_scraped_count\"))   # 1\nprint(crawler.stats.get_value(\"finish_reason\"))        # finished",
+   "code_lang": "python",
+   "takeaways": [
+    "AsyncCrawlerProcess (or CrawlerProcess) runs spiders from a script and blocks",
+    "Keyword arguments to crawl() become spider arguments",
+    "The reactor can't restart: one process per crawl run",
+    "JOBDIR persists the queue and seen URLs for pause/resume"
+   ],
+   "pitfalls": [
+    "Calling process.start() twice in one process and hitting ReactorNotRestartable."
+   ],
+   "quiz": [
+    {
+     "q": "What does setting JOBDIR enable?",
+     "options": [
+      "Automatic deployment to Scrapyd",
+      "Parallel spiders",
+      "Pausing and resuming a crawl with its queue and seen requests persisted",
+      "Distributed crawling across machines"
+     ],
+     "answer": 2,
+     "explain": "JOBDIR stores scheduler state and the dupefilter on disk so a stopped crawl can resume."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/topics/practices.html#run-scrapy-from-a-script",
+   "requires": [
+    "scrapy.pipelines",
+    "scrapy.politeness"
+   ]
+  },
+  {
+   "id": "scrapy.architecture",
+   "name": "Architecture: engine, scheduler and data flow",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "How the engine, scheduler, downloader, middlewares, spiders and pipelines interact, and how request deduplication and priorities work.",
+   "why": "Understanding the data flow lets you place custom logic correctly and debug ordering, duplicates and throughput issues.",
+   "body": "Scrapy's core is an event-driven **engine** on Twisted's reactor (running on asyncio by default in current versions). The data flow for each request:\n\n- The spider's `start()` yields initial requests; the engine passes them to the **scheduler**.\n- The scheduler checks the **dupefilter** (by request fingerprint: method, canonical URL, body) and enqueues new requests in priority queues. `Request(priority=10)` jumps ahead; `dont_filter=True` skips the duplicate check.\n- When the downloader has free slots, the engine takes the next request from the scheduler and sends it through the **downloader middlewares** to the **downloader**, which manages per-domain **slots** enforcing concurrency and delays.\n- The response returns through the downloader middlewares, then through the **spider middlewares** into your **callback**.\n- Items the callback yields go to the **item pipelines**; requests go back to the scheduler.\n\nEverything is non-blocking and runs in one thread. A callback that blocks (a `time.sleep`, a synchronous database call, heavy CPU work) stalls the entire crawl, not just that request.\n\nThe default queues are **LIFO** (depth-first order), which keeps memory low for typical crawls. Requests are scheduled, not executed in yield order, so ordering between pages is never guaranteed.\n\n**Signals** (`spider_opened`, `item_scraped`, `request_dropped`, `spider_closed`) and the **stats collector** expose these events, and extensions subscribe to them; that's how built-ins like CloseSpider, AutoThrottle and the memory usage monitor are implemented.",
+   "code": "import scrapy\nfrom scrapy import signals\n\nclass FlowSpider(scrapy.Spider):\n    name = \"flow\"\n    start_urls = [\"https://quotes.toscrape.com/\"]\n\n    @classmethod\n    def from_crawler(cls, crawler, *args, **kwargs):\n        spider = super().from_crawler(crawler, *args, **kwargs)\n        crawler.signals.connect(spider.on_drop, signal=signals.request_dropped)\n        crawler.signals.connect(spider.on_closed, signal=signals.spider_closed)\n        return spider\n\n    def parse(self, response):\n        yield response.follow(\"/page/2/\", priority=10)    # jumps the queue\n        yield response.follow(\"/page/2/\")                  # duplicate: dropped\n        yield response.follow(\"/\", dont_filter=True, callback=self.parse_home)\n    def parse_home(self, response):\n        yield {\"home_again\": response.url}\n    def on_drop(self, request, spider):\n        self.logger.info(\"dropped %s\", request.url)\n    def on_closed(self, spider, reason):\n        stats = self.crawler.stats.get_stats()\n        self.logger.info(\"filtered dupes: %s\", stats.get(\"dupefilter/filtered\"))",
+   "code_lang": "python",
+   "takeaways": [
+    "Flow: spider -> scheduler -> downloader (via middlewares) -> spider -> pipelines",
+    "The dupefilter drops repeated request fingerprints; priority reorders",
+    "Single-threaded event loop: blocking code stalls the whole crawl",
+    "Signals and stats expose every step to extensions"
+   ],
+   "pitfalls": [
+    "Calling a blocking HTTP client or time.sleep inside a callback, freezing every concurrent request."
+   ],
+   "quiz": [
+    {
+     "q": "A callback runs a 2-second synchronous database query per page. What's the effect?",
+     "options": [
+      "Only that request is delayed",
+      "The whole crawl stalls for 2 seconds each time, since everything shares one event loop",
+      "Scrapy moves it to a thread automatically",
+      "The request is retried"
+     ],
+     "answer": 1,
+     "explain": "Callbacks run on the reactor thread, so blocking calls stop all other processing."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/topics/architecture.html",
+   "requires": [
+    "scrapy.middlewares",
+    "scrapy.errors-retries"
+   ]
+  },
+  {
+   "id": "scrapy.async-coroutines",
+   "name": "async callbacks and asyncio integration",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Write async def callbacks and pipelines, await asyncio libraries under the asyncio reactor, and bridge Twisted Deferreds.",
+   "why": "Modern Scrapy code awaits async database drivers and APIs directly, which requires understanding how the asyncio reactor fits in.",
+   "body": "Scrapy supports **coroutines** in many places: callbacks (`async def parse(self, response)`, using `yield` to make an async generator), the spider's `async def start()`, item pipelines' `process_item`, and downloader middleware methods.\n\nInside them you can `await`:\n\n- asyncio libraries (an async database driver, an async HTTP client for a side call), because Scrapy runs Twisted on the **asyncio reactor** (`TWISTED_REACTOR = \"twisted.internet.asyncioreactor.AsyncioSelectorReactor\"`), the default in current versions.\n- Twisted Deferreds, converted with `scrapy.utils.defer.maybe_deferred_to_future(d)` so they're awaitable under asyncio.\n\nAn async callback that yields lets you do things like enrich an item from an API before yielding it, without blocking other requests: while one coroutine awaits, the event loop serves others.\n\nCaveats:\n\n- Awaiting inside a callback delays that callback's output; it doesn't add concurrency by itself. For many independent fetches, yield more Scrapy requests instead of awaiting in a loop.\n- The reactor must be installed before anything imports `twisted.internet.reactor`; installing it late raises an error about the wrong reactor.\n- CPU-heavy work still blocks the loop; offload it with `asyncio.to_thread` or a process pool.\n\nPrefer Scrapy's own requests for crawling (they get throttling, retries, middlewares and stats); use direct awaits for auxiliary calls like databases or caches.",
+   "code": "import asyncio\nimport scrapy\n\nasync def lookup_country(author):             # stand-in for an async DB/API call\n    await asyncio.sleep(0.05)\n    return {\"Albert Einstein\": \"DE\", \"Jane Austen\": \"GB\"}.get(author)\n\nclass AsyncQuotesSpider(scrapy.Spider):\n    name = \"async_quotes\"\n    start_urls = [\"https://quotes.toscrape.com/\"]\n\n    async def parse(self, response):\n        authors = response.css(\"small.author::text\").getall()\n        countries = await asyncio.gather(*(lookup_country(a) for a in authors))\n        for author, country in zip(authors, countries):\n            yield {\"author\": author, \"country\": country}\n\nclass SaveToDbPipeline:\n    async def process_item(self, item):\n        await asyncio.sleep(0.01)                # e.g. await db.insert(item)\n        return item\n\n# TWISTED_REACTOR = \"twisted.internet.asyncioreactor.AsyncioSelectorReactor\"  (default)",
+   "code_lang": "python",
+   "takeaways": [
+    "Callbacks, start(), pipelines and middlewares can be coroutines",
+    "The asyncio reactor lets you await asyncio libraries",
+    "maybe_deferred_to_future makes Twisted Deferreds awaitable",
+    "Awaiting doesn't add crawl concurrency: yield Requests for that"
+   ],
+   "pitfalls": [
+    "Fetching hundreds of pages with an async HTTP client inside one callback, bypassing throttling, retries and stats."
+   ],
+   "quiz": [
+    {
+     "q": "Why should crawling still use Scrapy Requests rather than awaiting an async HTTP client in callbacks?",
+     "options": [
+      "Async clients can't parse HTML",
+      "Scrapy Requests get scheduling, throttling, retries, middlewares and stats",
+      "await is not allowed in callbacks",
+      "It's required by the asyncio reactor"
+     ],
+     "answer": 1,
+     "explain": "Direct awaits bypass the whole download pipeline that makes crawls polite and observable."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/topics/coroutines.html",
+   "requires": [
+    "scrapy.architecture",
+    "python.async-await"
+   ]
+  },
+  {
+   "id": "scrapy.broad-crawls",
+   "name": "Broad crawls and scaling out",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Tune Scrapy for crawling many domains: concurrency, BFO ordering, DownloaderAwarePriorityQueue, memory limits and distributed crawling.",
+   "why": "Crawling thousands of sites is a different workload from scraping one, and defaults tuned for focused crawls hold it back.",
+   "body": "A **broad crawl** visits many domains, often without knowing them in advance. Scrapy's defaults are tuned for crawling a single site, so the bottlenecks move from politeness to throughput and memory. The optimization guide recommends:\n\n- Raise global concurrency: set `CONCURRENT_REQUESTS` close to `CONCURRENT_REQUESTS_PER_DOMAIN` times the number of domains in flight, as CPU and memory allow, and raise `SCRAPER_SLOT_MAX_ACTIVE_SIZE` when more concurrency stops helping.\n- Keep the scheduler domain-aware: `SCHEDULER_PRIORITY_QUEUE = \"scrapy.pqueues.DownloaderAwarePriorityQueue\"` (the default in current versions; older ones needed it set) picks requests for domains with free download slots, so one slow site can't dominate.\n- Speed up DNS with a local caching resolver and a larger `REACTOR_THREADPOOL_MAXSIZE`, since DNS lookups use threads.\n- Cut the cost of bad responses: disable or reduce retries, lower `DOWNLOAD_TIMEOUT`, set `REDIRECT_ENABLED = False` unless you need redirects, and cap sizes with `DOWNLOAD_MAXSIZE`.\n- Consider **breadth-first order**, `DEPTH_PRIORITY = 1` with FIFO queues (`SCHEDULER_DISK_QUEUE = \"scrapy.squeues.PickleFifoDiskQueue\"`, `SCHEDULER_MEMORY_QUEUE = \"scrapy.squeues.FifoMemoryQueue\"`): it reaches many sites shallowly before going deep, and the docs suggest trying it when memory is the bottleneck. `JOBDIR` keeps the queue on disk.\n- Guard memory and traps with `MEMUSAGE_LIMIT_MB` and `DEPTH_LIMIT` (infinite calendars and session-id URLs are classic traps).\n\nWhen one process isn't enough, scale out: run several Scrapy processes sharing a **central queue and dupefilter**, typically with the scrapy-redis extension, or partition the URL space (by domain hash) across independent crawlers.\n\nAt this scale, politeness is still per site: keep obeying robots.txt and per-domain limits.",
+   "code": "# settings.py for a broad crawl\nCONCURRENT_REQUESTS = 200                  # ~2 per domain x 100 domains\nCONCURRENT_REQUESTS_PER_DOMAIN = 2\nSCHEDULER_PRIORITY_QUEUE = \"scrapy.pqueues.DownloaderAwarePriorityQueue\"\nREACTOR_THREADPOOL_MAXSIZE = 20\n\n# breadth-first order\nDEPTH_PRIORITY = 1\nSCHEDULER_DISK_QUEUE = \"scrapy.squeues.PickleFifoDiskQueue\"\nSCHEDULER_MEMORY_QUEUE = \"scrapy.squeues.FifoMemoryQueue\"\nDEPTH_LIMIT = 3\n\nREDIRECT_ENABLED = False\nRETRY_ENABLED = False\nDOWNLOAD_TIMEOUT = 15\nDOWNLOAD_MAXSIZE = 5 * 1024 * 1024     # skip responses over 5 MB\nMEMUSAGE_LIMIT_MB = 2048\nLOG_LEVEL = \"INFO\"\nROBOTSTXT_OBEY = True\n\n# $ scrapy crawl broad -s JOBDIR=crawls/broad-1",
+   "code_lang": "python",
+   "takeaways": [
+    "Raise global concurrency toward per-domain limit x number of domains",
+    "DownloaderAwarePriorityQueue keeps slow domains from hogging the queue",
+    "DEPTH_PRIORITY=1 + FIFO queues = breadth-first crawling",
+    "Scale out with a shared queue and dupefilter (e.g. scrapy-redis)"
+   ],
+   "pitfalls": [
+    "Running a broad crawl with single-site defaults, so it dives deep into the first few sites while most domains wait."
+   ],
+   "quiz": [
+    {
+     "q": "Which settings give breadth-first crawl order?",
+     "options": [
+      "DEPTH_PRIORITY = -1 with LIFO queues",
+      "DEPTH_PRIORITY = 1 with FIFO disk and memory queues",
+      "CONCURRENT_REQUESTS = 1",
+      "DEPTH_LIMIT = 1"
+     ],
+     "answer": 1,
+     "explain": "Positive depth priority deprioritizes deeper requests, and FIFO queues process them in arrival order."
+    }
+   ],
+   "docs": "https://docs.scrapy.org/en/latest/topics/optimize.html#broad-crawls",
+   "requires": [
+    "scrapy.architecture",
+    "scrapy.running-deploying"
+   ]
+  }
+ ]
+}

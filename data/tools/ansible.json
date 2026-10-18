@@ -1,0 +1,723 @@
+{
+ "tool": {
+  "id": "ansible",
+  "name": "Ansible",
+  "category": "tool",
+  "tagline": "Agentless automation for configuring servers and deploying software over SSH",
+  "description": "Ansible automates server configuration, application deployment and routine operations by running idempotent tasks, written as YAML playbooks, on many machines over SSH with nothing to install on them. It is widely used to configure VMs and bare metal, often after Terraform has created them, and to manage network devices.",
+  "icon": "An",
+  "color": "#CC0000",
+  "official_docs": "https://docs.ansible.com/",
+  "version": "ansible-core 2.21",
+  "aliases": [
+   "ansible-playbook",
+   "ansible-core",
+   "playbooks"
+  ],
+  "requires": [
+   {
+    "tool": "ssh",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Basics"
+  },
+  {
+   "id": "playbooks",
+   "name": "Playbooks"
+  },
+  {
+   "id": "reuse",
+   "name": "Roles and reuse"
+  },
+  {
+   "id": "operations",
+   "name": "Reliability and testing"
+  },
+  {
+   "id": "internals",
+   "name": "Scale and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "ansible.what-is-ansible",
+   "name": "What Ansible is: agentless and idempotent",
+   "module": "basics",
+   "level": 1,
+   "minutes": 7,
+   "summary": "Ansible connects over SSH, runs small idempotent modules on each host and reports what changed.",
+   "why": "Its model (push, agentless, desired state per task) explains how every playbook behaves.",
+   "body": "Ansible runs from a **control node** (your laptop or a CI runner) and manages **managed nodes** over SSH (WinRM or PowerShell remoting for Windows, APIs for network devices and clouds). There's no agent or daemon on the targets; Linux hosts need only SSH and Python.\n\nYou describe the state you want in **tasks**, each calling a **module**: `ansible.builtin.apt` to install a package, `ansible.builtin.copy` to place a file, `ansible.builtin.service` to start a service. Ansible copies the module to the host, runs it, and gets back JSON saying whether anything **changed**.\n\nModules are **idempotent**: \"package nginx present\" installs it the first time and does nothing afterwards. Running a playbook twice is safe, and the second run should report `changed=0`. That makes Ansible good for both setting up and continuously enforcing configuration.\n\nAnsible versus neighbours:\n\n- **Terraform** creates infrastructure (VMs, networks, managed databases) through cloud APIs; Ansible configures what runs on machines. Many teams use Terraform, then Ansible.\n- **Puppet/Chef/Salt** traditionally use agents that pull configuration; Ansible pushes on demand.\n- With containers and Kubernetes, there is less host configuration to manage, but Ansible still handles nodes, VMs, network gear and operational runbooks.\n\nInstall with `pipx install ansible` (the community package with collections) or `ansible-core` for the minimal engine.",
+   "code": "# install on the control node\npipx install --include-deps ansible\nansible --version | head -1\n# ansible [core 2.21.x]\n\n# one module run against the local machine\nansible localhost -m ansible.builtin.ping\n# localhost | SUCCESS => {\"changed\": false, \"ping\": \"pong\"}\n\nansible localhost -m ansible.builtin.file -a \"path=/tmp/demo state=directory\"\n# localhost | CHANGED => {... \"changed\": true ...}\nansible localhost -m ansible.builtin.file -a \"path=/tmp/demo state=directory\"\n# localhost | SUCCESS => {... \"changed\": false ...}   idempotent",
+   "code_lang": "bash",
+   "takeaways": [
+    "Agentless: SSH plus Python on targets",
+    "Tasks call modules that report changed or ok",
+    "Idempotent: a second run changes nothing"
+   ],
+   "pitfalls": [
+    "Writing tasks with shell commands that aren't idempotent, so every run changes things."
+   ],
+   "quiz": [
+    {
+     "q": "You run the same playbook twice in a row on an unchanged server. What should the second run report?",
+     "options": [
+      "changed=0",
+      "The same changed count as the first",
+      "An error because things already exist",
+      "Only skipped tasks"
+     ],
+     "answer": 0,
+     "explain": "Idempotent modules detect the state is already correct and change nothing."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/getting_started/index.html",
+   "requires": []
+  },
+  {
+   "id": "ansible.inventory",
+   "name": "Inventory: hosts and groups",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "List managed hosts and groups in INI or YAML inventories, with per-host connection details and group nesting.",
+   "why": "Every Ansible run targets hosts from an inventory; groups are how you aim tasks at the right machines.",
+   "body": "The **inventory** says which hosts exist and how to reach them. It can be a static file (INI or YAML), a directory of files, or a dynamic inventory plugin.\n\nIn a YAML inventory, groups contain `hosts`, `vars` and `children` (nested groups). Two groups always exist: `all` and `ungrouped`. A host may belong to several groups (`web` and `prod`), which lets you target by role or by environment.\n\nConnection variables per host or group:\n\n- `ansible_host`: the address to connect to, when the inventory name is just a label,\n- `ansible_user`, `ansible_port`, `ansible_ssh_private_key_file`,\n- `ansible_python_interpreter`: rarely needed now, as Ansible discovers it,\n- `ansible_connection: local` for the control node itself.\n\nRanges save typing: `web[01:10].example.com`.\n\nVariables are better kept out of the inventory file in **group_vars/** and **host_vars/** directories next to it: `group_vars/web.yml`, `host_vars/db1.yml`, `group_vars/all.yml`.\n\nInspect with `ansible-inventory -i inventory.yml --graph` and `--host web1` to see a host's merged variables.\n\nPatterns select hosts on the command line and in plays: `web`, `web:db` (union), `web:&prod` (intersection), `all:!staging` (exclusion), and `--limit` narrows any run.",
+   "code": "# inventory.yml\nall:\n  children:\n    web:\n      hosts:\n        web1: {ansible_host: 10.0.1.11}\n        web2: {ansible_host: 10.0.1.12}\n    db:\n      hosts:\n        db1: {ansible_host: 10.0.2.21, ansible_user: admin}\n    prod:\n      children: {web: {}, db: {}}\n  vars:\n    ansible_user: deploy\n# ansible-inventory -i inventory.yml --graph\n# @all:\n#   |--@ungrouped:\n#   |--@web:\n#   |  |--web1\n#   ...\n# ansible -i inventory.yml 'prod:!db' --list-hosts    # web1, web2",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Groups with hosts, vars and children; all and ungrouped always exist",
+    "Keep variables in group_vars/ and host_vars/",
+    "Patterns like web:&prod and --limit select hosts"
+   ],
+   "pitfalls": [
+    "Putting many variables inline in the inventory instead of group_vars, making them hard to find and override."
+   ],
+   "quiz": [
+    {
+     "q": "Which pattern targets hosts that are in both the web and prod groups?",
+     "options": [
+      "web:prod",
+      "web:&prod",
+      "web,!prod",
+      "prod:!web"
+     ],
+     "answer": 1,
+     "explain": "':&' is intersection; ':' alone is union."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/inventory_guide/intro_inventory.html",
+   "requires": [
+    "ansible.what-is-ansible",
+    "ssh.key-pairs"
+   ]
+  },
+  {
+   "id": "ansible.adhoc-modules",
+   "name": "Ad-hoc commands and core modules",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Run single modules across hosts from the command line and get to know the builtin modules you'll use daily.",
+   "why": "Ad-hoc commands answer quick questions across a fleet, and they teach the modules playbooks are made of.",
+   "body": "An **ad-hoc command** runs one module on a set of hosts:\n\n`ansible <pattern> -i inventory.yml -m <module> -a \"<arguments>\"`\n\nAdd `-b` (become) to run as root via sudo, `-K` to prompt for the sudo password, `-f 20` for 20 parallel hosts, and `--check` for a dry run.\n\nCore modules worth knowing (all in `ansible.builtin`):\n\n- `ping`: checks connectivity and Python, not ICMP.\n- `command` runs a program without a shell; `shell` runs through `/bin/sh` (pipes, redirects). Both always report changed unless told otherwise, so prefer real modules.\n- `package` / `apt` / `dnf`: install packages; `service` / `systemd_service`: manage services.\n- `copy`, `template`, `file`, `lineinfile`, `blockinfile`: files and their contents.\n- `user`, `group`: accounts; `ansible.posix.authorized_key` (a collection module) for SSH keys.\n- `get_url`, `unarchive`, `git`: fetch things.\n- `setup`: gathers facts; `debug`: prints values.\n\nUse **fully qualified collection names** (FQCN) like `ansible.builtin.copy`; short names still work but FQCNs are unambiguous and what linters expect.\n\n`ansible-doc ansible.builtin.lineinfile` shows any module's documentation with examples, offline.",
+   "code": "ansible all -i inventory.yml -m ansible.builtin.ping\nansible web -i inventory.yml -m ansible.builtin.command -a \"uptime\"\nansible web -i inventory.yml -b -m ansible.builtin.apt -a \"name=htop state=present update_cache=true\"\nansible db  -i inventory.yml -m ansible.builtin.setup -a \"filter=ansible_distribution*\"\n# db1 | SUCCESS => { \"ansible_facts\": { \"ansible_distribution\": \"Ubuntu\",\n#                    \"ansible_distribution_version\": \"24.04\", ... } }\nansible all -i inventory.yml -b -m ansible.builtin.service -a \"name=nginx state=restarted\" --limit web1\nansible-doc -s ansible.builtin.copy     # short argument summary",
+   "code_lang": "bash",
+   "takeaways": [
+    "ansible <pattern> -m module -a args; -b for sudo",
+    "Prefer specific modules over command/shell",
+    "Use FQCNs and ansible-doc"
+   ],
+   "pitfalls": [
+    "Using shell for everything, losing idempotence and change reporting."
+   ],
+   "quiz": [
+    {
+     "q": "Why prefer ansible.builtin.apt over shell: apt-get install -y nginx?",
+     "options": [
+      "shell is slower",
+      "shell can't run as root",
+      "apt is idempotent and reports changed only when it installed something",
+      "apt works on every OS"
+     ],
+     "answer": 2,
+     "explain": "The module checks state first; the shell command always reports a change."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/command_guide/intro_adhoc.html",
+   "requires": [
+    "ansible.inventory"
+   ]
+  },
+  {
+   "id": "ansible.first-playbook",
+   "name": "Writing your first playbook",
+   "module": "playbooks",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Structure plays with hosts, become and tasks, run them with ansible-playbook and read the recap.",
+   "why": "Playbooks are Ansible's real unit of work: versioned, repeatable automation.",
+   "body": "A **playbook** is a YAML list of **plays**. Each play maps a group of hosts to a list of tasks:\n\n- `hosts`: the pattern to target.\n- `become: true`: escalate privileges (sudo) for the play.\n- `vars`: variables for the play.\n- `tasks`: an ordered list; each has a `name` (shown in output; always write one) and one module call.\n\nExecution model: tasks run **in order**, and each task runs on all targeted hosts (in parallel, up to `forks`, default 5) before the next task starts. If a task fails on a host, that host is dropped from the rest of the play while others continue.\n\nRun with `ansible-playbook -i inventory.yml site.yml`. Useful flags:\n\n- `--check --diff`: preview changes,\n- `--limit web1`: restrict hosts,\n- `--start-at-task \"Install nginx\"` and `--step`: control flow while debugging,\n- `-v` to `-vvvv`: more detail,\n- `--syntax-check` and `--list-tasks`: validate without running.\n\nThe **PLAY RECAP** at the end lists per-host counts: `ok`, `changed`, `unreachable`, `failed`, `skipped`, `rescued`, `ignored`. Aim for a second run that shows `changed=0`.\n\nTasks call modules with YAML mappings as arguments (`name: nginx`), not the `key=value` strings used in ad-hoc commands.",
+   "code": "# site.yml\n- name: Configure web servers\n  hosts: web\n  become: true\n  tasks:\n    - name: Install nginx\n      ansible.builtin.apt:\n        name: nginx\n        state: present\n        update_cache: true\n\n    - name: Deploy the home page\n      ansible.builtin.copy:\n        content: \"<h1>Hello from {{ inventory_hostname }}</h1>\\n\"\n        dest: /var/www/html/index.html\n        mode: \"0644\"\n\n    - name: Ensure nginx is running and enabled\n      ansible.builtin.service: {name: nginx, state: started, enabled: true}\n# ansible-playbook -i inventory.yml site.yml\n# PLAY RECAP: web1 : ok=4 changed=2 unreachable=0 failed=0 skipped=0 ...",
+   "code_lang": "yaml",
+   "takeaways": [
+    "A playbook is a list of plays: hosts + tasks",
+    "Each task finishes on all hosts before the next starts",
+    "PLAY RECAP: aim for changed=0 on the second run"
+   ],
+   "pitfalls": [
+    "Unnamed tasks, which make output and debugging much harder."
+   ],
+   "quiz": [
+    {
+     "q": "Task 2 fails on web1 but succeeds on web2. What happens to task 3 by default?",
+     "options": [
+      "It runs on both hosts",
+      "Ansible retries task 2 first",
+      "The whole play stops on all hosts",
+      "It runs only on web2"
+     ],
+     "answer": 3,
+     "explain": "A failed host is removed from the rest of the play; other hosts continue."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_intro.html",
+   "requires": [
+    "ansible.adhoc-modules"
+   ]
+  },
+  {
+   "id": "ansible.variables-facts",
+   "name": "Variables, facts and registered results",
+   "module": "playbooks",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Define variables, read gathered facts about hosts, and capture task results with register.",
+   "why": "Real playbooks adapt to each host; variables and facts are how they know what to do.",
+   "body": "Variables are referenced with Jinja2: `\"{{ app_port }}\"`. When a value **starts** with `{{`, quote the whole string, or YAML will misread it as a mapping.\n\nWhere variables come from (the common places): play `vars`, `vars_files`, `group_vars/` and `host_vars/` next to the inventory or playbook, role defaults, `-e key=value` on the command line (extra vars, the highest precedence), and `set_fact` during a run.\n\n**Facts** are variables Ansible discovers about each host at the start of a play (`gather_facts: true` is the default): OS, IP addresses, CPU, memory, mounts. Access them through `ansible_facts`, like `ansible_facts['distribution']` or `ansible_facts['default_ipv4']['address']`. The older top-level form (`ansible_distribution`) still works but is being phased out. Turn gathering off with `gather_facts: false` when you don't need it; it speeds up runs.\n\nSpecial variables: `inventory_hostname`, `group_names`, `groups['web']` (all hosts in a group), `hostvars['db1']` (another host's variables and facts).\n\n**register** saves a task's result: `register: result`, then use `result.stdout`, `result.rc`, `result.changed`. Use `ansible.builtin.debug` with `var:` or `msg:` to print values while developing.",
+   "code": "- name: Variables and facts demo\n  hosts: localhost\n  connection: local\n  vars:\n    app_name: shop\n    app_port: 8080\n  tasks:\n    - name: Show OS facts\n      ansible.builtin.debug:\n        msg: \"{{ app_name }} on {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}\"\n\n    - name: Check what listens on the port\n      ansible.builtin.command: \"ss -ltn sport = :{{ app_port }}\"\n      register: listen\n      changed_when: false            # read-only command\n\n    - name: Use the registered result\n      ansible.builtin.debug:\n        msg: \"Port {{ app_port }} busy: {{ listen.stdout_lines | length > 1 }}\"\n# ansible-playbook vars.yml -e app_port=9090   # extra vars override play vars",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Quote values that start with {{",
+    "Facts live under ansible_facts; turn gathering off when unneeded",
+    "register captures results; -e has the highest precedence"
+   ],
+   "pitfalls": [
+    "Writing msg: {{ x }} unquoted, which YAML parses as a dictionary and errors."
+   ],
+   "quiz": [
+    {
+     "q": "How do you read the IP address Ansible gathered for host db1 from a play running on web1?",
+     "options": [
+      "hostvars['db1']['ansible_facts']['default_ipv4']['address']",
+      "ansible_facts['db1']",
+      "groups['db1'].ip",
+      "It isn't possible"
+     ],
+     "answer": 0,
+     "explain": "hostvars exposes every host's variables and gathered facts."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_variables.html",
+   "requires": [
+    "ansible.first-playbook"
+   ]
+  },
+  {
+   "id": "ansible.handlers",
+   "name": "Handlers and change notification",
+   "module": "playbooks",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Restart or reload services only when something actually changed, using notify and handlers.",
+   "why": "Restarting services on every run causes needless downtime; handlers restart only when needed.",
+   "body": "A **handler** is a task that runs only when **notified** by another task that reported `changed`. The classic case: when the nginx config file changes, reload nginx; when it doesn't, do nothing.\n\n- Define handlers in the play's `handlers:` section (or a role's `handlers/main.yml`).\n- A task adds `notify: Reload nginx` (the handler's name, or a `listen` topic).\n- Handlers run **once**, at the **end of the play** (after all tasks), no matter how many tasks notified them, and in the order they are defined in the handlers section.\n\nDetails worth knowing:\n\n- If a later task fails on a host, pending handlers for that host don't run, so the config may have changed while the service wasn't reloaded. `--force-handlers` or `force_handlers: true` runs them anyway.\n- `ansible.builtin.meta: flush_handlers` runs pending handlers immediately, for example to restart a service before a health-check task later in the same play.\n- `listen: \"restart web stack\"` lets several handlers respond to one topic.\n\nPrefer `reloaded` over `restarted` when the service supports it, and validate configuration before applying it: the `template` and `copy` modules have a `validate:` option, such as `nginx -t -c %s`, which refuses to install a broken file.",
+   "code": "- name: Configure nginx\n  hosts: web\n  become: true\n  tasks:\n    - name: Install site config\n      ansible.builtin.template:\n        src: site.conf.j2\n        dest: /etc/nginx/conf.d/site.conf\n        validate: nginx -t -c /etc/nginx/nginx.conf   # whole-config syntax test\n      notify: Reload nginx\n\n    - name: Install TLS certificate\n      ansible.builtin.copy: {src: site.pem, dest: /etc/nginx/site.pem, mode: \"0600\"}\n      notify: Reload nginx              # still only one reload\n\n  handlers:\n    - name: Reload nginx\n      ansible.builtin.service: {name: nginx, state: reloaded}\n# first run: both tasks changed -> RUNNING HANDLER [Reload nginx] once\n# second run: nothing changed -> handler not run",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Handlers run only when a notifying task changed",
+    "They run once, at the end of the play",
+    "flush_handlers runs them early; validate configs before reloading"
+   ],
+   "pitfalls": [
+    "Expecting a handler to run when a later task failed on that host; use force_handlers if needed."
+   ],
+   "quiz": [
+    {
+     "q": "Three tasks notify the same handler and two of them report changed. How many times does it run?",
+     "options": [
+      "0",
+      "1",
+      "2",
+      "3"
+     ],
+     "answer": 1,
+     "explain": "Handlers are deduplicated and run once at the end of the play."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_handlers.html",
+   "requires": [
+    "ansible.first-playbook"
+   ]
+  },
+  {
+   "id": "ansible.config-connection",
+   "name": "ansible.cfg, SSH and privilege escalation",
+   "module": "basics",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Configure Ansible with ansible.cfg, tune how it connects over SSH, and use become safely.",
+   "why": "Connection problems are the most common first obstacle, and project config makes runs reproducible.",
+   "body": "Ansible reads one config file, the first found of: `ANSIBLE_CONFIG` (env var), `./ansible.cfg` in the current directory, `~/.ansible.cfg`, `/etc/ansible/ansible.cfg`. Keep an `ansible.cfg` in your project so everyone gets the same settings. `ansible-config dump --only-changed` shows what differs from defaults.\n\nCommon settings in `[defaults]`: `inventory`, `remote_user`, `forks`, `roles_path`, `host_key_checking`, `stdout_callback`. In `[ssh_connection]`: `ssh_args`, `pipelining`.\n\nConnecting: Ansible uses your system `ssh` client, so everything in `~/.ssh/config` applies (users, ports, ProxyJump bastions, keys), and so does your **ssh-agent**. Debug connection issues with `ansible host -m ping -vvvv`, which prints the exact ssh command.\n\nHost key checking is on by default; for brand-new hosts, add their keys to `known_hosts` (e.g. `ssh-keyscan`) rather than disabling checking permanently.\n\n**Privilege escalation** (`become`): `become: true` uses `sudo` by default; `become_user: postgres` switches to another user; `become_method` can be `su`, `doas` and others. Use `-K` (`--ask-become-pass`) when sudo needs a password, or store it in Vault. Apply `become` per task or play where needed rather than globally, so it's clear what runs as root.",
+   "code": "# ansible.cfg (project root)\n[defaults]\ninventory = inventory.yml\nremote_user = deploy\nforks = 20\nroles_path = roles\nstdout_callback = default\ncallback_result_format = yaml\n\n[ssh_connection]\npipelining = True\nssh_args = -o ControlMaster=auto -o ControlPersist=60s\n\n# ~/.ssh/config is honoured too, e.g.:\n#   Host 10.0.*\n#     ProxyJump bastion.example.com\n# ansible web1 -m ansible.builtin.ping -vvvv   # shows the ssh command used",
+   "code_lang": "ini",
+   "takeaways": [
+    "Project ansible.cfg wins over user and system config",
+    "Ansible uses OpenSSH: ssh config, agent and ProxyJump just work",
+    "become per task or play; -K for sudo passwords"
+   ],
+   "pitfalls": [
+    "Setting host_key_checking = False permanently and losing protection against man-in-the-middle attacks."
+   ],
+   "quiz": [
+    {
+     "q": "You run ansible-playbook from your project directory, which contains ansible.cfg, and you also have ~/.ansible.cfg. Which is used?",
+     "options": [
+      "Both, merged",
+      "~/.ansible.cfg",
+      "./ansible.cfg",
+      "/etc/ansible/ansible.cfg"
+     ],
+     "answer": 2,
+     "explain": "Ansible uses the first file found, and the current directory comes before the home directory."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/reference_appendices/config.html",
+   "requires": [
+    "ansible.inventory",
+    "ssh.config-file",
+    "ssh.ssh-agent"
+   ]
+  },
+  {
+   "id": "ansible.templates",
+   "name": "Jinja2 templates and filters",
+   "module": "playbooks",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Generate configuration files from Jinja2 templates with variables, loops, conditionals and filters.",
+   "why": "Most configuration management is rendering the right config file per host.",
+   "body": "The `ansible.builtin.template` module renders a **Jinja2** template on the control node using the host's variables, then copies the result to the host (reporting changed only if the content differs). Templates conventionally live in `templates/` with a `.j2` suffix.\n\nJinja2 syntax:\n\n- `{{ expression }}` outputs a value.\n- `{% if %}...{% endif %}`, `{% for x in list %}...{% endfor %}` for logic.\n- `{# comment #}`.\n- `{%-` and `-%}` trim whitespace around a tag.\n\n**Filters** transform values with `|`: `default('x')`, `upper`, `join(', ')`, `to_nice_yaml`, `to_json`, `b64encode`, `regex_replace`, `ipaddr`-style network filters (in collections), `selectattr`/`map` for lists of dicts, `combine` for merging dicts, `mandatory` to fail if undefined. **Tests** check values: `is defined`, `is succeeded`, `is version('2.0', '>=')`.\n\nThe same syntax works anywhere in playbooks, not only in template files: `when` conditions, task arguments, variable definitions.\n\nPut `{{ ansible_managed | comment }}` at the top of generated files so people know not to edit them by hand.\n\nTemplating happens on the control node, so lookups (`lookup('file', ...)`, `lookup('env', ...)`) read the control node's files and environment, not the target's.",
+   "code": "{# templates/upstream.conf.j2 #}\n{{ ansible_managed | comment }}\nupstream {{ app_name }} {\n{% for host in groups['app'] %}\n    server {{ hostvars[host]['ansible_host'] | default(host) }}:{{ app_port }};\n{% endfor %}\n}\nserver {\n    listen 80;\n    server_name {{ server_names | join(' ') }};\n{% if enable_gzip | default(false) %}\n    gzip on;\n{% endif %}\n    location / { proxy_pass http://{{ app_name }}; }\n}\n{# task:\n   - ansible.builtin.template:\n       src: upstream.conf.j2\n       dest: /etc/nginx/conf.d/{{ app_name }}.conf\n     notify: Reload nginx                                  #}",
+   "code_lang": "jinja",
+   "takeaways": [
+    "template renders on the control node, copies if changed",
+    "Filters (|) and tests (is) transform and check values",
+    "Lookups read the control node, not the target"
+   ],
+   "pitfalls": [
+    "Expecting lookup('file', '/etc/hostname') to read the remote host's file."
+   ],
+   "quiz": [
+    {
+     "q": "Where is a Jinja2 template rendered when you use ansible.builtin.template?",
+     "options": [
+      "On each target host",
+      "On the first host in the group",
+      "In a container",
+      "On the control node, then the result is copied"
+     ],
+     "answer": 3,
+     "explain": "Rendering happens on the controller with the host's variables; only the result travels."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_templating.html",
+   "requires": [
+    "ansible.variables-facts"
+   ]
+  },
+  {
+   "id": "ansible.conditionals-loops",
+   "name": "Conditionals and loops",
+   "module": "playbooks",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Run tasks only when conditions hold with when, and repeat them over lists and dicts with loop.",
+   "why": "One playbook must handle different OSes, environments and lists of users, packages or sites.",
+   "body": "**when** takes a raw Jinja2 expression (no `{{ }}`) evaluated per host:\n\n- `when: ansible_facts['os_family'] == \"Debian\"`\n- `when: result.rc != 0`, `when: feature_enabled | bool`\n- A list means all must be true: `when: [a, b]`.\n\nSince ansible-core 2.19, conditionals must evaluate to an actual boolean. A bare string variable like `when: some_var` where `some_var` is `\"yes\"` is an error; convert explicitly with `| bool` or compare with `== \"yes\"`.\n\n**loop** repeats a task over a list; the current item is `item`:\n\n- `loop: [nginx, git, htop]`\n- over a list of dicts: `item.name`, `item.groups`\n- over a dict: `loop: \"{{ users | dict2items }}\"` gives `item.key` and `item.value`\n- nested data: `subelements`, or `product` for combinations.\n\n`loop_control` refines it: `label: \"{{ item.name }}\"` keeps output readable, `loop_var: user` avoids clashes in nested includes, `pause` waits between iterations.\n\n`when` is evaluated **per item** when combined with `loop`, so you can skip some items. Registering a looped task gives `result.results`, a list with one entry per item.\n\nMany modules accept a list directly (`apt: name: [nginx, git]`), which is faster than looping because it runs once.",
+   "code": "- name: Users and packages\n  hosts: localhost\n  connection: local\n  vars:\n    users:\n      - {name: ana, admin: true}\n      - {name: bo, admin: false}\n    features: {gzip: \"yes\", http3: \"no\"}\n  tasks:\n    - name: Show admins only\n      ansible.builtin.debug:\n        msg: \"{{ item.name }} is an admin\"\n      loop: \"{{ users }}\"\n      loop_control: {label: \"{{ item.name }}\"}\n      when: item.admin\n\n    - name: Enabled features\n      ansible.builtin.debug:\n        msg: \"feature {{ item.key }} on\"\n      loop: \"{{ features | dict2items }}\"\n      when: item.value | bool          # explicit boolean conversion\n# ok: [localhost] => (item=ana) => msg: ana is an admin\n# skipping: [localhost] => (item=bo)",
+   "code_lang": "yaml",
+   "takeaways": [
+    "when is raw Jinja2 and must yield a real boolean",
+    "loop with item; dict2items for dicts; loop_control label",
+    "Pass lists directly to modules that accept them"
+   ],
+   "pitfalls": [
+    "Wrapping when expressions in {{ }}, which triggers warnings and can break evaluation."
+   ],
+   "quiz": [
+    {
+     "q": "Why does when: item.value | bool make sense for values like \"yes\" and \"no\"?",
+     "options": [
+      "Non-empty strings would otherwise be truthy or rejected; | bool converts them correctly",
+      "It's required syntax for loops",
+      "It speeds up the loop",
+      "It renders the value on the target"
+     ],
+     "answer": 0,
+     "explain": "Converting with | bool turns 'yes'/'no' into true/false, which modern ansible-core requires."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_loops.html",
+   "requires": [
+    "ansible.variables-facts"
+   ]
+  },
+  {
+   "id": "ansible.roles",
+   "name": "Roles and project layout",
+   "module": "reuse",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Package tasks, handlers, templates, files and defaults into reusable roles and compose playbooks from them.",
+   "why": "Roles are how Ansible code stays organised and reusable beyond a single playbook.",
+   "body": "A **role** is a directory with a fixed structure that Ansible loads automatically:\n\n- `tasks/main.yml`: the entry point,\n- `handlers/main.yml`, `templates/`, `files/` (found without paths),\n- `defaults/main.yml`: default variables, the **lowest precedence**: the role's public, overridable interface,\n- `vars/main.yml`: internal variables with high precedence; not meant to be overridden,\n- `meta/main.yml`: metadata and dependencies; `meta/argument_specs.yml` validates role inputs.\n\n`ansible-galaxy role init roles/nginx` scaffolds it.\n\nUsing roles:\n\n- `roles:` in a play runs them before the play's `tasks`.\n- `ansible.builtin.import_role` (static, resolved at parse time) or `include_role` (dynamic, at run time, can be looped or conditional) inside tasks.\n- Similarly `import_tasks` vs `include_tasks` for task files.\n\nDesign tips: one role per component (`nginx`, `postgres`, `app`), prefixed variable names (`nginx_worker_processes`) to avoid collisions, sensible defaults for everything, and no hard-coded hostnames. Keep site-specific values in inventory `group_vars`.\n\nA typical project: `ansible.cfg`, `inventory/` (with `group_vars`), `site.yml` importing per-tier playbooks (`webservers.yml`), `roles/`, and `requirements.yml` for external roles and collections.",
+   "code": "# roles/nginx/defaults/main.yml\nnginx_worker_processes: auto\nnginx_sites: []\n\n# roles/nginx/tasks/main.yml\n- name: Install nginx\n  ansible.builtin.package: {name: nginx, state: present}\n- name: Configure nginx\n  ansible.builtin.template: {src: nginx.conf.j2, dest: /etc/nginx/nginx.conf}\n  notify: Reload nginx\n\n# roles/nginx/handlers/main.yml\n- name: Reload nginx\n  ansible.builtin.service: {name: nginx, state: reloaded}\n\n# webservers.yml\n- name: Web tier\n  hosts: web\n  become: true\n  roles:\n    - role: nginx\n      vars: {nginx_worker_processes: 4}",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Fixed layout: tasks, handlers, templates, files, defaults, vars, meta",
+    "defaults = overridable interface; vars = internal",
+    "import_* is static, include_* is dynamic"
+   ],
+   "pitfalls": [
+    "Putting tunable settings in vars/main.yml, where inventory variables can't override them."
+   ],
+   "quiz": [
+    {
+     "q": "Where should a role put values that users are expected to override from group_vars?",
+     "options": [
+      "vars/main.yml",
+      "defaults/main.yml",
+      "meta/main.yml",
+      "tasks/main.yml"
+     ],
+     "answer": 1,
+     "explain": "Role defaults have the lowest precedence, so any inventory or play variable overrides them."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_reuse_roles.html",
+   "requires": [
+    "ansible.handlers",
+    "ansible.templates"
+   ]
+  },
+  {
+   "id": "ansible.vault",
+   "name": "Secrets with Ansible Vault",
+   "module": "playbooks",
+   "level": 2,
+   "minutes": 8,
+   "summary": "Encrypt secret variables and files with ansible-vault so they can live safely in git.",
+   "why": "Playbooks need passwords and keys; committing them in plain text is a breach waiting to happen.",
+   "body": "**Ansible Vault** encrypts data with AES-256 using a password you supply at run time.\n\nTwo styles:\n\n- **Encrypted files**: `ansible-vault create group_vars/prod/vault.yml` or `encrypt` an existing file. The whole file is ciphertext in git; `ansible-vault edit` decrypts it into your editor temporarily, and `view` shows it.\n- **Encrypted strings**: `ansible-vault encrypt_string 's3cr3t' --name db_password` produces a `!vault |` block you paste into an otherwise readable vars file.\n\nA widely used convention: in `group_vars/prod/`, keep `vars.yml` readable with `db_password: \"{{ vault_db_password }}\"`, and `vault.yml` encrypted with `vault_db_password: ...`. You can grep for every variable name while secrets stay encrypted.\n\nSupplying the password: `--ask-vault-pass`, or `--vault-password-file` pointing to a file or to an executable script that fetches it from a secret manager (the usual choice in CI). **Vault IDs** (`--vault-id prod@prompt`) allow different passwords per environment.\n\nAdd `no_log: true` to tasks that handle secrets, so values don't appear in output or logs.\n\nVault protects data at rest in git; anyone with the vault password, or root on a target, still sees the secrets. For dynamic secrets, lookup plugins for HashiCorp Vault, AWS Secrets Manager and others fetch values at run time instead.",
+   "code": "ansible-vault create group_vars/prod/vault.yml      # opens $EDITOR, saves encrypted\nansible-vault encrypt_string 'S3cr3t!' --name vault_db_password\n# vault_db_password: !vault |\n#           $ANSIBLE_VAULT;1.1;AES256\n#           6231363436643837...\n\ncat group_vars/prod/vars.yml\n# db_password: \"{{ vault_db_password }}\"     # readable indirection\n\nansible-playbook -i inventory.yml site.yml --vault-password-file ~/.vault-pass.sh\nansible-vault rekey group_vars/prod/vault.yml          # rotate the vault password",
+   "code_lang": "bash",
+   "takeaways": [
+    "Encrypt whole files or single strings; edit with ansible-vault edit",
+    "vars.yml points to vault_ variables in vault.yml",
+    "no_log: true on tasks handling secrets"
+   ],
+   "pitfalls": [
+    "Printing secrets with debug or failing tasks without no_log, leaking them into CI logs."
+   ],
+   "quiz": [
+    {
+     "q": "What is the benefit of keeping db_password: \"{{ vault_db_password }}\" in an unencrypted vars file?",
+     "options": [
+      "It makes encryption stronger",
+      "It avoids needing a vault password",
+      "Variable names stay searchable while values stay encrypted",
+      "It's required by Vault"
+     ],
+     "answer": 2,
+     "explain": "The indirection keeps the structure readable and greppable without exposing secrets."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/vault_guide/index.html",
+   "requires": [
+    "ansible.variables-facts"
+   ]
+  },
+  {
+   "id": "ansible.variable-precedence",
+   "name": "Variable precedence and scoping",
+   "module": "reuse",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Know which of Ansible's many variable sources wins, and organise variables so the answer is obvious.",
+   "why": "\"Why is this variable not the value I set?\" is the most common Ansible debugging question.",
+   "body": "Ansible merges variables from over twenty sources. You don't need the whole list, just the landmarks, from lowest to highest:\n\n1. role `defaults/`\n2. inventory variables: group vars (`all`, then parent groups, then child groups), then host vars; files in `group_vars/`/`host_vars/` beat variables written inside the inventory file\n3. facts and cached facts\n4. play `vars`, `vars_prompt`, `vars_files`\n5. role `vars/` and `include_vars`\n6. block and task `vars`\n7. `set_fact` and `register`\n8. role parameters and `include_role` params\n9. **extra vars** (`-e`), which always win.\n\nGroup order: when a host is in two sibling groups, the group whose name sorts **later alphabetically** wins, unless you set `ansible_group_priority`. Relying on that is fragile; avoid defining the same variable in sibling groups.\n\nDictionaries are **replaced**, not merged, by default: a host-level `nginx: {port: 81}` wipes the group-level `nginx: {port: 80, workers: 4}`. Prefer flat, prefixed variables (`nginx_port`), or merge explicitly with the `combine` filter.\n\nPractical rules: put defaults in role `defaults`, environment and group values in `group_vars`, exceptions in `host_vars`, and use `-e` only for one-off overrides. To see the result, `ansible-inventory --host web1` or a `debug: var=...` task.",
+   "code": "# roles/app/defaults/main.yml\napp_port: 8080\napp_settings: {workers: 4, log_level: info}\n\n# inventory/group_vars/prod.yml\napp_port: 80\napp_settings: {log_level: warn}       # replaces the whole dict: workers is gone\n\n# better: merge explicitly in the role\n#   app_effective: \"{{ app_settings_default | combine(app_settings_override | default({})) }}\"\n\n# ansible-inventory -i inventory --host web1 | grep -A3 app_\n# ansible-playbook site.yml -e app_port=9000   # extra vars beat everything",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Role defaults lowest, extra vars highest; host vars beat group vars",
+    "Sibling groups: later alphabetical wins unless ansible_group_priority",
+    "Dicts are replaced, not merged; prefer flat vars or combine"
+   ],
+   "pitfalls": [
+    "Overriding one key of a dictionary variable and silently losing all its other keys."
+   ],
+   "quiz": [
+    {
+     "q": "A variable is set in role defaults, group_vars/all and host_vars/web1. Which value does web1 get?",
+     "options": [
+      "role defaults",
+      "group_vars/all",
+      "The first one loaded",
+      "host_vars/web1"
+     ],
+     "answer": 3,
+     "explain": "Host variables beat group variables, which beat role defaults."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_variables.html#understanding-variable-precedence",
+   "requires": [
+    "ansible.roles",
+    "ansible.vault"
+   ]
+  },
+  {
+   "id": "ansible.error-handling",
+   "name": "Error handling, blocks and changed_when",
+   "module": "operations",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Define what counts as failure and change, group tasks in blocks, and recover with rescue and always.",
+   "why": "Real automation must cope with expected non-zero exit codes and partial failures without lying about state.",
+   "body": "By default a task fails when the module says so (for `command`/`shell`, a non-zero return code). You can redefine both outcomes:\n\n- `failed_when: result.rc not in [0, 2]` or `\"'ERROR' in result.stderr\"`.\n- `changed_when: false` for read-only commands; `changed_when: \"'created' in result.stdout\"` for commands that sometimes change things. Accurate change reporting keeps handlers and recaps honest.\n- `ignore_errors: true` continues after a failure (sparingly; it hides problems). `ignore_unreachable` for flaky hosts.\n\n**Blocks** group tasks to share `when`, `become` and other keywords, and add exception handling:\n\n- `block:` the main tasks,\n- `rescue:` runs if any task in the block fails (like `except`); a successful rescue marks the host as recovered (`rescued=1` in the recap),\n- `always:` runs regardless (like `finally`), for cleanup or notifications.\n\nControlling the blast radius across hosts:\n\n- `any_errors_fatal: true` stops the whole play on all hosts when one fails, useful for clusters that must stay consistent.\n- `max_fail_percentage: 20` aborts once too many hosts have failed.\n- `serial: 2` (or `\"25%\"`) runs the play in batches: a rolling update; a failing batch stops the rollout before it reaches every host.\n\n`retries`, `delay` and `until` retry a task until a condition holds, perfect for waiting on a health endpoint.",
+   "code": "- name: Rolling deploy\n  hosts: app\n  serial: \"25%\"\n  max_fail_percentage: 0\n  tasks:\n    - name: Deploy with rollback\n      block:\n        - name: Switch symlink to the new release\n          ansible.builtin.file: {src: \"/opt/app/{{ release }}\", dest: /opt/app/current, state: link}\n        - name: Wait for health check\n          ansible.builtin.uri: {url: \"http://localhost:8080/healthz\", status_code: 200}\n          register: health\n          retries: 10\n          delay: 3\n          until: health is succeeded\n      rescue:\n        - name: Roll back to previous release\n          ansible.builtin.file: {src: \"/opt/app/{{ previous_release }}\", dest: /opt/app/current, state: link}\n        - name: Mark host failed after rollback\n          ansible.builtin.fail: {msg: \"Release {{ release }} failed health checks\"}\n      always:\n        - name: Record the attempt\n          ansible.builtin.lineinfile: {path: /var/log/deploys.log, line: \"{{ release }} {{ health.status | default('n/a') }}\", create: true}",
+   "code_lang": "yaml",
+   "takeaways": [
+    "failed_when and changed_when make results truthful",
+    "block/rescue/always = try/except/finally",
+    "serial + max_fail_percentage give safe rolling updates; until/retries wait for health"
+   ],
+   "pitfalls": [
+    "Using ignore_errors: true to make a playbook green, hiding real failures."
+   ],
+   "quiz": [
+    {
+     "q": "A task inside block fails and its rescue section succeeds. How does the host end up?",
+     "options": [
+      "Recovered (counted as rescued) and continues",
+      "Unreachable",
+      "Failed",
+      "Skipped for the rest of the play"
+     ],
+     "answer": 0,
+     "explain": "A successful rescue clears the failure, so the host continues with the play."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_blocks.html",
+   "requires": [
+    "ansible.conditionals-loops",
+    "ansible.handlers"
+   ]
+  },
+  {
+   "id": "ansible.collections-galaxy",
+   "name": "Collections and Galaxy",
+   "module": "reuse",
+   "level": 3,
+   "minutes": 8,
+   "summary": "Install and pin collections and roles with requirements.yml, and understand how content is namespaced.",
+   "why": "Most modules (cloud, network, databases, Kubernetes) ship in collections, not in ansible-core.",
+   "body": "Since Ansible 2.10, content is packaged in **collections**: a namespace and name (`community.general`, `amazon.aws`, `kubernetes.core`, `ansible.posix`) bundling modules, plugins, roles and playbooks. `ansible-core` includes only `ansible.builtin`; the `ansible` community package bundles a curated set of collections on top.\n\nThat's why fully qualified names matter: `community.postgresql.postgresql_db` tells readers and Ansible exactly where a module comes from.\n\nInstall from **Ansible Galaxy** (galaxy.ansible.com), Automation Hub, a private Galaxy server, or git:\n\n- `ansible-galaxy collection install community.general`\n- for projects, list everything in `requirements.yml` with version constraints and install with `ansible-galaxy install -r requirements.yml` (handles both roles and collections).\n\nCollections install to `~/.ansible/collections` by default; set `collections_path` (or install with `-p ./collections`) to keep a project's dependencies inside the project, making CI reproducible.\n\n`ansible-galaxy collection list` shows what is installed and where. Watch for duplicates: the same collection installed in two paths, with the first one found winning.\n\nSome collections need Python libraries on the control node or target (`boto3` for `amazon.aws`, `kubernetes` for `kubernetes.core`). For fully reproducible environments, Red Hat's **execution environments** package ansible-core, collections and Python dependencies into a container image, built with `ansible-builder`.",
+   "code": "# requirements.yml\ncollections:\n  - name: community.general\n    version: \">=10.0.0,<11.0.0\"\n  - name: ansible.posix\n    version: \">=2.0.0\"\n  - name: kubernetes.core\n    version: \"6.1.0\"\nroles:\n  - name: geerlingguy.docker\n    version: \"7.4.1\"\n# ansible-galaxy install -r requirements.yml -p ./collections   (roles: use roles_path)\n# ansible-galaxy collection list | grep -E 'community.general|kubernetes.core'\n# usage in a task:\n#   - community.general.timezone: {name: Europe/Berlin}",
+   "code_lang": "yaml",
+   "takeaways": [
+    "ansible-core has only ansible.builtin; everything else is in collections",
+    "Pin collections and roles in requirements.yml",
+    "Install into the project for reproducible CI; execution environments for full isolation"
+   ],
+   "pitfalls": [
+    "Relying on whatever collection versions happen to be on a laptop instead of a pinned requirements.yml."
+   ],
+   "quiz": [
+    {
+     "q": "A playbook using community.general.ufw fails with 'couldn't resolve module' on a fresh ansible-core install. Why?",
+     "options": [
+      "ufw is deprecated",
+      "The community.general collection isn't installed with ansible-core",
+      "The module needs become",
+      "FQCNs aren't supported"
+     ],
+     "answer": 1,
+     "explain": "ansible-core ships only ansible.builtin; install the collection from Galaxy."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/collections_guide/index.html",
+   "requires": [
+    "ansible.roles"
+   ]
+  },
+  {
+   "id": "ansible.testing-lint",
+   "name": "Check mode, linting and Molecule",
+   "module": "operations",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Preview changes with --check --diff, enforce best practices with ansible-lint, and test roles with Molecule.",
+   "why": "Untested automation fails at the worst moment, usually against production.",
+   "body": "**Check mode** (`--check`) asks every module to report what it would change without changing it; `--diff` shows file and template differences. Together they're the closest thing to `terraform plan`. Limits: commands and shell tasks are skipped in check mode (no way to know), and tasks depending on earlier changes may fail. Per task, `check_mode: false` forces a read-only command to run even in check mode, and `check_mode: true` makes a task always simulate.\n\n**ansible-lint** catches problems statically: missing task names, non-FQCN module names, `command` used where a module exists, missing `changed_when`, risky file permissions, deprecated syntax. Profiles from `min` to `production` set strictness; run it in pre-commit and CI. `yamllint` complements it for formatting.\n\n**Molecule** tests roles end to end: it creates instances (usually containers via Podman or Docker, or VMs), applies the role (`converge`), runs it again to verify **idempotence** (a second run with any change fails the test), then runs verification (Ansible asserts, or Testinfra) and destroys everything. `molecule test` runs the whole sequence; `molecule converge` and `login` help while developing.\n\nA good CI pipeline: yamllint, ansible-lint, `--syntax-check`, Molecule per role on the OS versions you support, and a `--check --diff` run against staging before production.",
+   "code": "ansible-playbook -i inventory/prod site.yml --check --diff --limit web1\n# TASK [nginx : Configure nginx]\n# --- before: /etc/nginx/nginx.conf\n# +++ after: /etc/nginx/nginx.conf\n# -worker_processes 2;\n# +worker_processes 4;\n# changed: [web1]\n\nansible-lint --profile production roles/nginx\n# name[missing]: All tasks should be named. roles/nginx/tasks/main.yml:12\n# fqcn[action-core]: Use FQCN for builtin module actions (service).\n\ncd roles/nginx && molecule test\n# ... converge, idempotence: \"Idempotence completed successfully.\", verify, destroy",
+   "code_lang": "bash",
+   "takeaways": [
+    "--check --diff previews changes; commands are skipped in check mode",
+    "ansible-lint enforces best practices in CI",
+    "Molecule converges, checks idempotence, verifies and destroys"
+   ],
+   "pitfalls": [
+    "Trusting check mode for playbooks full of shell tasks, which it simply skips."
+   ],
+   "quiz": [
+    {
+     "q": "What does Molecule's idempotence step check?",
+     "options": [
+      "That the role runs faster the second time",
+      "That the role works on every OS",
+      "That a second converge reports no changes",
+      "That ansible-lint passes"
+     ],
+     "answer": 2,
+     "explain": "A second run that changes anything means the role isn't idempotent, and the test fails."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_checkmode.html",
+   "requires": [
+    "ansible.roles",
+    "ansible.error-handling"
+   ]
+  },
+  {
+   "id": "ansible.performance",
+   "name": "Performance: forks, pipelining, async",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Speed up large runs with forks, SSH multiplexing, pipelining, fact caching, the free strategy and async tasks.",
+   "why": "A playbook that takes an hour on 500 hosts can often take minutes with the right settings.",
+   "body": "Where time goes: for each task and host, Ansible opens an SSH session, creates a temp directory, copies the module, runs it and cleans up. Optimisations attack each part:\n\n- **forks** (default 5): how many hosts run a task in parallel. Raise to 25-100 for big fleets, limited by control-node CPU and memory.\n- **SSH multiplexing**: `ControlMaster`/`ControlPersist` (on by default in Ansible's ssh args) reuses one TCP+auth connection for many tasks.\n- **pipelining** (`pipelining = True`): sends the module over the existing session's stdin instead of copying a file, cutting several SSH operations per task. Requires that sudo doesn't need `requiretty`.\n- **Facts**: `gather_facts: false` when not needed, `gather_subset` to collect less, or **fact caching** (`jsonfile`, `redis`) with `gathering = smart` to reuse facts between runs.\n- **Strategies**: the default `linear` waits for all hosts at each task; `free` lets each host run ahead independently. `serial` batches trade speed for safety.\n- **async**: `async: 600, poll: 0` starts a long task (a big download, a backup) in the background and moves on; check it later with `async_status`.\n- Fewer tasks: pass lists to package modules instead of looping, and use `template` once rather than many `lineinfile` edits.\n\nMeasure before tuning: the `profile_tasks` and `timer` callbacks (`callbacks_enabled = ansible.posix.profile_tasks, ansible.posix.timer`) show per-task timings.",
+   "code": "# ansible.cfg\n[defaults]\nforks = 50\ngathering = smart\nfact_caching = jsonfile\nfact_caching_connection = .facts_cache\nfact_caching_timeout = 86400\ncallbacks_enabled = ansible.posix.profile_tasks, ansible.posix.timer\n\n[ssh_connection]\npipelining = True\nssh_args = -o ControlMaster=auto -o ControlPersist=300s\n\n# playbook snippet:\n#   - hosts: all\n#     strategy: free\n#     gather_facts: false\n#     tasks:\n#       - ansible.builtin.command: /usr/local/bin/backup.sh\n#         async: 3600\n#         poll: 0\n#         register: backup_job",
+   "code_lang": "ini",
+   "takeaways": [
+    "Raise forks; keep SSH multiplexing; enable pipelining",
+    "Skip, subset or cache facts",
+    "free strategy and async for independent or long tasks; profile_tasks to measure"
+   ],
+   "pitfalls": [
+    "Enabling pipelining on hosts whose sudoers require a TTY, making become tasks fail."
+   ],
+   "quiz": [
+    {
+     "q": "What does pipelining save?",
+     "options": [
+      "Parallel hosts",
+      "Handler runs",
+      "Fact gathering",
+      "Copying module files to the host as separate SSH operations for each task"
+     ],
+     "answer": 3,
+     "explain": "With pipelining, modules are streamed through the existing SSH session instead of copied and then executed."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_strategies.html",
+   "requires": [
+    "ansible.config-connection",
+    "ansible.testing-lint",
+    "ssh.multiplexing"
+   ]
+  },
+  {
+   "id": "ansible.dynamic-inventory",
+   "name": "Dynamic inventory plugins",
+   "module": "internals",
+   "level": 4,
+   "minutes": 10,
+   "summary": "Build inventory from cloud APIs and other sources with inventory plugins, and shape groups with keyed_groups and constructed.",
+   "why": "In clouds, hosts come and go; static files are always out of date.",
+   "body": "An **inventory plugin** generates hosts and groups at run time. You configure it with a YAML file whose name ends as the plugin expects (for example `*.aws_ec2.yml`) and whose `plugin:` key names it:\n\n- `amazon.aws.aws_ec2`, `azure.azcollection.azure_rm`, `google.cloud.gcp_compute`,\n- `kubernetes.core.k8s`, `community.vmware.vmware_vm_inventory`, `netbox.netbox.nb_inventory`.\n\nCommon options:\n\n- `filters`: which instances to include (running, tagged `env: prod`).\n- `keyed_groups`: create groups from attributes, e.g. a group per `tags.role`, so plays can target `role_web`.\n- `groups`: groups from Jinja2 conditions.\n- `compose`: set host variables from attributes (`ansible_host: private_ip_address`).\n- `hostnames`: what to call each host.\n- `cache: true`: avoid querying the API on every run.\n\nThe **constructed** plugin applies the same `keyed_groups`/`groups`/`compose` logic on top of any other inventory sources, and you can point `-i` at a directory that mixes static files and plugins; they're merged in alphabetical order.\n\nEnable plugins with `enable_plugins` in `[inventory]` if you restrict them, and test with `ansible-inventory -i inventory/ --graph`.\n\nLegacy executable inventory scripts that print JSON still work, but plugins are the supported mechanism.",
+   "code": "# inventory/prod.aws_ec2.yml\nplugin: amazon.aws.aws_ec2\nregions: [eu-west-1]\nfilters:\n  instance-state-name: running\n  \"tag:env\": prod\nhostnames: [tag:Name]\nkeyed_groups:\n  - key: tags.role\n    prefix: role\ncompose:\n  ansible_host: private_ip_address\ncache: true\ncache_plugin: ansible.builtin.jsonfile\ncache_connection: .inventory_cache\n# ansible-inventory -i inventory/ --graph\n# @all:\n#   |--@aws_ec2:\n#   |--@role_web:\n#   |  |--web-prod-1",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Plugins query APIs at run time: no stale host lists",
+    "keyed_groups, groups and compose shape groups and variables",
+    "constructed adds the same logic to any source; cache to save API calls"
+   ],
+   "pitfalls": [
+    "Naming the config file without the plugin's required suffix, so Ansible doesn't recognise it."
+   ],
+   "quiz": [
+    {
+     "q": "How do you target all EC2 instances tagged role=web with the aws_ec2 plugin configuration above?",
+     "options": [
+      "hosts: role_web",
+      "hosts: web",
+      "hosts: tag_role_web only via a script",
+      "hosts: aws_ec2:web"
+     ],
+     "answer": 0,
+     "explain": "keyed_groups with prefix role creates the group role_web from the tag value."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/inventory_guide/intro_dynamic_inventory.html",
+   "requires": [
+    "ansible.inventory",
+    "ansible.collections-galaxy"
+   ]
+  },
+  {
+   "id": "ansible.execution-internals",
+   "name": "How tasks execute: modules, plugins, templating",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Follow a task from parsing to AnsiballZ on the target, distinguish modules from plugins, and know the 2.19+ templating rules.",
+   "why": "Writing modules, debugging odd behaviour and upgrading ansible-core all need this model.",
+   "body": "On the **control node**, Ansible parses the playbook, builds the host list, and for each task and host a worker process (one per fork) prepares the task: it **templates** the arguments with that host's variables, then hands it to an **action plugin**. Most modules use the generic `normal` action; some (`template`, `copy`, `fetch`) have action plugins doing controller-side work first, such as rendering the template locally.\n\nThe **connection plugin** (`ssh`, `local`, `paramiko`, `winrm`, `kubectl`...) moves code and data. Python modules are bundled with their `module_utils` into a single self-extracting **AnsiballZ** payload, sent to the target, executed with the remote Python, and return JSON (`changed`, `failed`, `msg`, data). Set `ANSIBLE_KEEP_REMOTE_FILES=1` to keep the payload on the host for debugging.\n\nSo: **modules** run on targets; **plugins** (lookup, filter, callback, inventory, connection, become, cache, strategy) run on the controller.\n\nWriting a module: a Python file using `AnsibleModule` with an `argument_spec`, supporting `check_mode`, returning `changed` truthfully. Put it in a collection's `plugins/modules/` (or a role's `library/`).\n\nansible-core 2.19 reworked templating with **data tagging**: values carry their origin (and trust), so error messages point to the exact file and line. Stricter rules came with it: conditionals must be booleans, templates inside untrusted data aren't re-evaluated, and some lenient behaviour is gone. Read the porting guides before upgrading across 2.18 to 2.19 and later.",
+   "code": "#!/usr/bin/python\n# library/greeting_file.py: a minimal idempotent module\nfrom pathlib import Path\nfrom ansible.module_utils.basic import AnsibleModule\n\ndef main():\n    module = AnsibleModule(\n        argument_spec={\"path\": {\"type\": \"path\", \"required\": True},\n                       \"name\": {\"type\": \"str\", \"default\": \"world\"}},\n        supports_check_mode=True)\n    path, text = Path(module.params[\"path\"]), f\"hello {module.params['name']}\\n\"\n    changed = not path.exists() or path.read_text() != text\n    if changed and not module.check_mode:\n        path.write_text(text)\n    module.exit_json(changed=changed, path=str(path))\n\nif __name__ == \"__main__\":\n    main()\n# - greeting_file: {path: /tmp/greet.txt, name: ana}   -> changed, then ok",
+   "code_lang": "python",
+   "takeaways": [
+    "Templating and action plugins run on the controller; modules run on targets",
+    "Python modules travel as AnsiballZ payloads and return JSON",
+    "2.19+ data tagging: stricter, better-located templating errors"
+   ],
+   "pitfalls": [
+    "Writing a custom module that always returns changed=True, breaking handlers and idempotence checks."
+   ],
+   "quiz": [
+    {
+     "q": "Where does a filter plugin like to_nice_yaml run?",
+     "options": [
+      "On each target host",
+      "On the control node during templating",
+      "Inside the AnsiballZ payload",
+      "In the connection plugin"
+     ],
+     "answer": 1,
+     "explain": "All plugins, including filters, run on the controller; only modules run on targets."
+    }
+   ],
+   "docs": "https://docs.ansible.com/ansible/latest/dev_guide/developing_modules_general.html",
+   "requires": [
+    "ansible.variable-precedence",
+    "ansible.collections-galaxy"
+   ]
+  }
+ ]
+}

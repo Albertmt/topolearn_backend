@@ -1,0 +1,860 @@
+{
+ "tool": {
+  "id": "http",
+  "name": "HTTP & the web",
+  "category": "tool",
+  "tagline": "How browsers, servers and APIs talk: URLs, DNS, TLS, requests, caching and more",
+  "description": "HTTP is the protocol behind every web page and almost every API. This curriculum follows a request from URL and DNS lookup through TCP and TLS to methods, status codes, headers, caching, cookies and CORS, then on to REST design, HTTP/2 and HTTP/3, real-time connections and CDNs. Understanding it makes you better at debugging, API design and web performance in any language.",
+  "icon": "H",
+  "color": "#1D4ED8",
+  "official_docs": "https://developer.mozilla.org/en-US/docs/Web/HTTP",
+  "version": "HTTP/1.1, HTTP/2, HTTP/3 (RFC 9110-9114)",
+  "aliases": [
+   "http",
+   "https",
+   "web protocols",
+   "how the web works",
+   "rest",
+   "http headers"
+  ],
+  "requires": []
+ },
+ "modules": [
+  {
+   "id": "foundations",
+   "name": "From URL to server"
+  },
+  {
+   "id": "messages",
+   "name": "Requests and responses"
+  },
+  {
+   "id": "state",
+   "name": "State, caching and cross-origin"
+  },
+  {
+   "id": "apis",
+   "name": "Designing HTTP APIs"
+  },
+  {
+   "id": "transport",
+   "name": "Connections and protocols"
+  },
+  {
+   "id": "scale",
+   "name": "Security and scale"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "http.urls",
+   "name": "Anatomy of a URL",
+   "module": "foundations",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Break a URL into scheme, host, port, path, query and fragment, and know how each part is used and encoded.",
+   "why": "Every request starts from a URL, and many bugs come from building or encoding one incorrectly.",
+   "body": "A URL names a resource and says how to reach it. Take `https://api.example.com:8443/v1/users?sort=name&page=2#top`:\n\n- **scheme** `https`: the protocol. `http` and `https` are the web's; the scheme also implies a default port (80 for http, 443 for https).\n- **host** `api.example.com`: a domain name (or an IP address) that DNS will resolve.\n- **port** `8443`: optional; omitted when it's the default.\n- **path** `/v1/users`: which resource on that server, hierarchical like folders.\n- **query** `?sort=name&page=2`: key/value parameters, separated by `&`, typically for filtering, searching and pagination.\n- **fragment** `#top`: a position inside the document. It's handled by the browser and **never sent to the server**.\n\nScheme plus host plus port make the **origin** (`https://api.example.com:8443`), the unit the browser's security model is built on.\n\nURLs may only contain a limited set of ASCII characters, so everything else is **percent-encoded**: a space becomes `%20`, `&` inside a value becomes `%26`, and `é` becomes its UTF-8 bytes `%C3%A9`. In HTML form data and query strings a space is often written `+` instead. Never build query strings by concatenating raw user input; use a URL library (`URL` and `URLSearchParams` in JavaScript, `urllib.parse` in Python) that encodes correctly.\n\nRelative URLs like `../img/a.png` or `/login` are resolved against the current page's URL.",
+   "code": "const u = new URL(\"https://api.example.com:8443/v1/users?sort=name&page=2#top\");\nconsole.log(u.protocol, u.hostname, u.port);  // https: api.example.com 8443\nconsole.log(u.pathname, u.search, u.hash);    // /v1/users ?sort=name&page=2 #top\nconsole.log(u.origin);                        // https://api.example.com:8443\nconsole.log(u.searchParams.get(\"page\"));      // 2\n\n// Build query strings safely: values get encoded\nconst q = new URL(\"https://example.com/search\");\nq.searchParams.set(\"q\", \"fish & chips\");\nq.searchParams.set(\"city\", \"Zürich\");\nconsole.log(q.href);\n// https://example.com/search?q=fish+%26+chips&city=Z%C3%BCrich\n\nconsole.log(new URL(\"../img/a.png\", \"https://site.com/blog/post/\").href);\n// https://site.com/blog/img/a.png",
+   "code_lang": "javascript",
+   "takeaways": [
+    "scheme://host:port/path?query#fragment",
+    "Origin = scheme + host + port",
+    "The fragment is never sent to the server",
+    "Use a URL library to encode query values"
+   ],
+   "pitfalls": [
+    "Concatenating user input into a query string, so a & or # in the value breaks the URL."
+   ],
+   "quiz": [
+    {
+     "q": "Which part of https://shop.com/cart?id=5#summary is NOT sent to the server?",
+     "options": [
+      "/cart",
+      "?id=5",
+      "#summary",
+      "shop.com"
+     ],
+     "answer": 2,
+     "explain": "Fragments are processed by the client only."
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Learn_web_development/Howto/Web_mechanics/What_is_a_URL",
+   "requires": []
+  },
+  {
+   "id": "http.request-response",
+   "name": "The request/response cycle",
+   "module": "messages",
+   "level": 1,
+   "minutes": 10,
+   "summary": "See what an HTTP request and response actually look like on the wire: a start line, headers, a blank line and an optional body.",
+   "why": "Once you can read raw HTTP, every tool, framework and error message becomes easier to understand.",
+   "body": "HTTP is a **request/response** protocol: a client (browser, app, curl) sends a request; a server sends back exactly one response. Each exchange is independent: HTTP itself is **stateless**, and the server remembers nothing between requests unless something like a cookie or token is sent along.\n\nIn HTTP/1.1 the messages are readable text. A request is:\n\n- a **request line**: method, target and version, e.g. `GET /users/42 HTTP/1.1`;\n- **header fields**, one per line, `Name: value`. `Host` is required, because one IP address can serve many sites;\n- an empty line;\n- an optional **body**, for example JSON for a POST.\n\nA response mirrors it:\n\n- a **status line**: version, status code and reason phrase, `HTTP/1.1 200 OK`;\n- headers such as `Content-Type` and `Content-Length`;\n- an empty line, then the body: HTML, JSON, an image.\n\nHTTP/2 and HTTP/3 encode these same parts in a binary format, but the meaning (method, path, headers, status, body) is identical, so everything you learn here carries over.\n\nTo see real traffic, use `curl -v`, which prints request lines prefixed with `>` and response lines with `<`, or the browser devtools Network tab, which shows each request's headers, timing and response. Reading these is the first step in debugging any web problem.",
+   "code": "$ curl -v https://example.com/        # abridged sample output\n> GET / HTTP/2\n> Host: example.com\n> User-Agent: curl/8.11.0\n> Accept: */*\n>\n< HTTP/2 200\n< content-type: text/html\n< content-length: 1256\n< cache-control: max-age=3600\n<\n<!doctype html>\n<html> ...\n\n# The same request written as raw HTTP/1.1 text:\n#   GET / HTTP/1.1\\r\\n\n#   Host: example.com\\r\\n\n#   Accept: */*\\r\\n\n#   \\r\\n",
+   "code_lang": "bash",
+   "takeaways": [
+    "Request = method + target + headers + optional body",
+    "Response = status + headers + optional body",
+    "HTTP is stateless: each request stands alone",
+    "curl -v and the Network tab show the real messages"
+   ],
+   "pitfalls": [
+    "Assuming the server remembers a previous request; state must be carried by cookies, tokens or the URL."
+   ],
+   "quiz": [
+    {
+     "q": "Why is the Host header required in HTTP/1.1?",
+     "options": [
+      "One server IP can host many domains, so it says which site is meant",
+      "It encrypts the request",
+      "It tells the server the client's IP address",
+      "It sets the response format"
+     ],
+     "answer": 0,
+     "explain": "Virtual hosting means the IP alone doesn't identify the site."
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Overview",
+   "requires": [
+    "http.urls"
+   ]
+  },
+  {
+   "id": "http.dns",
+   "name": "DNS: finding the server",
+   "module": "foundations",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Follow how a domain name becomes an IP address through resolvers, root, TLD and authoritative servers, and what record types and TTLs do.",
+   "why": "DNS is the first step of every request and the cause of many 'site is down' and slow-first-load problems.",
+   "body": "Before connecting, the client must turn a hostname into an IP address. That's the **Domain Name System**.\n\nA lookup for `www.example.com`:\n\n- The OS checks its cache, then asks a **recursive resolver**, usually run by your ISP or a public service such as 1.1.1.1 or 8.8.8.8.\n- On a cache miss, the resolver asks a **root server**, which points to the `.com` **TLD servers**, which point to example.com's **authoritative name servers**, which return the answer.\n- Every answer carries a **TTL** (time to live, in seconds), how long resolvers and clients may cache it.\n\nCommon **record types**:\n\n- `A` and `AAAA`: IPv4 and IPv6 addresses.\n- `CNAME`: an alias to another name, e.g. `www` to `myapp.cdn-provider.net`. Not allowed on the bare apex domain (`example.com`); providers offer ALIAS/ANAME flattening instead.\n- `MX` for mail, `TXT` for verification and email security (SPF, DKIM), `NS` for delegation.\n- `HTTPS`/`SVCB`: newer records that advertise HTTP/3 support and other connection hints.\n\nTTLs explain \"propagation delays\": after a change, old answers live on until cached copies expire. Lower the TTL a day before planned migrations.\n\nPlain DNS is unencrypted UDP on port 53; **DNS over HTTPS** (DoH) and **DNS over TLS** hide lookups from the network. Browsers also prefetch DNS, and `<link rel=\"dns-prefetch\">` or `preconnect` lets a page ask for it early.",
+   "code": "# sample output; real addresses vary\n$ dig +short www.github.com\ngithub.com.\n140.82.121.3\n\n$ dig shop.example.com A +noall +answer\nshop.example.com.    300    IN    A    203.0.113.10\n#                    ^ TTL in seconds\n\n$ dig gmail.com MX +short\n5 gmail-smtp-in.l.google.com.\n\n$ dig +trace www.wikipedia.org      # follow root -> .org -> wikipedia's servers\n\n# Which resolver answered and how long it took\n$ dig @1.1.1.1 example.com | grep -E \"SERVER|Query time\"",
+   "code_lang": "bash",
+   "takeaways": [
+    "DNS turns names into IPs via resolver, root, TLD and authoritative servers",
+    "A/AAAA = addresses, CNAME = alias, MX = mail, TXT = text",
+    "TTL controls caching and therefore how fast changes spread",
+    "Lower TTLs before planned changes"
+   ],
+   "pitfalls": [
+    "Changing DNS for a migration with a 24-hour TTL and expecting traffic to move immediately."
+   ],
+   "quiz": [
+    {
+     "q": "You change an A record whose TTL was 86400. Some users still reach the old server hours later. Why?",
+     "options": [
+      "DNS changes need a server restart",
+      "A records can't be changed",
+      "The browser blocks new IPs",
+      "Resolvers may cache the old answer for up to 24 hours"
+     ],
+     "answer": 3,
+     "explain": "The TTL allowed caches to keep the old record for 86400 seconds."
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Glossary/DNS",
+   "requires": [
+    "http.urls"
+   ]
+  },
+  {
+   "id": "http.methods",
+   "name": "HTTP methods",
+   "module": "messages",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Use GET, POST, PUT, PATCH and DELETE for what they mean, and understand safe and idempotent methods.",
+   "why": "Methods tell caches, proxies, browsers and API clients what a request may do, and when it's safe to retry.",
+   "body": "The **method** says what the client wants to do with the target resource.\n\n- `GET`: retrieve a representation. No body, no side effects intended.\n- `HEAD`: like GET but only the headers, for checking existence, size or freshness.\n- `POST`: process the enclosed data: create a resource in a collection, submit a form, trigger an action.\n- `PUT`: replace the resource at this URL with the body, creating it if absent.\n- `PATCH`: apply a partial modification.\n- `DELETE`: remove the resource.\n- `OPTIONS`: ask what's allowed; used by CORS preflight requests.\n\nTwo properties matter more than the names.\n\n**Safe** methods (GET, HEAD, OPTIONS) are read-only by contract. Crawlers, prefetchers and link previews issue GETs freely, so a GET that deletes or changes data will eventually be triggered by a bot.\n\n**Idempotent** methods (the safe ones plus PUT and DELETE) have the same effect whether sent once or many times. Deleting an item twice leaves it deleted; PUTting the same body twice gives the same state. Clients and proxies can therefore retry them after a timeout. POST and PATCH are not idempotent in general: retrying a POST may create two orders, which is why payment APIs add idempotency keys.\n\nBrowsers' HTML forms only send GET and POST; JavaScript's `fetch` can send any method. And idempotent doesn't mean the response is identical: a second DELETE may return 404.",
+   "code": "const base = \"https://api.example.com/v1/articles\";\n\nawait fetch(base);                                     // GET: list\nawait fetch(`${base}/42`, { method: \"HEAD\" });         // headers only\n\nawait fetch(base, {                                    // POST: create in collection\n  method: \"POST\",\n  headers: { \"Content-Type\": \"application/json\" },\n  body: JSON.stringify({ title: \"Hello\" }),\n});\n\nawait fetch(`${base}/42`, {                            // PUT: replace whole resource\n  method: \"PUT\",\n  headers: { \"Content-Type\": \"application/json\" },\n  body: JSON.stringify({ title: \"Hello\", body: \"...\", tags: [] }),\n});\n\nawait fetch(`${base}/42`, {                            // PATCH: change one field\n  method: \"PATCH\",\n  headers: { \"Content-Type\": \"application/merge-patch+json\" },\n  body: JSON.stringify({ title: \"Hello again\" }),\n});\n\nawait fetch(`${base}/42`, { method: \"DELETE\" });       // idempotent: safe to retry",
+   "code_lang": "javascript",
+   "takeaways": [
+    "GET reads, POST processes/creates, PUT replaces, PATCH modifies, DELETE removes",
+    "Safe = no side effects: GET, HEAD, OPTIONS",
+    "Idempotent = repeating has the same effect: safe methods + PUT + DELETE",
+    "Never change data in a GET handler"
+   ],
+   "pitfalls": [
+    "Implementing 'GET /items/5/delete', which crawlers and link prefetchers will happily trigger."
+   ],
+   "quiz": [
+    {
+     "q": "A request times out and the client doesn't know if it was processed. Which method is safe to resend automatically?",
+     "options": [
+      "POST",
+      "PUT",
+      "PATCH",
+      "None of them"
+     ],
+     "answer": 1,
+     "explain": "PUT is idempotent: sending the same replacement twice yields the same state."
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Methods",
+   "requires": [
+    "http.request-response"
+   ]
+  },
+  {
+   "id": "http.status-codes",
+   "name": "Status codes",
+   "module": "messages",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Read and choose status codes by class: 2xx success, 3xx redirection, 4xx client errors and 5xx server errors.",
+   "why": "Clients, caches, monitoring and search engines all act on the status code before they look at the body.",
+   "body": "The three-digit **status code** summarises the outcome; the first digit gives the class.\n\n**2xx success**:\n\n- `200 OK`, `201 Created` (with a `Location` header pointing at the new resource), `202 Accepted` (queued for later processing), `204 No Content` (success, empty body).\n\n**3xx redirection**:\n\n- `301 Moved Permanently` and `308 Permanent Redirect`; `302 Found` and `307 Temporary Redirect`. The difference between the pairs is that 307 and 308 guarantee the method and body are kept, while clients may turn a redirected POST into a GET after 301/302.\n- `303 See Other`: go GET this other URL, the classic redirect after a form POST.\n- `304 Not Modified`: your cached copy is still valid.\n\n**4xx client errors** (the request needs fixing):\n\n- `400 Bad Request`, `401 Unauthorized` (actually \"unauthenticated\": no or bad credentials), `403 Forbidden` (authenticated but not allowed), `404 Not Found`, `405 Method Not Allowed`, `409 Conflict`, `410 Gone`, `415 Unsupported Media Type`, `422 Unprocessable Content` (well-formed but invalid data), `429 Too Many Requests`.\n\n**5xx server errors** (the server failed):\n\n- `500 Internal Server Error`, `502 Bad Gateway` and `504 Gateway Timeout` (a proxy couldn't get a good or timely answer from upstream), `503 Service Unavailable` (overloaded or in maintenance, often with `Retry-After`).\n\nChoose precisely: clients retry 503 and 429, never 400; monitoring alerts on 5xx; search engines drop pages that return 404 or 410. Returning `200` with an error message in the body breaks all of that.",
+   "code": "import http from \"node:http\";\n\nconst server = http.createServer((req, res) => {\n  if (req.url === \"/old\") { res.writeHead(301, { Location: \"/new\" }); return res.end(); }\n  if (req.url === \"/new\") { res.writeHead(200, { \"Content-Type\": \"text/plain\" }); return res.end(\"hi\"); }\n  if (req.url === \"/admin\") { res.writeHead(403); return res.end(); }\n  res.writeHead(404, { \"Content-Type\": \"text/plain\" }); res.end(\"not found\");\n});\n\nserver.listen(0, async () => {\n  const base = `http://localhost:${server.address().port}`;\n  for (const p of [\"/old\", \"/admin\", \"/nope\"]) {\n    const r = await fetch(base + p, { redirect: \"manual\" });\n    console.log(p, r.status, r.headers.get(\"location\"));\n  }\n  // /old 301 /new\n  // /admin 403 null\n  // /nope 404 null\n  server.close();\n});",
+   "code_lang": "javascript",
+   "takeaways": [
+    "2xx success, 3xx redirect, 4xx client error, 5xx server error",
+    "401 = not authenticated, 403 = authenticated but not allowed",
+    "307/308 keep the method; 303 switches to GET",
+    "Never return 200 for an error"
+   ],
+   "pitfalls": [
+    "Returning 200 with {\"error\": ...} in the body, which hides failures from clients, caches and monitoring."
+   ],
+   "quiz": [
+    {
+     "q": "A logged-in user requests another user's private invoice. Which status fits best?",
+     "options": [
+      "403 Forbidden",
+      "401 Unauthorized",
+      "400 Bad Request",
+      "500 Internal Server Error"
+     ],
+     "answer": 0,
+     "explain": "The user is authenticated, but not allowed to access this resource. (404 is also used to hide its existence.)"
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status",
+   "requires": [
+    "http.request-response"
+   ]
+  },
+  {
+   "id": "http.headers",
+   "name": "Headers",
+   "module": "messages",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Understand request and response header fields: content negotiation, metadata, client hints and custom headers.",
+   "why": "Almost every HTTP feature, from caching to auth to CORS, is switched on by a header.",
+   "body": "**Headers** are `Name: value` metadata lines on requests and responses. Names are case-insensitive (HTTP/2 and 3 send them lowercase), and unknown headers are ignored, which is how the protocol extends.\n\nCommon **request headers**:\n\n- `Host`: which site.\n- `User-Agent`: what client is calling.\n- `Accept`, `Accept-Language`, `Accept-Encoding`: what representations the client prefers, for **content negotiation**. `Accept-Encoding: gzip, br, zstd` lets the server compress.\n- `Authorization`: credentials. `Cookie`: stored cookies.\n- `Content-Type` and `Content-Length`: describe a request body.\n- `If-None-Match`, `If-Modified-Since`: conditional requests for caching.\n- `Referer` (sic): the page that linked here; `Origin`: the origin making a cross-site request.\n\nCommon **response headers**:\n\n- `Content-Type`, `Content-Length`, `Content-Encoding` (e.g. `br`).\n- `Cache-Control`, `ETag`, `Last-Modified`, `Vary` for caching.\n- `Location` for redirects and created resources; `Set-Cookie`.\n- `Retry-After` with 429 or 503.\n\nCustom headers once used an `X-` prefix (`X-Request-Id`). That convention is deprecated for new headers, but plenty of `X-` names live on.\n\nHeader values have practical limits: servers and proxies typically cap total header size at around 8 to 16 KB, so huge cookies or tokens can trigger `431 Request Header Fields Too Large`. Inspect headers with `curl -I` (HEAD) or `curl -v`, or in the devtools Network panel.",
+   "code": "$ curl -sI https://shop.example.com/ -H \"Accept-Language: de\" -H \"Accept-Encoding: br, gzip\"\n# sample response (abridged)\nHTTP/2 200\ncontent-type: text/html; charset=utf-8\ncontent-encoding: br\ncontent-language: de\ncache-control: no-cache\nvary: Accept-Encoding, Accept-Language\netag: \"5f2c-9a1\"\n\n# Send a custom request header and print only one response header\n$ curl -s -o /dev/null -D - https://example.com -H \"X-Request-Id: abc123\" | grep -i content-type\ncontent-type: text/html",
+   "code_lang": "bash",
+   "takeaways": [
+    "Header names are case-insensitive; HTTP/2+ uses lowercase",
+    "Accept-* headers drive content negotiation",
+    "Caching, auth, cookies, CORS and redirects are all header-driven",
+    "Oversized headers cause 431 errors"
+   ],
+   "pitfalls": [
+    "Assuming a header's capitalisation matters when looking it up in code."
+   ],
+   "quiz": [
+    {
+     "q": "A client sends Accept-Encoding: br, gzip. What may the server do?",
+     "options": [
+      "Encrypt the body",
+      "Translate the page",
+      "Compress the body with Brotli or gzip and say so in Content-Encoding",
+      "Nothing; it's only for logging"
+     ],
+     "answer": 2,
+     "explain": "Accept-Encoding advertises supported compression; Content-Encoding reports which was used."
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers",
+   "requires": [
+    "http.request-response"
+   ]
+  },
+  {
+   "id": "http.content-types",
+   "name": "Bodies and content types",
+   "module": "messages",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Describe and parse message bodies correctly with Content-Type: JSON, form encodings, multipart uploads, text and binary data.",
+   "why": "Mismatched content types are behind countless '400 Bad Request' and 'body is empty' bugs.",
+   "body": "A body is just bytes; `Content-Type` tells the receiver how to interpret them, using a **media type** (MIME type) plus optional parameters.\n\n- `application/json`: the default for APIs. UTF-8 is required by the JSON spec, so no charset parameter is needed.\n- `text/html; charset=utf-8`, `text/plain`, `text/css`, `text/javascript`.\n- `application/x-www-form-urlencoded`: HTML form default: `name=Ada&lang=en`.\n- `multipart/form-data; boundary=...`: forms with file uploads. Each field is a part separated by a boundary string.\n- `application/octet-stream`: arbitrary binary data. Images, audio and video have their own types: `image/png`, `image/avif`, `video/mp4`.\n\nServers pick a parser based on the request's `Content-Type`. Send JSON without the header and many frameworks see an empty or text body; send the wrong one and you get `415 Unsupported Media Type`.\n\nThe size comes from `Content-Length`, or, when the size isn't known in advance, from streaming: chunked transfer encoding in HTTP/1.1, or frames in HTTP/2 and 3.\n\n`Content-Disposition: attachment; filename=\"report.pdf\"` asks a browser to download rather than display a response.\n\nBrowsers may sniff content when the type is missing or vague; send `X-Content-Type-Options: nosniff` so a file uploaded as an image can't be executed as script. Always set an accurate type on responses, including `charset=utf-8` for text.",
+   "code": "// JSON body: set the header AND serialise\nawait fetch(\"https://httpbin.org/post\", {\n  method: \"POST\",\n  headers: { \"Content-Type\": \"application/json\" },\n  body: JSON.stringify({ name: \"Ada\", langs: [\"en\", \"fr\"] }),\n});\n\n// URL-encoded form body (fetch sets the Content-Type for URLSearchParams)\nawait fetch(\"https://httpbin.org/post\", {\n  method: \"POST\",\n  body: new URLSearchParams({ name: \"Ada Lovelace\", lang: \"en\" }),  // name=Ada+Lovelace&lang=en\n});\n\n// Multipart with a file (fetch sets multipart/form-data with a boundary)\nconst form = new FormData();\nform.append(\"title\", \"Avatar\");\nform.append(\"file\", new Blob([\"fake png bytes\"], { type: \"image/png\" }), \"a.png\");\nconst res = await fetch(\"https://httpbin.org/post\", { method: \"POST\", body: form });\nconsole.log(res.headers.get(\"content-type\"));   // application/json",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Content-Type tells the receiver how to parse the body",
+    "JSON APIs use application/json; forms use urlencoded or multipart",
+    "File uploads need multipart/form-data",
+    "Send nosniff and accurate types on responses"
+   ],
+   "pitfalls": [
+    "Setting Content-Type: multipart/form-data by hand with fetch, which drops the boundary parameter; let fetch set it."
+   ],
+   "quiz": [
+    {
+     "q": "You POST JSON with fetch but forget the Content-Type header. What commonly happens?",
+     "options": [
+      "fetch adds application/json automatically",
+      "The server doesn't parse it as JSON (it's sent as text/plain)",
+      "The request is blocked by the browser",
+      "The body is compressed"
+     ],
+     "answer": 1,
+     "explain": "A string body defaults to text/plain;charset=UTF-8, so JSON parsers skip it."
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Type",
+   "requires": [
+    "http.headers"
+   ]
+  },
+  {
+   "id": "http.tcp-tls",
+   "name": "TCP, TLS and HTTPS",
+   "module": "transport",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Understand the connection under HTTP: the TCP handshake, the TLS handshake, certificates, and why HTTPS is the default.",
+   "why": "Connection setup costs several round trips, and certificate errors are among the most common production incidents.",
+   "body": "HTTP/1.1 and HTTP/2 run over **TCP**, a reliable, ordered byte stream. Opening a TCP connection takes a **three-way handshake** (SYN, SYN-ACK, ACK): one round trip before any data. TCP then retransmits lost packets and controls congestion, starting slowly and speeding up, so new connections are slower than warm ones.\n\n**HTTPS** is HTTP inside **TLS**, which provides:\n\n- **encryption**: eavesdroppers on Wi-Fi or ISPs can't read or modify traffic;\n- **integrity**: tampering is detected;\n- **authentication**: the server proves it owns the domain with a **certificate**.\n\nThe **TLS 1.3 handshake** adds one round trip: client and server agree on keys (ephemeral Diffie-Hellman) and the server sends its certificate. The client checks that the certificate is valid for the hostname, not expired, and chains to a **certificate authority** in its trust store. Let's Encrypt issues free certificates automatically through the ACME protocol, and certificate lifetimes are shrinking toward weeks, so automate renewal.\n\nSo a fresh HTTPS request costs DNS + TCP (1 RTT) + TLS (1 RTT) before the request even leaves. With 100 ms of latency that's 200+ ms of pure setup. That's why **connection reuse** (keep-alive) matters, and why HTTP/3 merges the transport and TLS handshakes.\n\nBrowsers mark plain HTTP as \"Not secure\" and many features (service workers, geolocation, HTTP/2 in browsers) require HTTPS. Serve everything over HTTPS and redirect HTTP to it.",
+   "code": "# Time each phase of a request\n$ curl -so /dev/null https://example.com -w \\\n  \"dns %{time_namelookup}s\\ntcp %{time_connect}s\\ntls %{time_appconnect}s\\nfirst byte %{time_starttransfer}s\\n\"\ndns 0.012s\ntcp 0.045s        # TCP handshake done (cumulative)\ntls 0.091s        # TLS handshake done\nfirst byte 0.140s\n\n# Inspect the certificate chain and expiry\n$ openssl s_client -connect example.com:443 -servername example.com </dev/null 2>/dev/null \\\n    | openssl x509 -noout -subject -issuer -enddate",
+   "code_lang": "bash",
+   "takeaways": [
+    "HTTPS = HTTP over TLS over TCP",
+    "TCP handshake = 1 RTT; TLS 1.3 handshake = 1 more RTT",
+    "Certificates prove domain ownership via a CA chain",
+    "Reuse connections and automate certificate renewal"
+   ],
+   "pitfalls": [
+    "Letting a certificate expire because renewal was manual."
+   ],
+   "quiz": [
+    {
+     "q": "Ignoring DNS, how many round trips does a fresh HTTPS (TLS 1.3 over TCP) request need before the server sees the HTTP request?",
+     "options": [
+      "0",
+      "1",
+      "4",
+      "2"
+     ],
+     "answer": 3,
+     "explain": "One for the TCP handshake and one for the TLS 1.3 handshake; the request goes out on the next flight."
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Web/Security/Defenses/Transport_Layer_Security",
+   "requires": [
+    "http.dns",
+    "http.request-response"
+   ]
+  },
+  {
+   "id": "http.cookies",
+   "name": "Cookies and sessions",
+   "module": "state",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Keep state across stateless requests with Set-Cookie, and secure cookies with HttpOnly, Secure, SameSite, Domain, Path and expiry.",
+   "why": "Logins work through cookies, and most session-hijacking and CSRF bugs are cookie attribute mistakes.",
+   "body": "HTTP is stateless, so servers hand clients a **cookie** to send back. The server responds with `Set-Cookie: session=abc123; ...`, and the browser includes `Cookie: session=abc123` on later requests to that site. A **session** usually means the cookie holds a random ID that maps to data on the server, or a signed token holding the data itself.\n\nThe attributes decide security:\n\n- `HttpOnly`: JavaScript can't read it (`document.cookie`), so an XSS bug can't steal the session. Always set it on session cookies.\n- `Secure`: only sent over HTTPS.\n- `SameSite`: whether it's sent on cross-site requests. `Lax` (Chrome's default when the attribute is missing; set it explicitly) sends it on top-level navigations but not on cross-site POSTs or embedded requests, which blocks most **CSRF**. `Strict` never sends it cross-site. `None` always does and requires `Secure`.\n- `Max-Age` or `Expires`: without them it's a **session cookie**, deleted when the browser session ends.\n- `Domain`: omit it to restrict the cookie to the exact host; `Domain=example.com` shares it with all subdomains.\n- `Path`: limits it to URL paths; not a security boundary.\n\nThe `__Host-` name prefix enforces Secure, no Domain and Path=/, the strongest setting.\n\nCookies are sent with every matching request, so keep them small (browsers cap each at about 4 KB). Third-party cookies, set by embedded sites, are restricted or blocked in Safari and Firefox and limited in Chrome; don't build new features on them.",
+   "code": "import http from \"node:http\";\n\nconst server = http.createServer((req, res) => {\n  if (req.url === \"/login\") {\n    res.setHeader(\"Set-Cookie\",\n      \"__Host-session=r4nd0m1d; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=3600\");\n    return res.end(\"logged in\");\n  }\n  res.end(`you sent: ${req.headers.cookie ?? \"no cookie\"}`);\n});\n\nserver.listen(0, async () => {\n  const base = `http://localhost:${server.address().port}`;\n  const r = await fetch(base + \"/login\");\n  console.log(r.headers.get(\"set-cookie\"));\n  // __Host-session=r4nd0m1d; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=3600\n  const r2 = await fetch(base + \"/me\", { headers: { Cookie: \"__Host-session=r4nd0m1d\" } });\n  console.log(await r2.text());   // you sent: __Host-session=r4nd0m1d\n  server.close();\n});",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Set-Cookie stores, Cookie sends back",
+    "Session cookies: HttpOnly; Secure; SameSite=Lax at minimum",
+    "SameSite blocks most CSRF; None requires Secure",
+    "Omit Domain to keep a cookie on one host"
+   ],
+   "pitfalls": [
+    "Storing session tokens in localStorage, readable by any injected script, instead of an HttpOnly cookie."
+   ],
+   "quiz": [
+    {
+     "q": "Which attribute stops JavaScript running on the page from reading a cookie?",
+     "options": [
+      "Secure",
+      "SameSite=Strict",
+      "HttpOnly",
+      "Path=/"
+     ],
+     "answer": 2,
+     "explain": "HttpOnly cookies are hidden from document.cookie but still sent with requests."
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cookies",
+   "requires": [
+    "http.headers"
+   ]
+  },
+  {
+   "id": "http.caching",
+   "name": "HTTP caching basics",
+   "module": "state",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Control browser and proxy caching with Cache-Control, and revalidate efficiently with ETag, Last-Modified and 304 responses.",
+   "why": "The fastest request is the one never made; correct caching headers cut load times and server costs dramatically.",
+   "body": "HTTP caches (the browser's, and shared ones like CDNs and proxies) store responses and reuse them. The server controls this with headers.\n\n**Freshness**: `Cache-Control: max-age=3600` means the response may be reused for an hour without contacting the server. While fresh, the browser doesn't even send a request.\n\n**Validation**: once stale, the cache can ask \"has it changed?\" with a **conditional request**. If the response had an `ETag: \"v42\"` (a version identifier), the cache sends `If-None-Match: \"v42\"`; with `Last-Modified`, it sends `If-Modified-Since`. If nothing changed, the server replies `304 Not Modified` with no body, and the cached copy is reused. That saves the transfer, though not the round trip.\n\nThe key `Cache-Control` directives:\n\n- `max-age=N` (all caches) and `s-maxage=N` (shared caches only).\n- `no-cache`: store it, but revalidate before **every** use. Despite the name, it caches.\n- `no-store`: never store it. For sensitive data.\n- `private`: only the user's browser may store it, not a CDN. `public`: shared caches may store it even when they otherwise wouldn't, such as for authenticated requests.\n- `immutable`: will never change during its freshness, so don't revalidate even on reload.\n\nA standard strategy:\n\n- HTML: `no-cache`, so users always get the latest version, cheaply validated.\n- Static assets with a content hash in the filename (`app.3f9a1c.js`): `max-age=31536000, immutable`. A new build produces a new filename, so the cache never needs invalidating.",
+   "code": "import http from \"node:http\";\nimport { createHash } from \"node:crypto\";\n\nconst body = JSON.stringify({ price: 12 });\nconst etag = `\"${createHash(\"sha1\").update(body).digest(\"hex\").slice(0, 8)}\"`;\n\nconst server = http.createServer((req, res) => {\n  res.setHeader(\"Cache-Control\", \"no-cache\");   // reuse only after revalidating\n  res.setHeader(\"ETag\", etag);\n  if (req.headers[\"if-none-match\"] === etag) { res.statusCode = 304; return res.end(); }\n  res.setHeader(\"Content-Type\", \"application/json\");\n  res.end(body);\n});\n\nserver.listen(0, async () => {\n  const url = `http://localhost:${server.address().port}/price`;\n  const first = await fetch(url);\n  console.log(first.status, first.headers.get(\"etag\"));          // 200 \"<hash>\"\n  const again = await fetch(url, { headers: { \"If-None-Match\": etag } });\n  console.log(again.status, (await again.text()).length);         // 304 0\n  server.close();\n});",
+   "code_lang": "javascript",
+   "takeaways": [
+    "max-age = reuse without asking; ETag/Last-Modified = cheap revalidation via 304",
+    "no-cache means revalidate every time; no-store means don't store",
+    "private keeps responses out of shared caches",
+    "Hashed filenames + immutable for assets, no-cache for HTML"
+   ],
+   "pitfalls": [
+    "Using no-cache when you meant no-store for sensitive responses."
+   ],
+   "quiz": [
+    {
+     "q": "Which header makes a browser revalidate a response on every use, but still keep a copy?",
+     "options": [
+      "Cache-Control: no-cache",
+      "Cache-Control: no-store",
+      "Cache-Control: private",
+      "Cache-Control: immutable"
+     ],
+     "answer": 0,
+     "explain": "no-cache allows storage but requires validation with the server before each reuse."
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching",
+   "requires": [
+    "http.headers",
+    "http.status-codes"
+   ]
+  },
+  {
+   "id": "http.cors",
+   "name": "Same-origin policy and CORS",
+   "module": "state",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Understand why browsers block cross-origin reads, and how servers opt in with Access-Control-Allow-* headers and preflight requests.",
+   "why": "'Blocked by CORS policy' is the most common error front-end developers hit when calling an API.",
+   "body": "The **same-origin policy** stops a page's scripts from reading responses from other origins (scheme + host + port). Otherwise any website you visit could use your logged-in cookies to read your email from another tab.\n\n**CORS** (Cross-Origin Resource Sharing) lets a server relax this for chosen origins. The browser sends an `Origin` header with cross-origin requests; the server answers with `Access-Control-Allow-Origin: https://app.example.com` (or `*`). If the header doesn't match, the browser hides the response from JavaScript. The request may still have reached the server; CORS protects reading, not sending.\n\n**Preflight.** \"Simple\" requests (GET, HEAD, POST with form-like content types and no custom headers) are sent directly. Anything else, such as `PUT`, `DELETE`, a JSON `Content-Type` or an `Authorization` header, triggers an automatic `OPTIONS` **preflight** first. The server must answer it with:\n\n- `Access-Control-Allow-Methods: GET, POST, PUT, DELETE`,\n- `Access-Control-Allow-Headers: Content-Type, Authorization`,\n- optionally `Access-Control-Max-Age: 600` to cache the preflight.\n\n**Credentials.** To send cookies cross-origin, the client sets `credentials: \"include\"` and the server must return `Access-Control-Allow-Credentials: true` with an explicit origin; `*` is not allowed with credentials. If the allowed origin varies per request, add `Vary: Origin` so caches don't mix them up.\n\nCORS is enforced only by browsers. curl, servers and mobile apps ignore it, so it's not an authorization mechanism. The fix for a CORS error is always on the server (or a same-origin proxy), never in the front-end code.",
+   "code": "import http from \"node:http\";\n\nconst ALLOWED = new Set([\"https://app.example.com\"]);\n\nconst server = http.createServer((req, res) => {\n  const origin = req.headers.origin;\n  if (ALLOWED.has(origin)) {\n    res.setHeader(\"Access-Control-Allow-Origin\", origin);\n    res.setHeader(\"Access-Control-Allow-Credentials\", \"true\");\n    res.setHeader(\"Vary\", \"Origin\");\n  }\n  if (req.method === \"OPTIONS\") {                       // preflight\n    res.setHeader(\"Access-Control-Allow-Methods\", \"GET, POST, PUT, DELETE\");\n    res.setHeader(\"Access-Control-Allow-Headers\", \"Content-Type, Authorization\");\n    res.setHeader(\"Access-Control-Max-Age\", \"600\");\n    res.statusCode = 204; return res.end();\n  }\n  res.setHeader(\"Content-Type\", \"application/json\");\n  res.end(JSON.stringify({ ok: true }));\n});\nserver.listen(8080);\n\n// In the browser at https://app.example.com:\n// fetch(\"https://api.example.com/items\", { method: \"PUT\", credentials: \"include\",\n//   headers: { \"Content-Type\": \"application/json\" }, body: \"{}\" })  -> OPTIONS, then PUT",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Same-origin policy blocks reading cross-origin responses in browsers",
+    "Servers opt in with Access-Control-Allow-Origin",
+    "Non-simple requests trigger an OPTIONS preflight",
+    "Credentials need an explicit origin, not *, plus Allow-Credentials"
+   ],
+   "pitfalls": [
+    "Trying to 'fix' CORS in front-end code; the server must send the headers.",
+    "Treating CORS as API security; non-browser clients ignore it."
+   ],
+   "quiz": [
+    {
+     "q": "A fetch with Content-Type: application/json to another origin fails before the POST is sent. What did the browser send first?",
+     "options": [
+      "A HEAD request",
+      "A GET request",
+      "Nothing; JSON is never allowed cross-origin",
+      "An OPTIONS preflight"
+     ],
+     "answer": 3,
+     "explain": "application/json isn't a simple content type, so the browser preflights with OPTIONS."
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS",
+   "requires": [
+    "http.headers",
+    "http.methods"
+   ]
+  },
+  {
+   "id": "http.auth",
+   "name": "Authentication over HTTP",
+   "module": "state",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Send credentials with the Authorization header (Basic, Bearer tokens, API keys) and use 401, 403 and WWW-Authenticate correctly.",
+   "why": "Every API you call or build needs authentication, and the HTTP conventions determine how clients and tools handle it.",
+   "body": "HTTP has a standard framework for authentication: the client sends `Authorization: <scheme> <credentials>`, and a server that wants credentials replies `401 Unauthorized` with a `WWW-Authenticate` header naming the scheme it accepts.\n\nCommon schemes:\n\n- **Basic**: `Authorization: Basic base64(user:password)`. Base64 is encoding, not encryption, so Basic is only acceptable over HTTPS. Still used for simple internal tools and for API key/secret pairs.\n- **Bearer**: `Authorization: Bearer <token>`. Whoever holds the token is authenticated. Tokens are often **JWTs** (signed JSON with claims and an expiry) or opaque random strings checked against a database. OAuth 2.0 access tokens use this scheme.\n- **API keys**: often in a custom header such as `X-API-Key`. Avoid putting them in query strings, which end up in logs, browser history and Referer headers.\n\nFor browsers, the main alternative is **cookie-based sessions**: the cookie travels automatically, which is convenient but requires CSRF protection (SameSite, tokens). Bearer tokens sent explicitly by JavaScript don't suffer from CSRF but must be stored somewhere scripts can read, exposing them to XSS.\n\nStatus codes: `401` means \"who are you?\" (missing, invalid or expired credentials; the client should log in or refresh a token). `403` means \"I know who you are, and no\". Rate-limited clients get `429`.\n\nAlways use HTTPS, give tokens short lifetimes, and never log Authorization headers.",
+   "code": "# Basic auth: curl encodes user:password for you\n$ curl -u ada:s3cret https://api.example.com/me\n# sends: Authorization: Basic YWRhOnMzY3JldA==\n$ echo -n 'ada:s3cret' | base64\nYWRhOnMzY3JldA==\n\n# Bearer token\n$ curl -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI0MiJ9.sig\" \\\n       https://api.example.com/me\n\n# A server demanding credentials\n$ curl -si https://api.example.com/me | head -3\nHTTP/2 401\nwww-authenticate: Bearer realm=\"api\", error=\"invalid_token\"\ncontent-type: application/json",
+   "code_lang": "bash",
+   "takeaways": [
+    "Authorization: <scheme> <credentials>; 401 + WWW-Authenticate asks for them",
+    "Basic is base64, not encryption: HTTPS only",
+    "Bearer tokens authenticate whoever holds them",
+    "401 = not authenticated, 403 = not permitted"
+   ],
+   "pitfalls": [
+    "Passing API keys in the URL query string, where they leak into logs and Referer headers."
+   ],
+   "quiz": [
+    {
+     "q": "What does the Basic credential 'YWRhOnMzY3JldA==' protect against on plain HTTP?",
+     "options": [
+      "Eavesdropping, because it's encrypted",
+      "Nothing: anyone can base64-decode it",
+      "Replay attacks",
+      "CSRF"
+     ],
+     "answer": 1,
+     "explain": "Base64 is a reversible encoding, so Basic auth relies entirely on TLS."
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Authentication",
+   "requires": [
+    "http.headers",
+    "http.status-codes"
+   ]
+  },
+  {
+   "id": "http.rest-design",
+   "name": "Designing REST APIs",
+   "module": "apis",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Model resources with nouns and URLs, map operations to methods and status codes, and return consistent JSON and errors.",
+   "why": "A predictable API is easier to use, document, cache and evolve than a collection of ad hoc endpoints.",
+   "body": "**REST** in everyday use means designing an HTTP API around **resources** identified by URLs, manipulated with standard methods, and represented as JSON.\n\n**URLs name things, methods say what to do**:\n\n- `GET /articles` lists, `POST /articles` creates and returns `201` with a `Location` header.\n- `GET /articles/42` reads, `PATCH` or `PUT /articles/42` updates, `DELETE /articles/42` deletes (`204`).\n- Sub-resources show relationships: `GET /articles/42/comments`.\n- Plural nouns, lowercase, hyphens: `/order-items`, not `/getOrderItems`.\n\nActions that don't map cleanly can be modelled as resources (`POST /orders/7/cancellation`) or, pragmatically, as `POST /orders/7/cancel`.\n\n**Query parameters** handle filtering, sorting and pagination: `GET /articles?author=ada&sort=-published_at&limit=20`.\n\n**Consistent errors**: use the right status code and a uniform body. RFC 9457 **Problem Details** (`application/problem+json`) defines one with `type`, `title`, `status`, `detail` and room for extra fields, such as per-field validation errors.\n\n**Other conventions**:\n\n- Pick one naming style for JSON fields (snake_case or camelCase) and stick to it.\n- Use ISO 8601 timestamps in UTC.\n- Return the created or updated resource in the response so clients don't need another request.\n- Describe the API with **OpenAPI**, which generates docs, client SDKs and tests.\n\nDesign from the client's point of view: what will screens and integrations actually need, in how many requests?",
+   "code": "POST /v1/articles HTTP/1.1\nContent-Type: application/json\n\n{\"title\": \"HTTP caching\", \"tags\": [\"web\"]}\n\nHTTP/1.1 201 Created\nLocation: /v1/articles/42\nContent-Type: application/json\n\n{\"id\": 42, \"title\": \"HTTP caching\", \"tags\": [\"web\"], \"created_at\": \"2026-10-17T09:30:00Z\"}\n\nGET /v1/articles?tag=web&sort=-created_at&limit=20 HTTP/1.1\n\nPATCH /v1/articles/42 HTTP/1.1\nContent-Type: application/json\n\n{\"title\": \"\"}\n\nHTTP/1.1 422 Unprocessable Content\nContent-Type: application/problem+json\n\n{\"type\": \"https://api.example.com/errors/validation\", \"title\": \"Invalid article\",\n \"status\": 422, \"errors\": [{\"field\": \"title\", \"detail\": \"must not be empty\"}]}",
+   "code_lang": "http",
+   "takeaways": [
+    "Nouns in URLs, verbs as methods",
+    "201 + Location for creation, 204 for empty success",
+    "Filtering, sorting and paging go in the query string",
+    "Use one error format, e.g. application/problem+json"
+   ],
+   "pitfalls": [
+    "Verb-style endpoints like POST /getUser or GET /deleteUser?id=5."
+   ],
+   "quiz": [
+    {
+     "q": "Which is the most RESTful way to list the comments of article 42?",
+     "options": [
+      "GET /articles/42/comments",
+      "POST /getComments {\"article\": 42}",
+      "GET /comments/list?action=article42",
+      "PUT /articles/42?comments"
+     ],
+     "answer": 0,
+     "explain": "Comments are a sub-resource of the article, read with GET."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc9457.html",
+   "requires": [
+    "http.methods",
+    "http.status-codes",
+    "http.content-types"
+   ]
+  },
+  {
+   "id": "http.http2-http3",
+   "name": "HTTP/2 and HTTP/3",
+   "module": "transport",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Learn how HTTP/2 multiplexes requests over one connection, why HTTP/3 moved to QUIC over UDP, and what that changes for you.",
+   "why": "Protocol versions change which performance tricks help or hurt, from domain sharding to bundling.",
+   "body": "**HTTP/1.1** sends one request at a time per connection; a slow response blocks the ones behind it (**head-of-line blocking**). Browsers work around this by opening about six connections per origin, and developers used to bundle files, sprite images and shard domains.\n\n**HTTP/2** (2015) keeps the same semantics but changes the framing:\n\n- **Binary frames** and **streams**: many requests and responses are **multiplexed** over a single TCP connection, interleaved, so one slow response doesn't block the others at the HTTP level.\n- **HPACK** header compression, which matters because headers (cookies, user agents) repeat on every request.\n- Prioritisation hints, later simplified by the `Priority` header (RFC 9218).\n- In browsers it requires TLS; the version is negotiated in the TLS handshake via **ALPN** (`h2`).\n\nBut TCP itself still delivers bytes in order: one lost packet stalls *all* streams until it's retransmitted, which hurts on lossy mobile networks.\n\n**HTTP/3** (2022) runs over **QUIC**, a transport built on UDP:\n\n- Streams are independent at the transport level, so packet loss only stalls the affected stream.\n- TLS 1.3 is built in, combining transport and crypto handshakes into one round trip, and resumed connections can send data in 0-RTT.\n- **Connection migration**: a connection survives a switch from Wi-Fi to cellular because it's identified by a connection ID, not the IP/port tuple.\n\nServers advertise HTTP/3 with the `Alt-Svc` response header or the DNS `HTTPS` record; browsers then switch. For developers: serve over HTTP/2 or 3, stop domain sharding, and bundle only as much as makes sense for caching.",
+   "code": "# Which protocol does a site negotiate?\n$ curl -sI --http2 https://www.cloudflare.com -o /dev/null -w \"%{http_version}\\n\"\n2\n\n# Does it advertise HTTP/3?\n$ curl -sI https://www.cloudflare.com | grep -i alt-svc\nalt-svc: h3=\":443\"; ma=86400\n\n# Try HTTP/3 directly (curl built with HTTP/3 support)\n$ curl -sI --http3-only https://www.cloudflare.com -o /dev/null -w \"%{http_version}\\n\"\n3\n\n# In browser devtools: Network tab, right-click columns, enable \"Protocol\" (h2, h3)",
+   "code_lang": "bash",
+   "takeaways": [
+    "HTTP/2 multiplexes many streams over one TCP connection",
+    "TCP packet loss still blocks all HTTP/2 streams",
+    "HTTP/3 uses QUIC over UDP: independent streams, built-in TLS 1.3, connection migration",
+    "Alt-Svc or DNS HTTPS records advertise HTTP/3"
+   ],
+   "pitfalls": [
+    "Keeping HTTP/1-era domain sharding, which defeats HTTP/2 multiplexing and adds handshakes."
+   ],
+   "quiz": [
+    {
+     "q": "What problem does HTTP/3 solve that HTTP/2 cannot?",
+     "options": [
+      "Header compression",
+      "Multiplexing several requests",
+      "Transport-level head-of-line blocking after packet loss",
+      "Using TLS"
+     ],
+     "answer": 2,
+     "explain": "HTTP/2's streams share one ordered TCP byte stream; QUIC streams are independent."
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Evolution_of_HTTP",
+   "requires": [
+    "http.tcp-tls"
+   ]
+  },
+  {
+   "id": "http.websockets-sse",
+   "name": "WebSockets and server-sent events",
+   "module": "transport",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Push data from server to client in real time with server-sent events, or open a two-way channel with WebSockets.",
+   "why": "Chats, notifications, live dashboards and collaborative editing all need the server to talk first.",
+   "body": "Plain HTTP is client-initiated: the server can only respond. For real-time updates there are three main options.\n\n**Polling**: ask every few seconds. Simple and cache-friendly, but wasteful and laggy. Long polling (the server holds the request until there's news) reduces lag.\n\n**Server-sent events (SSE)**: the client makes one ordinary GET; the server replies `Content-Type: text/event-stream` and keeps the response open, writing events as lines of text:\n\n```text\nevent: price\ndata: {\"symbol\":\"ACME\",\"value\":12.5}\n```\n\nfollowed by a blank line. Browsers use `new EventSource(url)`, which **reconnects automatically** and resends the last event `id` in `Last-Event-ID`. It's one-way (server to client), text-only, and works through normal HTTP infrastructure. Over HTTP/1.1 each stream ties up one of the ~6 connections per origin; HTTP/2 removes that limit. LLM APIs stream tokens this way.\n\n**WebSockets**: a full-duplex, message-based channel. The client sends a GET with `Upgrade: websocket` and a `Sec-WebSocket-Key`; the server answers `101 Switching Protocols`, and from then on both sides send frames in either direction, text or binary, with very low overhead. Use `wss://` (TLS). You handle reconnection, heartbeats and message formats yourself, and proxies and load balancers must support upgrades and long-lived connections.\n\nRule of thumb: SSE for server-to-client feeds; WebSockets when the client also sends frequently (chat, games, collaborative editing). The newer **WebTransport** over HTTP/3 targets similar use cases with multiple streams and unreliable datagrams.",
+   "code": "import http from \"node:http\";\n\n// SSE server: one long-lived response, events as text lines\nconst server = http.createServer((req, res) => {\n  res.writeHead(200, { \"Content-Type\": \"text/event-stream\", \"Cache-Control\": \"no-cache\" });\n  let n = 0;\n  const timer = setInterval(() => {\n    n++;\n    res.write(`id: ${n}\\nevent: tick\\ndata: ${JSON.stringify({ n })}\\n\\n`);\n    if (n === 3) { clearInterval(timer); res.end(); }\n  }, 100);\n});\n\nserver.listen(0, async () => {\n  const res = await fetch(`http://localhost:${server.address().port}/events`);\n  console.log(await res.text());\n  // id: 1 / event: tick / data: {\"n\":1}   ... three events, blank-line separated\n  server.close();\n});\n\n// Browser side:\n// const es = new EventSource(\"/events\");\n// es.addEventListener(\"tick\", (e) => console.log(JSON.parse(e.data)));\n// const ws = new WebSocket(\"wss://chat.example.com\"); ws.onmessage = (m) => ...",
+   "code_lang": "javascript",
+   "takeaways": [
+    "SSE = one long GET with text/event-stream; auto-reconnecting, server to client only",
+    "WebSockets upgrade via 101 Switching Protocols to a two-way channel",
+    "Use SSE for feeds, WebSockets for interactive two-way traffic",
+    "Proxies and load balancers must allow long-lived connections"
+   ],
+   "pitfalls": [
+    "Using WebSockets for a one-way notification feed and then re-implementing reconnection that SSE gives for free."
+   ],
+   "quiz": [
+    {
+     "q": "Which status code does a server send to accept a WebSocket handshake?",
+     "options": [
+      "200 OK",
+      "101 Switching Protocols",
+      "204 No Content",
+      "302 Found"
+     ],
+     "answer": 1,
+     "explain": "The connection is upgraded from HTTP to the WebSocket protocol with 101."
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events",
+   "requires": [
+    "http.tcp-tls",
+    "http.headers"
+   ]
+  },
+  {
+   "id": "http.cdns",
+   "name": "CDNs, proxies and load balancers",
+   "module": "scale",
+   "level": 3,
+   "minutes": 12,
+   "summary": "See how reverse proxies, load balancers and CDNs sit between users and your servers, and how caching headers control what CDNs keep.",
+   "why": "Almost every production site is served through these layers, and their behaviour depends on your HTTP headers.",
+   "body": "Requests rarely go straight to your application.\n\nA **reverse proxy** (nginx, HAProxy, Envoy, Caddy) accepts client connections and forwards them to backend servers. It terminates TLS, compresses responses, serves static files, enforces limits and adds headers. A **load balancer** is a proxy that spreads traffic across several backends using health checks.\n\nBehind a proxy, your app sees the proxy's IP. The original client data travels in `Forwarded` or the de facto `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` headers. Only trust them when set by your own proxy; clients can forge them.\n\nA **CDN** (Cloudflare, Fastly, CloudFront, Akamai) runs reverse proxies in hundreds of locations, called **edge** servers or PoPs. Users connect to a nearby edge, which shortens TCP and TLS handshakes, and the edge serves cached responses or fetches from your **origin**.\n\nThe CDN cache follows your headers:\n\n- `Cache-Control: public, s-maxage=600` lets shared caches keep a response for 10 minutes while browsers use `max-age`.\n- `private` or `no-store` keeps responses with user data off the edge. Cookies and `Authorization` usually make CDNs bypass the cache by default.\n- `Vary` adds headers to the cache key, e.g. `Vary: Accept-Encoding`.\n- The `Age` response header shows how long a copy has been cached; providers add hit/miss headers such as `cf-cache-status`.\n\nInvalidating (\"purging\") is possible but slow and error-prone. Hashed asset URLs avoid it entirely. CDNs also absorb DDoS traffic and can run code at the edge.",
+   "code": "# Is the response served from the CDN cache?\n$ curl -sI https://www.example-shop.com/assets/app.3f9a1c.js | grep -iE \"cache-control|age|cache-status|x-cache\"\ncache-control: public, max-age=31536000, immutable\nage: 48211\ncf-cache-status: HIT\n\n# nginx as a reverse proxy in front of an app on port 3000\n#   location / {\n#     proxy_pass http://127.0.0.1:3000;\n#     proxy_set_header Host $host;\n#     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n#     proxy_set_header X-Forwarded-Proto $scheme;\n#   }",
+   "code_lang": "bash",
+   "takeaways": [
+    "Reverse proxies terminate TLS and forward to backends",
+    "Trust X-Forwarded-* only from your own proxy",
+    "CDN edges cache by your Cache-Control (s-maxage for shared caches)",
+    "Keep personalised responses private or no-store"
+   ],
+   "pitfalls": [
+    "Caching a personalised page publicly at the CDN, so one user's data is served to others."
+   ],
+   "quiz": [
+    {
+     "q": "Which directive lets a CDN cache a page for 10 minutes while browsers revalidate every time?",
+     "options": [
+      "Cache-Control: max-age=600",
+      "Cache-Control: private, max-age=600",
+      "Cache-Control: no-store",
+      "Cache-Control: no-cache, s-maxage=600"
+     ],
+     "answer": 3,
+     "explain": "s-maxage applies only to shared caches, and no-cache makes browsers revalidate."
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching",
+   "requires": [
+    "http.caching",
+    "http.dns"
+   ]
+  },
+  {
+   "id": "http.security-headers",
+   "name": "HTTPS everywhere and security headers",
+   "module": "scale",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Harden sites with HSTS, Content-Security-Policy, frame protection, Referrer-Policy and safe cookie defaults.",
+   "why": "A handful of response headers block whole classes of attacks like protocol downgrades, XSS and clickjacking.",
+   "body": "Beyond TLS itself, several response headers tell browsers to enforce stricter rules.\n\n**Strict-Transport-Security (HSTS)**: `max-age=63072000; includeSubDomains; preload` tells the browser to use HTTPS only for this domain for two years, even if a user types `http://`. That prevents downgrade attacks on public Wi-Fi. Make sure every subdomain supports HTTPS first; it's hard to undo.\n\n**Content-Security-Policy (CSP)** restricts where scripts, styles, images and connections may come from, which limits the damage of an XSS bug. A strict policy uses nonces: `script-src 'nonce-r4nd0m' 'strict-dynamic'; object-src 'none'; base-uri 'none'`, with the same random nonce on each allowed `<script>`. Start with `Content-Security-Policy-Report-Only` to find violations without breaking the page.\n\n**Clickjacking**: `frame-ancestors 'none'` in CSP (or the older `X-Frame-Options: DENY`) stops other sites from embedding yours in an invisible iframe.\n\n**Others**:\n\n- `X-Content-Type-Options: nosniff`: never guess content types.\n- `Referrer-Policy: strict-origin-when-cross-origin` (the browser default): don't leak full URLs to other sites.\n- `Permissions-Policy: camera=(), geolocation=()`: disable features you don't use.\n- `Cross-Origin-Opener-Policy: same-origin`: isolates your window from cross-origin popups.\n\nCombine these with cookies set `Secure; HttpOnly; SameSite`. Check a site's headers with the browser devtools, or scanners such as Mozilla's HTTP Observatory.",
+   "code": "import http from \"node:http\";\nimport { randomBytes } from \"node:crypto\";\n\nhttp.createServer((req, res) => {\n  const nonce = randomBytes(16).toString(\"base64\");\n  res.setHeader(\"Strict-Transport-Security\", \"max-age=63072000; includeSubDomains\");\n  res.setHeader(\"Content-Security-Policy\",\n    `script-src 'nonce-${nonce}' 'strict-dynamic'; object-src 'none'; ` +\n    `base-uri 'none'; frame-ancestors 'none'`);\n  res.setHeader(\"X-Content-Type-Options\", \"nosniff\");\n  res.setHeader(\"Referrer-Policy\", \"strict-origin-when-cross-origin\");\n  res.setHeader(\"Permissions-Policy\", \"camera=(), microphone=(), geolocation=()\");\n  res.setHeader(\"Content-Type\", \"text/html; charset=utf-8\");\n  res.end(`<!doctype html><title>Safe</title>\n<script nonce=\"${nonce}\">console.log(\"allowed\")</script>\n<script>console.log(\"blocked by CSP\")</script>`);\n}).listen(8080);",
+   "code_lang": "javascript",
+   "takeaways": [
+    "HSTS forces HTTPS for future visits",
+    "CSP with nonces limits what scripts can run, containing XSS",
+    "frame-ancestors 'none' prevents clickjacking",
+    "Roll out CSP in Report-Only mode first"
+   ],
+   "pitfalls": [
+    "Enabling HSTS with includeSubDomains before every subdomain supports HTTPS."
+   ],
+   "quiz": [
+    {
+     "q": "What does Content-Security-Policy: frame-ancestors 'none' prevent?",
+     "options": [
+      "Your page loading iframes",
+      "Scripts from CDNs",
+      "Other sites embedding your page in a frame",
+      "Cookies being sent to iframes"
+     ],
+     "answer": 2,
+     "explain": "frame-ancestors controls who may frame your page, which defeats clickjacking."
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CSP",
+   "requires": [
+    "http.cookies",
+    "http.tcp-tls"
+   ]
+  },
+  {
+   "id": "http.api-patterns",
+   "name": "Pagination, idempotency and versioning",
+   "module": "apis",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Handle large collections, safe retries, rate limits and API evolution with cursor pagination, idempotency keys, 429 and versioning.",
+   "why": "These patterns separate an API that survives real clients, retries and change from one that breaks under them.",
+   "body": "**Pagination.** Never return unbounded lists.\n\n- **Offset** (`?limit=20&offset=40`) is simple and allows jumping to page N, but it's slow on big tables and items shift when data changes.\n- **Cursor** pagination (`?limit=20&after=eyJpZCI6NDJ9`) passes an opaque token marking the last item seen. It's stable and fast with an index, which suits feeds and infinite scroll.\n- Return the next cursor in the body or in a `Link: <...>; rel=\"next\"` header.\n\n**Idempotency keys.** POST isn't idempotent, but networks fail mid-request. The client generates a unique `Idempotency-Key` header per logical operation; the server stores the key with the result and, on a retry with the same key, returns the stored response instead of charging twice. Payment APIs such as Stripe work this way.\n\n**Optimistic concurrency.** Return an `ETag` with a resource; clients send `If-Match: \"v7\"` on PUT or PATCH, and the server returns `412 Precondition Failed` if someone else changed it first. No lost updates.\n\n**Rate limiting.** Return `429 Too Many Requests` with `Retry-After`, and document the limits. Clients should retry with **exponential backoff and jitter**.\n\n**Long operations.** Return `202 Accepted` with a URL to poll for status.\n\n**Versioning.** Avoid breaking changes: adding fields is safe, removing or renaming them isn't. When a break is unavoidable, version in the path (`/v2/`) or with a header or date-based version, run both for a deprecation period, and announce it with `Deprecation` and `Sunset` headers.",
+   "code": "// Client: safe retry of a POST with an idempotency key and backoff\nimport { randomUUID } from \"node:crypto\";\n\nasync function createPayment(body, attempts = 4) {\n  const key = randomUUID();                      // same key for every retry\n  for (let i = 0; i < attempts; i++) {\n    try {\n      const res = await fetch(\"https://api.example.com/v1/payments\", {\n        method: \"POST\",\n        headers: { \"Content-Type\": \"application/json\", \"Idempotency-Key\": key },\n        body: JSON.stringify(body),\n      });\n      if (res.status !== 429 && res.status < 500) return res;   // done (or a 4xx to fix)\n      const wait = Number(res.headers.get(\"retry-after\")) * 1000 || 2 ** i * 250;\n      await new Promise((r) => setTimeout(r, wait + Math.random() * 100));\n    } catch {                                     // network error: retry is safe\n      await new Promise((r) => setTimeout(r, 2 ** i * 250));\n    }\n  }\n  throw new Error(\"payment failed after retries\");\n}",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Prefer cursor pagination for large or changing collections",
+    "Idempotency-Key makes POST retries safe",
+    "If-Match + ETag prevents lost updates (412 on conflict)",
+    "429 + Retry-After; clients back off with jitter"
+   ],
+   "pitfalls": [
+    "Generating a new idempotency key for each retry, which defeats its purpose."
+   ],
+   "quiz": [
+    {
+     "q": "Why does an idempotency key need to stay the same across retries?",
+     "options": [
+      "The server recognises the retry by the key and returns the original result",
+      "It's used to encrypt the body",
+      "It sets the rate limit",
+      "It selects the API version"
+     ],
+     "answer": 0,
+     "explain": "Only a repeated key lets the server detect a duplicate and avoid a second charge."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc9110.html#name-conditional-requests",
+   "requires": [
+    "http.rest-design",
+    "http.caching"
+   ]
+  },
+  {
+   "id": "http.tls-deep",
+   "name": "Inside TLS 1.3",
+   "module": "transport",
+   "level": 4,
+   "minutes": 16,
+   "summary": "Go through the TLS 1.3 handshake in detail: key exchange, SNI, ALPN, certificate chains, session resumption, 0-RTT and forward secrecy.",
+   "why": "Diagnosing handshake failures, certificate errors and latency at scale requires knowing what each message does.",
+   "body": "A TLS 1.3 handshake fits in one round trip.\n\n**ClientHello** carries: supported cipher suites (AEAD ciphers like AES-GCM or ChaCha20-Poly1305), a **key share** (an ephemeral elliptic-curve Diffie-Hellman public key, commonly X25519, increasingly combined with a post-quantum ML-KEM key), **SNI** (the hostname, so one IP can serve many certificates) and **ALPN** (the application protocols it speaks, such as `h2` and `http/1.1`).\n\n**ServerHello** picks the parameters and sends its own key share. Both sides now compute the same shared secret, and everything after is encrypted: the server's **certificate chain**, a **CertificateVerify** signature proving it holds the private key, and **Finished** messages that authenticate the whole transcript.\n\nThe client validates the chain: leaf certificate for this hostname (Subject Alternative Name), intermediates, up to a root in its trust store, all within validity dates and not revoked. A missing intermediate is a classic misconfiguration: it works in some browsers that cache intermediates and fails elsewhere.\n\n**Forward secrecy**: because key shares are ephemeral, stealing the server's private key later doesn't decrypt recorded traffic.\n\n**Resumption**: the server issues a session ticket; a returning client uses a pre-shared key to skip certificate work. With **0-RTT early data** it can send its first request immediately, but that data can be **replayed** by an attacker, so servers should accept only safe, idempotent requests in early data.\n\nSNI is still sent in clear text; **Encrypted Client Hello** (ECH) hides it, using keys published in DNS `HTTPS` records.",
+   "code": "# See the negotiated protocol, cipher, ALPN and certificate chain\n$ openssl s_client -connect example.com:443 -servername example.com \\\n    -alpn h2,http/1.1 </dev/null 2>/dev/null \\\n  | grep -E \"^(New|ALPN|Server Temp Key|Verify return)\"\nServer Temp Key: X25519, 253 bits\nNew, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384\nALPN protocol: h2\nVerify return code: 0 (ok)\n\n# Print each certificate in the chain the server sends\n$ openssl s_client -connect example.com:443 -servername example.com -showcerts </dev/null 2>/dev/null \\\n    | grep -E \"^ *[0-9] s:|i:\"",
+   "code_lang": "bash",
+   "takeaways": [
+    "TLS 1.3 completes in 1 RTT: ClientHello with key share, ServerHello, encrypted certificate and Finished",
+    "SNI selects the certificate; ALPN negotiates h2 or http/1.1",
+    "Ephemeral key exchange gives forward secrecy",
+    "0-RTT data can be replayed: allow only idempotent requests"
+   ],
+   "pitfalls": [
+    "Serving only the leaf certificate without intermediates, which fails on clients that haven't cached them."
+   ],
+   "quiz": [
+    {
+     "q": "Why must servers be careful with 0-RTT early data?",
+     "options": [
+      "It isn't encrypted",
+      "It disables forward secrecy for the whole session",
+      "It only works over HTTP/1.1",
+      "An attacker can replay it"
+     ],
+     "answer": 3,
+     "explain": "Early data lacks replay protection, so a captured request could be resent."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc8446.html",
+   "requires": [
+    "http.tcp-tls",
+    "http.http2-http3"
+   ]
+  },
+  {
+   "id": "http.cache-semantics",
+   "name": "Advanced caching: Vary, keys and revalidation",
+   "module": "scale",
+   "level": 4,
+   "minutes": 16,
+   "summary": "Master cache keys, Vary, stale-while-revalidate, stale-if-error, heuristic freshness and invalidation strategies across browser and CDN layers.",
+   "why": "Subtle caching mistakes cause data leaks, stale deploys and origin overloads at exactly the worst moments.",
+   "body": "A cache stores responses under a **cache key**: by default the method and URL. `Vary` adds request headers to the key: `Vary: Accept-Encoding` stores gzip and Brotli versions separately. `Vary: Cookie` or `Vary: User-Agent` makes nearly every request unique and destroys the hit rate. Instead, normalise at the CDN, for example by mapping user agents to a \"mobile\" or \"desktop\" bucket, or by splitting URLs.\n\n**Age and freshness.** A response is fresh while its age is below its freshness lifetime: `s-maxage` (shared caches), then `max-age`, then `Expires`. Without any of these, caches may apply **heuristic freshness**, often 10% of the time since `Last-Modified`. That's why responses without explicit headers can be cached unexpectedly; always send `Cache-Control`.\n\n**Serving stale on purpose**:\n\n- `stale-while-revalidate=60`: after expiry, serve the stale copy for up to 60 s while fetching a fresh one in the background. Users never wait for revalidation.\n- `stale-if-error=86400`: if the origin fails, keep serving stale content for a day.\n\n**Request collapsing.** When a popular item expires, CDNs merge simultaneous misses into one origin request, protecting the origin from a stampede.\n\n**Invalidation strategies**, best first: immutable hashed URLs (no invalidation needed); short TTLs plus SWR; tag-based purges (`Surrogate-Key` or `Cache-Tag` headers, purged by tag on publish); URL purges. `Clear-Site-Data: \"cache\"` wipes a user's browser cache, for example on logout.\n\n`Cache-Control: private` content can still sit in the browser cache on shared machines; use `no-store` for truly sensitive pages.",
+   "code": "# A news article: browsers revalidate, CDN keeps it 5 min, serves stale while refreshing\nCache-Control: public, max-age=0, s-maxage=300, stale-while-revalidate=60, stale-if-error=86400\nETag: \"article-812-v14\"\nVary: Accept-Encoding\nCache-Tag: article-812, section-tech      # provider-specific: purge by tag on edit\n\n# Fingerprinted asset: never revalidated, never purged\n# /assets/app.3f9a1c.js\nCache-Control: public, max-age=31536000, immutable\n\n# Account page with personal data\nCache-Control: no-store\n\n# Anti-pattern: every distinct cookie value becomes a separate cache entry\nVary: Cookie",
+   "code_lang": "http",
+   "takeaways": [
+    "Cache key = method + URL + Vary headers; keep Vary minimal",
+    "Always send Cache-Control to avoid heuristic caching",
+    "stale-while-revalidate hides revalidation latency; stale-if-error survives outages",
+    "Prefer hashed URLs and tag purges over URL purges"
+   ],
+   "pitfalls": [
+    "Adding Vary: User-Agent and silently dropping the CDN hit rate to near zero."
+   ],
+   "quiz": [
+    {
+     "q": "A response has Last-Modified but no Cache-Control or Expires. What may a cache do?",
+     "options": [
+      "Never store it",
+      "Store it with a heuristic freshness lifetime",
+      "Store it forever",
+      "Treat it as no-store"
+     ],
+     "answer": 1,
+     "explain": "RFC 9111 allows heuristic freshness, commonly a fraction of the time since Last-Modified."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc9111.html",
+   "requires": [
+    "http.cdns",
+    "http.caching"
+   ]
+  },
+  {
+   "id": "http.performance",
+   "name": "Network performance end to end",
+   "module": "scale",
+   "level": 4,
+   "minutes": 16,
+   "summary": "Reason about latency, bandwidth and round trips, and apply connection reuse, compression, early hints, prioritisation and prefetching.",
+   "why": "At scale, round trips rather than bandwidth dominate load time, and protocol-level fixes beat code micro-optimisations.",
+   "body": "For most web requests **latency**, not bandwidth, dominates. Every round trip costs the RTT (tens of ms on a good connection, hundreds on mobile or across continents), and a cold request pays for DNS, TCP, TLS and then the request itself. Work on reducing round trips first.\n\n**Reuse and pre-warm connections.** Keep-alive and HTTP/2 or 3 reuse one connection. Avoid needless extra origins: each costs a new handshake. For third parties you need, `<link rel=\"preconnect\">` performs DNS, TCP and TLS early.\n\n**Send less, sooner**:\n\n- Compress text with Brotli or zstd (`Content-Encoding: br`/`zstd`).\n- Use modern image formats and responsive sizes.\n- TCP slow start means a new connection can only send about 14 KB in the first round trip, so a small critical HTML head and inlined critical CSS paint faster.\n\n**Server think time.** `103 Early Hints` lets a server send `Link: </app.css>; rel=preload` headers while it is still generating the page, so the browser starts fetching critical assets during the wait. Streaming HTML (flushing the head early) has a similar effect.\n\n**Prioritisation.** HTTP/2 and 3 browsers prioritise CSS and fonts over images; the `Priority` header and `fetchpriority` attribute adjust it.\n\n**Avoid the request entirely.** Long-lived caching, service workers, prefetching likely next pages with speculation rules, and CDNs close to users.\n\nMeasure with real-user monitoring (Core Web Vitals such as TTFB and LCP) and the Network panel's timing breakdown: queueing, DNS, connect, TLS, waiting (TTFB) and content download.",
+   "code": "# Where does the time go? (cumulative timings)\n$ curl -so /dev/null -w \"dns:%{time_namelookup} connect:%{time_connect} tls:%{time_appconnect} ttfb:%{time_starttransfer} total:%{time_total}\\n\" https://example.com\ndns:0.004 connect:0.031 tls:0.068 ttfb:0.152 total:0.153\n\n# Compression: compare transferred sizes\n$ curl -so /dev/null -w \"%{size_download}\\n\" https://example.com/app.js\n$ curl -so /dev/null -w \"%{size_download}\\n\" -H \"Accept-Encoding: br\" https://example.com/app.js\n\n# 103 Early Hints sent before the final response\nHTTP/1.1 103 Early Hints\nLink: </css/app.css>; rel=preload; as=style\nLink: <https://cdn.example.com>; rel=preconnect\n\nHTTP/1.1 200 OK\nContent-Type: text/html; charset=utf-8",
+   "code_lang": "bash",
+   "takeaways": [
+    "Latency and round trips usually dominate, not bandwidth",
+    "Reuse connections; preconnect to required third parties",
+    "103 Early Hints uses server think time to start fetching assets",
+    "Measure TTFB and LCP from real users"
+   ],
+   "pitfalls": [
+    "Optimising bytes while the page still waits on several sequential round trips to different origins."
+   ],
+   "quiz": [
+    {
+     "q": "A page fetches a script from a new third-party origin discovered late. Which hint removes the most setup latency?",
+     "options": [
+      "<link rel=\"preconnect\"> to that origin",
+      "Cache-Control: immutable on the page",
+      "Content-Encoding: gzip",
+      "A larger TCP window on your own server"
+     ],
+     "answer": 0,
+     "explain": "preconnect completes DNS, TCP and TLS before the script is requested."
+    }
+   ],
+   "docs": "https://developer.mozilla.org/en-US/docs/Web/Performance",
+   "requires": [
+    "http.http2-http3",
+    "http.cdns"
+   ]
+  }
+ ]
+}

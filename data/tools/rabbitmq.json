@@ -1,0 +1,615 @@
+{
+ "tool": {
+  "id": "rabbitmq",
+  "name": "RabbitMQ",
+  "category": "tool",
+  "tagline": "Message broker for queues, routing and reliable asynchronous messaging",
+  "description": "RabbitMQ is an open-source message broker: applications publish messages to exchanges, which route them into queues that consumers process at their own pace. It decouples services, smooths traffic spikes and distributes background work across workers. It speaks AMQP 0-9-1, AMQP 1.0, MQTT and its own stream protocol, and offers replicated quorum queues and streams for durable workloads.",
+  "icon": "RQ",
+  "color": "#E5560A",
+  "official_docs": "https://www.rabbitmq.com/docs",
+  "version": "4.3",
+  "aliases": [
+   "rabbit",
+   "amqp",
+   "rabbitmq broker",
+   "message queue"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   },
+   {
+    "tool": "docker",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Messaging basics"
+  },
+  {
+   "id": "routing",
+   "name": "Exchanges and routing"
+  },
+  {
+   "id": "reliability",
+   "name": "Reliable delivery"
+  },
+  {
+   "id": "queues",
+   "name": "Queue types and administration"
+  },
+  {
+   "id": "operate",
+   "name": "Clusters and operations"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "rabbitmq.what-is",
+   "name": "Message brokers and the AMQP model",
+   "module": "basics",
+   "level": 1,
+   "minutes": 7,
+   "summary": "Producers publish to exchanges, exchanges route to queues via bindings, consumers read from queues: the core RabbitMQ model.",
+   "why": "Every RabbitMQ design decision builds on this model, and it differs from simply 'putting messages in a queue'.",
+   "body": "A **message broker** sits between applications. Instead of calling a service directly, a **producer** publishes a message and moves on; a **consumer** processes it later. This decouples services in time and load: if consumers are slow or down, messages wait in the broker.\n\nRabbitMQ's model, from the AMQP 0-9-1 protocol:\n\n- **Connection**: a long-lived TCP connection from an application to the broker. Inside it, lightweight **channels** carry the actual operations; use one connection per process and a channel per thread.\n- **Exchange**: where producers publish. An exchange never stores messages; it **routes** them using its type and the message's **routing key**.\n- **Queue**: an ordered buffer that stores messages until a consumer takes them.\n- **Binding**: a rule linking an exchange to a queue, optionally with a binding key or pattern.\n- **Virtual host** (vhost): a namespace isolating exchanges, queues and permissions.\n\nMessages consist of a body (bytes; RabbitMQ doesn't care about the format) and properties such as content type, headers, delivery mode and message ID.\n\nTypical uses are background jobs (send email, resize images), distributing events to several services, and buffering bursts. Each message in a queue is delivered to **one** consumer; to deliver to several services, bind several queues to an exchange.",
+   "code": "# Flow of one message\n#\n#  producer --publish(routing_key=\"order.created\")--> [exchange \"events\" (topic)]\n#                                                        |  binding \"order.*\"\n#                                                        v\n#                                                  [queue \"billing\"] --> consumer A\n#                                                        |  binding \"#\"\n#                                                        v\n#                                                  [queue \"audit\"]   --> consumer B\n#\n# Each queue gets its own copy; within a queue each message goes to one consumer.\nrabbitmqctl list_exchanges name type | head -4\n# name                type\n#                     direct      <- the default exchange\n# amq.direct          direct\n# amq.fanout          fanout",
+   "code_lang": "bash",
+   "takeaways": [
+    "Producers publish to exchanges; exchanges route to queues via bindings",
+    "Queues store messages; each message in a queue goes to one consumer",
+    "One connection per process, channels inside it"
+   ],
+   "pitfalls": [
+    "Opening a new connection per message published; connections are expensive, keep them long-lived."
+   ],
+   "quiz": [
+    {
+     "q": "Two services must both receive every 'order created' message. What do you need?",
+     "options": [
+      "Two consumers on one queue",
+      "Two exchanges",
+      "Two queues bound to the exchange, one per service",
+      "A bigger prefetch"
+     ],
+     "answer": 2,
+     "explain": "Consumers on one queue share messages; separate queues each get a copy."
+    }
+   ],
+   "docs": "https://www.rabbitmq.com/tutorials/amqp-concepts",
+   "requires": []
+  },
+  {
+   "id": "rabbitmq.install-management",
+   "name": "Running RabbitMQ and the management UI",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Start RabbitMQ with Docker, open the management UI, and use rabbitmqctl and rabbitmqadmin to inspect queues.",
+   "why": "A local broker and a way to see what's inside it make every later lesson hands-on.",
+   "body": "The quickest start is the official Docker image with the management plugin: `rabbitmq:4-management`. Important ports:\n\n- **5672**: AMQP 0-9-1 (and AMQP 1.0) clients; **5671** with TLS.\n- **15672**: the **management UI** and HTTP API.\n- **15692**: Prometheus metrics (with the `rabbitmq_prometheus` plugin, enabled in the image).\n- **5552**: the native stream protocol, if enabled.\n\nThe default user is `guest` / `guest`. Outside the Docker image it can only connect from localhost; in any real deployment, create proper users and delete `guest`.\n\nThe management UI shows connections, channels, exchanges and queues with message rates, ready and unacknowledged counts. You can publish and fetch test messages there, which is great for debugging.\n\nCommand-line tools run inside the node or container:\n\n- `rabbitmqctl`: node and object administration, e.g. `list_queues name messages consumers`.\n- `rabbitmq-diagnostics`: health checks such as `check_running`, `status`, `ping`.\n- `rabbitmq-plugins enable <name>`.\n- `rabbitmqadmin` (or the newer `rabbitmqadmin` v2 CLI) talks to the HTTP API.\n\nSet `RABBITMQ_DEFAULT_USER` and `RABBITMQ_DEFAULT_PASS` for the container, and give it a fixed hostname: the node name and its data directory depend on it.",
+   "code": "docker run -d --name rabbit --hostname rabbit1 \\\n  -p 5672:5672 -p 15672:15672 \\\n  -e RABBITMQ_DEFAULT_USER=app -e RABBITMQ_DEFAULT_PASS=secret \\\n  -v rabbit-data:/var/lib/rabbitmq \\\n  rabbitmq:4-management\n# UI: http://localhost:15672  (app / secret)\n\ndocker exec rabbit rabbitmq-diagnostics check_running\n# RabbitMQ on node rabbit@rabbit1 is fully booted and running\ndocker exec rabbit rabbitmqctl list_queues name messages_ready messages_unacknowledged consumers\n# name   messages_ready  messages_unacknowledged  consumers\n# tasks  12              3                        2",
+   "code_lang": "bash",
+   "takeaways": [
+    "5672 for clients, 15672 for the UI and HTTP API",
+    "rabbitmqctl and rabbitmq-diagnostics administer a node",
+    "Set a fixed hostname and a volume so data survives restarts"
+   ],
+   "pitfalls": [
+    "Leaving guest/guest or default credentials on a reachable broker."
+   ],
+   "quiz": [
+    {
+     "q": "In list_queues, what does messages_unacknowledged count?",
+     "options": [
+      "Messages delivered to consumers but not yet acknowledged",
+      "Messages nobody has received yet",
+      "Messages that were lost",
+      "Messages in the dead-letter queue"
+     ],
+     "answer": 0,
+     "explain": "Unacked messages are in flight at consumers and will be redelivered if the consumer dies."
+    }
+   ],
+   "docs": "https://www.rabbitmq.com/docs/download",
+   "requires": [
+    "rabbitmq.what-is",
+    "docker.run"
+   ]
+  },
+  {
+   "id": "rabbitmq.hello-world",
+   "name": "Publishing and consuming with Python",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Connect with the pika client, declare a queue, publish a message and consume it with a callback.",
+   "why": "Seeing a message go through the broker in a dozen lines makes the model concrete.",
+   "body": "**pika** is the standard Python client for AMQP 0-9-1 (`pip install pika`). Its `BlockingConnection` is the simplest API.\n\nThe steps are always the same:\n\n- Open a connection and a channel.\n- **Declare** the queue with `queue_declare`. Declaring is **idempotent**: it creates the queue if missing and does nothing if it exists with the same settings. Both producer and consumer usually declare it, so start-up order doesn't matter. Declaring with different settings raises a `PRECONDITION_FAILED` error.\n- Publish with `basic_publish(exchange=\"\", routing_key=\"hello\", body=...)`. The empty string is the **default exchange**: every queue is automatically bound to it by its own name, so the routing key acts as the queue name.\n- Consume with `basic_consume(queue, on_message_callback)` and `start_consuming()`, which blocks and calls your function for each message. `basic_get` fetches a single message, handy in scripts and tests but inefficient for real consumers.\n\nThe body is bytes. Choose a serialization (usually JSON) and set `content_type` in the message properties so consumers know how to decode it.\n\nHere `auto_ack=True` means the broker forgets a message as soon as it's sent; the next lessons show why real consumers acknowledge manually.",
+   "code": "# pip install pika\nimport json, pika\n\nconn = pika.BlockingConnection(pika.ConnectionParameters(\"localhost\"))\nch = conn.channel()\nch.queue_declare(queue=\"hello\")                   # idempotent\n\nfor i in range(3):\n    ch.basic_publish(exchange=\"\", routing_key=\"hello\",   # default exchange\n                     body=json.dumps({\"n\": i}),\n                     properties=pika.BasicProperties(content_type=\"application/json\"))\n\ndef on_message(channel, method, properties, body):\n    print(\"got\", json.loads(body))\n    if json.loads(body)[\"n\"] == 2:\n        channel.stop_consuming()\n\nch.basic_consume(queue=\"hello\", on_message_callback=on_message, auto_ack=True)\nch.start_consuming()       # got {'n': 0}  got {'n': 1}  got {'n': 2}\nconn.close()",
+   "code_lang": "python",
+   "takeaways": [
+    "Declare queues idempotently from both sides",
+    "exchange=\"\" is the default exchange; routing_key = queue name",
+    "Bodies are bytes; set content_type and serialize explicitly"
+   ],
+   "pitfalls": [
+    "Declaring an existing queue with different arguments (e.g. durable) and getting PRECONDITION_FAILED."
+   ],
+   "quiz": [
+    {
+     "q": "You publish with exchange=\"\" and routing_key=\"reports\". Where does the message go?",
+     "options": [
+      "It is dropped",
+      "To an exchange named reports",
+      "To every queue",
+      "To the queue named reports, if it exists"
+     ],
+     "answer": 3,
+     "explain": "The default exchange routes by queue name; unroutable messages are dropped unless you use mandatory."
+    }
+   ],
+   "docs": "https://www.rabbitmq.com/tutorials/tutorial-one-python",
+   "requires": [
+    "rabbitmq.install-management",
+    "python.functions"
+   ]
+  },
+  {
+   "id": "rabbitmq.exchanges-bindings",
+   "name": "Exchange types: direct, fanout, topic, headers",
+   "module": "routing",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Route messages with direct, fanout, topic and headers exchanges, and bind queues with keys and patterns.",
+   "why": "Choosing the exchange type is how you decide who receives which messages without changing producers.",
+   "body": "Producers publish to an **exchange** with a **routing key**; the exchange type decides which bound queues get a copy:\n\n- **direct**: delivers to queues whose binding key **equals** the routing key. Good for routing by type or severity: `error`, `warning`.\n- **fanout**: ignores the routing key and delivers to **every** bound queue. Classic publish/subscribe: broadcast cache invalidations or events.\n- **topic**: matches the routing key against binding **patterns**. Keys are dot-separated words like `order.eu.created`; in patterns `*` matches exactly one word and `#` matches zero or more. `order.*.created` or `order.#`.\n- **headers**: routes on message header values instead of the key, with `x-match: all` or `any`. Rarely needed.\n\nIf no binding matches, the message is **dropped silently**, unless it's published with the `mandatory` flag (it's returned to the publisher) or the exchange has an **alternate exchange** configured.\n\nA queue can have many bindings, and an exchange can be bound to another exchange. Exchanges are declared like queues, idempotently, with `exchange_declare`.\n\nTypical design: one topic exchange per domain (`orders`, `payments`) with descriptive routing keys, and each consuming service declaring and binding its own queue for the keys it cares about. Producers then never need to know who consumes.",
+   "code": "import pika\nch = pika.BlockingConnection(pika.ConnectionParameters(\"localhost\")).channel()\nch.confirm_delivery()          # each publish waits until routed\nch.exchange_declare(exchange=\"logs\", exchange_type=\"direct\")\nch.exchange_declare(exchange=\"broadcast\", exchange_type=\"fanout\")\n\nch.queue_declare(queue=\"errors\")\nch.queue_bind(queue=\"errors\", exchange=\"logs\", routing_key=\"error\")\nfor q in (\"cache-a\", \"cache-b\"):\n    ch.queue_declare(queue=q)\n    ch.queue_bind(queue=q, exchange=\"broadcast\")      # key ignored\n\nch.basic_publish(exchange=\"logs\", routing_key=\"error\", body=b\"disk full\")\nch.basic_publish(exchange=\"logs\", routing_key=\"info\", body=b\"started\")   # dropped\nch.basic_publish(exchange=\"broadcast\", routing_key=\"\", body=b\"invalidate\")\n\nfor q in (\"errors\", \"cache-a\", \"cache-b\"):\n    print(q, ch.queue_declare(queue=q, passive=True).method.message_count)\n# errors 1   cache-a 1   cache-b 1",
+   "code_lang": "python",
+   "takeaways": [
+    "direct = exact key, fanout = everyone, topic = patterns with * and #",
+    "Unmatched messages are dropped unless mandatory or an alternate exchange is used",
+    "Consumers own their queues and bindings; producers only know the exchange"
+   ],
+   "pitfalls": [
+    "Assuming RabbitMQ keeps unroutable messages; with no matching binding they vanish."
+   ],
+   "quiz": [
+    {
+     "q": "A fanout exchange has three bound queues. A message is published with routing key 'x'. How many queues receive it?",
+     "options": [
+      "Only the queue named x",
+      "All three",
+      "None, fanout needs an empty key",
+      "One, chosen round robin"
+     ],
+     "answer": 1,
+     "explain": "Fanout ignores the routing key and copies the message to every bound queue."
+    }
+   ],
+   "docs": "https://www.rabbitmq.com/tutorials/tutorial-four-python",
+   "requires": [
+    "rabbitmq.hello-world"
+   ]
+  },
+  {
+   "id": "rabbitmq.work-queues",
+   "name": "Work queues and prefetch",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Share tasks among several workers on one queue, and use prefetch so busy workers don't hoard messages.",
+   "why": "Distributing background jobs across workers is the most common RabbitMQ use, and prefetch decides how evenly it works.",
+   "body": "When several consumers read the **same queue**, RabbitMQ delivers messages to them **round robin**: each message goes to exactly one worker. To process jobs faster, start more workers; that's horizontal scaling with no code change.\n\nRound robin alone is naive: RabbitMQ pushes messages to consumers as fast as it can, so a worker can receive many messages while still busy with a slow one, and others sit idle. **Prefetch** fixes this. `basic_qos(prefetch_count=N)` limits each consumer to N **unacknowledged** messages; the broker sends the next one only after an ack. It requires manual acknowledgements (next lesson), since with auto-ack there is nothing to wait for.\n\nChoosing N:\n\n- `1`: the fairest distribution, best for slow, uneven tasks, but the worker idles for a round trip between messages.\n- `10` to `300`: much higher throughput for fast, small messages.\n- Unlimited (`0`): risky; a single consumer may buffer the whole queue in memory.\n\nConsumers in one queue also give you failover for free: if a worker dies, its unacknowledged messages go back to the queue and other workers pick them up. Keep task handlers idempotent, because that redelivery can happen after partial work.",
+   "code": "# worker.py  -- run several copies of this process\nimport time, pika\n\nconn = pika.BlockingConnection(pika.ConnectionParameters(\"localhost\"))\nch = conn.channel()\nch.queue_declare(queue=\"tasks\", durable=True)\nch.basic_qos(prefetch_count=1)          # at most 1 unacked task per worker\n\ndef handle(channel, method, properties, body):\n    print(\"working on\", body.decode())\n    time.sleep(body.count(b\".\"))        # simulate work: one second per dot\n    channel.basic_ack(delivery_tag=method.delivery_tag)\n\nch.basic_consume(queue=\"tasks\", on_message_callback=handle)\nch.start_consuming()\n# producer:  ch.basic_publish(\"\", \"tasks\", b\"resize image.....\")",
+   "code_lang": "python",
+   "takeaways": [
+    "Consumers on one queue share its messages round robin",
+    "prefetch_count limits unacked messages per consumer",
+    "Unacked messages of a dead worker are redelivered to others"
+   ],
+   "pitfalls": [
+    "Leaving prefetch unlimited so one worker receives thousands of messages while others idle."
+   ],
+   "quiz": [
+    {
+     "q": "Worker A is stuck on a 10-minute job; prefetch_count=1. Where do new messages go?",
+     "options": [
+      "They queue up at worker A",
+      "To other workers with free capacity",
+      "They are dropped",
+      "They wait until A finishes"
+     ],
+     "answer": 1,
+     "explain": "With prefetch 1, A has its one unacked message, so the broker delivers new ones to other consumers."
+    }
+   ],
+   "docs": "https://www.rabbitmq.com/tutorials/tutorial-two-python",
+   "requires": [
+    "rabbitmq.hello-world"
+   ]
+  },
+  {
+   "id": "rabbitmq.acknowledgements",
+   "name": "Consumer acknowledgements, nack and requeue",
+   "module": "reliability",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Acknowledge messages after processing, reject or requeue failures, and understand redelivery and the consumer timeout.",
+   "why": "Acks decide whether a crash loses messages or redelivers them; getting them wrong causes data loss or infinite loops.",
+   "body": "With **manual acknowledgements** (`auto_ack=False`, the default in pika's `basic_consume`), the broker keeps every delivered message as **unacked** until the consumer responds:\n\n- `basic_ack(delivery_tag)`: done, delete the message. `multiple=True` acknowledges all up to that tag.\n- `basic_nack(delivery_tag, requeue=True)`: failed, put it back in the queue (at or near its original position) for redelivery.\n- `basic_nack(..., requeue=False)` or `basic_reject`: failed, discard it, or dead-letter it if the queue has a dead-letter exchange.\n\nIf the **channel or connection closes** with unacked messages, they are requeued automatically and redelivered with the `redelivered` flag set. This gives **at-least-once** processing: a message is never lost because a consumer crashed, but it may be processed twice.\n\nRules for robust consumers:\n\n- Ack **after** the work and its side effects are committed, never before.\n- Don't requeue forever on errors that will never succeed (malformed data): a poison message with `requeue=True` loops endlessly. Reject without requeue and dead-letter it. Quorum queues enforce a **delivery limit** for this.\n- Ack on the same channel the message arrived on; a delivery tag is per channel.\n- RabbitMQ closes channels that keep a message unacked longer than the **consumer timeout** (30 minutes by default). Very long tasks need a higher timeout or a different design.",
+   "code": "import json, pika\n\nch = pika.BlockingConnection(pika.ConnectionParameters(\"localhost\")).channel()\nch.queue_declare(queue=\"emails\", durable=True)\nch.basic_qos(prefetch_count=10)\n\ndef send_email(msg): print(\"sending to\", msg[\"to\"])\n\ndef on_message(channel, method, props, body):\n    try:\n        msg = json.loads(body)\n    except ValueError:\n        channel.basic_reject(method.delivery_tag, requeue=False)   # poison: drop/DLX\n        return\n    try:\n        send_email(msg)\n        channel.basic_ack(method.delivery_tag)                    # only after success\n    except ConnectionError:\n        channel.basic_nack(method.delivery_tag, requeue=True)     # transient: retry\n    if method.redelivered:\n        print(\"this message was delivered before\")\n\nch.basic_consume(queue=\"emails\", on_message_callback=on_message)  # manual acks\nch.start_consuming()",
+   "code_lang": "python",
+   "takeaways": [
+    "Ack after the work is done; unacked messages are redelivered if the channel dies",
+    "nack/reject with requeue=False drops or dead-letters poison messages",
+    "Manual acks give at-least-once delivery, so duplicates are possible"
+   ],
+   "pitfalls": [
+    "Requeueing a message that always fails, creating a hot redelivery loop."
+   ],
+   "quiz": [
+    {
+     "q": "A consumer receives a message, writes to the database, then crashes before acking. What happens?",
+     "options": [
+      "The message is lost",
+      "The message goes to a DLX automatically",
+      "The broker rolls back the database",
+      "The message is redelivered, possibly causing a duplicate write"
+     ],
+     "answer": 3,
+     "explain": "Unacked messages are requeued when the channel closes, so processing must be idempotent."
+    }
+   ],
+   "docs": "https://www.rabbitmq.com/docs/confirms",
+   "requires": [
+    "rabbitmq.work-queues"
+   ]
+  },
+  {
+   "id": "rabbitmq.topic-routing",
+   "name": "Designing routing with topic exchanges",
+   "module": "routing",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Design routing keys and binding patterns for events, use exchange-to-exchange bindings and alternate exchanges.",
+   "why": "A good routing scheme lets new consumers subscribe to exactly the events they need without touching producers.",
+   "body": "Topic exchanges are the most flexible routing tool, and the quality of the design is in the **routing keys**.\n\nKeys are dot-separated words, most general first: `<domain>.<entity>.<event>` or `<region>.<service>.<severity>`. Examples: `orders.order.created`, `orders.order.cancelled`, `payments.refund.failed`. Then each consumer binds with a pattern:\n\n- `orders.order.*`: every event about orders.\n- `*.*.failed`: failures across all domains.\n- `orders.#`: everything in the orders domain, at any depth.\n- `#`: everything, which is what an audit log or a debug tap uses.\n\nRemember that `*` matches **exactly one** word, so `orders.*` does not match `orders.order.created`; `#` matches zero or more words. A binding without wildcards behaves like a direct binding.\n\nUseful extras:\n\n- **Exchange-to-exchange bindings**: `exchange_bind` routes from one exchange to another, for example a per-team exchange fed by a central one.\n- **Alternate exchange** (`alternate-exchange` argument or policy): catches messages that match no binding, so they're stored for inspection instead of dropped.\n- Keep routing keys free of IDs. They're for routing, not data; IDs belong in the body or headers.\n\nDocument the key scheme like an API, since every consumer depends on it.",
+   "code": "import pika\nch = pika.BlockingConnection(pika.ConnectionParameters(\"localhost\")).channel()\nch.confirm_delivery()\nch.exchange_declare(\"unrouted\", \"fanout\")\nch.queue_declare(\"unrouted\")\nch.queue_bind(\"unrouted\", \"unrouted\")\nch.exchange_declare(\"events\", \"topic\", arguments={\"alternate-exchange\": \"unrouted\"})\n\nbindings = {\"billing\": \"orders.order.*\", \"alerts\": \"*.*.failed\", \"audit\": \"#\"}\nfor queue, pattern in bindings.items():\n    ch.queue_declare(queue)\n    ch.queue_bind(queue, \"events\", routing_key=pattern)\n\nfor key in [\"orders.order.created\", \"payments.refund.failed\", \"orders.cart.updated\"]:\n    ch.basic_publish(\"events\", key, body=key.encode())\n\nfor q in [\"billing\", \"alerts\", \"audit\", \"unrouted\"]:\n    print(q, ch.queue_declare(q, passive=True).method.message_count)\n# billing 1   alerts 1   audit 3   unrouted 0  (audit's # matched everything)",
+   "code_lang": "python",
+   "takeaways": [
+    "Routing keys: dot-separated words, general to specific",
+    "* is exactly one word, # is zero or more",
+    "Alternate exchanges catch unroutable messages"
+   ],
+   "pitfalls": [
+    "Binding orders.* and expecting it to match three-word keys like orders.order.created."
+   ],
+   "quiz": [
+    {
+     "q": "Which binding pattern matches payments.refund.failed?",
+     "options": [
+      "payments.#",
+      "*.failed",
+      "payments.*",
+      "#.refund"
+     ],
+     "answer": 0,
+     "explain": "# matches any number of words after payments; the other patterns need different word counts."
+    }
+   ],
+   "docs": "https://www.rabbitmq.com/tutorials/tutorial-five-python",
+   "requires": [
+    "rabbitmq.exchanges-bindings"
+   ]
+  },
+  {
+   "id": "rabbitmq.durability-confirms",
+   "name": "Durability, persistence and publisher confirms",
+   "module": "reliability",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Survive broker restarts with durable queues and persistent messages, and make publishing reliable with publisher confirms.",
+   "why": "Without confirms a publisher can't know whether the broker actually stored a message; this is where silent data loss happens.",
+   "body": "Three separate settings decide whether a message survives problems:\n\n- **Durable queue** (`durable=True`): the queue definition survives a broker restart. Quorum queues and streams are always durable.\n- **Persistent message** (`delivery_mode=2`, `pika.DeliveryMode.Persistent`): the message is written to disk. For classic queues, a persistent message in a durable queue survives restarts; a transient message does not. Quorum queues and streams store all messages durably.\n- **Publisher confirms**: the broker acknowledges each published message **after** it has been routed and safely stored (written to disk, and replicated for quorum queues). Without confirms, a message lost in a network failure or broker crash just disappears.\n\nEnable confirms on a channel with `confirm_delivery()` in pika; each `basic_publish` then waits for the confirm, and raises `UnroutableError` (with `mandatory=True`) or `NackError` on failure. Waiting per message is slow; high-throughput publishers keep many messages in flight and handle confirms asynchronously, or publish in batches and wait for the batch.\n\nEven with confirms, the publisher needs a strategy for failures: retry (and accept possible duplicates), buffer locally, or fail the request. Combine confirms with consumer acks for end-to-end at-least-once delivery.",
+   "code": "import pika\nfrom pika.exceptions import UnroutableError, NackError\n\nch = pika.BlockingConnection(pika.ConnectionParameters(\"localhost\")).channel()\nch.queue_declare(queue=\"orders\", durable=True)      # survives restarts\nch.confirm_delivery()                               # enable publisher confirms\n\nprops = pika.BasicProperties(delivery_mode=pika.DeliveryMode.Persistent,\n                             content_type=\"application/json\")\ntry:\n    ch.basic_publish(\"\", \"orders\", b'{\"id\": 1}', properties=props, mandatory=True)\n    print(\"confirmed by broker\")                    # stored safely\n    ch.basic_publish(\"\", \"no-such-queue\", b\"x\", properties=props, mandatory=True)\nexcept UnroutableError:\n    print(\"returned: no queue matched\")             # returned: no queue matched\nexcept NackError:\n    print(\"broker could not store it; retry later\")",
+   "code_lang": "python",
+   "takeaways": [
+    "Durable queue + persistent message survive a broker restart",
+    "Publisher confirms tell you the broker stored the message",
+    "mandatory=True returns unroutable messages instead of dropping them"
+   ],
+   "pitfalls": [
+    "Assuming durable=True on the queue makes messages persistent; classic queue messages also need delivery_mode=2."
+   ],
+   "quiz": [
+    {
+     "q": "Why use publisher confirms if the queue is durable and messages are persistent?",
+     "options": [
+      "Confirms make messages faster",
+      "They are required for durable queues",
+      "Without them the publisher can't know whether the broker received and stored a message",
+      "They enable consumer acks"
+     ],
+     "answer": 2,
+     "explain": "Durability only matters once the broker has the message; confirms close the gap on the publishing side."
+    }
+   ],
+   "docs": "https://www.rabbitmq.com/docs/confirms#publisher-confirms",
+   "requires": [
+    "rabbitmq.acknowledgements"
+   ]
+  },
+  {
+   "id": "rabbitmq.dead-lettering-ttl",
+   "name": "Dead-lettering, TTL and retries",
+   "module": "reliability",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Route rejected or expired messages to a dead-letter exchange, expire messages with TTL, and build delayed retries.",
+   "why": "Failed messages need somewhere to go other than an endless requeue loop or the void.",
+   "body": "A queue can have a **dead-letter exchange** (DLX). A message is **dead-lettered**, republished to the DLX with its original or an overridden routing key, when:\n\n- a consumer rejects or nacks it with `requeue=False`,\n- it **expires** because of a TTL,\n- the queue is over its **length limit** (`x-max-length`) with the drop-head overflow behaviour,\n- it exceeds a quorum queue's **delivery limit**.\n\nDead-lettered messages carry an `x-death` header recording the queue, reason and count, useful for debugging and retry logic.\n\n**TTL** comes in two forms: a per-queue `x-message-ttl` (milliseconds) and a per-message `expiration` property. Separately, `x-expires` deletes an unused queue.\n\nA common **delayed retry** pattern combines both: a failing consumer rejects the message; it is dead-lettered into a `retry` queue that has no consumers, a TTL of, say, 30 seconds and a DLX pointing back to the work exchange. After the TTL it returns for another attempt. Check the `x-death` count to stop after N attempts and park the message in a final \"dead\" queue for humans.\n\nPrefer configuring DLX, TTL and length limits through **policies** rather than queue arguments: policies can be changed later without redeclaring queues.",
+   "code": "import pika\nch = pika.BlockingConnection(pika.ConnectionParameters(\"localhost\")).channel()\nch.exchange_declare(\"work\", \"direct\")\nch.exchange_declare(\"retry\", \"direct\")\nch.queue_declare(\"jobs\", durable=True, arguments={\n    \"x-dead-letter-exchange\": \"retry\"})                 # rejected -> retry\nch.queue_bind(\"jobs\", \"work\", \"job\")\nch.queue_declare(\"jobs.retry\", durable=True, arguments={\n    \"x-message-ttl\": 30000,                             # wait 30 s\n    \"x-dead-letter-exchange\": \"work\"})                  # then back to work\nch.queue_bind(\"jobs.retry\", \"retry\", \"job\")\n\ndef attempts(props):\n    deaths = (props.headers or {}).get(\"x-death\", [])\n    return sum(d[\"count\"] for d in deaths if d[\"queue\"] == \"jobs\")\n\n# in the consumer:\n#   if attempts(props) >= 3: publish to \"jobs.dead\" and ack\n#   else: channel.basic_reject(method.delivery_tag, requeue=False)",
+   "code_lang": "python",
+   "takeaways": [
+    "Rejected, expired, overflowing or over-delivered messages go to the DLX",
+    "x-message-ttl and per-message expiration set TTLs",
+    "TTL queue + DLX back to the work exchange = delayed retry"
+   ],
+   "pitfalls": [
+    "Retrying forever without counting x-death, so permanently bad messages circulate endlessly."
+   ],
+   "quiz": [
+    {
+     "q": "A message in a queue with a DLX is nacked with requeue=True. Is it dead-lettered?",
+     "options": [
+      "Yes, always",
+      "Only after the TTL",
+      "Only if the queue is durable",
+      "No, it goes back to the same queue"
+     ],
+     "answer": 3,
+     "explain": "Only requeue=False rejections (or expiry, overflow, delivery limits) trigger dead-lettering."
+    }
+   ],
+   "docs": "https://www.rabbitmq.com/docs/dlx",
+   "requires": [
+    "rabbitmq.acknowledgements",
+    "rabbitmq.topic-routing"
+   ]
+  },
+  {
+   "id": "rabbitmq.quorum-queues",
+   "name": "Quorum queues",
+   "module": "queues",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Use replicated, Raft-based quorum queues for data safety, and know their delivery limit, constraints and sizing.",
+   "why": "Quorum queues are RabbitMQ's answer to losing a node without losing messages, and the default choice for important data.",
+   "body": "A **quorum queue** (`x-queue-type: quorum`) is replicated across several cluster nodes (three by default) using the **Raft** consensus algorithm. One replica is the **leader**; publishes are confirmed only after a **majority** of replicas have written the message to disk. If the leader's node fails, a follower with all committed data takes over in seconds. Classic mirrored queues, the older replication mechanism, were **removed in RabbitMQ 4.0**; quorum queues replace them.\n\nCharacteristics:\n\n- Always durable; all messages are persisted.\n- Available while a majority of replicas is up: 2 of 3, or 3 of 5. Use an odd replica count.\n- **Poison message handling**: each message's delivery count is tracked, and since 4.0 a default **delivery limit** of 20 applies; beyond it the message is dropped or dead-lettered. `x-delivery-limit` or a policy changes it.\n- Supports dead-lettering with an **at-least-once** strategy (`dead-letter-strategy: at-least-once`) that guarantees the DLX copy is safely stored.\n- Supports consumer priorities and, since 4.0, message priorities in a simple high/normal form.\n- Not designed for huge backlogs of millions of messages kept long term, for transient or exclusive queues, or for very short-lived queues.\n\nQuorum queues trade some throughput and latency for safety. Use them for anything you can't afford to lose; set `default_queue_type` on a vhost to make them the default.",
+   "code": "import pika\nch = pika.BlockingConnection(pika.ConnectionParameters(\"localhost\")).channel()\nch.queue_declare(\"payments\", durable=True, arguments={\n    \"x-queue-type\": \"quorum\",          # Raft-replicated\n    \"x-delivery-limit\": 5,             # poison messages stop after 5 deliveries\n    \"x-dead-letter-exchange\": \"dlx\",\n    \"x-dead-letter-strategy\": \"at-least-once\",\n    \"x-overflow\": \"reject-publish\",    # required by at-least-once dead-lettering\n})\nch.confirm_delivery()                  # confirm = written by a majority\nch.basic_publish(\"\", \"payments\", b'{\"amount\": 42}')\nprint(\"stored on a quorum of replicas\")\n\n# Inspect replicas and the leader:\n#   rabbitmq-queues quorum_status payments\n#   rabbitmqctl list_queues name type leader members",
+   "code_lang": "python",
+   "takeaways": [
+    "Quorum queues replicate with Raft and confirm after a majority writes",
+    "They stay available while a majority of replicas is up",
+    "A delivery limit (default 20 since 4.0) stops poison messages"
+   ],
+   "pitfalls": [
+    "Running quorum queues on a two-node cluster: losing either node loses the majority."
+   ],
+   "quiz": [
+    {
+     "q": "A quorum queue has 3 replicas. One node goes down. What happens?",
+     "options": [
+      "The queue becomes unavailable",
+      "It keeps working; 2 of 3 is still a majority",
+      "Messages on that node are lost",
+      "It switches to classic mode"
+     ],
+     "answer": 1,
+     "explain": "Raft needs a majority; 2 out of 3 replicas suffice to elect a leader and confirm writes."
+    }
+   ],
+   "docs": "https://www.rabbitmq.com/docs/quorum-queues",
+   "requires": [
+    "rabbitmq.durability-confirms",
+    "rabbitmq.dead-lettering-ttl"
+   ]
+  },
+  {
+   "id": "rabbitmq.streams",
+   "name": "Streams: replayable message logs",
+   "module": "queues",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Use streams for append-only, replayable logs that many consumers read from any offset without removing messages.",
+   "why": "Some workloads need fan-out to many readers, replay and huge backlogs, which ordinary queues handle poorly.",
+   "body": "A **stream** (`x-queue-type: stream`) is an append-only, replicated log, similar in spirit to a Kafka topic partition. Unlike a queue, **consuming does not remove messages**. Each consumer chooses where to start reading with `x-stream-offset`: `first`, `last`, `next`, a numeric offset or a timestamp, and can re-read the history at will.\n\nThat makes streams the right tool for:\n\n- **Large fan-out**: many consumers reading the same messages, without a queue per consumer.\n- **Replay**: rebuilding a cache or a read model from history.\n- **Huge backlogs**: millions of messages stored efficiently on disk.\n\nData is removed only by **retention**: `x-max-length-bytes` and `x-max-age` (such as `7D`), applied by deleting whole segment files.\n\nStreams can be used from AMQP 0-9-1 clients like pika, with some rules: the consumer must set a prefetch (`basic_qos`) and use manual acks (acks just grant credit; nothing is deleted). For the best throughput use the native **stream protocol** (port 5552) with the dedicated client libraries, which also support **server-side offset tracking** and **super streams**, partitioned streams for scaling out with ordering per partition.\n\nStreams don't support dead-lettering, TTL per message or priorities. Use quorum queues for task processing and streams for event logs.",
+   "code": "import pika\nch = pika.BlockingConnection(pika.ConnectionParameters(\"localhost\")).channel()\nch.queue_declare(\"events\", durable=True, arguments={\n    \"x-queue-type\": \"stream\",\n    \"x-max-age\": \"7D\",                    # retention by age\n    \"x-max-length-bytes\": 20_000_000_000, # and by size\n})\nfor i in range(3):\n    ch.basic_publish(\"\", \"events\", f\"event {i}\".encode())\n\nch.basic_qos(prefetch_count=100)          # required for stream consumers\nseen = []\ndef on_msg(c, method, props, body):\n    seen.append(body.decode()); c.basic_ack(method.delivery_tag)\n    if len(seen) == 3: c.stop_consuming()\n\nch.basic_consume(\"events\", on_msg, arguments={\"x-stream-offset\": \"first\"})\nch.start_consuming()\nprint(seen)    # ['event 0', 'event 1', 'event 2']  -- still in the stream",
+   "code_lang": "python",
+   "takeaways": [
+    "Streams are append-only logs; reading doesn't remove messages",
+    "Consumers pick a start with x-stream-offset and can replay",
+    "Retention by age or size; native protocol and super streams for scale"
+   ],
+   "pitfalls": [
+    "Using a stream as a task queue and expecting acked messages to disappear."
+   ],
+   "quiz": [
+    {
+     "q": "Ten services each need every message, and new services must read past history. Best fit?",
+     "options": [
+      "A stream that each service reads from its own offset",
+      "A classic queue with ten consumers",
+      "A fanout exchange with one shared queue",
+      "A quorum queue with delivery-limit 10"
+     ],
+     "answer": 0,
+     "explain": "Streams serve many readers from one copy and allow replay from earlier offsets."
+    }
+   ],
+   "docs": "https://www.rabbitmq.com/docs/streams",
+   "requires": [
+    "rabbitmq.quorum-queues"
+   ]
+  },
+  {
+   "id": "rabbitmq.vhosts-users-policies",
+   "name": "Virtual hosts, users, permissions and policies",
+   "module": "queues",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Isolate applications with vhosts, grant least-privilege permissions, and configure queues centrally with policies.",
+   "why": "Shared brokers need isolation and access control, and policies let you change queue behaviour without code deploys.",
+   "body": "**Virtual hosts** partition a broker: each vhost has its own exchanges, queues, bindings and permissions, and clients connect to exactly one. Use a vhost per application or environment. A vhost can set a `default_queue_type` (such as quorum) and limits like `max-connections` and `max-queues`.\n\n**Users** authenticate with passwords, x509 certificates, or OAuth 2 tokens through a plugin; LDAP is also supported. Each user has **tags** that control management access (`administrator`, `monitoring`, `management`, none) and **permissions per vhost**, given as three regular expressions over resource names:\n\n- **configure**: declare and delete exchanges and queues,\n- **write**: publish to exchanges and bind,\n- **read**: consume from queues and bind.\n\n`\".*\" \".*\" \".*\"` grants everything; production services should get narrower patterns, such as a publisher that can only write to `^orders$`.\n\n**Policies** apply settings to queues and exchanges matching a name pattern: dead-lettering, TTL, max length, delivery limit, alternate exchanges and more. They can be changed at runtime, unlike arguments passed at declaration. When several policies match, the one with the highest **priority** wins; **operator policies** set by administrators cap values such as max length on top of user policies.",
+   "code": "# vhost per application, quorum queues by default\nrabbitmqctl add_vhost orders --default-queue-type quorum\n\n# a publisher that may only write to the \"orders\" exchange\nrabbitmqctl add_user order-api 'S3cret!'\nrabbitmqctl set_permissions -p orders order-api '^$' '^orders$' '^$'\n#                                     configure  write      read\n# a worker that consumes from queues prefixed orders.\nrabbitmqctl add_user order-worker 'An0ther!'\nrabbitmqctl set_permissions -p orders order-worker '^orders\\..*' '' '^orders\\..*'\n\n# policy: DLX and length limit for all orders.* queues\nrabbitmqctl set_policy -p orders --apply-to queues --priority 10 orders-defaults \\\n  '^orders\\.' '{\"dead-letter-exchange\":\"dlx\",\"max-length\":100000}'\nrabbitmqctl list_policies -p orders\nrabbitmqctl delete_user guest",
+   "code_lang": "bash",
+   "takeaways": [
+    "vhosts isolate applications; clients connect to one vhost",
+    "Permissions are configure/write/read regexes per vhost",
+    "Policies configure DLX, TTL and limits at runtime by name pattern"
+   ],
+   "pitfalls": [
+    "Giving every application administrator access to the default vhost."
+   ],
+   "quiz": [
+    {
+     "q": "Why prefer a policy to x- arguments for setting a queue's dead-letter exchange?",
+     "options": [
+      "Policies are faster",
+      "Arguments don't support DLX",
+      "Policies can be changed later without deleting and redeclaring the queue",
+      "Policies encrypt messages"
+     ],
+     "answer": 2,
+     "explain": "Queue arguments are fixed at declaration; changing them requires recreating the queue."
+    }
+   ],
+   "docs": "https://www.rabbitmq.com/docs/access-control",
+   "requires": [
+    "rabbitmq.install-management",
+    "rabbitmq.dead-lettering-ttl"
+   ]
+  },
+  {
+   "id": "rabbitmq.clustering",
+   "name": "Clustering, partitions and the metadata store",
+   "module": "operate",
+   "level": 4,
+   "minutes": 15,
+   "summary": "How RabbitMQ nodes form a cluster, what is shared and what is replicated, how network partitions are handled, and how to size clusters.",
+   "why": "Production brokers run as clusters, and misunderstanding what a cluster replicates leads to data loss or downtime.",
+   "body": "A **cluster** is a group of nodes (usually three or five) that share **metadata**: users, vhosts, exchanges, bindings, queue definitions, policies. Nodes authenticate each other with a shared **Erlang cookie** and find each other through peer discovery (static list, DNS, Kubernetes, AWS, Consul). Clients can connect to any node; the cluster routes messages internally to wherever a queue's replicas live.\n\nWhat's replicated depends on the **queue type**, not on clustering itself:\n\n- **Classic queues** live on a single node. If that node is down, the queue is unavailable; if its disk is lost, so are its messages.\n- **Quorum queues and streams** are replicated across nodes and survive node failures, as long as a majority of their replicas is up.\n\nMetadata itself is stored in a database replicated to all nodes. Since RabbitMQ 4.2, new deployments use **Khepri**, a Raft-based metadata store, by default; it replaces the older Mnesia, which had weaker behaviour under network partitions and will be removed in a future version.\n\nA **network partition** splits nodes into groups that can't see each other. With Raft-based components, only the side with a majority keeps operating for those queues; the minority stops accepting work and rejoins later. For Mnesia-based clusters the `cluster_partition_handling` strategy (`pause_minority` recommended) decides.\n\nPractical rules: use an odd number of nodes (3 or 5), spread across availability zones with low latency, perform rolling upgrades one node at a time, and never put cluster nodes across a WAN; use **federation** or **shovels** to connect distant brokers.",
+   "code": "# Form a 3-node cluster (rabbit2 joins rabbit1; repeat for rabbit3)\nrabbitmqctl -n rabbit@rabbit2 stop_app\nrabbitmqctl -n rabbit@rabbit2 join_cluster rabbit@rabbit1\nrabbitmqctl -n rabbit@rabbit2 start_app\n\nrabbitmqctl cluster_status\n# Disk Nodes: rabbit@rabbit1, rabbit@rabbit2, rabbit@rabbit3\n# Running Nodes: ...   Network Partitions: (none)\n\n# Declarative alternative in rabbitmq.conf (every node):\n#   cluster_formation.peer_discovery_backend = classic_config\n#   cluster_formation.classic_config.nodes.1 = rabbit@rabbit1\n#   cluster_formation.classic_config.nodes.2 = rabbit@rabbit2\n#   cluster_formation.classic_config.nodes.3 = rabbit@rabbit3\n\n# Before maintenance: move quorum queue leaders away, then stop the node\nrabbitmq-upgrade drain\nrabbitmq-diagnostics check_if_node_is_quorum_critical",
+   "code_lang": "bash",
+   "takeaways": [
+    "Clusters share metadata; data replication depends on the queue type",
+    "Classic queues live on one node; quorum queues and streams are replicated",
+    "Use 3 or 5 nodes in one region; federation or shovels across WANs"
+   ],
+   "pitfalls": [
+    "Assuming a cluster protects classic queue messages; they still live on one node."
+   ],
+   "quiz": [
+    {
+     "q": "A 3-node cluster holds a classic queue on node 2. Node 2 fails. What happens to that queue?",
+     "options": [
+      "Another node takes over with all messages",
+      "It becomes a quorum queue",
+      "It is unavailable until node 2 returns",
+      "Its messages move to the DLX"
+     ],
+     "answer": 2,
+     "explain": "Classic queues aren't replicated; only quorum queues and streams fail over."
+    }
+   ],
+   "docs": "https://www.rabbitmq.com/docs/clustering",
+   "requires": [
+    "rabbitmq.quorum-queues",
+    "rabbitmq.vhosts-users-policies"
+   ]
+  },
+  {
+   "id": "rabbitmq.flow-control-alarms",
+   "name": "Flow control, alarms and monitoring",
+   "module": "operate",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Understand memory and disk alarms, credit-based flow control and blocked publishers, and monitor brokers with Prometheus.",
+   "why": "When consumers fall behind, RabbitMQ protects itself by slowing or blocking publishers, which looks like a hung application.",
+   "body": "RabbitMQ pushes back on publishers in two ways.\n\n**Credit-based flow control** works continuously: each internal process grants limited credit to the one sending to it. A connection publishing faster than queues can absorb is throttled, and appears as **flow** in the management UI. This is normal under load.\n\n**Resource alarms** are drastic. When a node's memory use crosses the **high watermark** (`vm_memory_high_watermark.relative`, default 0.6 of available RAM) or free disk drops below `disk_free_limit`, the alarm **blocks all publishing connections** across the cluster. Consumers keep working, so the broker can drain. Clients receive a `connection.blocked` notification; a publisher that ignores it just hangs.\n\nPrevent alarms rather than react to them:\n\n- Size consumers so queues stay short; long queues are the root cause. Classic queues (version 2 storage) and quorum queues keep few messages in memory, but backlogs still cost disk and recovery time.\n- Use **max-length** policies with `reject-publish` overflow so publishers get a clear negative confirm instead of a whole-cluster block.\n- Separate publishing and consuming connections, so a blocked publisher connection doesn't stall consumers in the same process.\n\nMonitor with the built-in `rabbitmq_prometheus` plugin (`/metrics` on port 15692) and the official Grafana dashboards: queue depth, publish versus deliver rates, unacked counts, memory, file descriptors, alarms and connection churn.",
+   "code": "# rabbitmq.conf\nvm_memory_high_watermark.relative = 0.6\ndisk_free_limit.absolute = 5GB\nconsumer_timeout = 1800000            # 30 min in ms (the default)\n\n# Is an alarm active?\nrabbitmq-diagnostics alarms\n# Node rabbit@rabbit1 reported no alarms, local or clustered\nrabbitmq-diagnostics memory_breakdown --unit mb | head -5\n\n# Cap a queue so publishers get nacks instead of a cluster-wide block\nrabbitmqctl set_policy cap '^tasks$' \\\n  '{\"max-length\":500000,\"overflow\":\"reject-publish\"}' --apply-to queues\n\n# Prometheus metrics\ncurl -s localhost:15692/metrics | grep -m2 rabbitmq_queue_messages_ready",
+   "code_lang": "bash",
+   "takeaways": [
+    "Credit flow throttles fast publishers; alarms block them entirely",
+    "Memory watermark default 0.6; disk_free_limit protects the disk",
+    "Keep queues short and monitor with the Prometheus plugin"
+   ],
+   "pitfalls": [
+    "Publishing and consuming on the same connection; when it's blocked, consumers stall too and the backlog never drains."
+   ],
+   "quiz": [
+    {
+     "q": "A memory alarm fires on one node of a cluster. What is affected?",
+     "options": [
+      "Publishing connections across the whole cluster are blocked",
+      "Only consumers on that node",
+      "All connections are closed",
+      "Only that node's queues"
+     ],
+     "answer": 0,
+     "explain": "Resource alarms are cluster-wide and block publishers so consumers can drain queues."
+    }
+   ],
+   "docs": "https://www.rabbitmq.com/docs/alarms",
+   "requires": [
+    "rabbitmq.clustering",
+    "rabbitmq.durability-confirms"
+   ]
+  },
+  {
+   "id": "rabbitmq.delivery-semantics",
+   "name": "Delivery guarantees, ordering and idempotency",
+   "module": "operate",
+   "level": 4,
+   "minutes": 14,
+   "summary": "What RabbitMQ really guarantees about delivery and ordering, why exactly-once is up to you, and how to design idempotent consumers.",
+   "why": "Distributed messaging always produces duplicates and reordering in some failure; robust systems are designed for it.",
+   "body": "With publisher confirms and manual consumer acks, RabbitMQ provides **at-least-once** delivery. Without confirms, or with auto-ack, it is **at-most-once**. **Exactly-once** delivery doesn't exist across a network: a confirm or an ack can be lost after the work happened, so the message is sent or processed again.\n\nDuplicates arise when a publisher retries after a lost confirm, or when a consumer crashes or times out after doing work but before acking. Make processing **idempotent**:\n\n- Give each message a unique `message_id` set by the producer.\n- Record processed IDs in the same database transaction as the side effect, and skip IDs already seen.\n- Or design operations to be naturally idempotent: \"set status to paid\" instead of \"add 10 to balance\".\n\n**Ordering**: a single queue is FIFO, and with **one consumer** messages are processed in publish order (from a single publisher on one channel). With several consumers, prefetch and requeues, processing order is not guaranteed: a requeued message comes back later than its successors. When order per entity matters, use **single active consumer** (`x-single-active-consumer`) on a queue, or partition by key with the consistent hash exchange or super streams so each partition has one consumer.\n\nThroughput tuning trades against these properties: larger prefetch, batching confirms and multiple consumers increase throughput but widen the window for duplicates and reordering. The **transactional outbox** pattern (write the message to your database first, publish from there) keeps database state and published events consistent.",
+   "code": "import json, sqlite3, pika\n\ndb = sqlite3.connect(\"app.db\")\ndb.execute(\"CREATE TABLE IF NOT EXISTS processed (id TEXT PRIMARY KEY)\")\ndb.execute(\"CREATE TABLE IF NOT EXISTS payments (order_id INT, amount INT)\")\n\ndef on_message(ch, method, props, body):\n    try:\n        with db:                                      # one transaction\n            db.execute(\"INSERT INTO processed VALUES (?)\", (props.message_id,))\n            msg = json.loads(body)\n            db.execute(\"INSERT INTO payments VALUES (?, ?)\", (msg[\"order\"], msg[\"amount\"]))\n    except sqlite3.IntegrityError:\n        print(\"duplicate\", props.message_id, \"skipped\")   # already processed\n    ch.basic_ack(method.delivery_tag)                 # ack after commit (or skip)\n\nconn = pika.BlockingConnection(pika.ConnectionParameters(\"localhost\"))\nch = conn.channel()\nch.queue_declare(\"payments\", durable=True,\n                 arguments={\"x-single-active-consumer\": True})   # strict order\nch.basic_consume(\"payments\", on_message)\nch.start_consuming()\n# producer: properties=pika.BasicProperties(message_id=\"pay-1001\", ...)",
+   "code_lang": "python",
+   "takeaways": [
+    "Confirms + manual acks = at-least-once; exactly-once must be built by you",
+    "Deduplicate by message_id in the same transaction as the side effect",
+    "Order holds per queue with one consumer; use single active consumer or partitioning"
+   ],
+   "pitfalls": [
+    "Assuming messages are processed in order with several competing consumers."
+   ],
+   "quiz": [
+    {
+     "q": "Why can't the broker alone guarantee exactly-once processing?",
+     "options": [
+      "RabbitMQ lacks a feature flag for it",
+      "Streams don't support acks",
+      "Queues are not durable",
+      "An ack or confirm can be lost after the work is done, forcing a resend"
+     ],
+     "answer": 3,
+     "explain": "Lost acknowledgements make the sender unable to distinguish 'not done' from 'done but unconfirmed'."
+    }
+   ],
+   "docs": "https://www.rabbitmq.com/docs/reliability",
+   "requires": [
+    "rabbitmq.flow-control-alarms",
+    "rabbitmq.streams",
+    "python.functions"
+   ]
+  }
+ ]
+}

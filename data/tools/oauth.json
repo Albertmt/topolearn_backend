@@ -1,0 +1,676 @@
+{
+ "tool": {
+  "id": "oauth",
+  "name": "OAuth, OIDC & JWT",
+  "category": "tool",
+  "tagline": "Delegated authorization, single sign-on and signed tokens for web APIs",
+  "description": "OAuth 2.0 lets applications obtain limited access to APIs on a user's behalf without seeing their password; OpenID Connect adds a standard identity layer for login and single sign-on; JSON Web Tokens are the signed token format both commonly use. Together they secure almost every modern web, mobile and machine-to-machine API, so understanding the flows and their pitfalls is essential for backend and frontend engineers alike.",
+  "icon": "OA",
+  "color": "#2F5F8A",
+  "official_docs": "https://oauth.net/2/",
+  "version": "OAuth 2.0 + RFC 9700 security BCP, OIDC Core 1.0, JWT (RFC 7519)",
+  "aliases": [
+   "oauth2",
+   "oidc",
+   "openid connect",
+   "jwt",
+   "json web token"
+  ],
+  "requires": [
+   {
+    "tool": "nodejs",
+    "level": 1
+   },
+   {
+    "tool": "curl",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "foundations",
+   "name": "Foundations"
+  },
+  {
+   "id": "flows",
+   "name": "Grant types and flows"
+  },
+  {
+   "id": "tokens",
+   "name": "Tokens and JWT"
+  },
+  {
+   "id": "oidc",
+   "name": "OpenID Connect"
+  },
+  {
+   "id": "apis",
+   "name": "Protecting APIs and apps"
+  },
+  {
+   "id": "hardening",
+   "name": "Security hardening"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "oauth.why-oauth",
+   "name": "What OAuth solves: roles and delegation",
+   "module": "foundations",
+   "level": 1,
+   "minutes": 10,
+   "summary": "OAuth 2.0 delegates limited API access to an application via tokens, with four roles: resource owner, client, authorization server, resource server.",
+   "why": "Every login with Google button, API integration and mobile app backend builds on this model.",
+   "body": "Before OAuth, an app that wanted your calendar asked for your password and stored it: full access, forever, revocable only by changing the password. **OAuth 2.0** (RFC 6749) replaces that with **delegated authorization**: the app gets an **access token** that grants limited access (**scopes**), for limited time, and can be revoked without touching the password.\n\nThe four roles:\n\n- **Resource owner**: the user who owns the data.\n- **Client**: the application wanting access (web app, SPA, mobile app, CLI, backend service).\n- **Authorization server (AS)**: authenticates the user, asks for consent and issues tokens (Okta, Auth0, Entra ID, Keycloak, Google...).\n- **Resource server (RS)**: the API that accepts access tokens.\n\nThe user only ever types credentials into the authorization server, never into the client.\n\nOAuth is about **authorization** (\"this app may read my calendar\"), not **authentication** (\"this is Ann\"). An access token is meant for the API, and the client should treat it as opaque. Logging users in with plain OAuth led to many vulnerabilities, which is why **OpenID Connect** adds an identity layer on top.\n\nOAuth 2.0 is a framework of many RFCs. The current security guidance is RFC 9700 (OAuth 2.0 Security Best Current Practice, 2025), and the OAuth 2.1 draft consolidates it: authorization code with PKCE for everyone, no implicit or password grants.",
+   "takeaways": [
+    "OAuth delegates limited, revocable access via tokens instead of passwords",
+    "Roles: resource owner, client, authorization server, resource server",
+    "OAuth is authorization; OpenID Connect adds authentication",
+    "RFC 9700 and OAuth 2.1 define today's best practice"
+   ],
+   "pitfalls": [
+    "Treating possession of an OAuth access token as proof of who the user is."
+   ],
+   "quiz": [
+    {
+     "q": "Which component issues access tokens?",
+     "options": [
+      "Resource server",
+      "Client",
+      "Authorization server",
+      "Resource owner"
+     ],
+     "answer": 2,
+     "explain": "The authorization server authenticates the user, records consent and issues tokens."
+    },
+    {
+     "q": "Why is the password grant (client collects the user's password) discouraged?",
+     "options": [
+      "It exposes user credentials to the client and blocks MFA and SSO",
+      "It is slower",
+      "It cannot return refresh tokens",
+      "It needs PKCE"
+     ],
+     "answer": 0,
+     "explain": "The whole point of OAuth is that clients never see user credentials."
+    }
+   ],
+   "docs": "https://oauth.net/2/",
+   "requires": []
+  },
+  {
+   "id": "oauth.jwt-structure",
+   "name": "JWT structure and claims",
+   "module": "tokens",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Read a JSON Web Token: base64url header, payload of registered claims, and a signature that proves integrity, not secrecy.",
+   "why": "JWTs carry identity and access information in nearly every OIDC and API deployment.",
+   "body": "A **JSON Web Token** (RFC 7519) is three base64url-encoded parts joined by dots: `header.payload.signature`.\n\n- The **header** names the signing algorithm and usually a key id: `{\"alg\":\"RS256\",\"kid\":\"2025-10\"}`.\n- The **payload** is a JSON object of **claims**.\n- The **signature** is computed over `header.payload` with a secret (HMAC, `HS256`) or a private key (`RS256`, `ES256`, `EdDSA`).\n\nRegistered claims you will see everywhere:\n\n- `iss` issuer, `sub` subject (stable user or client id), `aud` audience (who the token is for).\n- `exp` expiry, `iat` issued-at, `nbf` not-before, all in **seconds** since the epoch.\n- `jti` unique token id, useful for replay detection and revocation lists.\n\nSigned JWTs (JWS) are **not encrypted**. Anyone holding the token can base64-decode the payload and read it, so never put secrets or sensitive personal data inside. Encrypted JWTs (JWE) exist but are less common.\n\nDecoding is not verifying. A token's contents mean nothing until you have checked the signature with a trusted key and validated `iss`, `aud` and `exp`, covered in a later lesson. For debugging, decode locally rather than pasting production tokens into websites.",
+   "code": "// Decode (NOT verify) a JWT to see what is inside\nconst token =\n  \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.\" +\n  \"eyJzdWIiOiJ1c2VyLTQyIiwiYXVkIjoiYXBpIiwiZXhwIjoxOTAwMDAwMDAwfQ.\" +\n  \"c2lnbmF0dXJl\";\nconst [header, payload] = token.split(\".\").slice(0, 2)\n  .map((part) => JSON.parse(Buffer.from(part, \"base64url\").toString(\"utf8\")));\n\nconsole.log(header);  // { alg: 'HS256', typ: 'JWT' }\nconsole.log(payload); // { sub: 'user-42', aud: 'api', exp: 1900000000 }\nconsole.log(new Date(payload.exp * 1000).toISOString()); // 2030-03-17T17:46:40.000Z\n// Anyone can read this. Only a signature check proves who issued it.",
+   "code_lang": "javascript",
+   "takeaways": [
+    "header.payload.signature, each base64url-encoded",
+    "Key claims: iss, sub, aud, exp, iat, nbf, jti",
+    "Signed is not encrypted: never put secrets in the payload",
+    "Times are in seconds, not milliseconds"
+   ],
+   "pitfalls": [
+    "Comparing `exp` with `Date.now()` (milliseconds) instead of seconds."
+   ],
+   "quiz": [
+    {
+     "q": "What does a valid JWS signature guarantee?",
+     "options": [
+      "The payload is encrypted",
+      "The user is still logged in",
+      "The token has not been used before",
+      "The token was issued by the key holder and not modified"
+     ],
+     "answer": 3,
+     "explain": "A signature proves integrity and origin, nothing about secrecy, session state or replay."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc7519",
+   "requires": []
+  },
+  {
+   "id": "oauth.auth-code-flow",
+   "name": "Authorization code flow",
+   "module": "flows",
+   "level": 1,
+   "minutes": 15,
+   "summary": "Walk through the redirect-based authorization code grant: authorize request, user consent, code callback and token exchange.",
+   "why": "It is the flow almost every interactive app should use.",
+   "body": "The **authorization code grant** is the default flow for any app with a user:\n\n- The client redirects the browser to the AS's **authorization endpoint** with `response_type=code`, its `client_id`, a pre-registered `redirect_uri`, the requested `scope` and a random `state`.\n- The user logs in at the AS and approves the requested access.\n- The AS redirects back to `redirect_uri?code=...&state=...`. The **code** is short-lived (often under a minute) and single-use.\n- The client checks that `state` matches what it stored, then POSTs the code to the **token endpoint** (a back-channel call, not through the browser), authenticating itself if it is a confidential client.\n- The AS returns JSON with an `access_token`, `token_type` (`Bearer`), `expires_in`, often a `refresh_token`, and with OIDC an `id_token`.\n\nWhy the two steps? The front channel (browser redirects) is visible to the user's browser, history and extensions; the token travels only on the direct, authenticated back channel.\n\n`state` protects against CSRF on the callback: an attacker cannot make your app accept their code. Redirect URIs must be registered and matched exactly by the AS, so codes cannot be sent to an attacker's site.\n\nEvery client, including SPAs and mobile apps, should also use **PKCE** with this flow, next lesson.",
+   "code": "# 1. Browser is redirected to the authorization endpoint\nhttps://auth.example.com/authorize?response_type=code\n  &client_id=web-app\n  &redirect_uri=https%3A%2F%2Fapp.example.com%2Fcallback\n  &scope=openid%20profile%20orders.read\n  &state=af0ifjsldkj\n  &code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM\n  &code_challenge_method=S256\n\n# 2. After login/consent the AS redirects back:\n# https://app.example.com/callback?code=SplxlOBeZQQYbYS6WxSbIA&state=af0ifjsldkj\n\n# 3. Back channel: exchange the code for tokens\ncurl -s https://auth.example.com/token \\\n  -u \"web-app:$CLIENT_SECRET\" \\\n  -d grant_type=authorization_code \\\n  -d code=SplxlOBeZQQYbYS6WxSbIA \\\n  -d redirect_uri=https://app.example.com/callback \\\n  -d code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk\n# {\"access_token\":\"...\",\"token_type\":\"Bearer\",\"expires_in\":3600,\"refresh_token\":\"...\"}",
+   "code_lang": "bash",
+   "takeaways": [
+    "Front channel returns a short-lived code; back channel swaps it for tokens",
+    "`state` must round-trip and match to block CSRF",
+    "Redirect URIs are pre-registered and matched exactly",
+    "Use PKCE with every authorization code flow"
+   ],
+   "pitfalls": [
+    "Skipping the `state` check on the callback, allowing login CSRF."
+   ],
+   "quiz": [
+    {
+     "q": "Why are tokens not returned directly in the browser redirect?",
+     "options": [
+      "Redirects cannot carry data",
+      "The front channel is exposed to history, logs and extensions",
+      "Tokens are too long for URLs",
+      "Browsers block JWTs"
+     ],
+     "answer": 1,
+     "explain": "Returning only a short-lived code keeps tokens on the direct back channel."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc6749#section-4.1",
+   "requires": [
+    "oauth.why-oauth",
+    "curl.post-data"
+   ]
+  },
+  {
+   "id": "oauth.pkce",
+   "name": "PKCE",
+   "module": "flows",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Bind the authorization code to the client that started the flow with a code verifier and its S256 challenge.",
+   "why": "PKCE stops stolen authorization codes from being redeemed, and is required for every client today.",
+   "body": "**PKCE** (Proof Key for Code Exchange, RFC 7636, pronounced \"pixy\") protects the authorization code. If an attacker intercepts the code (a malicious app registered for the same custom URL scheme, a leaked log, a proxy), they could otherwise redeem it.\n\nHow it works:\n\n- Before redirecting, the client generates a random **code verifier**: 43 to 128 characters of high entropy.\n- It sends a **code challenge** in the authorize request: `BASE64URL(SHA256(verifier))` with `code_challenge_method=S256`.\n- The AS stores the challenge with the code.\n- At the token endpoint the client sends the original `code_verifier`; the AS hashes it and compares.\n\nA thief who has the code but not the verifier cannot exchange it. The verifier never leaves the client until the back-channel token request.\n\nPKCE was invented for public clients (mobile and single-page apps that cannot keep a secret), but RFC 9700 recommends it for **all** clients, including confidential server-side apps, because it also defends against authorization code injection. Always use `S256`; the `plain` method exists only for constrained legacy clients.\n\nStore the verifier per login attempt (in the session or in memory) next to `state` and the OIDC `nonce`.",
+   "code": "import { randomBytes, createHash } from \"node:crypto\";\n\n// 1. Per login attempt: random verifier (43-128 chars)\nconst verifier = randomBytes(32).toString(\"base64url\");\n// 2. Challenge = BASE64URL(SHA256(verifier))\nconst challenge = createHash(\"sha256\").update(verifier).digest(\"base64url\");\n\nconsole.log(verifier.length);  // 43\nconsole.log(challenge.length); // 43\n// authorize URL gets: code_challenge=<challenge>&code_challenge_method=S256\n// token request gets: code_verifier=<verifier>\n\n// RFC 7636 test vector:\nconst v = \"dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk\";\nconsole.log(createHash(\"sha256\").update(v).digest(\"base64url\"));\n// E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Challenge = BASE64URL(SHA256(verifier)), method S256",
+    "A stolen code is useless without the verifier",
+    "Use PKCE for every client, public or confidential"
+   ],
+   "pitfalls": [
+    "Reusing one verifier across logins or storing it where other sites can read it."
+   ],
+   "quiz": [
+    {
+     "q": "What does the client send at the token endpoint to prove it started the flow?",
+     "options": [
+      "The code challenge",
+      "The client secret only",
+      "The code verifier",
+      "The state parameter"
+     ],
+     "answer": 2,
+     "explain": "The AS hashes the verifier and compares it with the challenge stored with the code."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc7636",
+   "requires": [
+    "oauth.auth-code-flow"
+   ]
+  },
+  {
+   "id": "oauth.access-refresh-tokens",
+   "name": "Access tokens, refresh tokens and scopes",
+   "module": "tokens",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Use short-lived bearer access tokens with scopes on API calls, and refresh tokens to get new ones without bothering the user.",
+   "why": "Token lifetimes and scopes are the main levers for limiting damage when something leaks.",
+   "body": "An **access token** is presented to the API in the `Authorization: Bearer <token>` header. It is a **bearer** token: whoever holds it can use it, like cash. Hence:\n\n- Keep access tokens **short-lived** (minutes to an hour; `expires_in` tells you).\n- Send them only over TLS, never in URLs.\n- Request the minimum **scopes** (`orders.read`, not `admin`). Scopes are strings defined by the API; the AS may grant fewer than requested, and the token response's `scope` field says what you got.\n\nAccess tokens come in two formats. **JWT access tokens** (profile in RFC 9068) can be validated by the API locally. **Opaque tokens** are random strings that the API checks with the AS through **introspection** (RFC 7662). Clients should treat both as opaque and never parse them: the format is a contract between AS and API.\n\nA **refresh token** is a long-lived credential sent only to the AS's token endpoint (`grant_type=refresh_token`) to obtain a new access token. It lets apps keep working without re-prompting the user, while API-facing tokens stay short-lived.\n\nRefresh tokens are high-value: store them server-side or in secure OS storage, and expect the AS to rotate them on each use. The `offline_access` scope (in OIDC) asks for one explicitly.",
+   "code": "# Call an API with a bearer access token\ncurl -s https://api.example.com/orders \\\n  -H \"Authorization: Bearer $ACCESS_TOKEN\"\n# 401 + WWW-Authenticate: Bearer error=\"invalid_token\" when it has expired\n\n# Refresh it (confidential client authenticates with its secret)\ncurl -s https://auth.example.com/token \\\n  -u \"web-app:$CLIENT_SECRET\" \\\n  -d grant_type=refresh_token \\\n  -d refresh_token=\"$REFRESH_TOKEN\"\n# {\"access_token\":\"<new>\",\"token_type\":\"Bearer\",\"expires_in\":900,\n#  \"refresh_token\":\"<rotated>\",\"scope\":\"orders.read\"}",
+   "code_lang": "bash",
+   "takeaways": [
+    "Bearer tokens work for whoever holds them: short lifetimes, TLS only",
+    "Request the minimum scopes; check the granted `scope`",
+    "Clients treat access tokens as opaque",
+    "Refresh tokens go only to the token endpoint"
+   ],
+   "pitfalls": [
+    "Putting access tokens in query strings, where they end up in logs and Referer headers."
+   ],
+   "quiz": [
+    {
+     "q": "Which party should parse and validate the contents of an access token?",
+     "options": [
+      "The client",
+      "The browser",
+      "Nobody",
+      "The resource server (API)"
+     ],
+     "answer": 3,
+     "explain": "Access tokens are meant for the API; clients must treat them as opaque."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc6750",
+   "requires": [
+    "oauth.auth-code-flow",
+    "curl.json-apis"
+   ]
+  },
+  {
+   "id": "oauth.oidc-basics",
+   "name": "OpenID Connect: ID tokens and login",
+   "module": "oidc",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Add the openid scope to get an ID token that tells the client who logged in, plus the userinfo endpoint for profile data.",
+   "why": "OIDC is the standard behind 'Sign in with...' and enterprise single sign-on.",
+   "body": "**OpenID Connect (OIDC)** is a thin identity layer on top of OAuth 2.0. Add `scope=openid` to an authorization code request and the token response also contains an **ID token**: a signed JWT, addressed to the **client**, stating who the user is and how they authenticated.\n\nImportant ID token claims:\n\n- `iss` (the provider), `sub` (stable, unique user id within that issuer), `aud` (your `client_id`).\n- `exp`, `iat`, and `auth_time` (when the user actually authenticated).\n- `nonce`: the random value your client sent in the authorize request; it must match, to stop replayed ID tokens.\n- Optional profile claims like `email`, `email_verified`, `name`, depending on scopes (`profile`, `email`).\n\nIdentify users by the pair **(`iss`, `sub`)**, never by email: emails change and can be reused, and some providers do not verify them.\n\nThe **userinfo endpoint** returns profile claims when called with the access token. Providers publish everything else (endpoints, supported algorithms, signing keys) in a **discovery document** at `/.well-known/openid-configuration`.\n\nKeep the token roles straight: the **ID token** is for the client to establish a login session and is never sent to APIs; the **access token** is for APIs. After validating the ID token, most web apps create their own session cookie and discard the ID token (keeping it only as `id_token_hint` for logout).",
+   "code": "// Decoded ID token payload (after signature validation!)\nconst idToken = {\n  iss: \"https://accounts.example.com\",\n  sub: \"248289761001\",           // stable user id at this issuer\n  aud: \"web-app\",                // must equal our client_id\n  nonce: \"n-0S6_WzA2Mj\",         // must equal the nonce we sent\n  iat: 1760000000,\n  exp: 1760003600,\n  auth_time: 1759999990,\n  email: \"ann@example.com\",\n  email_verified: true,\n};\n\nfunction userKey(t, expected) {\n  if (t.iss !== expected.iss || t.aud !== expected.clientId) throw new Error(\"wrong issuer/audience\");\n  if (t.nonce !== expected.nonce) throw new Error(\"nonce mismatch\");\n  return `${t.iss}|${t.sub}`;    // identify users by (iss, sub)\n}\nconsole.log(userKey(idToken, { iss: \"https://accounts.example.com\", clientId: \"web-app\", nonce: \"n-0S6_WzA2Mj\" }));\n// https://accounts.example.com|248289761001",
+   "code_lang": "javascript",
+   "takeaways": [
+    "`scope=openid` adds a signed ID token for the client",
+    "Identify users by (iss, sub), not by email",
+    "Check `aud` = your client_id and `nonce` = what you sent",
+    "ID token for the client, access token for APIs"
+   ],
+   "pitfalls": [
+    "Sending the ID token to your API as if it were an access token."
+   ],
+   "quiz": [
+    {
+     "q": "Which value should be your database key for an OIDC user?",
+     "options": [
+      "The (iss, sub) pair",
+      "email",
+      "The access token",
+      "name"
+     ],
+     "answer": 0,
+     "explain": "`sub` is unique and stable only within its issuer, so combine it with `iss`."
+    }
+   ],
+   "docs": "https://openid.net/specs/openid-connect-core-1_0.html#IDToken",
+   "requires": [
+    "oauth.auth-code-flow",
+    "oauth.jwt-structure"
+   ]
+  },
+  {
+   "id": "oauth.client-credentials",
+   "name": "Client credentials for services",
+   "module": "flows",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Let a backend service get its own access token with the client credentials grant, with no user involved.",
+   "why": "Machine-to-machine calls between services, jobs and partners use this grant.",
+   "body": "When no user is involved (a nightly job calling a billing API, one microservice calling another), the client acts on its **own** behalf. The **client credentials grant** is a single back-channel request:\n\n`POST /token` with `grant_type=client_credentials`, the requested `scope`, and the client's authentication.\n\nThere is no refresh token: when the access token expires, the service simply requests a new one. Cache it until shortly before `expires_in` runs out instead of fetching per request; many authorization servers rate-limit the token endpoint.\n\nHow the client authenticates matters:\n\n- `client_secret_basic` (HTTP Basic with id and secret) or `client_secret_post` are simple but rely on a shared secret. Keep it in a secret manager, inject it as an environment variable, and rotate it.\n- `private_key_jwt`: the client signs a short-lived JWT assertion with its private key; the AS knows only the public key. No shared secret to leak.\n- **mTLS client authentication** (RFC 8705) uses a client certificate.\n- In clouds and Kubernetes, **workload identity federation** lets services exchange platform-issued tokens instead of holding any long-lived secret.\n\nThe resulting token's `sub` is the client itself, so APIs authorize based on the client's scopes or roles rather than a user.",
+   "code": "// Fetch and cache a client-credentials token (Node 22+, global fetch)\nlet cached = { token: null, expiresAt: 0 };\n\nasync function getServiceToken() {\n  if (cached.token && Date.now() < cached.expiresAt - 60_000) return cached.token;\n  const res = await fetch(\"https://auth.example.com/oauth/token\", {\n    method: \"POST\",\n    headers: {\n      Authorization: \"Basic \" + Buffer.from(\n        `${process.env.CLIENT_ID}:${process.env.CLIENT_SECRET}`).toString(\"base64\"),\n    },\n    body: new URLSearchParams({ grant_type: \"client_credentials\", scope: \"invoices.read\" }),\n  });\n  if (!res.ok) throw new Error(`token endpoint: ${res.status}`);\n  const { access_token, expires_in } = await res.json();\n  cached = { token: access_token, expiresAt: Date.now() + expires_in * 1000 };\n  return access_token;\n}\n// await fetch(url, { headers: { Authorization: `Bearer ${await getServiceToken()}` } })",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Client credentials = the service acting as itself, no user",
+    "No refresh token: cache the access token until near expiry",
+    "Prefer private_key_jwt, mTLS or workload identity over shared secrets"
+   ],
+   "pitfalls": [
+    "Requesting a new token on every API call and hitting token endpoint rate limits."
+   ],
+   "quiz": [
+    {
+     "q": "Why does the client credentials grant not return a refresh token?",
+     "options": [
+      "Refresh tokens are deprecated",
+      "The client can simply request a new token with its own credentials",
+      "Service tokens never expire",
+      "It uses PKCE instead"
+     ],
+     "answer": 1,
+     "explain": "There is no user to re-prompt, so the client just repeats the grant."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc6749#section-4.4",
+   "requires": [
+    "oauth.access-refresh-tokens",
+    "nodejs.environment-variables"
+   ]
+  },
+  {
+   "id": "oauth.validating-jwts",
+   "name": "Validating JWTs with JWKS",
+   "module": "tokens",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Verify JWT signatures against the issuer's JWKS, pin the algorithm, and check iss, aud, exp and typ before trusting any claim.",
+   "why": "Every API that accepts JWT access tokens must validate them correctly; mistakes here are critical vulnerabilities.",
+   "body": "To trust a JWT, a resource server must do all of these, ideally with a well-maintained library such as `jose` (Node), PyJWT, or the framework's built-in middleware:\n\n- **Fetch the issuer's public keys** from its **JWKS** endpoint (`jwks_uri` in the discovery document), cache them, and pick the key matching the token's `kid`. Refetch on an unknown `kid` (keys rotate), with rate limiting.\n- **Pin the algorithms** you accept (e.g. only `RS256` or `ES256`). Never let the token's header decide.\n- Verify the **signature**.\n- Check `iss` equals the expected issuer exactly, and `aud` contains your API's identifier. Without the audience check, a token issued for another API from the same AS would work against yours.\n- Check `exp` and `nbf` with a small clock skew allowance (30 to 60 seconds).\n- For access tokens, check `typ` is `at+jwt` (RFC 9068) when the AS sets it, so ID tokens cannot be replayed as access tokens.\n\nOnly after all checks pass, read `sub`, `scope` and other claims. Reject with `401` and a `WWW-Authenticate: Bearer error=\"invalid_token\"` header when validation fails.\n\nLocal JWT validation is fast but cannot see revocation until the token expires; that is the reason access tokens are short-lived. If you need immediate revocation, use opaque tokens with introspection.",
+   "code": "import { generateKeyPair, exportJWK, SignJWT, jwtVerify, createLocalJWKSet } from \"jose\";\n\n// Simulate the authorization server: a key pair and its JWKS\nconst { publicKey, privateKey } = await generateKeyPair(\"ES256\");\nconst jwks = { keys: [{ ...(await exportJWK(publicKey)), kid: \"k1\", alg: \"ES256\" }] };\nconst token = await new SignJWT({ scope: \"orders.read\" })\n  .setProtectedHeader({ alg: \"ES256\", kid: \"k1\", typ: \"at+jwt\" })\n  .setIssuer(\"https://auth.example.com\").setAudience(\"https://api.example.com\")\n  .setSubject(\"user-42\").setIssuedAt().setExpirationTime(\"15m\").sign(privateKey);\n\n// The API: in production use createRemoteJWKSet(new URL(jwks_uri))\nconst JWKS = createLocalJWKSet(jwks);\nconst { payload } = await jwtVerify(token, JWKS, {\n  issuer: \"https://auth.example.com\",\n  audience: \"https://api.example.com\",\n  algorithms: [\"ES256\"],\n  typ: \"at+jwt\",\n  clockTolerance: 30,\n});\nconsole.log(payload.sub, payload.scope); // user-42 orders.read",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Get keys from the issuer's JWKS by `kid`; handle rotation",
+    "Pin accepted algorithms; never trust the header's `alg`",
+    "Always check iss, aud, exp (and typ for access tokens)",
+    "JWTs stay valid until exp: keep them short-lived"
+   ],
+   "pitfalls": [
+    "Skipping the audience check, so tokens minted for another API are accepted by yours."
+   ],
+   "quiz": [
+    {
+     "q": "A valid token from your AS was issued for `aud: billing-api`. Your orders API accepts it. What check is missing?",
+     "options": [
+      "Signature",
+      "Expiry",
+      "Audience",
+      "Algorithm"
+     ],
+     "answer": 2,
+     "explain": "The audience check ensures a token is meant for this specific API."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc9068",
+   "requires": [
+    "oauth.jwt-structure",
+    "oauth.access-refresh-tokens"
+   ]
+  },
+  {
+   "id": "oauth.protecting-apis",
+   "name": "Protecting an API: scopes and claims",
+   "module": "apis",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Turn validated tokens into authorization decisions with scopes, roles and resource ownership checks in API middleware.",
+   "why": "A valid token only says who is calling; your API still has to decide what they may do.",
+   "body": "After validation, the API holds trustworthy claims. Authorization happens in layers:\n\n- **Authentication middleware** validates the token once per request and attaches the principal (`sub`, client id, scopes, roles) to the request context.\n- **Coarse checks per route**: does the token carry the scope this operation needs? `GET /orders` needs `orders.read`, `POST /orders` needs `orders.write`. Return **403** with `error=\"insufficient_scope\"` when the token is valid but lacks a scope, and **401** when the token is missing or invalid.\n- **Fine-grained checks per resource**: scopes say what the *client* may do on the user's behalf, not what the *user* may do. The API must still check that order 123 belongs to `sub` or that the user's role allows the action. Skipping this produces broken object-level authorization (the top API vulnerability in the OWASP API Security Top 10).\n\nPractical guidance:\n\n- Keep scopes coarse and stable; model detailed permissions in your own database or a policy engine, not as hundreds of scopes.\n- Distinguish user tokens from service tokens (client credentials have no user `sub` in the usual sense).\n- Log the `sub`, client id and decision for audits, never the token itself.",
+   "code": "// Express-style middleware (framework-agnostic idea)\nfunction requireScope(scope) {\n  return (req, res, next) => {\n    const granted = (req.auth?.scope ?? \"\").split(\" \");\n    if (!req.auth) return res.status(401).set(\"WWW-Authenticate\", 'Bearer').end();\n    if (!granted.includes(scope)) {\n      return res.status(403)\n        .set(\"WWW-Authenticate\", `Bearer error=\"insufficient_scope\", scope=\"${scope}\"`).end();\n    }\n    next();\n  };\n}\n\n// Route: scope check AND ownership check\n// app.get(\"/orders/:id\", requireScope(\"orders.read\"), async (req, res) => {\n//   const order = await db.orders.find(req.params.id);\n//   if (!order || order.ownerSub !== req.auth.sub) return res.status(404).end();\n//   res.json(order);\n// });\nconsole.log(typeof requireScope(\"orders.read\")); // function",
+   "code_lang": "javascript",
+   "takeaways": [
+    "401 = no or invalid token; 403 = valid token, not allowed",
+    "Scopes limit the client; resource checks limit the user",
+    "Always verify the caller owns or may access the specific object"
+   ],
+   "pitfalls": [
+    "Trusting scopes alone and letting any user with `orders.read` read everyone's orders."
+   ],
+   "quiz": [
+    {
+     "q": "A token is valid but lacks the `orders.write` scope. Which status should the API return?",
+     "options": [
+      "403",
+      "401",
+      "404",
+      "500"
+     ],
+     "answer": 0,
+     "explain": "The caller is authenticated but not permitted: 403 with insufficient_scope."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc6750#section-3.1",
+   "requires": [
+    "oauth.validating-jwts"
+   ]
+  },
+  {
+   "id": "oauth.browser-and-mobile-clients",
+   "name": "SPAs, mobile apps and the BFF pattern",
+   "module": "apis",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Choose where tokens live for public clients: native apps with system browsers, and SPAs via a backend-for-frontend.",
+   "why": "Most token theft happens in browsers; the client architecture decides how exposed tokens are.",
+   "body": "**Confidential clients** (server-side apps) can keep a secret. **Public clients** (SPAs, mobile and desktop apps) cannot: anything shipped to a device can be extracted. Both use the authorization code flow with PKCE, but token handling differs.\n\n**Native apps** (RFC 8252): open the login page in the **system browser** or an in-app browser tab (ASWebAuthenticationSession, Custom Tabs), never an embedded WebView that could read the password. Receive the redirect via claimed HTTPS links (Universal/App Links) or a private-use URI scheme, and store refresh tokens in the Keychain or Keystore.\n\n**Single-page apps** are the hardest case. Any token readable by JavaScript can be stolen by an XSS bug or a compromised dependency. Options, from most to least secure:\n\n- **Backend for frontend (BFF)**: a small server-side component performs the OAuth flow as a confidential client, keeps tokens server-side, and gives the browser an `HttpOnly`, `Secure`, `SameSite` session cookie. API calls go through the BFF. This is the current recommendation for sensitive apps.\n- **Token-mediating backend**: the backend gets tokens and hands short-lived access tokens to the SPA.\n- **Browser-only**: tokens in memory (not `localStorage`), refresh token rotation, strict CSP, and DPoP if available.\n\nThe implicit grant (tokens in the URL fragment) is deprecated; do not use it.",
+   "code": "Browser                     BFF (same site)                 Auth server / API\n-------                     ---------------                 -----------------\nGET /login        ------->  build authorize URL + PKCE\n                  <-------  302 to auth server\nlogin + consent   ---------------------------------------->  /authorize\ncallback ?code=   ------->  POST /token (client secret +      /token\n                            code_verifier)          ------->\n                  <-------  Set-Cookie: sid=...; HttpOnly;\n                            Secure; SameSite=Strict\nfetch /api/orders ------->  look up tokens for sid,\n  (cookie only)             add Authorization: Bearer ---->  API\n                  <-------  JSON                      <----\n\nTokens never reach JavaScript in the browser.",
+   "code_lang": "text",
+   "takeaways": [
+    "Public clients cannot keep secrets; use code flow + PKCE",
+    "Native apps: system browser, never embedded WebViews",
+    "SPAs: a BFF keeps tokens server-side behind an HttpOnly cookie",
+    "The implicit grant is deprecated"
+   ],
+   "pitfalls": [
+    "Storing refresh tokens in localStorage, where any XSS can read them."
+   ],
+   "quiz": [
+    {
+     "q": "Why is a backend-for-frontend safer for an SPA than storing tokens in the browser?",
+     "options": [
+      "It is faster",
+      "It removes the need for TLS",
+      "It avoids CORS entirely",
+      "Tokens never become readable by JavaScript, so XSS cannot steal them"
+     ],
+     "answer": 3,
+     "explain": "With a BFF the browser holds only an HttpOnly session cookie."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc8252",
+   "requires": [
+    "oauth.pkce",
+    "oauth.access-refresh-tokens"
+   ]
+  },
+  {
+   "id": "oauth.refresh-rotation-revocation",
+   "name": "Rotation, revocation and introspection",
+   "module": "tokens",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Rotate refresh tokens with reuse detection, revoke tokens at logout, and introspect opaque tokens when you need live status.",
+   "why": "Long-lived credentials need a way to be killed quickly when something goes wrong.",
+   "body": "**Refresh token rotation**: each time a refresh token is used, the AS issues a new one and invalidates the old. If an old refresh token is ever presented again, someone has a copy, so the AS revokes the whole token family and forces re-login. RFC 9700 requires public clients' refresh tokens to be either rotated or sender-constrained.\n\nHandle rotation carefully in clients: two tabs or parallel requests refreshing at once can trip reuse detection. Serialize refreshes (one in-flight refresh promise) and many ASes allow a short grace period.\n\n**Revocation** (RFC 7009): `POST /revoke` with `token=...` and `token_type_hint=refresh_token`. Call it on logout. Revoking a refresh token usually also revokes the access tokens derived from it, but self-contained JWT access tokens remain usable by APIs until `exp`, which is why access tokens should live minutes, not days.\n\n**Introspection** (RFC 7662): the API POSTs a token to the AS's introspection endpoint and gets `{\"active\": true, \"sub\": ..., \"scope\": ..., \"exp\": ...}`. It gives live revocation status at the cost of a network call per request (cache results for a few seconds). Use it with opaque tokens or for high-risk operations.\n\nOther kill switches: short session lifetimes at the AS, step-up authentication for sensitive actions, and the Shared Signals framework (CAEP) for real-time session revocation events.",
+   "code": "# Revoke a refresh token at logout (RFC 7009)\ncurl -s https://auth.example.com/oauth/revoke \\\n  -u \"web-app:$CLIENT_SECRET\" \\\n  -d token=\"$REFRESH_TOKEN\" \\\n  -d token_type_hint=refresh_token\n# HTTP 200 (also for tokens that were already invalid)\n\n# Introspect an opaque access token from the API (RFC 7662)\ncurl -s https://auth.example.com/oauth/introspect \\\n  -u \"orders-api:$API_SECRET\" \\\n  -d token=\"$ACCESS_TOKEN\"\n# {\"active\":true,\"sub\":\"user-42\",\"client_id\":\"web-app\",\n#  \"scope\":\"orders.read\",\"exp\":1760003600}\n# revoked or expired -> {\"active\":false}",
+   "code_lang": "bash",
+   "takeaways": [
+    "Rotation + reuse detection turns a stolen refresh token into a forced logout",
+    "Revoke refresh tokens at logout; JWT access tokens live until exp",
+    "Introspection gives live status for opaque tokens"
+   ],
+   "pitfalls": [
+    "Parallel refresh calls in a client triggering reuse detection and logging the user out."
+   ],
+   "quiz": [
+    {
+     "q": "An old, already-rotated refresh token is presented to the AS. What should a rotating AS do?",
+     "options": [
+      "Accept it once",
+      "Treat it as theft and revoke the token family",
+      "Return a new access token only",
+      "Ignore it silently"
+     ],
+     "answer": 1,
+     "explain": "Reuse means two parties hold the token, so the safe response is revoking the whole family."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc7009",
+   "requires": [
+    "oauth.access-refresh-tokens",
+    "oauth.browser-and-mobile-clients"
+   ]
+  },
+  {
+   "id": "oauth.oidc-discovery-sessions",
+   "name": "OIDC discovery, nonce and logout",
+   "module": "oidc",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Configure clients from the discovery document, validate ID tokens fully, and implement RP-initiated and back-channel logout.",
+   "why": "Real SSO integrations need correct session handling, not just a successful login.",
+   "body": "**Discovery**: `GET {issuer}/.well-known/openid-configuration` returns JSON with `authorization_endpoint`, `token_endpoint`, `userinfo_endpoint`, `jwks_uri`, `end_session_endpoint`, and supported scopes, response types and algorithms. Configure clients from it rather than hard-coding URLs, and check that its `issuer` exactly equals the issuer you expect.\n\n**ID token validation** in full: signature via `jwks_uri`, `iss` exact match, `aud` contains your client id (and `azp` if several audiences), `exp`/`iat` sane, `nonce` matches the value stored for this login attempt. Use `auth_time` and the `max_age` request parameter when you need recent authentication; `prompt=login` forces re-authentication and `prompt=none` checks for an existing session silently.\n\n**Logout** in SSO is about several sessions: your app's session, the provider's session, and other apps' sessions.\n\n- **RP-initiated logout**: clear your session, then redirect to `end_session_endpoint` with `id_token_hint` and `post_logout_redirect_uri`.\n- **Back-channel logout**: the provider POSTs a signed **logout token** to your registered endpoint when the user logs out elsewhere; validate it and destroy the matching session (by `sid` or `sub`).\n- Front-channel logout uses hidden iframes and is increasingly broken by third-party cookie blocking.\n\nStore `state`, `nonce` and the PKCE verifier together per login attempt so parallel logins in multiple tabs do not overwrite each other.",
+   "code": "// Configure a client from discovery (Node 22+)\nconst issuer = \"https://accounts.google.com\";\nconst config = await (await fetch(`${issuer}/.well-known/openid-configuration`)).json();\nif (config.issuer !== issuer) throw new Error(\"issuer mismatch\");\n\nconsole.log(config.authorization_endpoint); // https://accounts.google.com/o/oauth2/v2/auth\nconsole.log(config.jwks_uri);               // https://www.googleapis.com/oauth2/v3/certs\nconsole.log(config.code_challenge_methods_supported); // [ 'plain', 'S256' ]\n\n// RP-initiated logout URL (when the provider supports end_session_endpoint)\nfunction logoutUrl(cfg, idToken) {\n  const u = new URL(cfg.end_session_endpoint);\n  u.searchParams.set(\"id_token_hint\", idToken);\n  u.searchParams.set(\"post_logout_redirect_uri\", \"https://app.example.com/bye\");\n  return u.toString();\n}",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Discovery gives endpoints and jwks_uri; verify its `issuer`",
+    "Validate nonce, aud/azp, iss and times on every ID token",
+    "Logout spans app and provider sessions: RP-initiated and back-channel",
+    "Keep state, nonce and verifier per login attempt"
+   ],
+   "pitfalls": [
+    "Clearing only the local session, so the next 'Log in' silently signs the user back in via the provider session."
+   ],
+   "quiz": [
+    {
+     "q": "After your app clears its own session, clicking Login immediately logs the user back in without a password. Why?",
+     "options": [
+      "The ID token was cached",
+      "PKCE was skipped",
+      "The provider's SSO session is still active",
+      "The refresh token was revoked"
+     ],
+     "answer": 2,
+     "explain": "Ending only the local session leaves the identity provider session alive."
+    }
+   ],
+   "docs": "https://openid.net/specs/openid-connect-discovery-1_0.html",
+   "requires": [
+    "oauth.oidc-basics",
+    "nodejs.fetch-and-http-clients"
+   ]
+  },
+  {
+   "id": "oauth.device-and-token-exchange",
+   "name": "Device flow and token exchange",
+   "module": "flows",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Log in on TVs and CLIs with the device authorization grant, and swap tokens between services with token exchange.",
+   "why": "Input-constrained devices and service chains need flows beyond the redirect-based one.",
+   "body": "**Device authorization grant** (RFC 8628) serves devices without a usable browser or keyboard: smart TVs, CLIs, IoT devices.\n\n- The device POSTs to the **device authorization endpoint** and gets a `device_code`, a short `user_code`, a `verification_uri` (often also `verification_uri_complete` for QR codes) and a polling `interval`.\n- It shows \"Visit example.com/device and enter WDJB-MJHT\".\n- The user completes login and consent on their phone or laptop.\n- Meanwhile the device polls the token endpoint with `grant_type=urn:ietf:params:oauth:grant-type:device_code`, receiving `authorization_pending` until the user finishes, and `slow_down` if it polls too fast.\n\n`gh auth login`, `az login --use-device-code` and many streaming apps use it. It is phishable (attackers can send victims a code to approve), so show the client name clearly on the approval screen and keep codes short-lived.\n\n**Token exchange** (RFC 8693) lets a service trade one token for another: `grant_type=urn:ietf:params:oauth:grant-type:token-exchange` with a `subject_token`. Uses include:\n\n- Down-scoping a user's token for a specific downstream API (new `audience`), instead of forwarding the original broad token.\n- Delegation chains where the new token records the acting service in an `act` claim.\n- Workload identity federation: exchanging a Kubernetes or GitHub Actions OIDC token for a cloud access token.",
+   "code": "# 1. Device asks for codes\ncurl -s https://auth.example.com/oauth/device/code \\\n  -d client_id=tv-app -d scope=\"openid profile\"\n# {\"device_code\":\"GmRhm...\",\"user_code\":\"WDJB-MJHT\",\n#  \"verification_uri\":\"https://example.com/device\",\"expires_in\":900,\"interval\":5}\n\n# 2. Poll every `interval` seconds until the user approves\ncurl -s https://auth.example.com/oauth/token \\\n  -d grant_type=urn:ietf:params:oauth:grant-type:device_code \\\n  -d device_code=GmRhm... -d client_id=tv-app\n# {\"error\":\"authorization_pending\"}  ...later...  {\"access_token\":\"...\", ...}\n\n# Token exchange: get a narrower token for a downstream API\ncurl -s https://auth.example.com/oauth/token -u \"orders-api:$SECRET\" \\\n  -d grant_type=urn:ietf:params:oauth:grant-type:token-exchange \\\n  -d subject_token=\"$USER_ACCESS_TOKEN\" \\\n  -d subject_token_type=urn:ietf:params:oauth:token-type:access_token \\\n  -d audience=https://inventory.example.com",
+   "code_lang": "bash",
+   "takeaways": [
+    "Device flow: show a user code, the user approves elsewhere, the device polls",
+    "Honour `interval` and `slow_down` when polling",
+    "Token exchange swaps a token for one with a narrower audience or delegation"
+   ],
+   "pitfalls": [
+    "Forwarding a user's broad access token to every downstream service instead of exchanging it."
+   ],
+   "quiz": [
+    {
+     "q": "What does a device receive from the token endpoint while the user has not yet approved?",
+     "options": [
+      "An empty access token",
+      "A redirect",
+      "`invalid_grant`",
+      "`authorization_pending`"
+     ],
+     "answer": 3,
+     "explain": "It keeps polling at the given interval until approval, denial or expiry."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc8628",
+   "requires": [
+    "oauth.client-credentials"
+   ]
+  },
+  {
+   "id": "oauth.jwt-attacks",
+   "name": "JWT attacks and hardening",
+   "module": "hardening",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Recognize alg=none, algorithm confusion, kid and jku injection, and cross-JWT confusion, and apply the JWT best practices (RFC 8725).",
+   "why": "Many real breaches came from libraries or code that trusted attacker-controlled JWT headers.",
+   "body": "A JWT header is attacker-controlled input. The classic attacks all exploit code that lets the header decide how to verify:\n\n- **`alg: none`**: an unsigned token accepted by a library that honours the header. Never accept `none`.\n- **Algorithm confusion**: a server expects `RS256` but the attacker sends `HS256`, and a naive library uses the RSA **public** key bytes as the HMAC secret. Since the public key is public, the attacker can sign anything. Fix: bind each key to one algorithm and pin allowed algorithms.\n- **`kid` injection**: using `kid` in a file path or SQL query to load the key. Treat `kid` only as a lookup key into your own key set.\n- **`jku` / `x5u` / embedded `jwk` headers**: fetching keys from a URL the token itself names lets attackers supply their own keys. Ignore these unless restricted to an allow-list.\n- **Cross-JWT confusion**: using a token of one kind as another, e.g. an ID token as an access token, or a token for service A at service B. Check `typ`, `aud` and `iss`.\n- **Weak HMAC secrets** can be brute-forced offline from a single token; use at least 256 random bits, or asymmetric keys.\n\nRFC 8725 (JWT BCP) summarizes the defences: pin algorithms, validate all relevant claims, use explicit typing (`typ`), and use different keys for different token kinds. Prefer asymmetric signatures when many services verify, so only the issuer can mint tokens.",
+   "code": "import { SignJWT, jwtVerify, generateSecret, UnsecuredJWT } from \"jose\";\n\nconst secret = await generateSecret(\"HS256\");\nconst opts = { algorithms: [\"HS256\"], issuer: \"auth\", audience: \"api\" };\n\n// alg=none token: jose rejects it because 'none' is not an allowed algorithm\nconst unsigned = new UnsecuredJWT({ sub: \"admin\" }).setIssuer(\"auth\").setAudience(\"api\").encode();\nawait jwtVerify(unsigned, secret, opts).catch((e) => console.log(e.code));\n// ERR_JOSE_ALG_NOT_ALLOWED\n\n// right key, wrong audience (token for another service)\nconst other = await new SignJWT({ sub: \"u1\" }).setProtectedHeader({ alg: \"HS256\" })\n  .setIssuer(\"auth\").setAudience(\"billing\").setExpirationTime(\"5m\").sign(secret);\nawait jwtVerify(other, secret, opts).catch((e) => console.log(e.code, e.claim));\n// ERR_JWT_CLAIM_VALIDATION_FAILED aud",
+   "code_lang": "javascript",
+   "takeaways": [
+    "The header is attacker input: pin algorithms, never trust `alg`",
+    "Bind each key to one algorithm to stop RS/HS confusion",
+    "Ignore jku/x5u/jwk headers; look `kid` up in your own key set",
+    "Use `typ` and `aud` to prevent cross-JWT confusion"
+   ],
+   "pitfalls": [
+    "Writing your own JWT verification instead of using a maintained library with algorithm pinning."
+   ],
+   "quiz": [
+    {
+     "q": "In an algorithm confusion attack, what does the attacker use as the HMAC secret?",
+     "options": [
+      "The server's RSA public key",
+      "A brute-forced password",
+      "The `kid` value",
+      "An empty string"
+     ],
+     "answer": 0,
+     "explain": "A library that lets the header switch to HS256 may verify with the public key as the HMAC secret."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc8725",
+   "requires": [
+    "oauth.validating-jwts"
+   ]
+  },
+  {
+   "id": "oauth.sender-constrained-tokens",
+   "name": "Sender-constrained tokens: DPoP and mTLS",
+   "module": "hardening",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Bind access and refresh tokens to a client key with DPoP proofs or mutual TLS so stolen tokens are useless.",
+   "why": "Bearer tokens are only as safe as every place they pass through; binding them closes that gap.",
+   "body": "A bearer token works for anyone holding it. **Sender-constrained** tokens additionally require proof of possession of a private key that never leaves the client.\n\n**DPoP** (RFC 9449, Demonstrating Proof of Possession) works at the application layer:\n\n- The client generates a key pair (in the browser via WebCrypto with a non-extractable key, or in secure storage on mobile).\n- On each token request and API call it sends a `DPoP` header: a fresh JWT with `typ: dpop+jwt`, its public key in the `jwk` header, and claims `htm` (HTTP method), `htu` (URL), `iat`, a unique `jti`, and for API calls `ath` (hash of the access token).\n- The AS binds the token to the key's thumbprint (`cnf.jkt` claim) and uses `token_type: DPoP`; APIs require `Authorization: DPoP <token>` plus a valid proof that matches the method, URL and key.\n- Servers may demand a `nonce` (via `DPoP-Nonce`) to limit pre-generated proofs, and must reject replayed `jti` values within the acceptance window.\n\n**mTLS-bound tokens** (RFC 8705) bind the token to the client's TLS certificate (`cnf.x5t#S256`). Strong and transparent for server-to-server traffic, impractical in browsers.\n\nBinding defends against token leakage through logs, proxies, compromised APIs and stolen storage. It does not stop an attacker who can run code inside the client (XSS can still make requests), so it complements, not replaces, the earlier defences. FAPI 2.0 security profiles require sender-constrained tokens.",
+   "code": "import { generateKeyPair, exportJWK, SignJWT, calculateJwkThumbprint } from \"jose\";\nimport { createHash, randomUUID } from \"node:crypto\";\n\nconst { publicKey, privateKey } = await generateKeyPair(\"ES256\");\nconst jwk = await exportJWK(publicKey);\n\nasync function dpopProof(method, url, accessToken) {\n  const claims = { htm: method, htu: url, jti: randomUUID() };\n  if (accessToken) claims.ath = createHash(\"sha256\").update(accessToken).digest(\"base64url\");\n  return new SignJWT(claims)\n    .setProtectedHeader({ typ: \"dpop+jwt\", alg: \"ES256\", jwk })\n    .setIssuedAt().sign(privateKey);\n}\n\nconst proof = await dpopProof(\"GET\", \"https://api.example.com/orders\", \"eyJ...token\");\nconsole.log(proof.split(\".\").length); // 3\n// The AS binds the token to this thumbprint (cnf.jkt):\nconsole.log((await calculateJwkThumbprint(jwk)).length); // 43\n// fetch(url, { headers: { Authorization: \"DPoP eyJ...token\", DPoP: proof } })",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Sender-constrained tokens need proof of a private key",
+    "DPoP proofs are per-request JWTs bound to method, URL and token hash",
+    "mTLS binding fits server-to-server traffic",
+    "Binding stops replay of leaked tokens, not in-client attacks"
+   ],
+   "pitfalls": [
+    "Accepting DPoP proofs without checking `htm`, `htu`, `jti` replay and the key thumbprint."
+   ],
+   "quiz": [
+    {
+     "q": "What stops a stolen DPoP-bound access token from being used by an attacker?",
+     "options": [
+      "It is encrypted",
+      "Each request needs a fresh proof signed by the client's private key",
+      "It expires in one second",
+      "It only works over HTTP/3"
+     ],
+     "answer": 1,
+     "explain": "Without the private key, the attacker cannot produce matching DPoP proofs."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc9449",
+   "requires": [
+    "oauth.refresh-rotation-revocation",
+    "oauth.jwt-attacks"
+   ]
+  },
+  {
+   "id": "oauth.security-bcp",
+   "name": "OAuth security best practice (RFC 9700)",
+   "module": "hardening",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Apply the current OAuth threat model: exact redirect matching, PAR, mix-up defence, no implicit or password grants, and OAuth 2.1.",
+   "why": "Most OAuth breaches exploit known patterns that RFC 9700 tells you how to close.",
+   "body": "RFC 9700 (OAuth 2.0 Security Best Current Practice, January 2025) is the checklist for any serious deployment. The highlights:\n\n- **Exact redirect URI matching.** No wildcards or prefix matching: open redirectors and lax matching have leaked codes and tokens countless times.\n- **PKCE everywhere** with `S256`, and ASes must reject PKCE downgrade attempts.\n- **No implicit grant, no resource owner password grant.** Use the authorization code flow.\n- **Mix-up attacks**: a client talking to several ASes can be tricked into sending a code to the wrong one. Defend with the `iss` parameter in authorization responses (RFC 9207) or distinct redirect URIs per AS.\n- **Sender-constrain or rotate refresh tokens** for public clients; prefer sender-constrained access tokens.\n- **Restrict token privileges**: audience-restricted, minimal-scope access tokens.\n- Prevent **clickjacking** of authorization pages and **CSRF** with PKCE or `state`.\n\nBeyond the BCP:\n\n- **PAR** (Pushed Authorization Requests, RFC 9126): the client POSTs the authorization parameters to the AS first and gets a `request_uri`, so they cannot be tampered with in the browser and long requests do not hit URL limits.\n- **RAR** (Rich Authorization Requests, RFC 9396) expresses detailed permissions like \"pay 45 EUR to this account\" via `authorization_details`.\n- **OAuth 2.1** (draft) folds all of this into one document.\n- **FAPI 2.0** profiles combine PAR, PKCE, sender-constrained tokens and strict client authentication for banking-grade APIs.",
+   "code": "# Pushed Authorization Request (RFC 9126): parameters go server-to-server\ncurl -s https://auth.example.com/oauth/par \\\n  -u \"web-app:$CLIENT_SECRET\" \\\n  -d response_type=code \\\n  -d client_id=web-app \\\n  -d redirect_uri=https://app.example.com/callback \\\n  -d scope=\"openid payments\" \\\n  -d state=af0ifjsldkj \\\n  -d code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM \\\n  -d code_challenge_method=S256\n# {\"request_uri\":\"urn:ietf:params:oauth:request_uri:6esc_11ACC5bwc014ltc14eY22c\",\"expires_in\":60}\n\n# The browser redirect then only carries client_id and request_uri:\n# https://auth.example.com/authorize?client_id=web-app&request_uri=urn:ietf:params:oauth:request_uri:6esc_11ACC5bwc014ltc14eY22c\n\n# Callback with RFC 9207 issuer identification (check iss before redeeming the code):\n# https://app.example.com/callback?code=...&state=af0ifjsldkj&iss=https%3A%2F%2Fauth.example.com",
+   "code_lang": "bash",
+   "takeaways": [
+    "Exact redirect URI matching, PKCE S256, no implicit or password grants",
+    "Defend against mix-up with the `iss` response parameter",
+    "PAR moves authorization parameters to the back channel",
+    "OAuth 2.1 and FAPI 2.0 package these practices"
+   ],
+   "pitfalls": [
+    "Allowing wildcard redirect URIs for convenience in production."
+   ],
+   "quiz": [
+    {
+     "q": "What does checking the `iss` parameter on the authorization response defend against?",
+     "options": [
+      "Token replay",
+      "Clickjacking",
+      "Mix-up attacks between multiple authorization servers",
+      "Weak HMAC keys"
+     ],
+     "answer": 2,
+     "explain": "It tells the client which AS issued the code, so it is not sent to the wrong token endpoint."
+    }
+   ],
+   "docs": "https://www.rfc-editor.org/rfc/rfc9700",
+   "requires": [
+    "oauth.browser-and-mobile-clients",
+    "oauth.oidc-discovery-sessions"
+   ]
+  }
+ ]
+}

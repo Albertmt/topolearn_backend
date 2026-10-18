@@ -1,0 +1,578 @@
+{
+ "tool": {
+  "id": "gitlab-ci",
+  "name": "GitLab CI/CD",
+  "category": "tool",
+  "tagline": "GitLab's built-in pipelines: build, test and deploy from .gitlab-ci.yml",
+  "description": "GitLab CI/CD runs pipelines defined in a .gitlab-ci.yml file at the root of a GitLab repository. Jobs are grouped into stages, executed by runners (usually inside Docker images), and can pass artifacts, deploy to environments and trigger other pipelines. It is the standard way to automate builds, tests and deployments for teams that host their code on GitLab.com or a self-managed GitLab.",
+  "icon": "GL",
+  "color": "#E24329",
+  "official_docs": "https://docs.gitlab.com/ci/",
+  "version": "19",
+  "aliases": [
+   "gitlab ci",
+   "gitlab pipelines",
+   ".gitlab-ci.yml",
+   "gitlab runner"
+  ],
+  "requires": [
+   {
+    "tool": "git",
+    "level": 1
+   },
+   {
+    "tool": "docker",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Pipeline basics"
+  },
+  {
+   "id": "flow",
+   "name": "Rules, artifacts and DAGs"
+  },
+  {
+   "id": "config",
+   "name": "Variables and secrets"
+  },
+  {
+   "id": "reuse",
+   "name": "Reuse and deployment"
+  },
+  {
+   "id": "scale",
+   "name": "Runners and pipelines at scale"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "gitlab-ci.what-is",
+   "name": "Pipelines, stages, jobs and runners",
+   "module": "basics",
+   "level": 1,
+   "minutes": 6,
+   "summary": "The building blocks of GitLab CI/CD: a pipeline of stages, each holding jobs, executed by runners.",
+   "why": "Every .gitlab-ci.yml is written in these terms, and they decide what runs in parallel and where.",
+   "body": "A **pipeline** is one execution of your CI/CD configuration, created when you push, open a merge request, run a schedule or click **Run pipeline**. It is defined in `.gitlab-ci.yml` at the repository root.\n\nA pipeline consists of **jobs**: named units of work, each with a `script` of shell commands. Jobs are grouped into **stages** that run in order: by default `build`, then `test`, then `deploy`, with hidden `.pre` and `.post` stages at the very start and end. All jobs in one stage run in parallel; the next stage starts only when every job of the previous stage has succeeded. A job without a `stage` goes into `test`.\n\nJobs are executed by **runners**: agents that poll GitLab for work. GitLab.com provides hosted runners; companies often register their own. Most runners use the Docker executor, so each job runs in a fresh container from the image you choose.\n\nThe pipeline graph, job logs, test reports and artifacts appear in the GitLab UI under **Build, Pipelines**. The pipeline status is attached to the commit and to merge requests, where it can be required to pass before merging.\n\nBecause each job starts in a clean container, jobs share nothing by default: files must be passed with artifacts or cache, which you will learn shortly.",
+   "code": "# .gitlab-ci.yml : three stages, four jobs\nstages: [build, test, deploy]\n\nbuild-app:\n  stage: build\n  script: echo \"compiling\"\n\nunit-tests:            # these two run in parallel\n  stage: test\n  script: echo \"unit tests\"\nlint:\n  stage: test\n  script: echo \"linting\"\n\ndeploy-prod:           # starts after both test jobs pass\n  stage: deploy\n  script: echo \"deploying\" ",
+   "code_lang": "yaml",
+   "takeaways": [
+    "A pipeline has stages; a stage has jobs; runners execute jobs",
+    "Jobs in a stage run in parallel; stages run in order",
+    "Each job starts in a clean environment"
+   ],
+   "pitfalls": [
+    "Assuming a file created in the build job is automatically present in the test job."
+   ],
+   "quiz": [
+    {
+     "q": "A job in the test stage fails. What happens to jobs in the deploy stage?",
+     "options": [
+      "They run anyway",
+      "They run only if allow_failure is set on deploy",
+      "They don't run",
+      "They run in parallel with test"
+     ],
+     "answer": 2,
+     "explain": "A stage starts only after all jobs of the previous stage succeeded (unless failures are allowed)."
+    }
+   ],
+   "docs": "https://docs.gitlab.com/ci/",
+   "requires": []
+  },
+  {
+   "id": "gitlab-ci.first-pipeline",
+   "name": "Your first .gitlab-ci.yml",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Write a pipeline that installs dependencies and runs tests in a Docker image, then watch it run after a push.",
+   "why": "A green pipeline on every push is the first step to reliable merges.",
+   "body": "Create `.gitlab-ci.yml` in the repository root, commit and push. GitLab parses it and creates a pipeline immediately; syntax errors are reported on the pipeline page, and the **Pipeline editor** (Build, Pipeline editor) validates the file as you type.\n\nA job is a top-level key that is not a reserved keyword. The essentials:\n\n- `script`: one command or a list of commands run by the runner's shell. If any command exits non-zero, the job fails.\n- `image`: the Docker image the job runs in, such as `python:3.13` or `node:22`.\n- `before_script` and `after_script`: commands run before and after `script`. `after_script` runs even when the job fails, in a separate shell.\n- `default:` sets keywords like `image` and `before_script` for every job.\n\nEach job starts with the repository already cloned into `$CI_PROJECT_DIR`, so there is no checkout step to write; GitLab fetches the commit for you (shallow by default, 20 commits).\n\nKeep YAML strings safe: a command containing `: ` (colon and space) or starting with special characters needs quotes, or the line is parsed as a mapping. When in doubt, quote the whole command.",
+   "code": "default:\n  image: python:3.13-slim\n\nstages: [test]\n\ntest:\n  stage: test\n  before_script:\n    - pip install -r requirements.txt\n  script:\n    - python -m pytest -q        # 12 passed in 0.8s\n    - \"echo 'Result: done'\"      # quoted because of the colon-space\n  after_script:\n    - echo \"always runs, even on failure\" ",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Commit .gitlab-ci.yml at the root and push to start a pipeline",
+    "script is required; image picks the container",
+    "Code is already checked out into $CI_PROJECT_DIR"
+   ],
+   "pitfalls": [
+    "Unquoted commands containing ': ' break the YAML."
+   ],
+   "quiz": [
+    {
+     "q": "Your job's second script command fails. What happens to after_script?",
+     "options": [
+      "It still runs",
+      "It is skipped",
+      "It runs only if allow_failure is true",
+      "It replaces the failed command"
+     ],
+     "answer": 0,
+     "explain": "after_script always runs after script, success or failure, in a separate shell."
+    }
+   ],
+   "docs": "https://docs.gitlab.com/ci/quick_start/",
+   "requires": [
+    "gitlab-ci.what-is",
+    "git.push-pull"
+   ]
+  },
+  {
+   "id": "gitlab-ci.jobs-images-services",
+   "name": "Images, services and default settings",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Pick a Docker image per job, start helper containers like databases with services, and share settings with default.",
+   "why": "Tests usually need a specific toolchain and a real database, and services provide both without extra infrastructure.",
+   "body": "With the Docker executor every job runs inside the image named by `image`. Pin a tag (`postgres:17`, `node:22-alpine`) rather than `latest` so pipelines are reproducible. Images can come from Docker Hub, GitLab's own container registry (`$CI_REGISTRY_IMAGE`) or any registry the runner can reach.\n\n**Services** are extra containers started alongside the job, typically databases, caches or brokers. The job reaches a service by a hostname derived from the image name (`postgres:17` becomes `postgres`) or by an explicit `alias`. Service containers receive the job's `variables`, which is how you set the database password.\n\n`default:` applies keywords to every job unless a job overrides them: `image`, `services`, `before_script`, `after_script`, `tags`, `retry`, `timeout`, `interruptible` and a few others.\n\nBuilding Docker images inside a job requires access to a Docker daemon. The common patterns are a `docker:dind` service (Docker-in-Docker, needs a privileged runner) or a daemonless builder such as BuildKit or Kaniko. GitLab provides `$CI_REGISTRY`, `$CI_REGISTRY_USER` and `$CI_REGISTRY_PASSWORD` so jobs can push to the project's registry without storing credentials.",
+   "code": "default:\n  image: python:3.13-slim\n  retry: 1\n\nintegration:\n  services:\n    - name: postgres:17\n      alias: db\n  variables:\n    POSTGRES_PASSWORD: test       # also passed to the service container\n    DATABASE_URL: postgresql://postgres:test@db:5432/postgres\n  script:\n    - pip install -r requirements.txt\n    - pytest tests/integration\n\nbuild-image:\n  image: docker:28\n  services: [docker:28-dind]\n  script:\n    - docker login -u \"$CI_REGISTRY_USER\" -p \"$CI_REGISTRY_PASSWORD\" \"$CI_REGISTRY\"\n    - docker build -t \"$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA\" .\n    - docker push \"$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA\" ",
+   "code_lang": "yaml",
+   "takeaways": [
+    "image sets the job container; pin its tag",
+    "services start side containers reachable by name or alias",
+    "default: shares image, before_script, retry and more across jobs"
+   ],
+   "pitfalls": [
+    "Connecting to localhost for a service: with the Docker executor the service has its own hostname."
+   ],
+   "quiz": [
+    {
+     "q": "A job has services: [redis:7]. Which hostname reaches Redis by default?",
+     "options": [
+      "localhost",
+      "service-0",
+      "redis-7",
+      "redis"
+     ],
+     "answer": 3,
+     "explain": "The default service alias is derived from the image name without the tag."
+    }
+   ],
+   "docs": "https://docs.gitlab.com/ci/services/",
+   "requires": [
+    "gitlab-ci.first-pipeline",
+    "docker.images-containers"
+   ]
+  },
+  {
+   "id": "gitlab-ci.variables",
+   "name": "CI/CD variables and predefined variables",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Define variables in YAML, use GitLab's predefined CI_ variables, and know the precedence when the same name is set twice.",
+   "why": "Variables carry the branch, commit and settings into scripts, and almost every rule and script uses them.",
+   "body": "**Variables** are environment variables available to job scripts. Define them with `variables:` at the top level (all jobs) or inside a job (that job only, overriding the global one).\n\nGitLab sets many **predefined variables** in every job:\n\n- `CI_COMMIT_SHA`, `CI_COMMIT_SHORT_SHA`: the commit.\n- `CI_COMMIT_BRANCH`: the branch name (not set for tag or merge request pipelines); `CI_COMMIT_TAG` for tag pipelines; `CI_COMMIT_REF_NAME` for either.\n- `CI_DEFAULT_BRANCH`: usually `main`.\n- `CI_PIPELINE_SOURCE`: why the pipeline exists: `push`, `merge_request_event`, `schedule`, `web`, `trigger`, `api`...\n- `CI_PROJECT_DIR`, `CI_JOB_ID`, `CI_REGISTRY_IMAGE`, `CI_JOB_TOKEN`.\n\nVariables can also be defined in project, group or instance **settings**, for a schedule, or when running a pipeline manually. When the same name is defined in several places, settings-level and manually supplied variables beat YAML ones, and job-level YAML beats top-level YAML.\n\nVariables can reference other variables (`IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA`). They are expanded by GitLab before the job runs in some keywords (like `image` or `rules`) and by the shell inside `script`. To see what a job receives, run `export` in a debug job, but never in projects with secrets.",
+   "code": "variables:                       # all jobs\n  APP_NAME: shop\n  IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA\n\nshow:\n  variables:\n    APP_NAME: shop-api            # overrides the global value for this job\n  script:\n    - echo \"$APP_NAME $IMAGE\"     # shop-api registry.gitlab.com/acme/shop:1a2b3c4d\n    - echo \"source=$CI_PIPELINE_SOURCE branch=$CI_COMMIT_BRANCH\"\n    # source=push branch=main",
+   "code_lang": "yaml",
+   "takeaways": [
+    "variables: at top level or per job; job level wins",
+    "CI_PIPELINE_SOURCE and CI_COMMIT_BRANCH drive most logic",
+    "Settings and manual variables override YAML variables"
+   ],
+   "pitfalls": [
+    "Using CI_COMMIT_BRANCH in a merge request pipeline: it is empty there; use CI_COMMIT_REF_NAME or CI_MERGE_REQUEST_SOURCE_BRANCH_NAME."
+   ],
+   "quiz": [
+    {
+     "q": "Which variable tells you a pipeline was started by a merge request?",
+     "options": [
+      "CI_COMMIT_BRANCH",
+      "CI_PIPELINE_SOURCE == merge_request_event",
+      "CI_JOB_ID",
+      "CI_DEFAULT_BRANCH"
+     ],
+     "answer": 1,
+     "explain": "CI_PIPELINE_SOURCE records the trigger; MR pipelines have the value merge_request_event."
+    }
+   ],
+   "docs": "https://docs.gitlab.com/ci/variables/predefined_variables/",
+   "requires": [
+    "gitlab-ci.first-pipeline"
+   ]
+  },
+  {
+   "id": "gitlab-ci.rules",
+   "name": "Controlling when jobs run with rules",
+   "module": "flow",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Use rules with if, changes and exists to add jobs conditionally, make them manual, and control whole pipelines with workflow:rules.",
+   "why": "Without rules every job runs on every push; with them you deploy only from main and skip work nobody needs.",
+   "body": "`rules` decides whether a job is added to a pipeline. GitLab evaluates the list **in order** and the first matching rule wins; if none match, the job is **not added**. Each rule can test:\n\n- `if`: an expression over variables, such as `$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` or `$CI_COMMIT_TAG =~ /^v\\d+/`.\n- `changes`: file paths or globs changed by the push (`src/**/*`).\n- `exists`: files present in the repository.\n\nA matching rule can set `when`: `on_success` (default), `manual` (wait for a click), `delayed` (with `start_in`), `always` or `never`. It can also set `allow_failure` and `variables`.\n\n`when: never` rules are used to exclude cases first, followed by a catch-all. `workflow:rules` uses the same syntax for the **whole pipeline**: if it doesn't match, no pipeline is created. Its most common job is avoiding duplicate pipelines when a branch has an open merge request.\n\n`rules` replaces the older `only` and `except` keywords, which still work but can't be combined with `rules` in the same job. New configuration should use `rules` everywhere.",
+   "code": "workflow:\n  rules:\n    - if: $CI_PIPELINE_SOURCE == \"merge_request_event\"\n    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS\n      when: never                       # avoid branch + MR duplicate pipelines\n    - if: $CI_COMMIT_BRANCH || $CI_COMMIT_TAG\n\ndocs:\n  script: make docs\n  rules:\n    - changes: [\"docs/**/*\"]            # only when docs changed\n\ndeploy:\n  script: ./deploy.sh\n  rules:\n    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH\n      when: manual                      # needs a click on main\n    - when: never                       # nowhere else",
+   "code_lang": "yaml",
+   "takeaways": [
+    "The first matching rule wins; no match means the job is not added",
+    "when: manual, delayed, never, always tune the outcome",
+    "workflow:rules decides whether a pipeline is created at all"
+   ],
+   "pitfalls": [
+    "Mixing rules with only/except in the same job, which is a configuration error."
+   ],
+   "quiz": [
+    {
+     "q": "A job has rules: - if: $CI_COMMIT_TAG. You push to a branch. What happens to the job?",
+     "options": [
+      "It runs and fails",
+      "It is not added to the pipeline",
+      "It is added as manual",
+      "It runs because rules default to always"
+     ],
+     "answer": 1,
+     "explain": "No rule matched, so the job is excluded from the pipeline."
+    }
+   ],
+   "docs": "https://docs.gitlab.com/ci/jobs/job_rules/",
+   "requires": [
+    "gitlab-ci.variables"
+   ]
+  },
+  {
+   "id": "gitlab-ci.artifacts-cache",
+   "name": "Artifacts and cache",
+   "module": "flow",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Pass build output to later jobs with artifacts, publish test reports, and speed up installs with cache keyed on lockfiles.",
+   "why": "Jobs share nothing by default, so artifacts and caches are how pipelines move files and save minutes.",
+   "body": "**Artifacts** are files a job produces that GitLab stores: `artifacts: paths:` lists them and `expire_in` sets how long they're kept. By default, jobs in later stages download the artifacts of all jobs in earlier stages; `dependencies:` or `needs:` restrict that. Artifacts can be browsed and downloaded in the UI.\n\n`artifacts:reports` are special artifacts GitLab understands: `junit` test results show in merge requests, and there are report types for coverage, code quality and security scanners. Use `when: always` so reports upload even when tests fail.\n\nA **cache** stores dependencies between pipelines to avoid re-downloading them. It lives on the runner (or in shared object storage), is best-effort, and is never guaranteed to exist. Configure `cache: key:` and `paths:`; `key: files: [package-lock.json]` changes the key whenever the lockfile changes. `policy: pull` on jobs that only read the cache avoids slow uploads.\n\nThe rule: **artifacts** are for passing results between jobs and to people; **cache** is for speeding things up. Never rely on a cache for correctness. Package managers should point their download directory inside the project (for example `PIP_CACHE_DIR: $CI_PROJECT_DIR/.cache/pip`), because only paths inside `$CI_PROJECT_DIR` can be cached or archived.",
+   "code": "variables:\n  PIP_CACHE_DIR: $CI_PROJECT_DIR/.cache/pip\n\ntest:\n  image: python:3.13\n  cache:\n    key:\n      files: [requirements.txt]      # new cache when deps change\n    paths: [.cache/pip]\n  script:\n    - pip install -r requirements.txt\n    - pytest --junitxml=report.xml\n  artifacts:\n    when: always                     # upload even if tests fail\n    reports:\n      junit: report.xml              # shown in the merge request\n\nbuild:\n  stage: build\n  script: [make dist]\n  artifacts:\n    paths: [dist/]\n    expire_in: 1 week",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Artifacts = outputs for later jobs and humans; cache = speed-up only",
+    "Key caches on lockfiles with cache:key:files",
+    "Only paths inside $CI_PROJECT_DIR can be cached or archived"
+   ],
+   "pitfalls": [
+    "Using cache to pass build output to a deploy job; the cache may be missing on another runner."
+   ],
+   "quiz": [
+    {
+     "q": "A deploy job must receive the dist/ folder built two stages earlier. What should the build job use?",
+     "options": [
+      "cache with key dist",
+      "after_script",
+      "A variable holding the folder",
+      "artifacts with paths: [dist/]"
+     ],
+     "answer": 3,
+     "explain": "Artifacts are reliably passed to later jobs; caches are best-effort."
+    }
+   ],
+   "docs": "https://docs.gitlab.com/ci/jobs/job_artifacts/",
+   "requires": [
+    "gitlab-ci.jobs-images-services"
+   ]
+  },
+  {
+   "id": "gitlab-ci.needs-dag",
+   "name": "needs: faster pipelines as a DAG",
+   "module": "flow",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Let jobs start as soon as the jobs they depend on finish, ignoring stage order, and control which artifacts they fetch.",
+   "why": "Stage-by-stage pipelines wait for the slowest job; needs can cut total pipeline time dramatically.",
+   "body": "With stages alone, a job waits for **every** job in all earlier stages. `needs:` changes that: a job with `needs: [build-api]` starts as soon as `build-api` succeeds, even if other jobs of earlier stages are still running. The pipeline becomes a **directed acyclic graph** (DAG), visible in the pipeline view as dependency lines.\n\nDetails that matter:\n\n- A job with `needs: []` starts immediately when the pipeline is created.\n- With `needs`, a job downloads artifacts **only** from the jobs it needs. Use `needs: [{job: build, artifacts: false}]` to wait without downloading.\n- If a needed job is not in the pipeline (because its rules excluded it), the pipeline fails to be created, unless the need is marked `optional: true`.\n- A job can need up to 50 jobs by default, and can even need jobs in the same stage.\n\nA common use is a monorepo pipeline where frontend and backend each build, test and deploy independently: each chain progresses at its own speed instead of all frontend tests waiting for the slowest backend build.\n\nStages still matter as a visual grouping and for jobs without `needs`, so most pipelines combine the two.",
+   "code": "stages: [build, test, deploy]\n\nbuild-api:  {stage: build, script: [make api],  artifacts: {paths: [api/bin/]}}\nbuild-web:  {stage: build, script: [make web],  artifacts: {paths: [web/dist/]}}\n\ntest-api:\n  stage: test\n  needs: [build-api]          # starts when build-api is done, not build-web\n  script: [make test-api]\n\nlint:\n  stage: test\n  needs: []                   # starts immediately\n  script: [make lint]\n\ndeploy-web:\n  stage: deploy\n  needs:\n    - job: build-web          # gets only web/dist/\n    - job: test-api\n      artifacts: false\n  script: [./deploy-web.sh]",
+   "code_lang": "yaml",
+   "takeaways": [
+    "needs: lets a job start as soon as its dependencies finish",
+    "needs: [] starts a job immediately",
+    "With needs, artifacts come only from the needed jobs"
+   ],
+   "pitfalls": [
+    "Needing a job that rules removed from this pipeline; mark it optional: true."
+   ],
+   "quiz": [
+    {
+     "q": "Job X has needs: [A]. A is in the build stage and finished; B in the build stage is still running. Does X start?",
+     "options": [
+      "Yes, it only waits for A",
+      "No, it waits for the whole build stage",
+      "Only if X is in the build stage",
+      "Only with when: always"
+     ],
+     "answer": 0,
+     "explain": "needs replaces stage ordering for that job; it waits only for the listed jobs."
+    }
+   ],
+   "docs": "https://docs.gitlab.com/ci/yaml/#needs",
+   "requires": [
+    "gitlab-ci.rules",
+    "gitlab-ci.artifacts-cache"
+   ]
+  },
+  {
+   "id": "gitlab-ci.secret-variables",
+   "name": "Secrets: masked, protected and file variables",
+   "module": "config",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Store credentials as project or group CI/CD variables, mask them in logs, and restrict them to protected branches.",
+   "why": "Deploy keys and API tokens must never live in the repository, and must not be readable from every branch.",
+   "body": "Credentials go in **Settings, CI/CD, Variables** at project, group or instance level, never in `.gitlab-ci.yml`. Each variable has options:\n\n- **Masked**: the value is replaced with `[MASKED]` in job logs. Values must meet length and character requirements to be maskable. **Masked and hidden** variables also can't be revealed in the UI after saving.\n- **Protected**: only exposed to pipelines on **protected branches or tags**. A developer pushing a feature branch can't read production credentials, because a job on that branch simply doesn't receive them.\n- **Environment scope**: only exposed to jobs deploying to a matching environment, such as `production`.\n- **Type: File**: GitLab writes the value to a temporary file and the variable contains the **path**. Ideal for kubeconfigs, certificates and service-account JSON.\n\nThe **job token** `CI_JOB_TOKEN` is generated per job and lets the job access the package registry, container registry and some APIs of permitted projects; it expires when the job ends. Control which other projects accept it with the token access allowlist.\n\nMasking is a safety net, not a guarantee: base64-encoding or printing part of a secret bypasses it. And anyone who can push to a protected branch can exfiltrate protected variables, so protect branches carefully.",
+   "code": "deploy:\n  image: $CI_REGISTRY/acme/tools/kubectl:1.33   # your own tools image\n  rules:\n    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH   # protected branch\n  environment: production\n  script:\n    # KUBECONFIG is a protected, File-type variable: its value is a path\n    - kubectl --kubeconfig \"$KUBECONFIG\" get nodes\n    - ./notify.sh --token \"$SLACK_TOKEN\"   # masked: logs show [MASKED]\n\npublish-package:\n  script:\n    - 'curl --header \"JOB-TOKEN: $CI_JOB_TOKEN\" --upload-file pkg.tgz\n       \"$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/pkg/1.0.0/pkg.tgz\"'",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Secrets live in CI/CD settings, not YAML",
+    "Protected variables reach only protected branches and tags",
+    "File-type variables hold a path to a temporary file"
+   ],
+   "pitfalls": [
+    "Leaving a deploy secret unprotected so any branch's pipeline can read it."
+   ],
+   "quiz": [
+    {
+     "q": "A protected variable is defined. A developer pushes to feature/x (unprotected). What does their job see?",
+     "options": [
+      "The value, masked in logs",
+      "An error",
+      "Nothing: the variable isn't set",
+      "The value in plain text"
+     ],
+     "answer": 2,
+     "explain": "Protected variables are only passed to pipelines on protected branches or tags."
+    }
+   ],
+   "docs": "https://docs.gitlab.com/ci/variables/",
+   "requires": [
+    "gitlab-ci.variables"
+   ]
+  },
+  {
+   "id": "gitlab-ci.include-extends",
+   "name": "include, extends, !reference and components",
+   "module": "reuse",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Split configuration into files, share templates across projects, inherit job settings with extends, and use CI/CD components.",
+   "why": "Large projects and organisations need one maintained pipeline definition instead of copy-paste.",
+   "body": "**include** merges other YAML files into your configuration:\n\n- `include: local: ci/test.yml` from the same repository.\n- `include: project: my-group/ci-templates`, `ref: v2`, `file: node.yml` from another project.\n- `include: remote:` from a URL, and `include: template:` for GitLab's bundled templates.\n- `include: component:` for **CI/CD components**.\n\n**Components** are versioned, reusable pipeline pieces published to the **CI/CD Catalog**. A component declares typed inputs in a `spec:` header and is used as `component: $CI_SERVER_FQDN/my-group/components/python-test@1.2.0` with `inputs:`. Inputs are substituted with `$[[ inputs.name ]]` when the file is included, so they are checked before the pipeline runs.\n\n**Hidden jobs** start with a dot (`.test-base`) and never run; they serve as templates. **extends** inherits from one or more of them, deep-merging hashes. Lists like `script` are **replaced**, not concatenated.\n\nWhen you need just one piece of another job, **!reference** pulls a specific value: `script: [!reference [.setup, script], make test]` combines lists that extends would overwrite.\n\nPin includes to tags or SHAs like any dependency, and use the pipeline editor's **Full configuration** view to see the merged result.",
+   "code": "include:\n  - local: ci/lint.yml\n  - project: acme/ci-templates\n    ref: v2.3.0\n    file: /templates/python.yml\n  - component: $CI_SERVER_FQDN/acme/components/sast@1.4.0\n    inputs:\n      stage: test\n\n.python-base:                     # hidden job: never runs on its own\n  image: python:3.13\n  before_script: [pip install -r requirements.txt]\n  script: [echo base]\n\nunit:\n  extends: .python-base\n  script: [pytest tests/unit]     # replaces the base script list\n\nintegration:\n  extends: .python-base\n  script:\n    - !reference [.python-base, before_script]\n    - pytest tests/integration",
+   "code_lang": "yaml",
+   "takeaways": [
+    "include pulls in local, project, remote, template and component files",
+    "Hidden .jobs plus extends give job templates; lists are replaced",
+    "Components are versioned with typed inputs from the CI/CD Catalog"
+   ],
+   "pitfalls": [
+    "Expecting extends to append to script; it overwrites the list. Use !reference to combine."
+   ],
+   "quiz": [
+    {
+     "q": "A job extends .base, which has script: [a]. The job defines script: [b]. What runs?",
+     "options": [
+      "a then b",
+      "b then a",
+      "a only",
+      "b only"
+     ],
+     "answer": 3,
+     "explain": "extends deep-merges hashes, but arrays such as script are replaced entirely."
+    }
+   ],
+   "docs": "https://docs.gitlab.com/ci/yaml/includes/",
+   "requires": [
+    "gitlab-ci.rules",
+    "gitlab-ci.secret-variables"
+   ]
+  },
+  {
+   "id": "gitlab-ci.environments-deploy",
+   "name": "Environments, manual deploys and review apps",
+   "module": "reuse",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Track deployments with environment:, gate production with manual jobs and protected environments, and spin up review apps per merge request.",
+   "why": "Knowing what is deployed where, and who may deploy to production, is central to safe continuous delivery.",
+   "body": "Adding `environment:` to a job records a **deployment** each time it runs. GitLab shows environments under **Operate, Environments** with the currently deployed commit, history and a one-click **re-deploy** of an older successful job for rollbacks.\n\nKey options:\n\n- `name` and `url`: the URL appears as a link in merge requests.\n- `deployment_tier`: production, staging, testing, development or other.\n- `when: manual` in rules, so production deploys wait for a click.\n- **Protected environments** (Settings, CI/CD) restrict who can run deploy jobs and can require approvals.\n- `resource_group: production` ensures only one deploy job for that group runs at a time, so two pipelines never deploy concurrently.\n\n**Review apps** are dynamic environments created per branch or merge request, named with variables: `name: review/$CI_COMMIT_REF_SLUG`. A second job with `action: stop` tears it down; link it with `on_stop`, and GitLab runs it when the branch is deleted or the MR merges. `auto_stop_in: 1 week` cleans up forgotten ones.\n\nEnvironment-scoped variables let the same job script deploy to staging or production with different credentials, chosen by the environment name.",
+   "code": "deploy-review:\n  stage: deploy\n  script: ./deploy.sh \"$CI_COMMIT_REF_SLUG\"\n  environment:\n    name: review/$CI_COMMIT_REF_SLUG\n    url: https://$CI_COMMIT_REF_SLUG.review.example.com\n    on_stop: stop-review\n    auto_stop_in: 1 week\n  rules: [{if: $CI_PIPELINE_SOURCE == \"merge_request_event\"}]\n\nstop-review:\n  stage: deploy\n  script: ./teardown.sh \"$CI_COMMIT_REF_SLUG\"\n  environment: {name: review/$CI_COMMIT_REF_SLUG, action: stop}\n  rules: [{if: $CI_PIPELINE_SOURCE == \"merge_request_event\", when: manual}]\n\ndeploy-prod:\n  stage: deploy\n  script: ./deploy.sh production\n  environment: {name: production, url: https://example.com}\n  resource_group: production        # one deploy at a time\n  rules:\n    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH\n      when: manual",
+   "code_lang": "yaml",
+   "takeaways": [
+    "environment: records deployments and enables rollback by re-running old jobs",
+    "Protected environments and manual rules gate production",
+    "resource_group serializes deploys; on_stop cleans up review apps"
+   ],
+   "pitfalls": [
+    "Deploying production from two pipelines at once; add a resource_group."
+   ],
+   "quiz": [
+    {
+     "q": "What does resource_group: production guarantee?",
+     "options": [
+      "Only maintainers can run the job",
+      "At most one job in that group runs at a time",
+      "The job runs on a production runner",
+      "The job is manual"
+     ],
+     "answer": 1,
+     "explain": "Jobs sharing a resource group are executed one at a time across pipelines."
+    }
+   ],
+   "docs": "https://docs.gitlab.com/ci/environments/",
+   "requires": [
+    "gitlab-ci.secret-variables",
+    "gitlab-ci.rules"
+   ]
+  },
+  {
+   "id": "gitlab-ci.downstream-pipelines",
+   "name": "Parent-child and multi-project pipelines",
+   "module": "reuse",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Split big pipelines into child pipelines, generate configuration dynamically, and trigger pipelines in other projects.",
+   "why": "Monorepos and multi-service systems outgrow one flat pipeline; downstream pipelines keep them manageable.",
+   "body": "A **trigger job** starts another pipeline instead of running a script.\n\n- **Parent-child pipelines** run in the same project: `trigger: include: path/to/child.yml`. Each child has its own stages and jobs, so a monorepo can have one child per service, each started only when its files change (`rules: changes`).\n- **Multi-project pipelines** start a pipeline in another project: `trigger: project: acme/deployer` with an optional `branch`. Useful when an app's pipeline must trigger an infrastructure or end-to-end test project.\n\nBy default the trigger job succeeds as soon as the downstream pipeline is **created**. With `strategy: depend` the trigger job waits and mirrors the downstream status, so a failing child fails the parent.\n\n**Dynamic child pipelines** take this further: a job generates a YAML file (from a script, Jsonnet or a template) and saves it as an artifact; the trigger job includes it with `include: - artifact: generated.yml, job: generate`. This lets a pipeline create exactly the jobs needed, such as one per changed package.\n\nVariables pass downstream via `variables:` in the trigger job (`trigger:forward` controls what is forwarded). Child pipelines appear nested in the parent's pipeline graph.",
+   "code": "generate:\n  stage: build\n  script:\n    - ./ci/make-jobs.sh > child.yml    # writes one job per changed package\n  artifacts: {paths: [child.yml]}\nrun-generated:\n  stage: test\n  trigger:\n    include:\n      - artifact: child.yml\n        job: generate\n    strategy: depend                   # parent fails if child fails\nbackend:\n  trigger:\n    include: services/backend/.gitlab-ci.yml\n    strategy: depend\n  rules:\n    - changes: [\"services/backend/**/*\"]\ne2e:\n  stage: deploy\n  variables: {APP_VERSION: $CI_COMMIT_SHORT_SHA}\n  trigger:\n    project: acme/e2e-tests\n    branch: main",
+   "code_lang": "yaml",
+   "takeaways": [
+    "trigger:include starts a child pipeline; trigger:project another project's",
+    "strategy: depend makes the trigger job mirror the downstream result",
+    "Dynamic child pipelines include YAML generated by an earlier job"
+   ],
+   "pitfalls": [
+    "Forgetting strategy: depend and getting a green parent while the child fails."
+   ],
+   "quiz": [
+    {
+     "q": "Without strategy: depend, when does a trigger job succeed?",
+     "options": [
+      "As soon as the downstream pipeline is created",
+      "When the downstream pipeline succeeds",
+      "Never; depend is required",
+      "When all its own scripts pass"
+     ],
+     "answer": 0,
+     "explain": "By default the trigger job only waits for the downstream pipeline to be created."
+    }
+   ],
+   "docs": "https://docs.gitlab.com/ci/pipelines/downstream_pipelines/",
+   "requires": [
+    "gitlab-ci.include-extends",
+    "gitlab-ci.needs-dag"
+   ]
+  },
+  {
+   "id": "gitlab-ci.runners",
+   "name": "Runners and executors",
+   "module": "scale",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Install and register GitLab Runner, choose an executor, route jobs with tags and tune concurrency and autoscaling.",
+   "why": "Self-managed runners control cost, hardware, network access and security for every job you run.",
+   "body": "**GitLab Runner** is a Go binary that polls GitLab for jobs and runs them with an **executor**:\n\n- `docker`: each job in a fresh container from the job's `image`; the default choice.\n- `kubernetes`: each job as a pod in a cluster; scales with the cluster.\n- `shell`: directly on the host; simple but jobs share the machine and its state.\n- `docker-autoscaler` and `instance`: create cloud VMs on demand through fleeting plugins; the successor to the deprecated docker+machine autoscaling.\n\nYou create a runner in the UI (project, group or instance level), which gives an **authentication token** starting with `glrt-`, then run `gitlab-runner register` with it on the host. The runner's settings live in `config.toml`: `concurrent` caps jobs across the whole process, and each `[[runners]]` section has its executor settings, such as the default image, `privileged` mode and volumes.\n\nJobs are routed with **tags**: a runner configured with tags `gpu` and `linux` only takes jobs whose `tags:` are a subset of its tags. Runners can also be set to run untagged jobs or only protected branches. A protected runner is the right place for deploy jobs with production access.\n\nSecurity: `privileged = true` (needed for Docker-in-Docker) gives jobs root-equivalent access to the host. Isolate such runners and never share them with untrusted projects.",
+   "code": "# Register a runner using the glrt- token from the UI\ngitlab-runner register --non-interactive \\\n  --url https://gitlab.example.com \\\n  --token \"$RUNNER_TOKEN\" \\\n  --executor docker --docker-image alpine:3.22\n\n# /etc/gitlab-runner/config.toml (excerpt)\n# concurrent = 8                 # max parallel jobs for this process\n# [[runners]]\n#   name = \"docker-gpu\"\n#   executor = \"docker\"\n#   [runners.docker]\n#     image = \"alpine:3.22\"\n#     privileged = false\n\n# .gitlab-ci.yml side: route a job by tags\n#   train:\n#     tags: [gpu, linux]\ngitlab-runner verify && gitlab-runner list",
+   "code_lang": "bash",
+   "takeaways": [
+    "The runner polls GitLab; executors decide how jobs are isolated",
+    "Tags route jobs; concurrent caps parallel jobs",
+    "Privileged runners are root-equivalent; keep them isolated and protected"
+   ],
+   "pitfalls": [
+    "Using the shell executor for untrusted code; jobs share the host and its leftovers."
+   ],
+   "quiz": [
+    {
+     "q": "A job has tags: [gpu]. Which runner can take it?",
+     "options": [
+      "Any runner",
+      "Only an untagged runner",
+      "A runner whose tags include gpu",
+      "Only a shell executor"
+     ],
+     "answer": 2,
+     "explain": "A job's tags must be a subset of the runner's tags."
+    }
+   ],
+   "docs": "https://docs.gitlab.com/runner/executors/",
+   "requires": [
+    "gitlab-ci.jobs-images-services",
+    "gitlab-ci.needs-dag"
+   ]
+  },
+  {
+   "id": "gitlab-ci.oidc-security",
+   "name": "ID tokens, OIDC and pipeline security",
+   "module": "scale",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Authenticate to clouds and Vault with id_tokens instead of stored keys, and close the common holes in pipeline security.",
+   "why": "Whoever controls your pipeline controls your deploy credentials; keyless auth and protection rules limit the blast radius.",
+   "body": "`id_tokens:` makes GitLab issue a signed **JWT** to the job, with an audience you choose. The token's claims describe the job: `project_path`, `ref`, `ref_protected`, `environment`, `pipeline_source` and a `sub` such as `project_path:acme/shop:ref_type:branch:ref:main`. A cloud provider (AWS, GCP, Azure) or HashiCorp Vault configured to trust your GitLab instance as an OIDC issuer exchanges the token for short-lived credentials. No long-lived keys are stored.\n\nThe trust policy is where security lives: require the exact `project_path`, and for production also `ref_protected: true` or a specific environment. Matching only the issuer would let every project on GitLab.com assume your role.\n\nBroader pipeline hardening:\n\n- **Protect** the default and release branches and tags; protected variables, runners and environments all build on that.\n- Merge requests from **forks** run pipelines in the fork by default, without your secrets. Running them in the parent project is an explicit, reviewed action.\n- `CI_JOB_TOKEN` access is limited by the project's allowlist; keep it tight.\n- Pin included templates and components to versions; an attacker who can change a shared template changes every pipeline that includes it.\n- Treat `.gitlab-ci.yml` changes as security-sensitive and use code owners for them.",
+   "code": "deploy:\n  image:\n    name: amazon/aws-cli:2.27.0\n    entrypoint: [\"\"]           # the image's entrypoint is aws\n  id_tokens:\n    AWS_TOKEN:\n      aud: sts.amazonaws.com\n  rules:\n    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH\n  environment: production\n  script:\n    - >\n      export $(printf \"AWS_ACCESS_KEY_ID=%s AWS_SECRET_ACCESS_KEY=%s AWS_SESSION_TOKEN=%s\"\n      $(aws sts assume-role-with-web-identity\n      --role-arn \"$ROLE_ARN\" --role-session-name \"gl-$CI_JOB_ID\"\n      --web-identity-token \"$AWS_TOKEN\" --duration-seconds 3600\n      --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text))\n    - aws sts get-caller-identity\n# AWS trust policy condition (excerpt):\n# \"gitlab.example.com:sub\": \"project_path:acme/shop:ref_type:branch:ref:main\" ",
+   "code_lang": "yaml",
+   "takeaways": [
+    "id_tokens issue a per-job JWT for keyless cloud or Vault login",
+    "Restrict trust to project_path and protected refs",
+    "Protected branches underpin protected variables, runners and environments"
+   ],
+   "pitfalls": [
+    "A trust policy that only checks the issuer and audience, trusting every project on the instance."
+   ],
+   "quiz": [
+    {
+     "q": "Which claim condition best ensures only main-branch jobs of acme/shop get production credentials?",
+     "options": [
+      "aud == sts.amazonaws.com",
+      "iss == https://gitlab.com",
+      "sub == project_path:acme/shop:ref_type:branch:ref:main",
+      "pipeline_source == push"
+     ],
+     "answer": 2,
+     "explain": "sub encodes both the project and the ref; aud and iss alone match every project."
+    }
+   ],
+   "docs": "https://docs.gitlab.com/ci/secrets/id_token_authentication/",
+   "requires": [
+    "gitlab-ci.secret-variables",
+    "gitlab-ci.environments-deploy"
+   ]
+  },
+  {
+   "id": "gitlab-ci.mr-pipelines-merge-trains",
+   "name": "Merge request pipelines and merge trains",
+   "module": "scale",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Understand branch vs merge request vs merged results pipelines, and how merge trains keep main green under heavy merge traffic.",
+   "why": "Busy repositories break main when individually green MRs conflict; the right pipeline type prevents that.",
+   "body": "GitLab can create several kinds of pipeline for the same commit, and the difference matters:\n\n- **Branch pipelines** run on the pushed commit, with `CI_PIPELINE_SOURCE == push`. They can access protected variables only on protected branches.\n- **Merge request pipelines** (`merge_request_event`) run on the MR's source branch commit when it is opened or updated. Jobs need rules that match this source. They expose `CI_MERGE_REQUEST_*` variables such as the IID and target branch.\n- **Merged results pipelines** run on a temporary commit that merges the source into the **current** target branch, so tests see the code as it would be after merging.\n- **Merge trains** queue MRs. Each MR's pipeline runs on the target branch plus every MR ahead of it in the train. If one fails, it is removed and the ones behind it restart. When each pipeline passes, its MR merges in order, so main stays green even with many concurrent merges.\n\nWithout `workflow:rules` a push to a branch with an open MR can create both a branch pipeline and an MR pipeline, doubling cost. The `$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS` never-rule prevents that.\n\nMerged results pipelines and merge trains are Premium features and require the project setting to be enabled; `interruptible: true` lets superseded pipelines be cancelled automatically to save runner time.",
+   "code": "workflow:\n  rules:\n    - if: $CI_PIPELINE_SOURCE == \"merge_request_event\"\n    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS\n      when: never\n    - if: $CI_COMMIT_BRANCH\n\ndefault:\n  interruptible: true            # cancel superseded pipelines\n\ntest:\n  script:\n    - echo \"MR !$CI_MERGE_REQUEST_IID into $CI_MERGE_REQUEST_TARGET_BRANCH_NAME\"\n    - make test\n  rules:\n    - if: $CI_PIPELINE_SOURCE == \"merge_request_event\"\n    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH\n\ndeploy:\n  interruptible: false           # never cancel a deploy midway\n  script: [./deploy.sh]\n  rules:\n    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Branch, MR, merged results and merge train pipelines test different commits",
+    "Merge trains test each MR on top of the ones queued ahead of it",
+    "workflow:rules prevents duplicate branch + MR pipelines"
+   ],
+   "pitfalls": [
+    "Writing rules only for branch pipelines, so jobs silently vanish from MR pipelines."
+   ],
+   "quiz": [
+    {
+     "q": "Two MRs each pass their own pipeline but break main when both merge. What prevents this?",
+     "options": [
+      "Merge trains, which test each MR on top of the ones ahead of it",
+      "Branch pipelines",
+      "needs: []",
+      "A larger runner"
+     ],
+     "answer": 0,
+     "explain": "Merge trains validate the combination of queued changes before they merge."
+    }
+   ],
+   "docs": "https://docs.gitlab.com/ci/pipelines/merge_trains/",
+   "requires": [
+    "gitlab-ci.rules",
+    "gitlab-ci.downstream-pipelines"
+   ]
+  }
+ ]
+}

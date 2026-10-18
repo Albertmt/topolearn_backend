@@ -1,0 +1,749 @@
+{
+ "tool": {
+  "id": "text-processing",
+  "name": "grep, sed & awk",
+  "category": "tool",
+  "tagline": "The classic Unix trio for searching, editing and summarising text",
+  "description": "grep finds lines, sed edits them as they stream past and awk splits them into fields and computes with them. Together with sort, uniq, cut and xargs they turn logs, CSVs and config files into answers in one pipeline, on any Unix machine, without writing a program.",
+  "icon": "gsa",
+  "color": "#2E7D32",
+  "official_docs": "https://www.gnu.org/software/grep/manual/grep.html",
+  "version": "GNU grep 3.11, sed 4.9, gawk 5.3",
+  "aliases": [
+   "grep",
+   "sed",
+   "awk",
+   "gawk",
+   "text processing",
+   "unix filters"
+  ],
+  "requires": [
+   {
+    "tool": "bash",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Text streams"
+  },
+  {
+   "id": "grep",
+   "name": "Searching with grep"
+  },
+  {
+   "id": "sed",
+   "name": "Editing with sed"
+  },
+  {
+   "id": "awk",
+   "name": "Fields and reports with awk"
+  },
+  {
+   "id": "pipelines",
+   "name": "Robust pipelines"
+  },
+  {
+   "id": "internals",
+   "name": "Under the hood"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "text-processing.text-streams",
+   "name": "Text streams and the filter model",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Treat text as a stream of lines flowing through small filters: grep selects, sed edits, awk splits into fields and computes.",
+   "why": "Knowing which tool does which job is what lets you answer questions about logs and data files in one line.",
+   "body": "Unix tools agree on one simple data format: **text as a stream of lines**. A **filter** reads lines from standard input (or from files named as arguments), transforms them and writes lines to standard output. Because every filter speaks the same format, you chain them with pipes and each one stays small.\n\nThe three classics each have a job:\n\n- `grep` **selects** lines that match a pattern and drops the rest.\n- `sed` **edits** lines as they stream past: substitute, delete, insert.\n- `awk` splits each line into **fields** and runs a small program on them: filter by column, sum, count, reformat.\n\nAround them sit helpers you'll use constantly: `sort`, `uniq`, `cut`, `tr`, `head`, `tail`, `wc` and `xargs`.\n\nA good habit is to build a pipeline one stage at a time. Run the first command, look at the output (pipe into `head` while exploring), then add the next stage. Each stage is easy to test on its own, and when something goes wrong you can remove stages from the end until the output looks right again.\n\nNone of these tools modify their input file unless you explicitly ask (for example `sed -i`). They read, transform and print, so experimenting is safe.",
+   "code": "printf 'GET /home 200\\nPOST /login 401\\nGET /home 200\\nGET /api 500\\n' > access.log\n\ngrep 'GET' access.log                 # select: the three GET lines\nsed 's/GET/get/' access.log           # edit: lower-case the method on every line\nawk '{ print $3 }' access.log         # fields: 200 401 200 500\n\n# combined: which paths returned 200, and how often?\ngrep ' 200$' access.log | awk '{ print $2 }' | sort | uniq -c\n#       2 /home",
+   "code_lang": "bash",
+   "takeaways": [
+    "grep selects lines, sed edits lines, awk works with fields",
+    "Filters read stdin or files and write stdout, so they chain with pipes",
+    "Build pipelines stage by stage, checking the output each time"
+   ],
+   "pitfalls": [
+    "Reaching for awk or a script when a single grep would do, or chaining five greps when one awk would be clearer."
+   ],
+   "quiz": [
+    {
+     "q": "You need the total of the third column of a whitespace-separated file. Which tool fits best?",
+     "options": [
+      "awk",
+      "tr",
+      "grep",
+      "sed"
+     ],
+     "answer": 0,
+     "explain": "awk splits lines into fields and can keep a running sum, which grep and sed cannot do naturally."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/coreutils/manual/coreutils.html#Introduction",
+   "requires": [
+    "bash.pipes"
+   ]
+  },
+  {
+   "id": "text-processing.grep-basics",
+   "name": "grep: finding lines",
+   "module": "grep",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Search files or input for lines matching a pattern, with the everyday flags -i, -v, -n, -c, -w, -l and -r.",
+   "why": "grep is the fastest way to find where something is mentioned, in one file or across a whole project.",
+   "body": "`grep PATTERN [FILE...]` prints every line containing a match for `PATTERN`. With no file it reads standard input, so it works at the end of any pipeline. Quote the pattern in single quotes so the shell leaves it alone.\n\nThe flags you'll use daily:\n\n- `-i` ignore case; `-v` invert: print lines that do **not** match.\n- `-n` prefix line numbers; `-c` print only the count of matching lines.\n- `-w` match whole words only, so `-w cat` skips `concatenate`.\n- `-l` list only the names of files that contain a match.\n- `-r` search a directory tree recursively (`-R` also follows symlinks).\n- `-e PAT` adds a pattern (repeatable, also needed for patterns starting with `-`).\n\nWhen several files are searched, grep prefixes each line with the file name; `-h` hides it and `-H` forces it. With `-r`, narrow the search with `--include='*.py'`, `--exclude='*.min.js'` and `--exclude-dir=node_modules`.\n\nBy default the pattern is a **basic regular expression**, so characters such as `.` and `*` are special. If you are searching for a literal string, use `-F` (fixed strings): it is faster and you can't be surprised by a stray dot.\n\nFlags combine freely: `grep -rniw todo src/` finds TODOs, any case, as whole words, with file names and line numbers.",
+   "code": "printf 'apple pie\\nbanana split\\nApple tart\\ncherry pie\\n' > menu.txt\n\ngrep apple menu.txt          # apple pie\ngrep -i apple menu.txt       # apple pie / Apple tart\ngrep -v pie menu.txt         # banana split / Apple tart\ngrep -c pie menu.txt         # 2\ngrep -n cherry menu.txt      # 4:cherry pie\ngrep -F 'pie' menu.txt       # literal search, no regex meaning\n\n# recursive search in a project, only Python files, skipping a directory\ngrep -rn --include='*.py' --exclude-dir=.venv 'import requests' .\ngrep -rl 'TODO' src/         # just the file names",
+   "code_lang": "bash",
+   "takeaways": [
+    "-i ignore case, -v invert, -n line numbers, -c count, -w whole word",
+    "-r searches directories; narrow it with --include and --exclude-dir",
+    "-F treats the pattern as a plain string: faster and no regex surprises"
+   ],
+   "pitfalls": [
+    "Forgetting to quote the pattern, so the shell expands * or splits words before grep sees them."
+   ],
+   "quiz": [
+    {
+     "q": "What does grep -vc error app.log print?",
+     "options": [
+      "The number of times error appears",
+      "Only the word error from each line",
+      "The lines that don't contain error",
+      "The number of lines that don't contain error"
+     ],
+     "answer": 3,
+     "explain": "-v inverts the selection and -c replaces the output with a count of the selected lines."
+    },
+    {
+     "q": "Why use grep -F '1.5.0' instead of grep '1.5.0'?",
+     "options": [
+      "Without -F grep only matches whole lines",
+      "-F is required for numbers",
+      "Without -F the dots match any character, so 105a0 would match too",
+      "-F makes the search case-insensitive"
+     ],
+     "answer": 2,
+     "explain": "In a regular expression . matches any character; -F turns that off."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/grep/manual/grep.html#Invoking",
+   "requires": [
+    "text-processing.text-streams"
+   ]
+  },
+  {
+   "id": "text-processing.grep-regex",
+   "name": "Patterns in grep: BRE and ERE",
+   "module": "grep",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Use anchors, character classes and repetition in grep patterns, and know when -E changes which characters are special.",
+   "why": "Real searches are rarely literal strings; a few regex pieces turn grep into a precise tool.",
+   "body": "grep patterns are regular expressions. The pieces you need first:\n\n- `.` any character; `[abc]` one of a set; `[^abc]` anything but; `[0-9]`, or the portable `[[:digit:]]`, `[[:space:]]`, `[[:alpha:]]`.\n- `^` start of line, `$` end of line: `^#` finds comment lines, `^$` empty ones.\n- `*` repeats the previous item zero or more times.\n\ngrep has two dialects. **Basic regular expressions** (BRE, the default) treat `+ ? | ( ) { }` as ordinary characters; you must write `\\+`, `\\|`, `\\(...\\)` to get their special meaning (a GNU extension for `\\+ \\? \\|`). **Extended regular expressions** (ERE, `grep -E`, formerly `egrep`) make them special without backslashes:\n\n- `+` one or more, `?` optional, `{2,4}` between two and four.\n- `a|b` alternation, `(...)` grouping.\n\nUse `-E` whenever your pattern has alternation or repetition; it is far easier to read. `-o` prints only the matched part instead of the whole line, which is handy for extracting values.\n\ngrep never supports `\\d` in BRE or ERE in a portable way; use `[0-9]` or `[[:digit:]]`. For Perl-style syntax (`\\d`, lookarounds) GNU grep has `-P`, covered later.",
+   "code": "printf 'id=42 ok\\nid=7 FAIL\\n# comment\\n\\nid=1234 ok\\n' > data.txt\n\ngrep '^#' data.txt                         # # comment\ngrep -c '^$' data.txt                      # 1  (empty lines)\ngrep 'id=[0-9][0-9]* ok$' data.txt         # id=42 ok / id=1234 ok   (BRE)\ngrep -E 'id=[0-9]+ (ok|FAIL)' data.txt     # every id line            (ERE)\ngrep -E 'id=[0-9]{3,}' data.txt            # id=1234 ok\ngrep -oE '[0-9]+' data.txt                 # 42 / 7 / 1234, one per line\n\ngrep 'ok|FAIL' data.txt                    # nothing: | is literal in BRE\ngrep 'ok\\|FAIL' data.txt                   # works in GNU BRE, but prefer -E",
+   "code_lang": "bash",
+   "takeaways": [
+    "^ and $ anchor to line start and end",
+    "Use grep -E for + ? | ( ) { } without backslashes",
+    "-o prints just the matched text; use [0-9] instead of \\d"
+   ],
+   "pitfalls": [
+    "Writing grep 'a|b' and getting no matches: alternation needs -E (or \\| in GNU BRE)."
+   ],
+   "quiz": [
+    {
+     "q": "Which command prints lines that consist only of digits?",
+     "options": [
+      "grep '[0-9]' f",
+      "grep -E '^[0-9]+$' f",
+      "grep -E '[0-9]+' f",
+      "grep '^[0-9]$' f"
+     ],
+     "answer": 1,
+     "explain": "Both anchors are needed so the whole line is digits, and + needs -E to mean one or more."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/grep/manual/grep.html#Regular-Expressions",
+   "requires": [
+    "text-processing.grep-basics"
+   ]
+  },
+  {
+   "id": "text-processing.sed-substitute",
+   "name": "sed: substitution with s///",
+   "module": "sed",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Rewrite text on the fly with s/regex/replacement/flags, using g for every match, & for the matched text and other delimiters.",
+   "why": "Search-and-replace across a stream or file is the single most common text edit in scripts and one-liners.",
+   "body": "`sed` (stream editor) reads input line by line into its **pattern space**, applies your commands, prints the result and moves on. The command you'll use 90% of the time is substitution:\n\n```bash\nsed 's/old/new/' file\n```\n\n- Without flags only the **first** match on each line is replaced. Add `g` for all matches, or a number (`2`) for the second only.\n- `I` (GNU) makes the match case-insensitive.\n- In the replacement, `&` stands for the whole matched text: `s/[0-9]*/<&>/` wraps the number.\n- The delimiter can be any character. `s|/usr/local|/opt|` avoids escaping every slash in paths.\n- Pass several commands with `-e` or separate them with `;`.\n\nThe pattern is a BRE by default, just like grep. Use `sed -E` for ERE so `+`, `?`, `|` and parentheses work without backslashes.\n\nsed writes to standard output and leaves the input file untouched; redirect to a new file or use `-i` (next lessons) when you are sure. To insert a literal `&` or the delimiter in the replacement, escape it: `\\&`, `\\/`.\n\nRemember that `.` in the pattern matches any character: `s/1.0/2.0/` also changes `100`. Escape it (`1\\.0`) when you mean a dot.",
+   "code": "echo 'one cat, two cats, red cat' | sed 's/cat/dog/'\n# one dog, two cats, red cat\necho 'one cat, two cats, red cat' | sed 's/cat/dog/g'\n# one dog, two dogs, red dog\necho 'one cat, two cats, red cat' | sed 's/cat/dog/2'\n# one cat, two dogs, red cat\n\necho 'price 42' | sed 's/[0-9][0-9]*/[&]/'          # price [42]\necho 'path=/usr/local/bin' | sed 's|/usr/local|/opt|'  # path=/opt/bin\necho 'v1.0 and 100' | sed 's/1\\.0/2.0/g'            # v2.0 and 100\necho 'Hello World' | sed -e 's/Hello/Bye/' -e 's/World/all/'   # Bye all",
+   "code_lang": "bash",
+   "takeaways": [
+    "s/pattern/replacement/ changes the first match; add g for all",
+    "& in the replacement is the whole match",
+    "Pick another delimiter (s|a|b|) when the text contains slashes"
+   ],
+   "pitfalls": [
+    "Expecting s/x/y/ to replace every occurrence on a line; without g only the first changes."
+   ],
+   "quiz": [
+    {
+     "q": "What does echo 'aaa' | sed 's/a/b/2' print?",
+     "options": [
+      "aba",
+      "abb",
+      "bbb",
+      "baa"
+     ],
+     "answer": 0,
+     "explain": "The numeric flag 2 replaces only the second match on the line."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/sed/manual/sed.html#The-_0022s_0022-Command",
+   "requires": [
+    "text-processing.text-streams"
+   ]
+  },
+  {
+   "id": "text-processing.awk-fields",
+   "name": "awk: fields and printing",
+   "module": "awk",
+   "level": 1,
+   "minutes": 12,
+   "summary": "awk splits each line into fields $1..$NF; print the columns you want, change the separator with -F and use NR and NF.",
+   "why": "Pulling columns out of logs, ps output or CSV-ish files is awk's bread and butter.",
+   "body": "An awk program is a list of `pattern { action }` rules run on every input line (a **record**). Each record is split into **fields**: `$1`, `$2`, ... and `$0` is the whole line. By default fields are separated by runs of spaces and tabs, and leading blanks are ignored, which suits command output like `ps` or `ls -l`.\n\nBuilt-in variables you'll use straight away:\n\n- `NF` number of fields on this line, so `$NF` is the last field and `$(NF-1)` the one before.\n- `NR` the current record number (line number across all input).\n- `-F ','` (or `-F':'`) sets the field separator `FS`; it can be a single character or a regex such as `-F '[,;]'`.\n\n`print a, b` prints its arguments separated by the output field separator `OFS` (a space by default) followed by a newline. `print a b` (no comma) concatenates them. To change OFS use `-v OFS='\\t'` or set it in a `BEGIN` block.\n\nAlways put the program in single quotes so the shell doesn't expand `$1` itself.\n\nNote that `-F ','` is not a CSV parser: a quoted field containing a comma will be split. For real CSV use a CSV-aware tool, or gawk's `--csv` option (gawk 5.3+).",
+   "code": "printf 'alice 31 london\\nbob 25 paris\\ncarol 40 rome\\n' > people.txt\n\nawk '{ print $1 }' people.txt             # alice / bob / carol\nawk '{ print $3, $1 }' people.txt         # london alice ...\nawk '{ print NR \": \" $1 \" is \" $2 }' people.txt\n# 1: alice is 31 ...\nawk '{ print $NF }' people.txt            # last field: london / paris / rome\n\n# /etc/passwd style: user name and shell\nprintf 'root:x:0:0:root:/root:/bin/bash\\n' | awk -F: '{ print $1, $NF }'\n# root /bin/bash\n\nawk -v OFS='\\t' '{ print $1, $2 }' people.txt    # tab-separated output",
+   "code_lang": "bash",
+   "takeaways": [
+    "$1..$NF are fields, $0 the whole line, NR the line number",
+    "-F sets the input separator; OFS controls what print puts between values",
+    "Single-quote the program so the shell leaves $1 alone"
+   ],
+   "pitfalls": [
+    "Using double quotes around the program: the shell replaces $1 with its own (usually empty) argument."
+   ],
+   "quiz": [
+    {
+     "q": "For the line 'a b c d', what does awk '{ print $(NF-1) }' print?",
+     "options": [
+      "3",
+      "a b c",
+      "d",
+      "c"
+     ],
+     "answer": 3,
+     "explain": "NF is 4, so $(NF-1) is $3, the second-to-last field."
+    },
+    {
+     "q": "What does awk '{ print $1 $2 }' print for the line 'x y'?",
+     "options": [
+      "$1$2",
+      "x y",
+      "xy",
+      "x\\ty"
+     ],
+     "answer": 2,
+     "explain": "Without a comma, print concatenates its arguments with nothing in between."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/gawk/manual/gawk.html#Fields",
+   "requires": [
+    "text-processing.text-streams"
+   ]
+  },
+  {
+   "id": "text-processing.grep-scripting",
+   "name": "grep output control and scripting",
+   "module": "grep",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Show context with -A/-B/-C, stop early with -m, extract matches with -o and use -q with grep's exit status in scripts.",
+   "why": "Context lines make logs readable, and grep's exit status is the idiomatic 'does this file contain X?' test in shell scripts.",
+   "body": "When reading logs you usually want the lines around a match. `-A 3` prints three lines **after** each match, `-B 3` three **before**, `-C 3` both. Groups of context are separated by `--` lines.\n\nOther output controls:\n\n- `-m N` stops after N matching lines (per file), which is fast on huge files.\n- `-o` prints only the matched parts, one per line; combine with `-E` to extract IDs, IPs or URLs.\n- `--color=auto` highlights matches on a terminal.\n- `-Z` / `--null` ends file names with a NUL byte for safe use with `xargs -0`.\n\ngrep's **exit status** is designed for scripts: `0` if any line matched, `1` if none matched, `2` on an error such as a missing file. With `-q` (quiet) grep prints nothing and exits on the first match, so it is the standard way to test for presence:\n\n```bash\nif grep -q '^backup:' /etc/passwd; then echo \"user exists\"; fi\n```\n\nBe careful in scripts using `set -e` or `pipefail`: a grep that finds nothing returns 1, which counts as a failure. If \"no matches\" is fine, write `grep ... || true`.\n\n`-s` suppresses messages about unreadable files, useful with broad recursive searches.",
+   "code": "printf 'start\\nload config\\nERROR disk full\\nretry\\nok\\nERROR timeout\\n' > app.log\n\ngrep -B1 -A1 ERROR app.log\n# load config\n# ERROR disk full\n# retry\n# --\n# ok\n# ERROR timeout\n\ngrep -m1 ERROR app.log                  # ERROR disk full\ngrep -oE 'ERROR [a-z]+' app.log         # ERROR disk / ERROR timeout\n\nif grep -q 'timeout' app.log; then\n  echo \"saw a timeout\"                  # saw a timeout\nfi\ngrep -q 'panic' app.log; echo \"status $?\"   # status 1",
+   "code_lang": "bash",
+   "takeaways": [
+    "-A/-B/-C add context lines after, before or around matches",
+    "Exit status: 0 = matched, 1 = no match, 2 = error",
+    "grep -q in an if is the idiomatic presence test"
+   ],
+   "pitfalls": [
+    "A grep with no matches failing a set -e script; add || true when an empty result is acceptable."
+   ],
+   "quiz": [
+    {
+     "q": "A script runs grep -q pattern file. Which exit status means the file exists but contains no match?",
+     "options": [
+      "0",
+      "1",
+      "2",
+      "127"
+     ],
+     "answer": 1,
+     "explain": "grep returns 1 for no match and reserves 2 for errors such as a missing file."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/grep/manual/grep.html#Exit-Status",
+   "requires": [
+    "text-processing.grep-regex",
+    "bash.exit-status"
+   ]
+  },
+  {
+   "id": "text-processing.sed-addresses",
+   "name": "sed addresses, ranges and commands",
+   "module": "sed",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Choose which lines a sed command applies to with line numbers, regexes and ranges, and use d, p, -n, i, a and c.",
+   "why": "Addresses turn sed from global search-and-replace into a precise editor for config files and generated text.",
+   "body": "Every sed command can be prefixed by an **address** that selects the lines it applies to:\n\n- a line number `3`, the last line `$`, or a regex `/^#/`;\n- a range `5,10`, `/BEGIN/,/END/` (from a line matching BEGIN to the next matching END), or `/start/,+2`;\n- `!` after the address negates it: `/^#/!` means lines that are not comments.\n\nUseful commands besides `s`:\n\n- `d` delete the line (it isn't printed).\n- `p` print the pattern space. sed prints every line automatically, so `p` is normally used with `-n`, which turns automatic printing off: `sed -n '10,20p'` prints only lines 10 to 20.\n- `q` quits: `sed 5q` is a fast `head -n 5`.\n- `i\\ text`, `a\\ text`, `c\\ text` insert before, append after, or replace the line. GNU sed also accepts the one-line form `a text`.\n- `=` prints the line number.\n\nCommands can be grouped with braces: `/^\\[db\\]/,/^\\[/{ s/^port=.*/port=5433/ }` changes `port` only inside the `[db]` section of an INI file.\n\nA regex range starts on the first matching line and ends on the next line matching the end pattern; if the end pattern never matches, the range runs to the end of the input.",
+   "code": "printf '# settings\\nname=demo\\n[db]\\nport=5432\\n[web]\\nport=8080\\n' > app.ini\n\nsed -n '2,3p' app.ini            # name=demo / [db]\nsed '/^#/d' app.ini              # everything except the comment\nsed -n '/^\\[db\\]/,/^\\[/p' app.ini\n# [db]\n# port=5432\n# [web]\n\n# change port only inside the [db] section\nsed '/^\\[db\\]/,/^\\[/ s/^port=.*/port=5433/' app.ini | grep port\n# port=5433\n# port=8080\n\nsed '1a\\\n# generated, do not edit' app.ini | head -2     # adds a line after line 1\nsed -n '$=' app.ini              # 6  (number of the last line)",
+   "code_lang": "bash",
+   "takeaways": [
+    "Addresses: line numbers, $, /regex/, ranges a,b and negation with !",
+    "sed -n plus p prints only the lines you select",
+    "d deletes, q quits, i/a/c insert, append and change lines"
+   ],
+   "pitfalls": [
+    "Using p without -n and seeing every selected line printed twice."
+   ],
+   "quiz": [
+    {
+     "q": "What does sed -n '/start/,/end/p' print?",
+     "options": [
+      "Each block from a start line through the next end line",
+      "Everything except those blocks",
+      "Nothing, because -n suppresses output",
+      "Only lines containing start or end"
+     ],
+     "answer": 0,
+     "explain": "A regex range selects from a matching start line to the next end line, and p prints the selection."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/sed/manual/sed.html#sed-addresses",
+   "requires": [
+    "text-processing.sed-substitute",
+    "text-processing.grep-regex"
+   ]
+  },
+  {
+   "id": "text-processing.sed-groups-in-place",
+   "name": "Capture groups and in-place editing",
+   "module": "sed",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Reorder text with sed -E capture groups and \\1 backreferences, and edit files safely with -i and a backup suffix.",
+   "why": "Most real sed jobs rearrange parts of a line and then save the result back into the file.",
+   "body": "Parentheses in the pattern **capture** what they match; `\\1` to `\\9` in the replacement insert those captures. In BRE the parentheses must be escaped, so use `sed -E` (ERE) and write plain `( )`:\n\n```bash\nsed -E 's/([a-z]+)@([a-z.]+)/\\2: \\1/'\n```\n\nGNU sed also offers case conversion in the replacement: `\\U` upper-cases what follows, `\\L` lower-cases, `\\E` stops; `\\u` and `\\l` affect only the next character.\n\nTo change a file in place use `-i`. GNU sed writes a temporary file and renames it over the original. Give a suffix to keep a backup: `sed -i.bak 's/a/b/' file` leaves `file.bak` behind.\n\nPortability matters here. On macOS and the BSDs `-i` **requires** a suffix argument, so `sed -i 's/a/b/' f` fails there; the empty suffix is written `sed -i '' ...`. The form `-i.bak` (no space) works on both GNU and BSD sed, so prefer it in shared scripts, then delete the backup if you don't need it.\n\nBefore running `-i` on many files, preview the change without `-i` (or with `diff`) first. Because `-i` replaces the file, it also breaks hard links and resets ownership in some cases, which matters for files edited as root.",
+   "code": "echo 'alice@example.com' | sed -E 's/([a-z]+)@([a-z.]+)/\\2: \\1/'\n# example.com: alice\n\necho '2026-10-17' | sed -E 's/([0-9]{4})-([0-9]{2})-([0-9]{2})/\\3.\\2.\\1/'\n# 17.10.2026\n\necho 'hello world' | sed -E 's/(\\w+)/\\u\\1/g'     # Hello World (GNU)\n\nprintf 'debug=true\\nlevel=3\\n' > app.conf\nsed -i.bak 's/^debug=true/debug=false/' app.conf   # works with GNU and BSD sed\ncat app.conf          # debug=false / level=3\ncat app.conf.bak      # debug=true  / level=3\ndiff app.conf.bak app.conf    # shows the one changed line",
+   "code_lang": "bash",
+   "takeaways": [
+    "sed -E lets you write ( ) for groups; \\1..\\9 reuse them in the replacement",
+    "-i edits in place; -i.bak keeps a backup and is portable to BSD/macOS",
+    "Preview without -i before rewriting many files"
+   ],
+   "pitfalls": [
+    "Running sed -i 's/x/y/' file on macOS, where the s/// expression is taken as the backup suffix and the command fails."
+   ],
+   "quiz": [
+    {
+     "q": "What does echo 'b a' | sed -E 's/(.) (.)/\\2 \\1/' print?",
+     "options": [
+      "\\2 \\1",
+      "ba",
+      "b a",
+      "a b"
+     ],
+     "answer": 3,
+     "explain": "The two captured characters are written back in swapped order."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/sed/manual/sed.html#Back_002dreferences-and-Subexpressions",
+   "requires": [
+    "text-processing.sed-substitute"
+   ]
+  },
+  {
+   "id": "text-processing.awk-patterns",
+   "name": "awk patterns, BEGIN and END",
+   "module": "awk",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Filter records with conditions and regex matches, and use BEGIN and END blocks to set up and report.",
+   "why": "Patterns let one awk command replace a grep plus a cut, and END blocks turn a filter into a report.",
+   "body": "Each awk rule is `pattern { action }`. The pattern decides which records the action runs on:\n\n- a comparison: `$3 > 100`, `$1 == \"alice\"`, `NF > 0`;\n- a regex against the whole line: `/ERROR/`, or against a field: `$2 ~ /^api/`, `$2 !~ /test/`;\n- combinations with `&&`, `||`, `!`;\n- a range `/start/,/stop/`, like in sed.\n\nIf the action is omitted, the default action prints the line, so `awk '$3 > 100'` behaves like a field-aware grep. If the pattern is omitted, the action runs for every line.\n\nTwo special patterns run outside the input loop: `BEGIN { ... }` runs once before any input is read (set `FS`, `OFS`, print a header) and `END { ... }` runs once after the last line (print totals). In `END`, `NR` holds the total number of records.\n\nVariables need no declaration: they start as an empty string, which is also `0` in numeric context. That is why `{ sum += $2 } END { print sum }` just works.\n\nComparisons are numeric when both sides look like numbers and string-based otherwise. Be careful with fields like `007` versus `\"7\"` written as a string constant: `$1 == \"7\"` compares as strings.\n\nUse `printf` for aligned output: `printf \"%-10s %5.1f\\n\", $1, $2`.",
+   "code": "printf 'name dept salary\\nana eng 120\\nbo ops 80\\ncy eng 95\\n' > staff.txt\n\nawk 'NR > 1 && $3 > 90' staff.txt            # ana eng 120 / cy eng 95\nawk '$2 ~ /^e/ { print $1 }' staff.txt       # ana / cy\n\nawk 'BEGIN { print \"Report\" }\n     NR > 1 { total += $3; n++ }\n     END    { printf \"%d people, avg %.1f\\n\", n, total / n }' staff.txt\n# Report\n# 3 people, avg 98.3\n\nawk 'END { print NR \" lines\" }' staff.txt    # 4 lines",
+   "code_lang": "bash",
+   "takeaways": [
+    "pattern { action }: no action prints the line, no pattern matches all lines",
+    "~ and !~ match a field against a regex",
+    "BEGIN runs before input, END after it; uninitialised variables are 0 or empty"
+   ],
+   "pitfalls": [
+    "Forgetting to skip the header line (NR > 1) and having it counted or summed."
+   ],
+   "quiz": [
+    {
+     "q": "What does awk '$2 > 10' file do?",
+     "options": [
+      "Prints nothing without an action",
+      "Prints field 2 if it is over 10",
+      "Prints whole lines whose second field is over 10",
+      "Assigns 10 to field 2"
+     ],
+     "answer": 2,
+     "explain": "A pattern with no action uses the default action, which prints the whole record."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/gawk/manual/gawk.html#Patterns-and-Actions",
+   "requires": [
+    "text-processing.awk-fields"
+   ]
+  },
+  {
+   "id": "text-processing.awk-aggregation",
+   "name": "Counting and grouping with awk arrays",
+   "module": "awk",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Use awk's associative arrays to count, sum and group by a key, and iterate over the results in END.",
+   "why": "Group-by summaries of logs and CSV exports are among the most useful one-liners you can write.",
+   "body": "awk arrays are **associative**: the index is any string. That makes group-by trivial. `count[$1]++` increments a counter for the value in column 1, creating the element on first use. `sum[$2] += $3` keeps a running total per key.\n\nTo report, loop over the keys in `END`:\n\n```awk\nEND { for (k in sum) print k, sum[k] }\n```\n\nThe order of `for (k in arr)` is **unspecified**. Pipe the output into `sort` (for example `sort -k2,2nr` to sort by the second column, numerically, descending), or in gawk set `PROCINFO[\"sorted_in\"] = \"@ind_str_asc\"` before the loop.\n\nOther array tools:\n\n- `(key in arr)` tests membership without creating the element; `arr[key] == \"\"` would create it.\n- `delete arr[key]` removes one element; `delete arr` clears it (POSIX since 2024, long supported everywhere).\n- Composite keys: `arr[$1, $2]` joins the parts with `SUBSEP`.\n\nA classic idiom is `!seen[$0]++`, a pattern that is true the first time a line is seen: `awk '!seen[$0]++'` removes duplicate lines while keeping the original order, which `sort -u` can't do.",
+   "code": "printf 'GET /a 200\\nGET /b 404\\nPOST /a 200\\nGET /a 500\\n' > req.log\n\n# requests per path\nawk '{ n[$2]++ } END { for (p in n) print p, n[p] }' req.log | sort\n# /a 3\n# /b 1\n\n# count per status, most frequent first\nawk '{ c[$3]++ } END { for (s in c) print s, c[s] }' req.log | sort -k2,2nr\n# 200 2   (then 404 1 and 500 1)\n\n# de-duplicate while keeping first-seen order\nprintf 'b\\na\\nb\\nc\\na\\n' | awk '!seen[$0]++'     # b / a / c",
+   "code_lang": "bash",
+   "takeaways": [
+    "arr[key]++ and arr[key] += x build counts and sums per key",
+    "for (k in arr) has no guaranteed order: pipe to sort",
+    "!seen[$0]++ removes duplicates and keeps order"
+   ],
+   "pitfalls": [
+    "Testing arr[k] == \"\" to check membership, which silently creates the key; use (k in arr)."
+   ],
+   "quiz": [
+    {
+     "q": "What does awk '!seen[$1]++' print?",
+     "options": [
+      "Lines whose first field appears more than once",
+      "The first line for each distinct first field",
+      "The count of each first field",
+      "Only the last line for each first field"
+     ],
+     "answer": 1,
+     "explain": "The expression is true only when seen[$1] was 0, which is the first time that value appears."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/gawk/manual/gawk.html#Arrays",
+   "requires": [
+    "text-processing.awk-patterns"
+   ]
+  },
+  {
+   "id": "text-processing.sort-uniq-cut",
+   "name": "sort, uniq, cut and tr",
+   "module": "pipelines",
+   "level": 2,
+   "minutes": 12,
+   "summary": "The helper filters that complete most pipelines: sort by keys, count duplicates with uniq -c, cut columns and translate characters.",
+   "why": "grep, sed and awk find and reshape data; these helpers rank, count and tidy it into an answer.",
+   "body": "A few small coreutils appear in almost every text pipeline:\n\n- `sort` orders lines. `-n` numeric, `-r` reverse, `-h` human sizes (`2K`, `1G`), `-u` unique, `-t ','` separator, `-k2,2` sort by field 2 only. Always write the end of the key (`-k2,2`): `-k2` means from field 2 to the end of the line.\n- `uniq` collapses **adjacent** duplicate lines, so it is nearly always preceded by `sort`. `uniq -c` prefixes counts, `-d` shows only duplicated lines.\n- `cut` extracts columns by delimiter (`cut -d, -f1,3`) or by character position (`cut -c1-8`). Unlike awk it treats every delimiter as a separator, so two spaces mean an empty field between them.\n- `tr` translates or deletes characters: `tr 'a-z' 'A-Z'`, `tr -d '\\r'` strips Windows carriage returns, `tr -s ' '` squeezes repeated spaces.\n- `head -n`, `tail -n`, `wc -l` take the top, the bottom and the count.\n\nThe \"top N\" idiom combines them:\n\n```bash\n... | sort | uniq -c | sort -rn | head\n```\n\nIt counts each distinct line, then ranks by count.\n\n`sort` is locale-aware. With `LC_ALL=C sort` you get plain byte order, which is faster and identical on every machine, important when another tool (like `join` or `comm`) expects sorted input.",
+   "code": "printf '10.0.0.1 GET\\n10.0.0.2 GET\\n10.0.0.1 POST\\n10.0.0.1 GET\\n' > hits.txt\n\n# top client IPs\ncut -d' ' -f1 hits.txt | sort | uniq -c | sort -rn\n#       3 10.0.0.1\n#       1 10.0.0.2\n\nprintf 'b,2\\na,10\\nc,1\\n' | sort -t, -k2,2n     # c,1 / b,2 / a,10\nprintf 'b,2\\na,10\\nc,1\\n' | sort -t, -k2,2      # c,1 / a,10 / b,2  (text order!)\n\necho 'Hello,   World' | tr -s ' ' | tr 'a-z' 'A-Z'   # HELLO, WORLD\nprintf 'line\\r\\n' | tr -d '\\r' | od -c | head -1   # no \\r left",
+   "code_lang": "bash",
+   "takeaways": [
+    "sort | uniq -c | sort -rn | head is the top-N idiom",
+    "uniq only merges adjacent lines, so sort first",
+    "Use -k2,2 with -n for numeric sorting on one field"
+   ],
+   "pitfalls": [
+    "Sorting numbers without -n, so 10 comes before 2."
+   ],
+   "quiz": [
+    {
+     "q": "Why is sort usually placed before uniq?",
+     "options": [
+      "uniq only removes duplicates that are next to each other",
+      "uniq needs alphabetical order to count",
+      "sort removes duplicates first",
+      "It's only a convention"
+     ],
+     "answer": 0,
+     "explain": "uniq compares each line with the previous one, so equal lines must be adjacent."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/coreutils/manual/coreutils.html#sort-invocation",
+   "requires": [
+    "text-processing.awk-fields",
+    "text-processing.grep-basics"
+   ]
+  },
+  {
+   "id": "text-processing.sed-hold-space",
+   "name": "sed: hold space and multi-line editing",
+   "module": "sed",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Work across lines in sed with N, D and P, the hold space (h, H, g, G, x) and labels with branching.",
+   "why": "Joining continuation lines or editing a line based on its neighbour needs sed's multi-line commands.",
+   "body": "Normally sed sees one line at a time. A few commands widen the view:\n\n- `N` appends the next input line to the pattern space, separated by `\\n`.\n- `P` prints up to the first newline; `D` deletes up to the first newline and restarts the cycle without reading a new line. `N;P;D` is the sliding two-line window.\n- The **hold space** is a second buffer that persists between lines. `h` copies the pattern space into it, `H` appends, `g` copies it back, `G` appends it to the pattern space, `x` swaps the two.\n- `:label` defines a label, `b label` branches to it, and `t label` branches only if a substitution succeeded since the last input line or `t`.\n\nCommon uses:\n\n- `sed ':a; /\\\\$/ { N; s/\\\\\\n//; ba }'` joins lines ending in a backslash with the next.\n- `sed -n '1!G; h; $p'` reverses a file (what `tac` does).\n- GNU sed's `-z` treats the whole input as NUL-separated, so a file without NULs becomes one big \"line\" that you can edit with regexes containing `\\n`.\n\nThis is where sed programs become hard to read. If the logic needs more than a couple of these commands, an awk script, which has real variables and `if`, is usually clearer and easier to maintain.",
+   "code": "# join lines ending in a backslash with the next line\nprintf 'cmd --a \\\\\\n  --b\\nnext\\n' | sed -e ':a' -e '/\\\\$/{N; s/\\\\\\n *//; ba' -e '}'\n# cmd --a --b\n# next\n\n# reverse a file: prepend each line to the hold space, print at the end\nprintf '1\\n2\\n3\\n' | sed -n '1!G; h; $p'          # 3 / 2 / 1\n\n# print each line that comes right before a line containing ERROR\nprintf 'a\\nb\\nERROR\\nc\\n' | sed -n '$!N; /\\nERROR/P; D'     # b\n\n# -z: replace the newline between two lines\nprintf 'key=\\nvalue\\n' | sed -z 's/=\\n/=/'           # key=value",
+   "code_lang": "bash",
+   "takeaways": [
+    "N appends the next line; P and D work on the first line of the buffer",
+    "h/H/g/G/x move text between the pattern space and the hold space",
+    "Switch to awk once a sed program needs more than a few of these"
+   ],
+   "pitfalls": [
+    "Forgetting that N on the last line prints and exits in GNU sed but behaves differently elsewhere; guard with $!N."
+   ],
+   "quiz": [
+    {
+     "q": "What does the D command do when the pattern space contains a newline?",
+     "options": [
+      "Duplicates the first line",
+      "Moves the pattern space to the hold space",
+      "Deletes the whole pattern space and reads the next line",
+      "Deletes up to the first newline and restarts the cycle with the rest"
+     ],
+     "answer": 3,
+     "explain": "D removes the first line only and restarts the script on what remains, without reading new input."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/sed/manual/sed.html#Multiline-techniques",
+   "requires": [
+    "text-processing.sed-addresses"
+   ]
+  },
+  {
+   "id": "text-processing.awk-programs",
+   "name": "awk programs: printf, functions, two files",
+   "module": "awk",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Write real awk programs with printf, string functions, user functions, -v variables, script files and two-file joins via NR==FNR.",
+   "why": "Beyond one-liners awk is a small, fast language for reports and data reshaping that runs everywhere.",
+   "body": "Longer programs go in a file and run with `awk -f report.awk data`. Pass shell values in with `-v name=value` instead of splicing them into the quoted program.\n\nUseful built-ins:\n\n- `printf` with `%s %d %.2f %-10s` for aligned columns; `sprintf` returns the string instead.\n- String functions: `length(s)`, `substr(s, start, len)` (1-based), `index(s, t)`, `split(s, arr, sep)` which returns the count, `tolower`, `toupper`.\n- `sub(re, repl [, target])` and `gsub(...)` replace in place and return the number of replacements; `&` in `repl` is the match. `match(s, re)` sets `RSTART` and `RLENGTH`.\n\nUser functions: `function name(a, b,    tmp) { ... }`. By convention the extra parameters after spaces are **local variables**, because awk has no other way to declare them. Arrays are passed by reference, scalars by value.\n\nWith several input files, `FNR` is the line number within the current file while `NR` keeps counting. So `NR == FNR` is true only while reading the first file. This is the idiom for joins and lookups: load the first file into an array, then use it on the second.\n\ngawk adds extras (`strftime`, `gensub`, `--csv`, sorted array traversal), but code using them won't run on mawk or BSD awk.",
+   "code": "printf 'u1 Ana\\nu2 Bo\\n' > users.txt\nprintf 'u2 15.5\\nu1 7\\nu2 4.5\\n' > orders.txt\n\n# join: load users (first file), then total orders per user name\nawk 'NR == FNR { name[$1] = $2; next }\n     { total[name[$1]] += $2 }\n     END { for (u in total) printf \"%-5s %6.2f\\n\", u, total[u] }' users.txt orders.txt | sort\n# Ana     7.00\n# Bo     20.00\n\nawk -v limit=10 '$2 > limit { print $1 }' orders.txt     # u2\n\nawk 'function shout(s) { return toupper(s) \"!\" }\n     { n = split($0, parts, \"-\"); print n, shout(parts[1]) }' <<< 'ab-cd-ef'\n# 3 AB!",
+   "code_lang": "bash",
+   "takeaways": [
+    "Pass shell values with -v, longer programs with -f file.awk",
+    "NR == FNR { ...; next } loads the first file for a join",
+    "Extra function parameters are the way to declare locals"
+   ],
+   "pitfalls": [
+    "Splicing a shell variable into the awk program text; quotes in the value break it. Use -v."
+   ],
+   "quiz": [
+    {
+     "q": "With awk '...' a.txt b.txt, when is NR == FNR true?",
+     "options": [
+      "Only on the first line",
+      "On every line of both files",
+      "Only while reading a.txt",
+      "Only while reading b.txt"
+     ],
+     "answer": 2,
+     "explain": "FNR resets for each file while NR doesn't, so they are equal only during the first file."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/gawk/manual/gawk.html#User_002ddefined",
+   "requires": [
+    "text-processing.awk-aggregation"
+   ]
+  },
+  {
+   "id": "text-processing.robust-pipelines",
+   "name": "Safe filenames, xargs and locale",
+   "module": "pipelines",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Handle any filename with NUL separators (find -print0, grep -Z, xargs -0), and control behaviour and speed with LC_ALL.",
+   "why": "Pipelines that work on test data often break on filenames with spaces or on a machine with a different locale.",
+   "body": "Filenames may contain spaces, quotes and even newlines; only `/` and the NUL byte are forbidden. A pipeline that passes names as lines therefore breaks on unusual names. The fix is to separate names with **NUL**:\n\n- `find . -name '*.log' -print0` writes NUL-terminated names;\n- `grep -lZ` (or `--null`) does the same for matching file names; GNU `sort -z` and `sed -z` read them;\n- `xargs -0` splits its input on NUL and runs a command with as many names per invocation as fit.\n\n`xargs` turns lines of input into arguments. `-n 1` passes one per command, `-I{}` substitutes each item into a template, and `-P 4` runs four processes in parallel. Often `find ... -exec cmd {} +` is simpler and equally safe.\n\n**Locale** changes what tools do. Under a UTF-8 locale `[a-z]` and sort order follow language rules, `.` matches a whole multi-byte character and case-insensitive matching handles accents. With `LC_ALL=C`:\n\n- characters are bytes, so behaviour is identical on every machine;\n- sorting is plain byte order, which `join` and `comm` expect;\n- grep and sort can be noticeably faster on large ASCII data.\n\nUse `LC_ALL=C` for machine-oriented processing, and keep the user's locale when the output is meant for people or the text isn't ASCII.",
+   "code": "mkdir -p demo && cd demo\ntouch 'plain.log' 'with space.log' 'other.txt'\necho 'ERROR x' > 'with space.log'\n\n# breaks: the name is split into \"with\" and \"space.log\"\nfind . -name '*.log' | xargs grep -l ERROR 2>/dev/null\n\n# safe: NUL-separated names end to end\nfind . -name '*.log' -print0 | xargs -0 grep -l ERROR      # ./with space.log\ngrep -rlZ ERROR . | xargs -0 -I{} echo \"found: {}\"         # found: ./with space.log\nfind . -name '*.log' -exec wc -l {} +                      # also safe\n\n# byte-order sorting, identical everywhere\nprintf 'b\\nB\\na\\n' | LC_ALL=C sort                       # B / a / b",
+   "code_lang": "bash",
+   "takeaways": [
+    "Only NUL can't appear in a filename: use -print0, -Z and xargs -0",
+    "find -exec cmd {} + is a safe alternative to xargs",
+    "LC_ALL=C gives byte semantics: portable results and often faster"
+   ],
+   "pitfalls": [
+    "Piping find output into a while read loop or xargs without -0 and breaking on names with spaces."
+   ],
+   "quiz": [
+    {
+     "q": "Why is find . -print0 | xargs -0 rm safer than find . | xargs rm?",
+     "options": [
+      "It is faster",
+      "Names are separated by NUL, which can't occur inside a filename",
+      "It asks before deleting",
+      "It skips hidden files"
+     ],
+     "answer": 1,
+     "explain": "Newlines and spaces can appear in names, NUL cannot, so NUL separation is unambiguous."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/findutils/manual/html_mono/find.html",
+   "requires": [
+    "text-processing.sort-uniq-cut",
+    "text-processing.grep-scripting"
+   ]
+  },
+  {
+   "id": "text-processing.grep-pcre",
+   "name": "grep -P, ripgrep and smarter searching",
+   "module": "grep",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Use Perl-compatible patterns with grep -P (lookarounds, \\d, \\K) and know when ripgrep or git grep is the better search tool.",
+   "why": "Some extractions need lookarounds, and in big codebases a tool that respects .gitignore is dramatically faster.",
+   "body": "GNU grep's `-P` switches to **Perl-compatible regular expressions** (PCRE2). That adds:\n\n- shorthand classes `\\d`, `\\w`, `\\s`, and `\\b` word boundaries;\n- lazy quantifiers like `.*?`;\n- lookarounds: `(?<=user=)\\w+` matches the name after `user=` without including the prefix;\n- `\\K`, which drops everything matched so far from the reported match: `grep -oP 'id=\\K\\d+'` prints just the number.\n\n`-P` is a GNU feature and may be missing in minimal builds; BSD and macOS grep don't support it. In portable scripts, prefer `-E` plus sed or awk for extraction.\n\nFor searching source trees, two other tools are often better than `grep -r`:\n\n- `git grep` searches only tracked files of a Git repository, very quickly, and can search other revisions: `git grep TODO v1.0`.\n- **ripgrep** (`rg`) recurses by default, skips files ignored by `.gitignore`, hidden files and binaries, uses all CPU cores and has a regex engine with guaranteed linear-time matching. Its flags mirror grep's (`-i`, `-w`, `-l`, `-C`) and `-t py` filters by file type.\n\nKeep plain `grep` for pipelines and for scripts that must run everywhere; use `rg` or `git grep` interactively in large repositories.",
+   "code": "printf 'user=ana id=17\\nuser=bo id=204\\n' > log.txt\n\ngrep -oP 'id=\\K\\d+' log.txt                 # 17 / 204\ngrep -oP '(?<=user=)\\w+' log.txt            # ana / bo\ngrep -oP 'user=.*?(?= )' log.txt            # user=ana / user=bo  (lazy + lookahead)\n\n# portable equivalent without -P\ngrep -oE 'id=[0-9]+' log.txt | cut -d= -f2   # 17 / 204\n\n# in a Git repository:\n#   git grep -n 'TODO'            tracked files only\n#   rg -t py 'def main'           ripgrep: respects .gitignore, parallel",
+   "code_lang": "bash",
+   "takeaways": [
+    "grep -P adds \\d, lazy quantifiers, lookarounds and \\K",
+    "-P is GNU-only: use -E with cut or sed in portable scripts",
+    "git grep and ripgrep are faster for code search and skip ignored files"
+   ],
+   "pitfalls": [
+    "Shipping a script that uses grep -P to macOS users, where it fails with an invalid option error."
+   ],
+   "quiz": [
+    {
+     "q": "What does grep -oP 'v=\\K\\d+' print for the line 'v=42;'?",
+     "options": [
+      "42",
+      "v=42;",
+      "42;",
+      "v=42"
+     ],
+     "answer": 0,
+     "explain": "\\K discards the text matched before it, so only the digits are reported."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/grep/manual/grep.html#grep-Programs",
+   "requires": [
+    "text-processing.grep-scripting"
+   ]
+  },
+  {
+   "id": "text-processing.awk-semantics",
+   "name": "awk semantics: strings, numbers and $0",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Understand awk's dual string/number values, how assigning a field rebuilds $0 with OFS, and how RS, FS and getline really behave.",
+   "why": "These rules explain the surprising outputs that bite people once awk programs get serious.",
+   "body": "Every awk value is a string, a number, or a **strnum**: input that looks numeric (fields, `getline` results, `-v` values) compares as a number with other numbers. Constants like `\"10\"` are always strings, so `$1 == \"10\"` is a string comparison and `\"10\" < \"9\"` is true. Force a type with `x + 0` (number) or `x \"\"` (string). Numbers convert to strings using `CONVFMT` (default `%.6g`), which is why large or long fractional values may print rounded.\n\nFields and `$0` are linked:\n\n- Assigning any field, even `$1 = $1`, **rebuilds** `$0` by joining the fields with `OFS`. That is the idiom for changing separators: `awk -v OFS=, '{ $1 = $1; print }'`.\n- Assigning `$0` re-splits it into fields; assigning `NF` truncates or extends the record.\n- Setting `$(NF+2)` creates an empty field in between.\n\nRecords are separated by `RS` (newline by default). `RS = \"\"` enables **paragraph mode**: records are separated by blank lines and newline always acts as a field separator. gawk allows a regex `RS` and sets `RT` to the matched text.\n\n`getline` has several forms with different side effects (`getline` updates `$0`, `NF`, `NR`; `getline var < file` updates only `var`) and returns -1 on error, so `while ((getline line < f) > 0)` is the only safe loop.",
+   "code": "echo '10 9' | awk '{ print ($1 > $2) }'            # 1  numeric: both are strnum\nawk 'BEGIN { print (\"10\" > \"9\") }'                 # 0  string comparison\nawk 'BEGIN { x = \"3.0\"; print (x == 3), (x + 0 == 3) }'   # 0 1\n\necho 'a b c' | awk -v OFS=, '{ print }'            # a b c   ($0 untouched)\necho 'a b c' | awk -v OFS=, '{ $1 = $1; print }'   # a,b,c   (rebuilt)\necho 'a b c' | awk '{ NF = 2; print }'             # a b\n\n# paragraph mode: one record per blank-line separated block\nprintf 'ana\\n31\\n\\nbo\\n25\\n' | awk 'BEGIN { RS = \"\" } { print NR, $1, $2 }'\n# 1 ana 31\n# 2 bo 25",
+   "code_lang": "bash",
+   "takeaways": [
+    "Field input is a strnum; string constants always compare as strings",
+    "Assigning a field rebuilds $0 with OFS: $1 = $1 changes separators",
+    "RS = \"\" is paragraph mode; loop on (getline line < f) > 0"
+   ],
+   "pitfalls": [
+    "Writing while (getline line < file) without > 0: a missing file returns -1 and the loop never ends."
+   ],
+   "quiz": [
+    {
+     "q": "Why does echo 'a b' | awk -v OFS=- '{ print }' print 'a b' and not 'a-b'?",
+     "options": [
+      "OFS must be set in BEGIN",
+      "-v doesn't work for built-in variables",
+      "OFS only applies to printf",
+      "$0 is only rebuilt with OFS after a field is assigned"
+     ],
+     "answer": 3,
+     "explain": "print with no arguments prints $0 unchanged; assigning a field such as $1 = $1 rebuilds it using OFS."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/gawk/manual/gawk.html#Variable-Typing",
+   "requires": [
+    "text-processing.awk-programs"
+   ]
+  },
+  {
+   "id": "text-processing.grep-performance",
+   "name": "How grep is fast, and when it isn't",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Why grep beats a naive loop: literal-string skipping, DFA matching, mmap-free buffered reads, and what slows it down (backreferences, -P, locales).",
+   "why": "Knowing what makes a search slow lets you search gigabytes in seconds instead of minutes.",
+   "body": "GNU grep is fast because it avoids doing per-character regex work on most of the input:\n\n- It extracts a **required literal** from the pattern (for `ERROR [0-9]+` that's `ERROR `) and searches for it with a Boyer-Moore-style algorithm that can skip ahead several bytes at a time. Only candidate lines are checked by the full matcher.\n- The full matcher is a **DFA** built lazily from the regex: each input byte costs one table lookup, with no backtracking, so time is linear in the input size.\n- It reads big blocks and doesn't split the input into lines before matching; it finds line boundaries only around matches.\n\nThings that defeat this:\n\n- **Backreferences** like `\\(a*\\)\\1` can't be expressed as a DFA, so grep falls back to a backtracking matcher which can be exponential.\n- `-P` uses PCRE2 (with JIT), fast for typical patterns but backtracking, so pathological patterns can be very slow.\n- Multibyte locales can force slower paths for some constructs; `LC_ALL=C` often speeds up large ASCII searches.\n- `-i` with some locales, and patterns with no usable literal, also reduce the skipping.\n\nFor many fixed strings use `-F -f patterns.txt`: grep builds an Aho-Corasick-style matcher that searches for all of them in one pass. Avoid loops that run grep once per pattern over the same file.",
+   "code": "# 2 million lines of test data\nseq 1 2000000 | sed 's/^/line /' > big.txt\n\ntime grep -c 'line 1999999' big.txt        # literal: skips most bytes\ntime LC_ALL=C grep -c 'line 1999999' big.txt\n\n# many fixed strings in one pass instead of a loop of greps\nprintf 'line 17\\nline 42\\nline 99\\n' > wanted.txt\ngrep -cxF -f wanted.txt big.txt            # 3\n\n# backreference: no DFA possible, much slower on big inputs\ntime grep -cE '(1)\\1' big.txt",
+   "code_lang": "bash",
+   "takeaways": [
+    "grep searches for a required literal first, then confirms with a DFA",
+    "Backreferences and -P fall back to backtracking",
+    "Use -F -f file for many fixed strings in one pass"
+   ],
+   "pitfalls": [
+    "Looping over a list of terms and running grep once per term on the same large file."
+   ],
+   "quiz": [
+    {
+     "q": "Why are backreferences slow in grep?",
+     "options": [
+      "They force case-insensitive matching",
+      "They require -P",
+      "They can't be matched by a DFA, so grep must backtrack",
+      "They disable output buffering"
+     ],
+     "answer": 2,
+     "explain": "A DFA has no memory of earlier captured text, so patterns with backreferences need a backtracking matcher."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/grep/manual/grep.html#Performance",
+   "requires": [
+    "text-processing.grep-pcre",
+    "text-processing.robust-pipelines"
+   ]
+  },
+  {
+   "id": "text-processing.portability",
+   "name": "POSIX, GNU and BSD differences",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Know which grep, sed and awk features are POSIX and which are GNU or BSD extensions, so your scripts run on Linux, macOS and minimal containers.",
+   "why": "A pipeline that works on your laptop can fail in Alpine, on macOS or in CI because each ships different implementations.",
+   "body": "The same command names hide different implementations: GNU tools on most Linux distributions, BSD tools on macOS and FreeBSD, BusyBox in Alpine and many containers, and mawk as the default awk on Debian and Ubuntu.\n\nFrequent traps:\n\n- `sed -i`: GNU takes an optional suffix, BSD requires one. Use `-i.bak` or avoid `-i`.\n- `sed`: `\\n` in the replacement, `I` flag, `\\U`/`\\L`, `-z`, one-line `a text` and `e` are GNU-only. BSD sed needs the escaped-newline form for `a\\`.\n- `grep`: `-P` is GNU-only. `\\+ \\? \\|` in BRE are GNU extensions; `-E` is portable.\n- `\\w`, `\\s`, `\\b` and `\\<` are not POSIX; `[[:alnum:]_]` and `[[:space:]]` are.\n- `awk`: `gensub`, `strftime`, `PROCINFO`, `--csv`, `asort`, `@include` and `length(arr)` on older awks are gawk extensions; mawk and BSD awk lack most of them.\n- `sort -h`, `xargs -0`, `find -print0` are widespread but not universal.\n\nStrategies:\n\n- Write to POSIX and test with the target implementation (for example run your script in an `alpine` and a `debian` container).\n- On macOS, install GNU versions (`brew install gnu-sed gawk grep`, available as `gsed`, `gawk`, `ggrep`) if you need them, but don't assume users have them.\n- When a pipeline needs many extensions, a small Python script is often the more portable choice.",
+   "code": "# portable                          # GNU-only equivalent\ngrep -E 'a+|b' f                    # grep 'a\\+\\|b' f\ngrep '[[:space:]]' f                # grep '\\s' f\nsed -i.bak 's/a/b/' f && rm f.bak   # sed -i 's/a/b/' f\nsed 's/x/&\\\n/' f                                # sed 's/x/&\\n/' f   (newline in replacement)\nawk '{ print toupper($0) }' f       # gawk '{ print gensub(/a/, \"b\", \"g\") }' f\n\n# which implementation am I using?\nawk --version 2>/dev/null | head -1 || awk -W version 2>&1 | head -1\nsed --version 2>/dev/null | head -1 || echo \"not GNU sed (probably BSD)\"",
+   "code_lang": "bash",
+   "takeaways": [
+    "macOS ships BSD sed/grep, Debian's default awk is mawk, Alpine uses BusyBox",
+    "POSIX classes like [[:space:]] work everywhere; \\s and \\w don't",
+    "Test scripts on the implementations you ship to"
+   ],
+   "pitfalls": [
+    "Testing a script only with GNU tools and shipping it to macOS developers or Alpine images."
+   ],
+   "quiz": [
+    {
+     "q": "Which of these works the same with GNU and BSD sed?",
+     "options": [
+      "sed -i 's/a/b/' f",
+      "sed -i.bak 's/a/b/' f",
+      "sed 's/a/\\n/' f",
+      "sed -z 's/a/b/' f"
+     ],
+     "answer": 1,
+     "explain": "Both accept an attached suffix for -i; the other forms are GNU-specific or interpreted differently."
+    }
+   ],
+   "docs": "https://pubs.opengroup.org/onlinepubs/9699919799/utilities/sed.html",
+   "requires": [
+    "text-processing.sed-hold-space",
+    "text-processing.awk-semantics"
+   ]
+  }
+ ]
+}

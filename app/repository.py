@@ -1,14 +1,21 @@
-"""All concept-graph SQL lives here. Every query is index-backed and bounded."""
-import heapq
+"""All catalog SQL lives here: tools, lessons and their prerequisites (schema
+"graph"). Every query is index-backed and bounded by one tool's size."""
+import json
 import re
 import unicodedata
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from .db import Conn, Row
 
-_COLS = ["pk", "slug", "name", "type", "domain", "description", "example", "wiki_url", "difficulty", "prereq_count"]
-_CONCEPT_COLS = ", ".join(_COLS)
-_C_COLS = ", ".join("c." + c for c in _COLS)
+LEVEL_NAMES = {1: "Essentials", 2: "Practical", 3: "Advanced", 4: "Expert"}
+LEVEL_BLURBS = {
+    1: "Read and write simple code, do the everyday basics",
+    2: "Use it productively at work, with the usual idioms",
+    3: "The less common features, performance and trade-offs",
+    4: "Internals and the edge cases experts know",
+}
+MAX_LEVEL = 4
+
 _WORD = re.compile(r"[^\W_]+", re.UNICODE)
 
 
@@ -33,8 +40,8 @@ def words(text: str) -> List[str]:
 
 
 def search_words(text: str) -> List[str]:
-    """`words`, plus joined forms of punctuated words, so "tsne" finds "t-SNE"
-    and "godels" finds "Gödel's"."""
+    """`words`, plus joined forms of punctuated words, so "nodejs" finds
+    "Node.js" and "cpp"-style aliases work for "C++"-like names."""
     out = words(text)
     for chunk in fold(text).split():
         parts = _WORD.findall(chunk)
@@ -43,224 +50,227 @@ def search_words(text: str) -> List[str]:
     return out
 
 
-def _concept(row: Row) -> dict:
+# ------------------------------------------------------------------------ tools
+
+_TOOL_COLS = ("t.pk, t.slug, t.name, t.category, t.tagline, t.description, t.icon, t.color, "
+              "t.official_docs, t.version, t.position, t.modules, t.logo_svg")
+
+
+def _tool_card(row: Row) -> dict:
     return {
         "id": row["slug"],
         "name": row["name"],
-        "type": row["type"],
-        "domain": row["domain"],
-        "description": row["description"],
-        "example": row["example"],
-        "wiki_url": row["wiki_url"],
-        "difficulty": row["difficulty"],
-        "prereq_count": row["prereq_count"],
+        "category": row["category"],
+        "tagline": row["tagline"],
+        "icon": row["icon"],
+        "color": row["color"],
+        "logo_svg": row["logo_svg"],
     }
 
 
-def count_concepts(conn: Conn) -> int:
+def _levels(stats: Dict[int, Tuple[int, int]]) -> List[dict]:
+    """Per depth level: lessons and minutes at that level, and cumulative up to it."""
+    out, lessons, minutes = [], 0, 0
+    for lv in range(1, MAX_LEVEL + 1):
+        n, m = stats.get(lv, (0, 0))
+        lessons += n
+        minutes += m
+        out.append({
+            "level": lv, "name": LEVEL_NAMES[lv], "blurb": LEVEL_BLURBS[lv],
+            "lessons": n, "minutes": m, "total_lessons": lessons, "total_minutes": minutes,
+        })
+    return out
+
+
+def _level_stats(conn: Conn, tool_pks: List[int]) -> Dict[int, Dict[int, Tuple[int, int]]]:
+    out: Dict[int, Dict[int, Tuple[int, int]]] = {pk: {} for pk in tool_pks}
+    if not tool_pks:
+        return out
+    for tool_pk, level, n, minutes in conn.execute(
+        """SELECT tool_pk, level, COUNT(*), COALESCE(SUM(minutes), 0) FROM graph.concepts
+           WHERE tool_pk = ANY(?) GROUP BY tool_pk, level""",
+        (tool_pks,),
+    ):
+        out[tool_pk][level] = (n, int(minutes))
+    return out
+
+
+def count_tools(conn: Conn) -> int:
+    return conn.execute("SELECT COUNT(*) FROM graph.tools").fetchone()[0]
+
+
+def count_lessons(conn: Conn) -> int:
     return conn.execute("SELECT COUNT(*) FROM graph.concepts").fetchone()[0]
 
 
-def get_concept_row(conn: Conn, slug: str) -> Optional[Row]:
-    return conn.execute(f"SELECT {_CONCEPT_COLS} FROM graph.concepts WHERE slug = ?", (slug,)).fetchone()
+def collections(conn: Conn) -> List[dict]:
+    """Curated groups of tools from data/collections.json, as stored by the loader."""
+    row = conn.execute("SELECT value FROM graph.meta WHERE key = 'collections'").fetchone()
+    if not row or not row[0]:
+        return []
+    try:
+        return json.loads(row[0])
+    except ValueError:
+        return []
 
 
-def get_concept(conn: Conn, slug: str) -> Optional[dict]:
-    row = get_concept_row(conn, slug)
-    return _concept(row) if row else None
+def list_tools(conn: Conn, category: Optional[str] = None) -> List[dict]:
+    sql = f"SELECT {_TOOL_COLS} FROM graph.tools t"
+    params: list = []
+    if category:
+        sql += " WHERE t.category = ?"
+        params.append(category)
+    rows = conn.execute(sql + " ORDER BY t.position", params).fetchall()
+    stats = _level_stats(conn, [r["pk"] for r in rows])
+    out = []
+    for r in rows:
+        card = _tool_card(r)
+        levels = _levels(stats[r["pk"]])
+        card["lessons"] = levels[-1]["total_lessons"]
+        card["minutes"] = levels[-1]["total_minutes"]
+        card["levels"] = levels
+        out.append(card)
+    return out
 
 
-def concepts_by_slug(conn: Conn, slugs: Iterable[str]) -> Dict[str, dict]:
-    """Several concepts in one query: {slug: concept} (unknown slugs are left out)."""
+def get_tool_row(conn: Conn, slug: str) -> Optional[Row]:
+    return conn.execute(f"SELECT {_TOOL_COLS} FROM graph.tools t WHERE t.slug = ?", (slug,)).fetchone()
+
+
+def tools_by_slug(conn: Conn, slugs: Iterable[str]) -> Dict[str, dict]:
     wanted = list(dict.fromkeys(slugs))
     if not wanted:
         return {}
-    rows = conn.execute(f"SELECT {_CONCEPT_COLS} FROM graph.concepts WHERE slug = ANY(?)", (wanted,))
-    return {r["slug"]: _concept(r) for r in rows}
+    rows = conn.execute(f"SELECT {_TOOL_COLS} FROM graph.tools t WHERE t.slug = ANY(?)", (wanted,))
+    return {r["slug"]: _tool_card(r) for r in rows}
 
 
-def _rows_by_pk(conn: Conn, pks: List[int]) -> Dict[int, Row]:
-    if not pks:
-        return {}
-    return {r["pk"]: r for r in conn.execute(f"SELECT {_CONCEPT_COLS} FROM graph.concepts WHERE pk = ANY(?)", (pks,))}
-
-
-# --------------------------------------------------------------------------- search
-
-
-def _like_prefix(text: str) -> str:
-    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-
-
-def search(conn: Conn, query: str, limit: int) -> List[dict]:
-    """Ranked: exact name/alias, then names starting with the query, then names
-    or aliases containing all its words (the last one as a prefix). Within a
-    bucket the more popular concept wins (pk order). Accents and case are ignored."""
-    q = normalize(query)
-    if not q:
-        return []
-    ranked: Dict[int, Tuple[int, int]] = {}  # pk -> (bucket, pk); lower is better
-
-    def offer(pk: int, bucket: int) -> None:
-        if pk not in ranked or (bucket, pk) < ranked[pk]:
-            ranked[pk] = (bucket, pk)
-
-    # 1) exact name / alias
-    for (pk,) in conn.execute(
-        """SELECT pk FROM graph.concepts WHERE name_norm = ?
-           UNION SELECT concept_pk FROM graph.aliases WHERE alias_norm = ?""",
-        (q, q),
-    ):
-        offer(pk, 0)
-
-    tokens = words(q)
-    if tokens:
-        candidates = limit * 2
-        # 2) the name starts with the query
-        for (pk,) in conn.execute(
-            "SELECT pk FROM graph.concepts WHERE name_key LIKE ? ORDER BY pk LIMIT ?",
-            (_like_prefix(" ".join(tokens)), candidates),
-        ):
-            offer(pk, 1)
-        # 3) every word appears somewhere in the name or an alias
-        tsquery = " & ".join([f"'{t}'" for t in tokens[:-1]] + [f"'{tokens[-1]}':*"])
-        for (pk,) in conn.execute(
-            "SELECT pk FROM graph.concepts WHERE to_tsvector('simple', search_doc) @@ to_tsquery('simple', ?) "
-            "ORDER BY pk LIMIT ?",
-            (tsquery, candidates),
-        ):
-            offer(pk, 2)
-
-    if not ranked:
-        return []
-    best = sorted(ranked, key=lambda pk: ranked[pk])[:limit]
-    rows = _rows_by_pk(conn, best)  # may miss pks if the graph was reloaded meanwhile
-    return [_concept(rows[pk]) for pk in best if pk in rows]
-
-
-# ---------------------------------------------------------------------- prerequisites
-
-
-def _pks_for(conn: Conn, slugs: Iterable[str]) -> Set[int]:
-    slugs = list(slugs)
-    if not slugs:
-        return set()
-    return {r[0] for r in conn.execute("SELECT pk FROM graph.concepts WHERE slug = ANY(?)", (slugs,))}
-
-
-def prerequisite_graph(
-    conn: Conn,
-    slug: str,
-    max_depth: int,
-    max_nodes: int,
-    skip: Iterable[str] = (),
-) -> Optional[dict]:
-    """Breadth-first walk over prerequisites, bounded by depth and node count
-    (one query per level).
-
-    Concepts in `skip` (a user's hidden concepts) are left out and not walked
-    through, so their prerequisites only appear if something else needs them.
-    The root is always shown.
-
-    Work is O(max_nodes * avg_degree) no matter how big the whole graph is.
-    """
-    root = get_concept_row(conn, slug)
-    if root is None:
+def get_tool(conn: Conn, slug: str) -> Optional[dict]:
+    row = get_tool_row(conn, slug)
+    if row is None:
         return None
-    skip_pks = _pks_for(conn, skip) - {root["pk"]}
-    skipped_out: Dict[int, int] = {}
-
-    depth: Dict[int, int] = {root["pk"]: 0}
-    edges: Dict[Tuple[int, int], Optional[str]] = {}
-    frontier = [root["pk"]]
-    truncated = False
-
-    for level in range(1, max_depth + 1):
-        if not frontier:
-            break
-        next_frontier: List[int] = []
-        rows = conn.execute(
-            """SELECT p.concept_pk, p.prereq_pk, p.why FROM graph.prerequisites p
-               WHERE p.concept_pk = ANY(?)
-               ORDER BY p.concept_pk, p.prereq_pk""",  # prereq pk order = popularity order
-            (frontier,),
-        ).fetchall()
-        for concept_pk, prereq_pk, why in rows:
-            if prereq_pk in skip_pks:
-                skipped_out[concept_pk] = skipped_out.get(concept_pk, 0) + 1
-                continue
-            if prereq_pk not in depth:
-                if len(depth) >= max_nodes:
-                    truncated = True
-                    continue
-                depth[prereq_pk] = level
-                next_frontier.append(prereq_pk)
-            edges[(concept_pk, prereq_pk)] = why
-        frontier = next_frontier
-    # Nodes left unexpanded (depth limit) show up below via hidden_prereqs.
-
-    rows_by_pk = _rows_by_pk(conn, list(depth))
-    if len(rows_by_pk) != len(depth):
-        # The graph was reloaded between our queries (pks are reassigned on each
-        # load): keep what's consistent rather than failing the request.
-        depth = {pk: d for pk, d in depth.items() if pk in rows_by_pk}
-        edges = {(a, b): w for (a, b), w in edges.items() if a in rows_by_pk and b in rows_by_pk}
-        if root["pk"] not in rows_by_pk:
-            return None
-
-    shown_out: Dict[int, int] = {}
-    for a, _ in edges:
-        shown_out[a] = shown_out.get(a, 0) + 1
-
-    nodes = []
-    for pk in sorted(depth, key=lambda p: (depth[p], rows_by_pk[p]["name"].lower())):
-        node = _concept(rows_by_pk[pk])
-        node["depth"] = depth[pk]
-        node["hidden_prereqs"] = max(
-            0, rows_by_pk[pk]["prereq_count"] - shown_out.get(pk, 0) - skipped_out.get(pk, 0)
-        )
-        if node["hidden_prereqs"]:
-            truncated = True
-        nodes.append(node)
-
-    return {
-        "root": root["slug"],
-        "nodes": nodes,
-        "edges": [
-            {"concept": rows_by_pk[a]["slug"], "requires": rows_by_pk[b]["slug"], "why": why}
-            for (a, b), why in sorted(edges.items())
+    tool = _tool_card(row)
+    levels = _levels(_level_stats(conn, [row["pk"]])[row["pk"]])
+    tool.update({
+        "description": row["description"],
+        "official_docs": row["official_docs"],
+        "version": row["version"],
+        "modules": row["modules"] or [],
+        "levels": levels,
+        "lessons": levels[-1]["total_lessons"],
+        "minutes": levels[-1]["total_minutes"],
+        "requires": [
+            {**_tool_card(r), "level": r["level"], "level_name": LEVEL_NAMES.get(r["level"], "")}
+            for r in conn.execute(
+                f"""SELECT {_TOOL_COLS}, q.level FROM graph.tool_requires q
+                    JOIN graph.tools t ON t.pk = q.requires_pk WHERE q.tool_pk = ? ORDER BY t.position""",
+                (row["pk"],),
+            )
         ],
-        "truncated": truncated,
+        "required_by": [
+            _tool_card(r) for r in conn.execute(
+                f"""SELECT {_TOOL_COLS} FROM graph.tool_requires q
+                    JOIN graph.tools t ON t.pk = q.tool_pk WHERE q.requires_pk = ? ORDER BY t.position""",
+                (row["pk"],),
+            )
+        ],
+    })
+    return tool
+
+
+# ---------------------------------------------------------------------- lessons
+
+_REF_COLS = ("c.pk, c.slug, c.name, c.level, c.minutes, c.summary, c.module, c.position, c.tool_pk, "
+             "t.slug AS tool_slug, t.name AS tool_name, t.color AS tool_color, t.icon AS tool_icon")
+_REF_FROM = "graph.concepts c JOIN graph.tools t ON t.pk = c.tool_pk"
+
+
+def _ref(row: Row) -> dict:
+    return {
+        "id": row["slug"],
+        "name": row["name"],
+        "level": row["level"],
+        "minutes": row["minutes"],
+        "summary": row["summary"],
+        "module": row["module"],
+        "position": row["position"],
+        "tool": {"id": row["tool_slug"], "name": row["tool_name"], "color": row["tool_color"],
+                 "icon": row["tool_icon"]},
     }
 
 
-def unlocks(conn: Conn, slug: str, limit: int) -> Optional[List[dict]]:
-    """Concepts that list `slug` as a direct prerequisite."""
-    root = get_concept_row(conn, slug)
-    if root is None:
-        return None
-    rows = conn.execute(
-        f"""SELECT {_C_COLS}
-            FROM graph.prerequisites p JOIN graph.concepts c ON c.pk = p.concept_pk
-            WHERE p.prereq_pk = ?
-            ORDER BY c.popularity DESC, c.name LIMIT ?""",
-        (root["pk"], limit),
-    )
-    return [_concept(r) for r in rows]
-
-
-# ------------------------------------------------------------ learning path
-
-
-def minutes_to_learn(difficulty: Optional[float]) -> int:
-    """Rough study time for one concept, from 20 min (trivial) to ~3 h (research level)."""
-    d = 0.3 if difficulty is None else max(0.0, min(1.0, difficulty))
-    return int(round((20 + 160 * d ** 1.5) / 5.0) * 5)
-
-
-def direct_prereqs_many(conn: Conn, slugs: Iterable[str]) -> Dict[str, List[str]]:
-    """{slug: [its direct prerequisites]} for several concepts in one query."""
+def lessons_by_slug(conn: Conn, slugs: Iterable[str]) -> Dict[str, dict]:
+    """Several lessons (short form) in one query: {slug: lesson}; unknown slugs left out."""
     wanted = list(dict.fromkeys(slugs))
+    if not wanted:
+        return {}
+    rows = conn.execute(f"SELECT {_REF_COLS} FROM {_REF_FROM} WHERE c.slug = ANY(?)", (wanted,))
+    return {r["slug"]: _ref(r) for r in rows}
+
+
+def get_lesson(conn: Conn, slug: str) -> Optional[dict]:
+    """The whole lesson: tutorial, code, quiz, and its neighbours in the tree."""
+    row = conn.execute(
+        f"""SELECT {_REF_COLS}, c.why, c.body, c.code, c.code_lang, c.takeaways, c.pitfalls, c.quiz,
+                   c.docs_url, t.modules
+            FROM {_REF_FROM} WHERE c.slug = ?""",
+        (slug,),
+    ).fetchone()
+    if row is None:
+        return None
+    lesson = _ref(row)
+    module_names = {m.get("id"): m.get("name") for m in (row["modules"] or [])}
+    lesson.update({
+        "module_name": module_names.get(row["module"], row["module"]),
+        "level_name": LEVEL_NAMES.get(row["level"], ""),
+        "why": row["why"],
+        "body": row["body"],
+        "code": row["code"],
+        "code_lang": row["code_lang"],
+        "takeaways": row["takeaways"] or [],
+        "pitfalls": row["pitfalls"] or [],
+        "quiz": row["quiz"] or [],
+        "docs_url": row["docs_url"],
+        "requires": [
+            _ref(r) for r in conn.execute(
+                f"""SELECT {_REF_COLS} FROM graph.prerequisites p JOIN {_REF_FROM} ON c.pk = p.prereq_pk
+                    WHERE p.concept_pk = ? ORDER BY c.tool_pk = ? DESC, c.position""",
+                (row["pk"], row["tool_pk"]),
+            )
+        ],
+        "unlocks": [
+            _ref(r) for r in conn.execute(
+                f"""SELECT {_REF_COLS} FROM graph.prerequisites p JOIN {_REF_FROM} ON c.pk = p.concept_pk
+                    WHERE p.prereq_pk = ? ORDER BY c.tool_pk = ? DESC, c.level, c.position LIMIT 50""",
+                (row["pk"], row["tool_pk"]),
+            )
+        ],
+    })
+    nxt = conn.execute(
+        f"""SELECT {_REF_COLS} FROM {_REF_FROM}
+            WHERE c.tool_pk = ? AND c.position > ? ORDER BY c.position LIMIT 1""",
+        (row["tool_pk"], row["position"]),
+    ).fetchone()
+    lesson["next_in_tool"] = _ref(nxt) if nxt else None
+    return lesson
+
+
+def tool_lessons(conn: Conn, tool_slugs: Iterable[str]) -> Dict[str, List[dict]]:
+    """{tool: [its lessons (short form), in study order]} for several tools."""
+    wanted = list(dict.fromkeys(tool_slugs))
+    out: Dict[str, List[dict]] = {s: [] for s in wanted}
+    if not wanted:
+        return out
+    for r in conn.execute(
+        f"SELECT {_REF_COLS} FROM {_REF_FROM} WHERE t.slug = ANY(?) ORDER BY c.tool_pk, c.position", (wanted,)
+    ):
+        out[r["tool_slug"]].append(_ref(r))
+    return out
+
+
+def requires_of(conn: Conn, lesson_slugs: Iterable[str]) -> Dict[str, List[str]]:
+    """{lesson: [lessons it directly requires]} for several lessons."""
+    wanted = list(dict.fromkeys(lesson_slugs))
     out: Dict[str, List[str]] = {s: [] for s in wanted}
     if not wanted:
         return out
@@ -275,86 +285,169 @@ def direct_prereqs_many(conn: Conn, slugs: Iterable[str]) -> Dict[str, List[str]
     return out
 
 
-def direct_prereqs(conn: Conn, slug: str) -> List[str]:
-    return direct_prereqs_many(conn, [slug])[slug]
-
-
-def direct_dependents(conn: Conn, slug: str, limit: int = 200) -> List[dict]:
-    rows = conn.execute(
-        f"""SELECT {_C_COLS}
-            FROM graph.concepts p0 JOIN graph.prerequisites p ON p.prereq_pk = p0.pk
-            JOIN graph.concepts c ON c.pk = p.concept_pk
-            WHERE p0.slug = ? ORDER BY c.popularity DESC, c.pk LIMIT ?""",
-        (slug, limit),
-    )
-    return [_concept(r) for r in rows]
-
-
-def learning_path(conn: Conn, slug: str, skip: Iterable[str] = (), max_nodes: int = 1500) -> Optional[dict]:
-    """Every prerequisite of `slug` (whole closure, hidden ones pruned) in an
-    order you could actually study them: each concept comes after all of its
-    prerequisites; among concepts that are ready at the same time, easier first.
-    The target itself is last."""
-    root = get_concept_row(conn, slug)
-    if root is None:
+def tool_map(conn: Conn, slug: str, depth: int) -> Optional[dict]:
+    """The lessons of a tool down to a depth level, the prerequisite edges
+    between them, and lessons of other tools they build on ("external")."""
+    tool = get_tool(conn, slug)
+    if tool is None:
         return None
-    skip_pks = _pks_for(conn, skip) - {root["pk"]}
-
-    seen: Set[int] = {root["pk"]}
-    edges: List[Tuple[int, int]] = []
-    frontier = [root["pk"]]
-    truncated = False
-    while frontier:
-        nxt: List[int] = []
+    depth = max(1, min(MAX_LEVEL, depth))
+    rows = conn.execute(
+        f"SELECT {_REF_COLS} FROM {_REF_FROM} WHERE t.slug = ? AND c.level <= ? ORDER BY c.position",
+        (slug, depth),
+    ).fetchall()
+    nodes = [_ref(r) for r in rows]
+    for n in nodes:
+        n["external"] = False
+    pks = [r["pk"] for r in rows]
+    edges: List[Tuple[str, str]] = []
+    external_slugs: List[str] = []
+    if pks:
+        own = {r["slug"] for r in rows}
         for a, b in conn.execute(
-            "SELECT concept_pk, prereq_pk FROM graph.prerequisites WHERE concept_pk = ANY(?) ORDER BY 1, 2",
-            (frontier,),
+            """SELECT c1.slug, c2.slug FROM graph.prerequisites p
+               JOIN graph.concepts c1 ON c1.pk = p.concept_pk
+               JOIN graph.concepts c2 ON c2.pk = p.prereq_pk
+               WHERE p.concept_pk = ANY(?) ORDER BY c1.position, c2.position""",
+            (pks,),
         ):
-            if b in skip_pks:
-                continue
-            if b not in seen:
-                if len(seen) >= max_nodes:
-                    truncated = True
-                    continue
-                seen.add(b)
-                nxt.append(b)
             edges.append((a, b))
-        frontier = nxt
+            if b not in own and b not in external_slugs:
+                external_slugs.append(b)
+    ext = lessons_by_slug(conn, external_slugs)
+    for s in external_slugs:
+        if s in ext:
+            node = ext[s]
+            node["external"] = True
+            nodes.append(node)
+    known = {n["id"] for n in nodes}
+    return {
+        "tool": tool,
+        "depth": depth,
+        "nodes": nodes,
+        "edges": [{"concept": a, "requires": b} for a, b in edges if a in known and b in known],
+    }
 
-    rows = _rows_by_pk(conn, list(seen))
-    if root["pk"] not in rows:
-        return None  # the graph was reloaded mid-request
-    pks = [pk for pk in seen if pk in rows]
 
-    # Kahn's algorithm over "prerequisite -> concept", easiest-first among ready ones.
-    needs: Dict[int, Set[int]] = {pk: set() for pk in pks}
-    users: Dict[int, List[int]] = {pk: [] for pk in pks}
+# ------------------------------------------------------------------------ search
+
+
+def _like_prefix(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+def _tsquery(tokens: List[str]) -> str:
+    return " & ".join([f"'{t}'" for t in tokens[:-1]] + [f"'{tokens[-1]}':*"])
+
+
+def search_tools(conn: Conn, query: str, limit: int) -> List[dict]:
+    """Exact name or alias first, then names starting with the query, then any
+    word match; ties in catalog order."""
+    q = normalize(query)
+    if not q:
+        return []
+    ranked: Dict[int, Tuple[int, int]] = {}
+
+    def offer(pk: int, position: int, bucket: int) -> None:
+        if pk not in ranked or (bucket, position) < ranked[pk]:
+            ranked[pk] = (bucket, position)
+
+    for pk, position in conn.execute(
+        """SELECT t.pk, t.position FROM graph.tools t WHERE t.name_norm = ?
+           UNION SELECT t.pk, t.position FROM graph.tool_aliases a JOIN graph.tools t ON t.pk = a.tool_pk
+           WHERE a.alias_norm = ?""",
+        (q, q),
+    ):
+        offer(pk, position, 0)
+    for pk, position in conn.execute(
+        "SELECT pk, position FROM graph.tools WHERE name_norm LIKE ? ORDER BY position LIMIT ?",
+        (_like_prefix(q), limit * 2),
+    ):
+        offer(pk, position, 1)
+    tokens = words(q)
+    if tokens:
+        for pk, position in conn.execute(
+            """SELECT pk, position FROM graph.tools
+               WHERE to_tsvector('simple', search_doc) @@ to_tsquery('simple', ?) ORDER BY position LIMIT ?""",
+            (_tsquery(tokens), limit * 2),
+        ):
+            offer(pk, position, 2)
+    best = sorted(ranked, key=lambda pk: ranked[pk])[:limit]
+    if not best:
+        return []
+    rows = {r["pk"]: r for r in conn.execute(f"SELECT {_TOOL_COLS} FROM graph.tools t WHERE t.pk = ANY(?)", (best,))}
+    return [_tool_card(rows[pk]) for pk in best if pk in rows]
+
+
+def search_lessons(conn: Conn, query: str, limit: int, tool: Optional[str] = None) -> List[dict]:
+    """Exact name, then names starting with the query, then lessons whose name
+    (or tool name) contains all its words, the last one as a prefix. Ties go
+    to the more important tool and the earlier lesson (pk order)."""
+    q = normalize(query)
+    if not q:
+        return []
+    tool_filter, tool_params = "", []
+    if tool:
+        tool_filter = " AND tool_pk = (SELECT pk FROM graph.tools WHERE slug = ?)"
+        tool_params = [tool]
+    ranked: Dict[int, Tuple[int, int]] = {}
+
+    def offer(pk: int, bucket: int) -> None:
+        if pk not in ranked or (bucket, pk) < ranked[pk]:
+            ranked[pk] = (bucket, pk)
+
+    for (pk,) in conn.execute(f"SELECT pk FROM graph.concepts WHERE name_norm = ?{tool_filter}", (q, *tool_params)):
+        offer(pk, 0)
+    tokens = words(q)
+    if tokens:
+        for (pk,) in conn.execute(
+            f"SELECT pk FROM graph.concepts WHERE name_key LIKE ?{tool_filter} ORDER BY pk LIMIT ?",
+            (_like_prefix(" ".join(tokens)), *tool_params, limit * 2),
+        ):
+            offer(pk, 1)
+        for (pk,) in conn.execute(
+            f"""SELECT pk FROM graph.concepts
+                WHERE to_tsvector('simple', search_doc) @@ to_tsquery('simple', ?){tool_filter}
+                ORDER BY pk LIMIT ?""",
+            (_tsquery(tokens), *tool_params, limit * 2),
+        ):
+            offer(pk, 2)
+    best = sorted(ranked, key=lambda pk: ranked[pk])[:limit]
+    if not best:
+        return []
+    rows = {r["pk"]: r for r in conn.execute(f"SELECT {_REF_COLS} FROM {_REF_FROM} WHERE c.pk = ANY(?)", (best,))}
+    return [_ref(rows[pk]) for pk in best if pk in rows]
+
+
+# ------------------------------------------------------------ study order helpers
+
+
+def study_order(nodes: List[dict], edges: List[Tuple[str, str]]) -> List[str]:
+    """Ids in an order you could study them: each after all its prerequisites
+    (among `nodes`); ready ones by level, then tool study position."""
+    import heapq
+
+    ids = {n["id"]: n for n in nodes}
+    need = {i: set() for i in ids}
+    dependents: Dict[str, List[str]] = {i: [] for i in ids}
     for a, b in edges:
-        if a in needs and b in needs:
-            needs[a].add(b)
-            users[b].append(a)
-    remaining = {pk: len(v) for pk, v in needs.items()}
+        if a in ids and b in ids:
+            need[a].add(b)
+            dependents[b].append(a)
+    left = {i: len(v) for i, v in need.items()}
 
-    def key(pk: int):
-        r = rows[pk]
-        return (1 if pk == root["pk"] else 0, r["difficulty"] if r["difficulty"] is not None else 0.5,
-                r["name"].lower(), pk)
+    def key(i: str):
+        n = ids[i]
+        return (n.get("level", 9), n.get("position", 0), i)
 
-    heap = [key(pk) for pk, n in remaining.items() if n == 0]
+    heap = [key(i) for i, k in left.items() if k == 0]
     heapq.heapify(heap)
-    order: List[int] = []
+    order: List[str] = []
     while heap:
-        pk = heapq.heappop(heap)[-1]
-        order.append(pk)
-        for u in users[pk]:
-            remaining[u] -= 1
-            if remaining[u] == 0:
-                heapq.heappush(heap, key(u))
-
-    steps = []
-    for pk in order:
-        c = _concept(rows[pk])
-        c["requires"] = sorted(rows[p]["slug"] for p in needs[pk])
-        c["minutes"] = minutes_to_learn(c["difficulty"])
-        steps.append(c)
-    return {"root": root["slug"], "steps": steps, "truncated": truncated}
+        i = heapq.heappop(heap)[-1]
+        order.append(i)
+        for d in dependents[i]:
+            left[d] -= 1
+            if left[d] == 0:
+                heapq.heappush(heap, key(d))
+    return order

@@ -1,62 +1,34 @@
-"""Users (accounts and onboarding profile), stored in Postgres with the rest.
+"""Users (accounts and their learning preferences), stored in Postgres with the rest.
 
-There is no real authentication yet (dummy "pick a user" login). When Google
-sign-in is added, store the Google subject id in `auth_subject` and look users
-up by it; everything else stays the same.
+Accounts come from Firebase sign-in (Google, Facebook, Apple): the first
+`POST /api/v1/session` with a valid ID token creates the account, keyed by the
+Firebase uid (`auth_provider = 'firebase'`, `auth_subject = uid`). See auth.py.
 """
-import json
 import time
 import uuid
-from datetime import date
-from typing import Annotated, List, Optional
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import AfterValidator, BaseModel, Field, field_validator
 
-from . import repository, userdb
-from .db import Conn, Row, get_conn
+from . import auth, userdb
+from .db import Conn, Row
 from .userdb import reader as _users_reader
 from .userdb import session as _users_db
 
 router = APIRouter(prefix="/api/v1", tags=["users"])
 
-EDUCATION_LEVELS = [
-    "primary_school",
-    "middle_school",
-    "high_school",
-    "some_college",
-    "bachelors",
-    "masters",
-    "doctorate",
-    "self_taught",
-    "other",
-]
-
-# Shown as quick picks during onboarding; must be ids in the concept DB.
-SUGGESTED_DISCIPLINES = [
-    "machine_learning", "deep_learning", "data_science", "artificial_intelligence",
-    "natural_language_processing", "computer_vision", "generative_ai", "statistics",
-    "probability_theory", "linear_algebra", "calculus", "algorithms",
-    "reinforcement_learning", "data_visualization", "causal_inference", "robotics",
-]
+EXPERIENCE = ["new", "some", "pro"]  # never programmed / some programming / professional
 
 # ------------------------------------------------------------------ schemas
-
-
-class Discipline(BaseModel):
-    id: str
-    name: str
-    type: Optional[str] = None
 
 
 class User(BaseModel):
     id: str
     name: str
     email: Optional[str] = None
-    birth_year: Optional[int] = None
-    age: Optional[int] = None
-    education_level: Optional[str] = None
-    interests: List[Discipline] = []
+    experience: Optional[str] = None
+    daily_goal: int = 2
     onboarded: bool = False
     created_at: float
 
@@ -75,32 +47,18 @@ def _clean_email(v: Optional[str]) -> Optional[str]:
 Email = Annotated[Optional[str], Field(None, max_length=200), AfterValidator(_clean_email)]
 
 
-class UserCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=80)
-    email: Email = None
-
-    @field_validator("name")
-    @classmethod
-    def _name(cls, v: str) -> str:
-        v = " ".join(v.split())
-        if not v:
-            raise ValueError("name is required")
-        return v
-
-
 class UserUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=80)
     email: Email = None
-    age: Optional[int] = Field(None, ge=3, le=120)
-    education_level: Optional[str] = None
-    interests: Optional[List[str]] = Field(None, max_length=50)
+    experience: Optional[str] = None
+    daily_goal: Optional[int] = Field(None, ge=1, le=20)
     onboarded: Optional[bool] = None
 
-    @field_validator("education_level")
+    @field_validator("experience")
     @classmethod
-    def _edu(cls, v: Optional[str]) -> Optional[str]:
-        if v is not None and v not in EDUCATION_LEVELS:
-            raise ValueError(f"must be one of {EDUCATION_LEVELS}")
+    def _exp(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in EXPERIENCE:
+            raise ValueError(f"must be one of {EXPERIENCE}")
         return v
 
 
@@ -108,22 +66,12 @@ class UserUpdate(BaseModel):
 
 
 def _to_user(row: Row) -> dict:
-    ids = json.loads(row["interests"] or "[]")
-    found = repository.concepts_by_slug(get_conn(), ids)
-    interests = []
-    for cid in ids:
-        c = found.get(cid)
-        if c:  # silently skip ids that disappeared in a data rebuild
-            interests.append({"id": c["id"], "name": c["name"], "type": c["type"]})
-    by = row["birth_year"]
     return {
         "id": row["id"],
         "name": row["name"],
         "email": row["email"],
-        "birth_year": by,
-        "age": (date.today().year - by) if by else None,
-        "education_level": row["education_level"],
-        "interests": interests,
+        "experience": row["experience"],
+        "daily_goal": row["daily_goal"],
         "onboarded": bool(row["onboarded"]),
         "created_at": row["created_at"],
     }
@@ -139,26 +87,49 @@ def _get_row(conn: Conn, user_id: str) -> Row:
 # ------------------------------------------------------------------- routes
 
 
-@router.get("/users", response_model=List[User])
-def list_users():
-    with _users_reader() as conn:
-        rows = conn.execute("SELECT * FROM users ORDER BY updated_at DESC").fetchall()
-    return [_to_user(r) for r in rows]
+def _name_for(ident: auth.Identity) -> str:
+    name = " ".join((ident.name or "").split())[:80].strip()
+    if not name and ident.email:
+        name = ident.email.split("@")[0][:80]
+    return name or "Learner"
 
 
-@router.post("/users", response_model=User, status_code=201)
-def create_user(body: UserCreate):
-    now = time.time()
-    uid = uuid.uuid4().hex
-    try:
-        with _users_db() as conn:
-            conn.execute(
-                "INSERT INTO users (id, name, email, created_at, updated_at) VALUES (?,?,?,?,?)",
-                (uid, body.name, body.email, now, now),
-            )
-            row = _get_row(conn, uid)
-    except userdb.IntegrityError:
-        raise HTTPException(409, "A user with this email already exists")
+@router.post("/session", response_model=User)
+def start_session(request: Request):
+    """Call right after signing in (and on every app start): returns the
+    signed-in learner's account, creating it on their first sign-in from the
+    name and email their Google/Facebook/Apple account shares."""
+    ident = auth.identity(request)
+    with _users_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE auth_provider = 'firebase' AND auth_subject = ?", (ident.uid,)
+        ).fetchone()
+        if row is None:
+            now = time.time()
+            uid = uuid.uuid4().hex
+            email = ident.email
+            if email and conn.execute("SELECT 1 FROM users WHERE email = ?", (email,)).fetchone():
+                email = None  # someone else already uses it; they can add another in Settings
+            try:
+                with _users_db() as sp:  # savepoint: a lost race on the email must not end the transaction
+                    sp.execute(
+                        """INSERT INTO users (id, name, email, auth_provider, auth_subject, created_at, updated_at)
+                           VALUES (?,?,?,'firebase',?,?,?)
+                           ON CONFLICT (auth_provider, auth_subject) WHERE auth_subject IS NOT NULL DO NOTHING""",
+                        (uid, _name_for(ident), email, ident.uid, now, now),
+                    )
+            except userdb.IntegrityError:
+                conn.execute(
+                    """INSERT INTO users (id, name, email, auth_provider, auth_subject, created_at, updated_at)
+                       VALUES (?,?,NULL,'firebase',?,?,?)
+                       ON CONFLICT (auth_provider, auth_subject) WHERE auth_subject IS NOT NULL DO NOTHING""",
+                    (uid, _name_for(ident), ident.uid, now, now),
+                )
+            # Two first sign-ins at once: whichever insert won, read it back.
+            row = conn.execute(
+                "SELECT * FROM users WHERE auth_provider = 'firebase' AND auth_subject = ?", (ident.uid,)
+            ).fetchone()
+    auth.remember(ident.uid, row["id"])
     return _to_user(row)
 
 
@@ -179,18 +150,10 @@ def update_user(user_id: str, body: UserUpdate):
         sets.append("name = ?"), values.append(name)
     if "email" in fields:
         sets.append("email = ?"), values.append(fields["email"])
-    if "age" in fields:
-        age = fields["age"]
-        sets.append("birth_year = ?"), values.append(date.today().year - age if age else None)
-    if "education_level" in fields:
-        sets.append("education_level = ?"), values.append(fields["education_level"])
-    if "interests" in fields:
-        ids = list(dict.fromkeys(fields["interests"] or []))  # de-dupe, keep order
-        known = repository.concepts_by_slug(get_conn(), ids)
-        unknown = [i for i in ids if i not in known]
-        if unknown:
-            raise HTTPException(422, f"Unknown concept id(s): {', '.join(unknown[:5])}")
-        sets.append("interests = ?"), values.append(json.dumps(ids))
+    if "experience" in fields:
+        sets.append("experience = ?"), values.append(fields["experience"])
+    if "daily_goal" in fields and fields["daily_goal"] is not None:
+        sets.append("daily_goal = ?"), values.append(fields["daily_goal"])
     if "onboarded" in fields:
         sets.append("onboarded = ?"), values.append(1 if fields["onboarded"] else 0)
 
@@ -209,33 +172,15 @@ def update_user(user_id: str, body: UserUpdate):
 
 @router.delete("/users/{user_id}", status_code=204)
 def delete_user(user_id: str):
+    """Delete the account and everything in it (progress, tools, reviews,
+    reactions, saved lessons, comments and the replies under them, likes, tool
+    request votes, history), and the Firebase sign-in record. Reports stay,
+    without their id, so the content can still be fixed."""
     with _users_db() as conn:
-        _get_row(conn, user_id)
+        row = _get_row(conn, user_id)
+        conn.execute("DELETE FROM tool_request_votes WHERE voter = ?", (user_id,))
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    auth.forget(user_id)
+    if row["auth_provider"] == "firebase" and row["auth_subject"]:
+        auth.delete_firebase_account(row["auth_subject"])
     return Response(status_code=204)
-
-
-@router.get("/disciplines", response_model=List[Discipline])
-def disciplines(
-    q: Optional[str] = Query(None, max_length=100),
-    limit: int = Query(12, ge=1, le=50),
-):
-    """No query: the onboarding quick picks. With a query: matching fields of
-    study first, then any other matching concept."""
-    conn = get_conn()
-    if not q or not q.strip():
-        out = []
-        found = repository.concepts_by_slug(conn, SUGGESTED_DISCIPLINES)
-        for cid in SUGGESTED_DISCIPLINES:
-            c = found.get(cid)
-            if c:
-                out.append({"id": c["id"], "name": c["name"], "type": c["type"]})
-        return out[:limit]
-    found = repository.search(conn, q, min(50, limit * 3))
-    found.sort(key=lambda c: 0 if c["type"] == "field" else 1)  # stable: keeps relevance order
-    return [{"id": c["id"], "name": c["name"], "type": c["type"]} for c in found[:limit]]
-
-
-@router.get("/education-levels", response_model=List[str])
-def education_levels():
-    return EDUCATION_LEVELS

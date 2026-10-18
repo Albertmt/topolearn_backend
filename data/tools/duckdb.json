@@ -1,0 +1,643 @@
+{
+ "tool": {
+  "id": "duckdb",
+  "name": "DuckDB",
+  "category": "database",
+  "tagline": "In-process analytical SQL database for files, DataFrames and laptops",
+  "description": "DuckDB is an embedded, columnar SQL database built for analytics: it runs inside your Python process, CLI or app with no server, and queries CSV, Parquet, JSON and DataFrames directly. It is the fastest way to do serious SQL analysis on a single machine, from a few megabytes to hundreds of gigabytes. Learn it to replace slow scripts and heavy clusters for everyday data work.",
+  "icon": "D",
+  "color": "#7A6200",
+  "official_docs": "https://duckdb.org/docs/current/",
+  "version": "1.5",
+  "aliases": [
+   "duck db",
+   "duckdb sql"
+  ],
+  "requires": [
+   {
+    "tool": "sql",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Getting started"
+  },
+  {
+   "id": "files",
+   "name": "Querying files"
+  },
+  {
+   "id": "sql",
+   "name": "DuckDB SQL"
+  },
+  {
+   "id": "python",
+   "name": "Python and DataFrames"
+  },
+  {
+   "id": "internals",
+   "name": "Performance and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "duckdb.what-is-duckdb",
+   "name": "What DuckDB is",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "An in-process, columnar SQL engine for analytics: no server, one library, very fast on a single machine.",
+   "why": "Knowing where DuckDB fits tells you when to reach for it instead of pandas loops, SQLite or a data warehouse.",
+   "body": "**DuckDB** is an analytical (OLAP) SQL database that runs **in-process**: it is a library linked into your program, the same way SQLite is, so there is no server to install, no port and no user accounts. You `pip install duckdb`, import it and run SQL.\n\nWhere SQLite is built for many small transactional reads and writes of single rows, DuckDB is built for queries that scan and aggregate millions of rows: it stores data by column, processes vectors of values at a time and uses all your CPU cores. Typical uses:\n\n- ad-hoc analysis of CSV, Parquet and JSON files without loading them anywhere first\n- SQL over pandas or Polars DataFrames\n- local ETL steps and data-pipeline tests\n- embedding an analytics engine in an app or notebook\n\nThe dialect is PostgreSQL-flavoured standard SQL plus many conveniences, so the SQL you already know works. A database is either **in-memory** (gone when the process exits) or a single `.duckdb` file.\n\nDuckDB is not a replacement for PostgreSQL behind a web app: only one process can open a database file for writing, and it is tuned for big scans, not thousands of tiny concurrent updates.",
+   "code": "import duckdb\n\n# duckdb.sql runs on a default in-memory database\nrel = duckdb.sql(\"SELECT 42 AS answer, version() AS v\")\nprint(rel.fetchall())          # [(42, 'v1.5.x')]\n\n# aggregate ten million generated rows in well under a second\nprint(duckdb.sql(\"\"\"\n    SELECT count(*) AS n, avg(i) AS mean\n    FROM range(10_000_000) t(i)\n\"\"\").fetchone())               # (10000000, 4999999.5)",
+   "code_lang": "python",
+   "takeaways": [
+    "DuckDB is an embedded analytical database: a library, not a server",
+    "Columnar, vectorized and multi-threaded, so large scans and aggregates are fast",
+    "Use it for analysis and pipelines, not as an OLTP backend for many concurrent writers"
+   ],
+   "pitfalls": [
+    "Expecting several processes to write the same database file at once; DuckDB allows one writer process."
+   ],
+   "quiz": [
+    {
+     "q": "Which workload is DuckDB designed for?",
+     "options": [
+      "Many concurrent single-row updates from web requests",
+      "Scanning and aggregating large tables on one machine",
+      "Storing session data with expiry times",
+      "Full-text search across documents"
+     ],
+     "answer": 1,
+     "explain": "DuckDB is an OLAP engine optimised for big scans, joins and aggregations."
+    },
+    {
+     "q": "What does 'in-process' mean for DuckDB?",
+     "options": [
+      "It runs as a library inside your application, with no separate server",
+      "It needs a cluster of worker processes",
+      "It can only run inside a browser",
+      "It forks a database server on first use"
+     ],
+     "answer": 0,
+     "explain": "Like SQLite, DuckDB is linked into the host program and runs in its process."
+    }
+   ],
+   "docs": "https://duckdb.org/docs/current/clients/python/overview",
+   "requires": [
+    "sql.select"
+   ]
+  },
+  {
+   "id": "duckdb.cli-and-persistence",
+   "name": "CLI, files and persistence",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Use the duckdb shell, open a persistent .duckdb file and create tables that survive restarts.",
+   "why": "Choosing in-memory versus file-backed databases decides whether your work is kept and how others can open it.",
+   "body": "The **DuckDB CLI** is a single binary: run `duckdb` for an in-memory session or `duckdb analytics.duckdb` to open (or create) a database file. The same file can be opened from Python with `duckdb.connect(\"analytics.duckdb\")`, from R, Java, Node and other clients, because the format is the same everywhere.\n\nInside the shell you type SQL ending in `;` plus dot commands:\n\n- `.tables` lists tables, `.schema` shows their DDL\n- `.mode` switches output style (`duckbox` default, `csv`, `markdown`, `line`, ...)\n- `.timer on` prints how long each query took\n- `.read script.sql` runs a file; `.quit` exits\n\nTables are created with ordinary SQL. `CREATE TABLE t AS SELECT ...` (CTAS) is the common way to materialise a query or a file into a table. Everything you create in a file-backed database is persisted automatically; there is no separate save step, and committed transactions are durable.\n\nYou can also `ATTACH` additional database files to one session and query across them with `db_name.table` names, which makes copying data between files a single `INSERT ... SELECT`.\n\nSince version 1.0 the storage format is backwards compatible: newer DuckDB versions read files written by older ones.",
+   "code": "-- in the shell: duckdb shop.duckdb\nCREATE TABLE products (id INTEGER PRIMARY KEY, name VARCHAR, price DECIMAL(8, 2));\nINSERT INTO products VALUES (1, 'pen', 1.50), (2, 'book', 12.00);\n\nCREATE TABLE expensive AS                 -- CTAS: materialise a query\n    SELECT * FROM products WHERE price > 5;\n\nATTACH 'archive.duckdb' AS archive;       -- a second database file\nCREATE TABLE archive.products AS SELECT * FROM products;\nSELECT count(*) FROM archive.products;    -- 2\nDETACH archive;",
+   "code_lang": "sql",
+   "takeaways": [
+    "`duckdb file.duckdb` opens or creates a persistent single-file database",
+    "No file argument means in-memory: data is lost on exit",
+    "`CREATE TABLE ... AS SELECT` materialises queries and files",
+    "`ATTACH` lets one session work with several database files"
+   ],
+   "pitfalls": [
+    "Forgetting the file name and losing an afternoon of work in an in-memory session."
+   ],
+   "quiz": [
+    {
+     "q": "You run `duckdb` with no arguments, create tables and quit. What happens to them?",
+     "options": [
+      "They are saved to duckdb.db in the current folder",
+      "DuckDB refuses to create tables without a file",
+      "They are saved to your home directory",
+      "They are lost, because the session was in-memory"
+     ],
+     "answer": 3,
+     "explain": "Without a file argument the CLI uses an in-memory database that disappears when it exits."
+    }
+   ],
+   "docs": "https://duckdb.org/docs/current/clients/cli/overview",
+   "requires": [
+    "duckdb.what-is-duckdb",
+    "sql.create-table"
+   ]
+  },
+  {
+   "id": "duckdb.query-files",
+   "name": "Querying files directly",
+   "module": "files",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Run SQL straight over CSV, Parquet and JSON files by putting the path in the FROM clause.",
+   "why": "This is DuckDB's killer feature: answer questions about data files without an import step.",
+   "body": "DuckDB treats a file path as a table. Write `SELECT * FROM 'sales.csv'` and it detects the format from the extension, infers column names and types, and streams the file through the query. The same works for `.parquet`, `.json` and compressed files like `.csv.gz`.\n\nBehind that shortcut are **table functions** you can call explicitly when you need options: `read_csv`, `read_parquet` and `read_json`. A few patterns you will use daily:\n\n- `DESCRIBE SELECT * FROM 'file.parquet'` shows inferred column names and types\n- `SUMMARIZE 'file.csv'` prints min, max, distinct count, nulls and quantiles for each column\n- `CREATE TABLE t AS FROM 'file.csv'` imports a file once if you will query it many times\n\nQuerying in place is great for exploration, but each query re-reads (and for CSV re-parses) the file. Parquet is columnar and compressed, so DuckDB reads only the columns and row groups a query needs; CSV must be parsed in full. If you run many queries over a big CSV, import it into a table or convert it to Parquet first.\n\nPaths are relative to the process's working directory, and remote URLs work too once the `httpfs` extension is loaded (it auto-loads for `https://` and `s3://` in most installations).",
+   "code": "import duckdb, os, tempfile\n\nos.chdir(tempfile.mkdtemp())\nwith open(\"sales.csv\", \"w\") as f:\n    f.write(\"region,amount\\nnorth,10\\nsouth,25\\nnorth,5\\n\")\n\nprint(duckdb.sql(\"\"\"\n    SELECT region, sum(amount) AS total\n    FROM 'sales.csv'\n    GROUP BY region ORDER BY total DESC\n\"\"\").fetchall())   # [('south', 25), ('north', 15)]\n\nprint(duckdb.sql(\"DESCRIBE SELECT * FROM 'sales.csv'\").fetchall()[1][:2])\n# ('amount', 'BIGINT')",
+   "code_lang": "python",
+   "takeaways": [
+    "A quoted file path in FROM is a table; the format comes from the extension",
+    "`read_csv`, `read_parquet`, `read_json` take options when auto-detection is not enough",
+    "`DESCRIBE` and `SUMMARIZE` give a fast first look at an unknown file"
+   ],
+   "pitfalls": [
+    "Re-querying a multi-gigabyte CSV over and over instead of importing it or converting to Parquet once."
+   ],
+   "quiz": [
+    {
+     "q": "Why is querying one column of a Parquet file usually much faster than the same query on a CSV?",
+     "options": [
+      "DuckDB caches Parquet files in memory forever",
+      "CSV files cannot be read in parallel at all",
+      "Parquet is columnar, so only the needed columns are read and decoded",
+      "Parquet files are always smaller than 1 MB"
+     ],
+     "answer": 2,
+     "explain": "Parquet stores each column separately with statistics, so DuckDB skips data the query does not touch."
+    }
+   ],
+   "docs": "https://duckdb.org/docs/current/data/csv/overview",
+   "requires": [
+    "duckdb.what-is-duckdb",
+    "sql.select"
+   ]
+  },
+  {
+   "id": "duckdb.python-api",
+   "name": "The Python API",
+   "module": "python",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Run queries with duckdb.sql or a connection, pass parameters safely and fetch results as tuples.",
+   "why": "Most people use DuckDB from Python scripts and notebooks, so this is the everyday interface.",
+   "body": "`pip install duckdb` gives you everything; there are no other dependencies. Two entry points:\n\n- `duckdb.sql(query)` runs on a shared default in-memory database. Handy in notebooks.\n- `con = duckdb.connect(\"file.duckdb\")` (or `connect()` for in-memory) gives you an explicit connection. Use this in real programs and close it with `con.close()` or a `with` block.\n\n`sql()` returns a lazy **relation**: nothing runs until you print it or fetch. `fetchall()` returns a list of tuples, `fetchone()` a single tuple, and `.show()` prints a table. Relations can be chained or queried again, which makes building a query step by step natural.\n\n`con.execute(query, params)` runs a statement immediately and supports **prepared parameters** with `?` or `$name` placeholders. Always pass values this way rather than formatting them into the SQL string; it avoids injection and quoting bugs. `executemany` runs one statement for many parameter rows, but for bulk loading it is far faster to insert from a DataFrame or a file.\n\nA connection is not meant to be shared by several threads at once; give each thread its own `con.cursor()`.",
+   "code": "import duckdb\n\nwith duckdb.connect() as con:            # in-memory database\n    con.execute(\"CREATE TABLE users (id INT, name TEXT, age INT)\")\n    con.executemany(\"INSERT INTO users VALUES (?, ?, ?)\",\n                    [(1, \"Ann\", 34), (2, \"Bob\", 19), (3, \"Cy\", 52)])\n\n    rows = con.execute(\"SELECT name FROM users WHERE age > ? ORDER BY name\",\n                       [30]).fetchall()\n    print(rows)                          # [('Ann',), ('Cy',)]\n\n    rel = con.sql(\"SELECT avg(age) AS avg_age FROM users\")\n    print(rel.fetchone())                # (35.0,)",
+   "code_lang": "python",
+   "takeaways": [
+    "`duckdb.sql` uses a default in-memory database; `duckdb.connect` gives an explicit one",
+    "Relations are lazy until fetched or shown",
+    "Pass values with `?` or `$name` parameters, never string formatting",
+    "Use one cursor per thread"
+   ],
+   "pitfalls": [
+    "Building SQL with f-strings from user input, which breaks on quotes and invites injection."
+   ],
+   "quiz": [
+    {
+     "q": "What does `duckdb.sql('SELECT 1')` return before you call fetchall()?",
+     "options": [
+      "A list of tuples",
+      "A lazy relation object",
+      "A pandas DataFrame",
+      "None"
+     ],
+     "answer": 1,
+     "explain": "sql() returns a DuckDBPyRelation that executes when you fetch, show or convert it."
+    }
+   ],
+   "docs": "https://duckdb.org/docs/current/clients/python/overview",
+   "requires": [
+    "duckdb.what-is-duckdb"
+   ]
+  },
+  {
+   "id": "duckdb.friendly-sql",
+   "name": "Friendly SQL extensions",
+   "module": "sql",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Write shorter queries with GROUP BY ALL, SELECT * EXCLUDE/REPLACE, FROM-first syntax and COLUMNS().",
+   "why": "These shortcuts remove most of the boilerplate in analytical SQL and are used in nearly all idiomatic DuckDB code.",
+   "body": "DuckDB keeps standard SQL working but adds conveniences that make exploratory queries much shorter:\n\n- `GROUP BY ALL` groups by every non-aggregated column in the SELECT list, so you never repeat column lists. `ORDER BY ALL` sorts by every column left to right.\n- `SELECT * EXCLUDE (a, b)` returns all columns except some; `SELECT * REPLACE (round(price, 2) AS price)` swaps an expression in place of a column.\n- **FROM-first**: `FROM tbl` alone means `SELECT * FROM tbl`, and `FROM tbl SELECT x` is allowed.\n- `COLUMNS('regex')` or `COLUMNS(* EXCLUDE id)` expands to many columns, so `SELECT max(COLUMNS(*))` aggregates each column.\n- Column aliases can be reused later in the same SELECT and in WHERE and GROUP BY.\n- `count()` without arguments, trailing commas in lists, and `LIMIT 10%` are accepted.\n\nOther quality-of-life features include `UNION BY NAME` (match columns by name not position), `INSERT INTO t BY NAME`, and string slicing like `'hello'[1:3]`.\n\nThese are DuckDB-specific: if a query must also run on PostgreSQL or a warehouse, stick to standard syntax there. For notebooks, pipelines and ad-hoc work, they make SQL far less tedious.",
+   "code": "import duckdb\n\nduckdb.sql(\"\"\"\n    CREATE TABLE orders AS SELECT * FROM (VALUES\n        ('north', 'pen', 2, 1.5::DOUBLE), ('north', 'book', 1, 12.0),\n        ('south', 'pen', 5, 1.5)) t(region, item, qty, price)\n\"\"\")\nprint(duckdb.sql(\"\"\"\n    SELECT region, item, sum(qty * price) AS revenue\n    FROM orders GROUP BY ALL ORDER BY ALL\n\"\"\").fetchall())\n# [('north', 'book', 12.0), ('north', 'pen', 3.0), ('south', 'pen', 7.5)]\n\nprint(duckdb.sql(\"SELECT * EXCLUDE (price) FROM orders LIMIT 1\").columns)\n# ['region', 'item', 'qty']\nprint(duckdb.sql(\"SELECT max(COLUMNS(* EXCLUDE (region, item))) FROM orders\").fetchall())\n# [(5, 12.0)]",
+   "code_lang": "python",
+   "takeaways": [
+    "`GROUP BY ALL` / `ORDER BY ALL` remove repeated column lists",
+    "`* EXCLUDE` and `* REPLACE` reshape wide tables quickly",
+    "`COLUMNS(...)` applies one expression to many columns",
+    "FROM-first queries like `FROM t` are valid"
+   ],
+   "pitfalls": [
+    "Copying DuckDB-only syntax into queries that also have to run on another database."
+   ],
+   "quiz": [
+    {
+     "q": "Given SELECT city, year, sum(sales) FROM t GROUP BY ALL, what does it group by?",
+     "options": [
+      "city and year",
+      "Every column of t",
+      "Only city",
+      "Nothing; it is a syntax error"
+     ],
+     "answer": 0,
+     "explain": "GROUP BY ALL groups by all SELECT expressions that are not aggregates: city and year."
+    }
+   ],
+   "docs": "https://duckdb.org/docs/current/sql/dialect/friendly_sql",
+   "requires": [
+    "duckdb.what-is-duckdb",
+    "sql.group-by"
+   ]
+  },
+  {
+   "id": "duckdb.csv-options",
+   "name": "Reading messy CSV files",
+   "module": "files",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Control read_csv's auto-detection: delimiters, headers, types, dates and bad rows.",
+   "why": "Real CSVs are rarely clean, and knowing the options turns a failing import into a one-line fix.",
+   "body": "`read_csv` runs a **sniffer** that samples the file to guess the delimiter, quote and escape characters, whether there is a header, and the type of each column. It is usually right, but you can override anything:\n\n- `delim`, `quote`, `escape`, `header` for the dialect\n- `columns = {'id': 'INTEGER', 'name': 'VARCHAR'}` to fix names and types (disables type detection), or `types = {...}` to override only some\n- `dateformat` / `timestampformat` for non-ISO dates, e.g. `'%d/%m/%Y'`\n- `nullstr` for values like `'NA'` that should be NULL\n- `all_varchar = true` to load everything as text and cast later\n- `ignore_errors = true` to skip rows that fail to parse, and `store_rejects = true` to keep them in a `reject_errors` table for inspection\n- `filename = true` adds a column with the source file name\n\n`sniff_csv('file.csv')` shows what the sniffer decided, which is the first thing to run when a load goes wrong. A common failure is a column inferred as integer from the sample that later contains text; increase `sample_size` (or `-1` for the whole file) or set the type explicitly.\n\nCSV parsing is parallel and fast, but it is still parsing: convert large CSVs to Parquet once if they will be read repeatedly.",
+   "code": "import duckdb, os, tempfile\n\nos.chdir(tempfile.mkdtemp())\nwith open(\"people.csv\", \"w\") as f:\n    f.write(\"name;born;score\\nAnn;03/04/1990;7\\nBob;NA;x\\nCy;12/11/1985;9\\n\")\n\nrel = duckdb.sql(\"\"\"\n    SELECT * FROM read_csv('people.csv', delim = ';', header = true,\n        dateformat = '%d/%m/%Y', nullstr = 'NA',\n        columns = {'name': 'VARCHAR', 'born': 'DATE', 'score': 'INTEGER'},\n        ignore_errors = true)\n\"\"\")\nprint(rel.fetchall())\n# [('Ann', datetime.date(1990, 4, 3), 7), ('Cy', datetime.date(1985, 11, 12), 9)]",
+   "code_lang": "python",
+   "takeaways": [
+    "The sniffer guesses dialect, header and types from a sample",
+    "`columns`/`types`, `dateformat` and `nullstr` fix most bad guesses",
+    "`ignore_errors` skips bad rows; `store_rejects` keeps them for review",
+    "Run `sniff_csv` to see what was detected"
+   ],
+   "pitfalls": [
+    "Silently dropping rows with `ignore_errors = true` and never checking how many were rejected."
+   ],
+   "quiz": [
+    {
+     "q": "A column was detected as BIGINT, but row 2 million contains 'n/a'. What is a good fix?",
+     "options": [
+      "Delete the file and ask for JSON",
+      "Convert the file to Excel first",
+      "Use ORDER BY on the column",
+      "Set the column's type explicitly or set nullstr = 'n/a'"
+     ],
+     "answer": 3,
+     "explain": "Overriding the type or declaring the null marker fixes the mismatch the sample did not reveal."
+    }
+   ],
+   "docs": "https://duckdb.org/docs/current/data/csv/overview",
+   "requires": [
+    "duckdb.query-files"
+   ]
+  },
+  {
+   "id": "duckdb.parquet-and-globs",
+   "name": "Parquet, globs and partitions",
+   "module": "files",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Query many files at once with glob patterns and Hive-partitioned folders, and let Parquet skip data.",
+   "why": "Real datasets are folders of files; reading them as one table with pruning is what makes DuckDB scale.",
+   "body": "A **glob** in the path reads many files as one table: `FROM 'logs/*.parquet'` or `'data/**/*.csv'` (`**` recurses). You can also pass a list: `read_parquet(['a.parquet', 'b.parquet'])`. Add `filename = true` to know which file each row came from, and `union_by_name = true` when files have different column sets.\n\nData lakes often use **Hive partitioning**: folders named `key=value`, e.g. `sales/year=2025/month=03/part-0.parquet`. With `hive_partitioning = true` (auto-detected for such paths) the folder keys become columns, and a filter like `WHERE year = 2025` skips whole folders without opening them.\n\n**Parquet** makes queries cheap in two more ways:\n\n- **projection pushdown**: only the columns in the query are read\n- **filter pushdown**: each row group stores min/max statistics, so groups that cannot match a WHERE condition are skipped\n\n`parquet_metadata('file.parquet')` and `parquet_schema(...)` show row groups, statistics and types. All of this works the same on S3 or HTTPS paths, where skipping data saves network transfer as well as CPU.",
+   "code": "import duckdb, os, tempfile\n\nos.chdir(tempfile.mkdtemp())\nduckdb.sql(\"\"\"\n    COPY (SELECT i AS id, i % 3 AS shop, 2024 + i % 2 AS year FROM range(12) t(i))\n    TO 'sales' (FORMAT parquet, PARTITION_BY (year))\n\"\"\")\nprint(sorted(os.listdir(\"sales\")))       # ['year=2024', 'year=2025']\n\nprint(duckdb.sql(\"\"\"\n    SELECT year, count(*) AS n, sum(id) AS ids\n    FROM read_parquet('sales/*/*.parquet', hive_partitioning = true)\n    WHERE year = 2025 GROUP BY year\n\"\"\").fetchall())                          # [(2025, 6, 36)]",
+   "code_lang": "python",
+   "takeaways": [
+    "Globs (`*`, `**`) and lists read many files as one table",
+    "Hive `key=value` folders become columns and allow partition pruning",
+    "Parquet reads only needed columns and skips row groups using min/max stats"
+   ],
+   "pitfalls": [
+    "Using thousands of tiny Parquet files; per-file overhead dominates. Aim for files of tens to hundreds of MB."
+   ],
+   "quiz": [
+    {
+     "q": "With files under sales/year=2024/ and sales/year=2025/, what does WHERE year = 2025 let DuckDB do?",
+     "options": [
+      "Nothing special; it reads every file",
+      "Rewrite the files in place",
+      "Skip the year=2024 folder entirely",
+      "Sort the output by year"
+     ],
+     "answer": 2,
+     "explain": "Hive partition values come from folder names, so non-matching folders are pruned before reading."
+    }
+   ],
+   "docs": "https://duckdb.org/docs/current/data/multiple_files/overview",
+   "requires": [
+    "duckdb.query-files"
+   ]
+  },
+  {
+   "id": "duckdb.copy-export",
+   "name": "Exporting with COPY",
+   "module": "files",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Write tables and query results to Parquet, CSV or JSON, optionally partitioned, with COPY ... TO.",
+   "why": "Converting and exporting data is half of every pipeline, and DuckDB does it in one statement.",
+   "body": "`COPY ... TO` writes a table or the result of any query to a file:\n\n```sql\nCOPY (SELECT * FROM events WHERE ok) TO 'events.parquet' (FORMAT parquet);\n```\n\nThe format is inferred from the extension, or set with `FORMAT`. Useful options:\n\n- Parquet: `COMPRESSION zstd` (the default is snappy), `ROW_GROUP_SIZE`\n- CSV: `HEADER`, `DELIMITER`\n- `PARTITION_BY (col, ...)` writes a Hive-style folder tree, one subfolder per value\n- `OVERWRITE_OR_IGNORE` / `OVERWRITE` control what happens if the target folder exists\n- `PER_THREAD_OUTPUT` writes one file per thread for maximum speed\n\nThe reverse direction, `COPY tbl FROM 'file.csv'`, appends a file into an existing table, though `INSERT INTO tbl SELECT * FROM 'file.csv'` is more flexible.\n\nA common one-liner is CSV to Parquet conversion: `COPY (FROM 'raw.csv') TO 'clean.parquet'`. To move an entire database, `EXPORT DATABASE 'dir'` writes every table plus a schema script, and `IMPORT DATABASE 'dir'` rebuilds it.\n\nSort data by a frequently filtered column before writing Parquet: row-group min/max statistics then become tight, and later filters skip far more data.",
+   "code": "import duckdb, os, tempfile\n\nos.chdir(tempfile.mkdtemp())\ncon = duckdb.connect()\ncon.sql(\"CREATE TABLE t AS SELECT i AS id, 'item' || i AS name FROM range(5) r(i)\")\n\ncon.sql(\"COPY t TO 'items.csv' (HEADER, DELIMITER ',')\")\ncon.sql(\"COPY (SELECT * FROM t WHERE id >= 3 ORDER BY id) TO 'items.parquet' \"\n        \"(FORMAT parquet, COMPRESSION zstd)\")\n\nprint(open(\"items.csv\").read().splitlines()[:2])   # ['id,name', '0,item0']\nprint(con.sql(\"FROM 'items.parquet'\").fetchall())  # [(3, 'item3'), (4, 'item4')]",
+   "code_lang": "python",
+   "takeaways": [
+    "`COPY (query) TO 'file'` exports any result; format follows the extension or FORMAT",
+    "`PARTITION_BY` writes Hive-partitioned folders",
+    "Sorting before writing Parquet makes later filtering much faster"
+   ],
+   "pitfalls": [
+    "Writing a partitioned export twice into the same folder without OVERWRITE options and getting an error or duplicate files."
+   ],
+   "quiz": [
+    {
+     "q": "What is the simplest way to convert raw.csv into Parquet with DuckDB?",
+     "options": [
+      "ALTER FILE 'raw.csv' FORMAT parquet",
+      "COPY (FROM 'raw.csv') TO 'raw.parquet'",
+      "EXPORT DATABASE 'raw.parquet'",
+      "SELECT parquet('raw.csv')"
+     ],
+     "answer": 1,
+     "explain": "COPY writes the result of the inner query (reading the CSV) to a Parquet file."
+    }
+   ],
+   "docs": "https://duckdb.org/docs/current/sql/statements/copy",
+   "requires": [
+    "duckdb.parquet-and-globs",
+    "duckdb.cli-and-persistence"
+   ]
+  },
+  {
+   "id": "duckdb.dataframes",
+   "name": "SQL on pandas, Polars and Arrow",
+   "module": "python",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Query DataFrames by their variable name and get results back as pandas, Polars or Arrow without copying rows.",
+   "why": "Mixing SQL and DataFrames lets you use whichever is clearer for each step, and it is often much faster than pandas.",
+   "body": "DuckDB can query a pandas DataFrame, Polars DataFrame or Arrow table that is a Python variable in scope, simply by naming it: `duckdb.sql(\"SELECT * FROM df WHERE x > 1\")`. This is called a **replacement scan**: if a table name is not found in the database, DuckDB looks for a Python object with that name.\n\nResults convert back just as easily:\n\n- `.df()` returns a pandas DataFrame\n- `.pl()` returns a Polars DataFrame\n- `.arrow()` returns a PyArrow table (or reader), `.fetchnumpy()` a dict of NumPy arrays\n\nArrow and Polars data is read with zero or near-zero copying, and pandas numeric columns are scanned directly. That makes DuckDB a great accelerator for heavy pandas steps: complex joins, group-bys with many keys, or window functions are often several times faster and use less memory as SQL.\n\nTo persist a DataFrame, `con.execute(\"CREATE TABLE t AS SELECT * FROM df\")` or `con.register(\"name\", df)` to give it an explicit name (needed when the variable is not in the calling scope, e.g. inside another function).\n\nWatch types at the boundary: pandas `object` columns of strings become VARCHAR, NaN in float columns is not the same as SQL NULL, and timezone-aware timestamps map to `TIMESTAMP WITH TIME ZONE`.",
+   "code": "import duckdb\nimport pandas as pd\n\norders = pd.DataFrame({\"user\": [\"a\", \"b\", \"a\", \"c\"], \"amount\": [10, 5, 7, 3]})\nusers = pd.DataFrame({\"user\": [\"a\", \"b\", \"c\"], \"country\": [\"AM\", \"FR\", \"AM\"]})\n\nresult = duckdb.sql(\"\"\"\n    SELECT u.country, sum(o.amount) AS total\n    FROM orders o JOIN users u USING (user)\n    GROUP BY ALL ORDER BY total DESC\n\"\"\").df()                       # back to pandas\nprint(result.to_dict(\"list\"))\n# {'country': ['AM', 'FR'], 'total': [20.0, 5.0]}",
+   "code_lang": "python",
+   "takeaways": [
+    "Name a DataFrame or Arrow table in FROM and DuckDB scans it in place",
+    "`.df()`, `.pl()`, `.arrow()` convert results back",
+    "Use `con.register` when the object is not a variable in scope"
+   ],
+   "pitfalls": [
+    "Expecting NaN in a pandas float column to behave like SQL NULL in filters and aggregates."
+   ],
+   "quiz": [
+    {
+     "q": "How does DuckDB find `df` in `duckdb.sql('SELECT * FROM df')` when no table df exists?",
+     "options": [
+      "A replacement scan looks up a Python variable named df",
+      "It loads df.csv from disk",
+      "It raises an error every time",
+      "It downloads the table from a server"
+     ],
+     "answer": 0,
+     "explain": "Unknown table names fall back to Python objects in scope, such as DataFrames and Arrow tables."
+    }
+   ],
+   "docs": "https://duckdb.org/docs/current/guides/python/sql_on_pandas",
+   "requires": [
+    "duckdb.python-api",
+    "duckdb.friendly-sql"
+   ]
+  },
+  {
+   "id": "duckdb.nested-types",
+   "name": "Lists, structs and maps",
+   "module": "sql",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Store and query nested data with LIST, STRUCT and MAP types, unnest them, and transform lists with lambdas.",
+   "why": "JSON and Parquet data is often nested, and DuckDB can process it without flattening everything first.",
+   "body": "DuckDB has first-class **nested types**:\n\n- `LIST` (e.g. `INTEGER[]`): ordered, variable length; literal `[1, 2, 3]`; indexing is 1-based, `l[1]`\n- `STRUCT`: named fields; literal `{'name': 'Ann', 'age': 34}`; access with `s.name` or `s['name']`\n- `MAP`: key/value pairs with uniform types; `MAP {'a': 1}`; `m['a']`\n- `ARRAY` (e.g. `FLOAT[3]`): fixed-length lists, used for embeddings and vector functions\n\n`unnest(list)` turns a list into rows; `unnest(struct)` turns fields into columns, and `unnest(..., recursive := true)` flattens deeply. Going the other way, `list(x)` (alias `array_agg`) aggregates rows into a list, and `struct_pack` builds structs.\n\nList functions avoid unnesting entirely: `len`, `list_contains`, `list_sort`, `list_distinct`, and higher-order functions with **lambdas**: `list_transform(l, x -> x * 2)`, `list_filter(l, x -> x > 0)`, `list_reduce`. There is even Python-style list comprehension syntax: `[x * 2 FOR x IN l IF x > 0]`.\n\nReading JSON with `read_json` produces structs and lists automatically, so `SELECT payload.user.id FROM 'events.json'` works out of the box.\n\nNote that recent versions are introducing Python-style `lambda x: x * 2` syntax; the arrow form still works but may produce deprecation warnings in newer releases.",
+   "code": "import duckdb\n\nduckdb.sql(\"\"\"\n    CREATE TABLE posts AS SELECT * FROM (VALUES\n        (1, ['sql', 'duckdb'], {'name': 'Ann', 'age': 34}),\n        (2, ['python'],        {'name': 'Bob', 'age': 19})) t(id, tags, author)\n\"\"\")\nprint(duckdb.sql(\"SELECT id, author.name, len(tags) FROM posts\").fetchall())\n# [(1, 'Ann', 2), (2, 'Bob', 1)]\nprint(duckdb.sql(\"SELECT id, unnest(tags) AS tag FROM posts ORDER BY ALL\").fetchall())\n# [(1, 'duckdb'), (1, 'sql'), (2, 'python')]\nprint(duckdb.sql(\"SELECT [upper(t) FOR t IN tags IF t != 'sql'] FROM posts\").fetchall())\n# [(['DUCKDB'],), (['PYTHON'],)]",
+   "code_lang": "python",
+   "takeaways": [
+    "LIST, STRUCT, MAP and ARRAY are native column types",
+    "`unnest` expands lists to rows; `list()` aggregates rows to a list",
+    "List lambdas and comprehensions transform nested data without unnesting",
+    "List indexes start at 1"
+   ],
+   "pitfalls": [
+    "Using 0-based indexing out of habit: `l[0]` is not the first element."
+   ],
+   "quiz": [
+    {
+     "q": "What does SELECT unnest([10, 20, 30]) return?",
+     "options": [
+      "One row containing a list",
+      "An error",
+      "The value 60",
+      "Three rows: 10, 20 and 30"
+     ],
+     "answer": 3,
+     "explain": "unnest turns each list element into its own row."
+    },
+    {
+     "q": "What is ['a','b','c'][1] in DuckDB?",
+     "options": [
+      "NULL",
+      "'b'",
+      "'a'",
+      "An error"
+     ],
+     "answer": 2,
+     "explain": "DuckDB lists are 1-indexed, like SQL arrays in PostgreSQL."
+    }
+   ],
+   "docs": "https://duckdb.org/docs/current/sql/data_types/list",
+   "requires": [
+    "duckdb.friendly-sql"
+   ]
+  },
+  {
+   "id": "duckdb.analytics-sql",
+   "name": "QUALIFY, ASOF joins and PIVOT",
+   "module": "sql",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Use DuckDB's analytics features: filter window results with QUALIFY, match time series with ASOF JOIN, reshape with PIVOT.",
+   "why": "These features turn awkward multi-step queries (top-N per group, nearest timestamp, wide reports) into one clear statement.",
+   "body": "**QUALIFY** filters on window function results the way HAVING filters on aggregates. The classic top-N-per-group query no longer needs a subquery:\n\n```sql\nSELECT * FROM sales\nQUALIFY row_number() OVER (PARTITION BY region ORDER BY amount DESC) <= 3;\n```\n\n**ASOF JOIN** matches each row to the closest preceding row in another table, which is exactly what time series need: attach the latest known price to each trade, or the latest config to each event. Write `ASOF JOIN prices p ON t.symbol = p.symbol AND t.ts >= p.ts`. The inequality must be one of `>=`, `>`, `<=`, `<`, and every left row gets at most one match (use `ASOF LEFT JOIN` to keep rows with none).\n\n**PIVOT** turns distinct values of a column into columns: `PIVOT sales ON year USING sum(amount) GROUP BY region`. DuckDB discovers the values for you, though listing them (`ON year IN (2024, 2025)`) makes the output schema stable. **UNPIVOT** does the reverse, folding columns into name/value rows: `UNPIVOT wide ON COLUMNS(* EXCLUDE id) INTO NAME month VALUE amount`.\n\nAll three compile to ordinary operators, so they are fast, and they combine freely with CTEs and window functions.",
+   "code": "import duckdb\n\nduckdb.sql(\"\"\"CREATE TABLE prices AS SELECT * FROM (VALUES\n    ('X', 1, 10), ('X', 5, 11), ('X', 9, 12)) t(sym, ts, price)\"\"\")\nduckdb.sql(\"\"\"CREATE TABLE trades AS SELECT * FROM (VALUES\n    ('X', 4, 100), ('X', 7, 50), ('X', 9, 20)) t(sym, ts, qty)\"\"\")\n\nprint(duckdb.sql(\"\"\"\n    SELECT t.ts, t.qty, p.price FROM trades t\n    ASOF JOIN prices p ON t.sym = p.sym AND t.ts >= p.ts ORDER BY t.ts\n\"\"\").fetchall())  # [(4, 100, 10), (7, 50, 11), (9, 20, 12)]\n\nprint(duckdb.sql(\"\"\"\n    SELECT ts, qty FROM trades\n    QUALIFY row_number() OVER (ORDER BY qty DESC) = 1\n\"\"\").fetchall())  # [(4, 100)]\nprint(duckdb.sql(\"PIVOT trades ON ts IN (4, 7) USING sum(qty) GROUP BY sym\").fetchall())\n# [('X', 100, 50)]",
+   "code_lang": "python",
+   "takeaways": [
+    "QUALIFY filters rows by window function results",
+    "ASOF JOIN attaches the nearest preceding match, ideal for time series",
+    "PIVOT/UNPIVOT reshape between long and wide; list values for a stable schema"
+   ],
+   "pitfalls": [
+    "Expecting an ASOF JOIN to return several matches per row; it returns at most the single closest one."
+   ],
+   "quiz": [
+    {
+     "q": "A trade at ts=7 is ASOF-joined to prices at ts 1, 5 and 9 with t.ts >= p.ts. Which price row matches?",
+     "options": [
+      "ts=1",
+      "ts=5",
+      "ts=9",
+      "All three"
+     ],
+     "answer": 1,
+     "explain": "ASOF picks the closest row satisfying the inequality: the latest price at or before 7, which is ts=5."
+    }
+   ],
+   "docs": "https://duckdb.org/docs/current/guides/sql_features/asof_join",
+   "requires": [
+    "duckdb.friendly-sql",
+    "sql.window-functions"
+   ]
+  },
+  {
+   "id": "duckdb.extensions-remote",
+   "name": "Extensions, S3 and other databases",
+   "module": "files",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Install extensions to read S3 and HTTPS, attach PostgreSQL, MySQL or SQLite, and use spatial, full-text and more.",
+   "why": "Extensions let DuckDB query data where it lives, which removes whole export and import steps from pipelines.",
+   "body": "Much of DuckDB's functionality ships as **extensions**: `INSTALL name; LOAD name;`. Core extensions are signed, downloaded from the official repository and cached locally; many (like `httpfs`, `json`, `parquet`) **autoload** the first time you use a feature that needs them. `SELECT * FROM duckdb_extensions()` lists what is installed and loaded.\n\nThe most used ones:\n\n- `httpfs`: read and write `https://`, `s3://`, `gcs://` and Azure paths. Configure credentials with the **secrets manager**: `CREATE SECRET (TYPE s3, PROVIDER credential_chain)` picks up your AWS environment, or give `KEY_ID`/`SECRET`/`REGION` explicitly. Add `PERSISTENT` to store it across sessions.\n- `postgres`, `mysql`, `sqlite`: `ATTACH 'dbname=shop host=...' AS pg (TYPE postgres)` exposes the remote tables; you can join them with local Parquet and even write back.\n- `iceberg` and `delta`: read lakehouse table formats.\n- `spatial` (geometry types and GIS functions), `fts` (full-text search), `excel`, `vss` (vector similarity index).\n\nCommunity extensions are installed with `INSTALL name FROM community`. Because extensions are native code, only load ones you trust; settings like `allow_community_extensions` and `autoinstall_known_extensions` let you lock this down in production.",
+   "code": "-- read Parquet straight from S3 using your AWS credential chain\nINSTALL httpfs; LOAD httpfs;\nCREATE SECRET aws (TYPE s3, PROVIDER credential_chain);\n\nSELECT count(*) FROM 's3://my-bucket/events/2025/*.parquet';\n\n-- join a live PostgreSQL table with a local file\nINSTALL postgres; LOAD postgres;\nATTACH 'dbname=shop host=localhost user=app' AS pg (TYPE postgres, READ_ONLY);\n\nSELECT c.country, sum(e.amount) AS total\nFROM 'events.parquet' e\nJOIN pg.public.customers c ON c.id = e.customer_id\nGROUP BY ALL;",
+   "code_lang": "sql",
+   "takeaways": [
+    "`INSTALL` downloads once; `LOAD` activates; many core extensions autoload",
+    "`CREATE SECRET` manages S3/GCS/Azure credentials",
+    "`ATTACH ... (TYPE postgres|mysql|sqlite)` queries other databases in place"
+   ],
+   "pitfalls": [
+    "Pulling an entire remote PostgreSQL table into DuckDB when a filter could have been pushed to the source; check EXPLAIN."
+   ],
+   "quiz": [
+    {
+     "q": "What is the role of CREATE SECRET when reading s3:// paths?",
+     "options": [
+      "It supplies credentials and region for the S3 requests",
+      "It encrypts the Parquet files",
+      "It creates a new S3 bucket",
+      "It installs the httpfs extension"
+     ],
+     "answer": 0,
+     "explain": "Secrets hold the credentials DuckDB uses to authenticate remote file access."
+    }
+   ],
+   "docs": "https://duckdb.org/docs/current/extensions/overview",
+   "requires": [
+    "duckdb.parquet-and-globs",
+    "duckdb.cli-and-persistence"
+   ]
+  },
+  {
+   "id": "duckdb.execution-engine",
+   "name": "Vectorized execution and tuning",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "How DuckDB executes queries (columnar vectors, morsel parallelism, spilling) and how to read EXPLAIN ANALYZE and tune memory and threads.",
+   "why": "Knowing the engine explains performance surprises and lets you process datasets larger than RAM reliably.",
+   "body": "DuckDB executes queries with a **vectorized, push-based** engine. Operators process **vectors** of up to 2048 values of one column at a time, which keeps data in CPU caches and lets tight loops run without per-row interpretation overhead. Parallelism is **morsel-driven**: the input is split into chunks (for Parquet, roughly by row group) that worker threads grab dynamically, so all cores stay busy without fixed partitioning.\n\n`EXPLAIN` shows the physical plan; `EXPLAIN ANALYZE` runs the query and annotates each operator with time and row counts. Look for where rows explode (a bad join), which scan dominates, and whether filters and projections were pushed into the scan.\n\nKey settings:\n\n- `SET threads = 8;` defaults to the core count\n- `SET memory_limit = '4GB';` defaults to 80% of RAM\n- `SET temp_directory = '/fast/disk';` where spilled data goes\n\nHash joins, aggregations, sorts and window functions can **spill to disk** when they exceed the memory limit, so queries larger than RAM usually complete, just slower. `preserve_insertion_order = false` lets DuckDB skip ordering work and use less memory on big exports.\n\nPerformance tips: prefer Parquet over CSV, keep row groups large, avoid many tiny files, and remember that some operators, such as very large `list()` aggregates, cannot spill.",
+   "code": "import duckdb\n\ncon = duckdb.connect()\ncon.sql(\"SET threads = 4\")\ncon.sql(\"SET memory_limit = '1GB'\")\ncon.sql(\"CREATE TABLE t AS SELECT i, i % 100 AS g FROM range(2_000_000) r(i)\")\n\nplan = con.sql(\"\"\"\n    EXPLAIN ANALYZE SELECT g, count(*) FROM t WHERE i % 2 = 0 GROUP BY g\n\"\"\").fetchall()[0][1]\nprint(\"HASH_GROUP_BY\" in plan, \"Filters:\" in plan)  # True True\n# the WHERE clause was pushed down into the table scan\nprint(con.sql(\"SELECT current_setting('threads')\").fetchone())   # (4,)",
+   "code_lang": "python",
+   "takeaways": [
+    "Operators work on column vectors of up to 2048 values",
+    "Morsel-driven parallelism spreads work over all threads",
+    "`EXPLAIN ANALYZE` shows per-operator time and row counts",
+    "`memory_limit` and `temp_directory` control spilling for larger-than-RAM queries"
+   ],
+   "pitfalls": [
+    "Setting memory_limit close to total RAM on a machine that also runs other processes, causing OS out-of-memory kills."
+   ],
+   "quiz": [
+    {
+     "q": "A GROUP BY needs more memory than memory_limit allows. What does DuckDB typically do?",
+     "options": [
+      "Crash immediately",
+      "Switch to row-by-row mode",
+      "Silently return partial results",
+      "Spill intermediate state to the temp directory and continue"
+     ],
+     "answer": 3,
+     "explain": "Joins, aggregates and sorts are designed to offload to disk when they exceed the memory budget."
+    }
+   ],
+   "docs": "https://duckdb.org/docs/current/guides/performance/overview",
+   "requires": [
+    "duckdb.analytics-sql",
+    "duckdb.parquet-and-globs",
+    "sql.explain"
+   ]
+  },
+  {
+   "id": "duckdb.storage-concurrency",
+   "name": "Storage format and concurrency",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Inside the .duckdb file: row groups, compression, zone maps, MVCC transactions and the single-writer rule.",
+   "why": "Designing an app around DuckDB requires knowing what it guarantees for concurrent access and how data is laid out.",
+   "body": "A DuckDB database file is split into fixed-size blocks. Tables are stored as **row groups** of about 122,880 rows; inside each, every column is a separate **column segment** compressed with lightweight schemes chosen per segment (constant, RLE, dictionary, bit-packing, FSST for strings, ALP for floats). Each segment keeps min/max statistics, called **zone maps**, so filters skip segments that cannot match, which is why inserting data sorted by a common filter column speeds up queries.\n\nIndexes are rarely needed: zone maps cover range scans. PRIMARY KEY and UNIQUE constraints create **ART** indexes, which help point lookups but slow bulk loads.\n\nWrites go to a **write-ahead log** and are folded into the main file at a **checkpoint** (automatic once the WAL grows past `checkpoint_threshold`, or via `CHECKPOINT`). Deleted space is reused but the file rarely shrinks.\n\nTransactions use **MVCC** with snapshot isolation and optimistic concurrency: within one process, many threads can read and write in parallel, and two transactions updating the same row conflict, with the second failing to commit.\n\nAcross processes the rule is strict: **either one process opens the file read-write, or any number open it read-only** (`read_only=True`). For multi-writer workloads, funnel writes through one process, or use a server database, or DuckLake / MotherDuck style setups.",
+   "code": "import duckdb, os, tempfile\n\npath = os.path.join(tempfile.mkdtemp(), \"app.duckdb\")\ncon = duckdb.connect(path)\ncon.sql(\"CREATE TABLE t AS SELECT i FROM range(300_000) r(i)\")\ncon.sql(\"CHECKPOINT\")\nprint(con.sql(\"\"\"SELECT count(DISTINCT row_group_id)\n                 FROM pragma_storage_info('t')\"\"\").fetchone())   # (3,)\ncon.close()\n\nro1 = duckdb.connect(path, read_only=True)    # many read-only handles are fine\nprint(ro1.sql(\"SELECT max(i) FROM t\").fetchone())   # (299999,)",
+   "code_lang": "python",
+   "takeaways": [
+    "Tables are row groups of ~122k rows, each column compressed separately",
+    "Zone maps (min/max) let scans skip data, so sort on common filter columns",
+    "MVCC gives snapshot isolation within a process; conflicting updates fail",
+    "One read-write process or many read-only processes per file"
+   ],
+   "pitfalls": [
+    "Opening the same file read-write from a web server's several worker processes; the others get a lock error."
+   ],
+   "quiz": [
+    {
+     "q": "Two separate Python processes need to write to the same .duckdb file. What happens?",
+     "options": [
+      "Both succeed thanks to MVCC",
+      "Writes are merged at the next checkpoint",
+      "The second process fails to acquire the file lock",
+      "DuckDB starts a server automatically"
+     ],
+     "answer": 2,
+     "explain": "MVCC works between threads in one process; across processes only one may open the file for writing."
+    }
+   ],
+   "docs": "https://duckdb.org/docs/current/connect/concurrency",
+   "requires": [
+    "duckdb.execution-engine",
+    "duckdb.cli-and-persistence",
+    "sql.transactions"
+   ]
+  },
+  {
+   "id": "duckdb.optimizer",
+   "name": "How the optimizer rewrites queries",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "See what DuckDB's optimizer does to your SQL: pushdown, join ordering, build-side choice, Top-N and statistics propagation.",
+   "why": "Reading optimized plans tells you when a query is slow because of your SQL and when the engine already fixed it for you.",
+   "body": "Before execution, DuckDB's **optimizer** rewrites the logical plan in a series of passes. The ones that matter most in practice:\n\n- **Filter pushdown**: WHERE conditions move as low as possible, into joins and into the scan itself, where zone maps or Parquet statistics can skip data. Filters on one side of a join are also copied to the other side when the join key makes them equivalent.\n- **Projection pushdown**: only referenced columns are read. `SELECT *` on a wide Parquet file costs real I/O.\n- **Join ordering**: a cost-based join-order optimizer uses cardinality estimates (from table statistics and distinct counts) to choose the order of multi-way joins and, for hash joins, puts the smaller input on the **build side**.\n- **Top-N**: `ORDER BY ... LIMIT n` becomes a TOP_N operator that keeps only n rows in a heap instead of sorting everything.\n- **Statistics propagation**: known min/max values flow through expressions, letting DuckDB remove impossible filters, use perfect hash aggregates for small integer ranges and compress intermediate integers.\n- **Common subexpression and CTE handling**: CTEs referenced several times may be materialized once.\n\n`EXPLAIN` shows the optimized physical plan with estimated cardinalities (`~rows`). When estimates are far from actual counts in `EXPLAIN ANALYZE`, the join order may be poor; rewriting the query, adding a filter earlier or materializing an intermediate table can help. `SET disabled_optimizers = '...'` exists for debugging, not for production.",
+   "code": "import duckdb\n\ncon = duckdb.connect()\ncon.sql(\"CREATE TABLE users AS SELECT i AS id, i % 50 AS country FROM range(100000) r(i)\")\ncon.sql(\"CREATE TABLE events AS SELECT i % 100000 AS user_id FROM range(1000000) r(i)\")\n\nplan = con.sql(\"\"\"\n    EXPLAIN SELECT u.country, count(*) AS n\n    FROM events e JOIN users u ON e.user_id = u.id\n    WHERE u.country = 3\n    GROUP BY ALL ORDER BY n DESC LIMIT 5\n\"\"\").fetchall()[0][1]\n\nprint(\"TOP_N\" in plan)                # True   sort + limit became Top-N\nprint(\"Filters: country=3\" in plan)   # True   filter pushed into the users scan\nprint(\"HASH_JOIN\" in plan)            # True",
+   "code_lang": "python",
+   "takeaways": [
+    "Filters and projections are pushed down into scans automatically",
+    "Join order and build side come from cardinality estimates",
+    "ORDER BY + LIMIT becomes a cheap Top-N operator",
+    "Compare estimated (~rows) with actual counts to spot bad plans"
+   ],
+   "pitfalls": [
+    "Hand-optimizing join order in SQL text; DuckDB reorders inner joins anyway, so fix estimates or filters instead."
+   ],
+   "quiz": [
+    {
+     "q": "Why does DuckDB normally put the smaller table on the build side of a hash join?",
+     "options": [
+      "The build side is always read from disk twice",
+      "The hash table is built from the build side, so a smaller one uses less memory and builds faster",
+      "SQL requires the smaller table to be written first",
+      "Only the build side can have filters"
+     ],
+     "answer": 1,
+     "explain": "The hash table holds the build input, so building from the smaller input is cheaper in time and memory."
+    }
+   ],
+   "docs": "https://duckdb.org/docs/current/guides/meta/explain_analyze",
+   "requires": [
+    "duckdb.execution-engine"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,624 @@
+{
+ "tool": {
+  "id": "requests",
+  "name": "Requests",
+  "category": "library",
+  "tagline": "The simple, synchronous HTTP client most Python code uses",
+  "description": "Requests is the de facto standard HTTP library for Python: a small, readable API for sending GET, POST and other requests, handling JSON, headers, cookies, authentication and file uploads. It sits on top of urllib3, which provides connection pooling and retries. Learning it lets you call web APIs, download files and script any HTTP service from Python.",
+  "icon": "Rq",
+  "color": "#3E6B8A",
+  "official_docs": "https://requests.readthedocs.io/en/latest/",
+  "version": "2.34",
+  "aliases": [
+   "python requests",
+   "requests library",
+   "http for humans"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   },
+   {
+    "tool": "http",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Making requests"
+  },
+  {
+   "id": "responses",
+   "name": "Responses and errors"
+  },
+  {
+   "id": "sessions",
+   "name": "Sessions and auth"
+  },
+  {
+   "id": "robust",
+   "name": "Robust clients"
+  },
+  {
+   "id": "internals",
+   "name": "Internals and extending"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "requests.first-get",
+   "name": "Your first GET request",
+   "module": "basics",
+   "level": 1,
+   "minutes": 7,
+   "summary": "Install Requests and fetch a URL with requests.get, then look at the status code and body.",
+   "why": "Calling a web API or downloading a page is one line with Requests, and every later lesson builds on it.",
+   "body": "Requests is a third-party package: install it with `pip install requests` (inside a virtual environment) and import it with `import requests`.\n\nThe module has one function per HTTP method: `requests.get`, `post`, `put`, `patch`, `delete`, `head` and `options`. Each takes a URL plus optional keyword arguments and returns a **Response** object once the whole response has arrived:\n\n```python\nr = requests.get(\"https://api.github.com\")\n```\n\nThe most important attributes of the response are:\n\n- `r.status_code`: the HTTP status as an int, like `200` or `404`.\n- `r.ok`: `True` when the status is below 400.\n- `r.text`: the body decoded to a `str`.\n- `r.json()`: the body parsed as JSON into dicts and lists.\n- `r.headers`: the response headers.\n\nA non-2xx status is **not** an exception in Requests. `requests.get` happily returns a `404` response, and you must check it (later lessons show `raise_for_status`). Exceptions are raised only for failures to get a response at all, such as DNS errors or refused connections.\n\nRequests is **synchronous**: the call blocks until the response is complete. That makes it ideal for scripts, CLIs and simple back-end code. For thousands of concurrent requests or async frameworks, look at HTTPX or aiohttp, which share most of these ideas.\n\nAlways pass a `timeout` in real code; it is introduced properly in its own lesson, but the examples use it from the start.",
+   "code": "import requests\n\nr = requests.get(\"https://httpbin.org/get\", timeout=10)\n\nprint(r.status_code)              # 200\nprint(r.ok)                       # True\nprint(r.headers[\"Content-Type\"])  # application/json\ndata = r.json()\nprint(type(data).__name__)        # dict\nprint(data[\"url\"])                # https://httpbin.org/get\n\nmissing = requests.get(\"https://httpbin.org/status/404\", timeout=10)\nprint(missing.status_code, missing.ok)  # 404 False  (no exception!)",
+   "code_lang": "python",
+   "takeaways": [
+    "requests.get/post/put/... return a Response",
+    "status_code, ok, text, json() and headers are the essentials",
+    "HTTP error statuses do not raise by default"
+   ],
+   "pitfalls": [
+    "Assuming requests.get raises an exception on 404 or 500."
+   ],
+   "quiz": [
+    {
+     "q": "What happens when requests.get(url) receives a 500 response?",
+     "options": [
+      "It returns a Response with status_code 500",
+      "It raises requests.HTTPError",
+      "It retries automatically",
+      "It returns None"
+     ],
+     "answer": 0,
+     "explain": "Requests only raises for connection-level failures; HTTP error statuses come back as normal responses."
+    }
+   ],
+   "docs": "https://requests.readthedocs.io/en/latest/user/quickstart/#make-a-request",
+   "requires": [
+    "python.modules-imports",
+    "python.dicts"
+   ]
+  },
+  {
+   "id": "requests.response-object",
+   "name": "The Response object",
+   "module": "responses",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Read a response's body as text, bytes or JSON, inspect headers and encoding, and see redirects and timing.",
+   "why": "Getting data out of a response correctly, including encoding and JSON errors, is half of every HTTP task.",
+   "body": "A `Response` gives you the body in three forms:\n\n- `r.content`: raw `bytes`. Use it for images, archives and any binary data.\n- `r.text`: the body decoded to `str` using `r.encoding`, which Requests takes from the `Content-Type` header's charset. If the header has no charset, Requests guesses (for `text/*` it defaults to ISO-8859-1 per the old HTTP spec). Set `r.encoding = \"utf-8\"` before reading `r.text` if you know better.\n- `r.json()`: parses the body as JSON. If the body is not valid JSON (an HTML error page, an empty 204 response), it raises `requests.exceptions.JSONDecodeError`.\n\nHeaders live in `r.headers`, a **case-insensitive dict**: `r.headers[\"content-type\"]` and `r.headers[\"Content-Type\"]` are the same entry.\n\nOther useful attributes:\n\n- `r.url`: the final URL after redirects. `r.history` lists the redirect responses that led there. Requests follows redirects automatically for all methods except `HEAD`; pass `allow_redirects=False` to stop that.\n- `r.elapsed`: a `timedelta` from sending the request until the response headers arrived.\n- `r.request`: the `PreparedRequest` that was actually sent, with its final URL, headers and body, which is great for debugging.\n- `r.reason`: the status text, like `\"Not Found\"`.\n- `r.cookies`: cookies the server set.\n\nCheck the status before trusting the body: an error page parsed with `r.json()` is a common source of confusing exceptions.",
+   "code": "import requests\n\nr = requests.get(\"https://httpbin.org/redirect/2\", timeout=10)\nprint(r.status_code, r.url)          # 200 https://httpbin.org/get\nprint([h.status_code for h in r.history])  # [302, 302]\nprint(r.headers[\"content-type\"])     # application/json  (case-insensitive)\nprint(type(r.content).__name__, type(r.text).__name__)  # bytes str\nprint(r.request.method, r.request.url)   # GET https://httpbin.org/get\n\nhtml = requests.get(\"https://httpbin.org/html\", timeout=10)\ntry:\n    html.json()\nexcept requests.exceptions.JSONDecodeError:\n    print(\"not JSON\")                # not JSON\n\nr2 = requests.get(\"https://httpbin.org/redirect/1\", allow_redirects=False, timeout=10)\nprint(r2.status_code, r2.headers[\"Location\"])  # 302 /get",
+   "code_lang": "python",
+   "takeaways": [
+    "content is bytes, text is decoded str, json() parses JSON",
+    "headers is case-insensitive; url and history show redirects",
+    "r.request shows exactly what was sent"
+   ],
+   "pitfalls": [
+    "Reading r.text for binary data such as images; use r.content."
+   ],
+   "quiz": [
+    {
+     "q": "Which attribute should you use to save a downloaded PNG to disk?",
+     "options": [
+      "r.text",
+      "r.json()",
+      "r.content",
+      "r.raw_text"
+     ],
+     "answer": 2,
+     "explain": "Images are binary, so you need the raw bytes in r.content."
+    }
+   ],
+   "docs": "https://requests.readthedocs.io/en/latest/user/quickstart/#response-content",
+   "requires": [
+    "requests.first-get"
+   ]
+  },
+  {
+   "id": "requests.params-headers",
+   "name": "Query parameters and headers",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Pass query strings with params= and custom headers with headers=, letting Requests handle encoding.",
+   "why": "Almost every API call needs query parameters, an Accept header or an API key, and hand-building URLs causes bugs.",
+   "body": "Never build query strings by concatenating text. Pass a dict to `params=` and Requests URL-encodes keys and values for you, including spaces, `&` and non-ASCII characters:\n\n```python\nrequests.get(url, params={\"q\": \"rock & roll\", \"page\": 2})\n```\n\nA value that is a list produces a repeated key (`tag=a&tag=b`), and keys whose value is `None` are dropped, which is convenient for optional filters. Parameters already in the URL are kept and the new ones appended.\n\nCustom headers go in `headers=` as a dict. Typical uses:\n\n- `Accept: application/json` to ask for JSON,\n- `Authorization: Bearer <token>` for API tokens (there is also an `auth=` mechanism, covered later),\n- `User-Agent` to identify your client; some APIs reject the default `python-requests/x.y` agent.\n\nHeader values must be strings (or bytes); passing an int raises an error. Requests adds its own defaults (`User-Agent`, `Accept-Encoding`, `Accept`, `Connection`), and your values override them. Setting a header to `None` removes a default.\n\nSome headers are better left to Requests: it sets `Content-Type` and `Content-Length` when you use `json=`, `data=` or `files=`. Setting `Content-Type` manually for a multipart upload breaks it, because the boundary parameter would be missing.\n\nInspect `r.url` or `r.request.headers` to see exactly what was sent.",
+   "code": "import requests\n\nr = requests.get(\n    \"https://httpbin.org/get\",\n    params={\"q\": \"rock & roll\", \"tag\": [\"a\", \"b\"], \"page\": 2, \"skip\": None},\n    headers={\"Accept\": \"application/json\", \"User-Agent\": \"my-script/1.0\"},\n    timeout=10,\n)\nprint(r.url)\n# https://httpbin.org/get?q=rock+%26+roll&tag=a&tag=b&page=2\necho = r.json()\nprint(echo[\"args\"])              # {'page': '2', 'q': 'rock & roll', 'tag': ['a', 'b']}\nprint(echo[\"headers\"][\"User-Agent\"])    # my-script/1.0\nprint(r.request.headers[\"Accept-Encoding\"])  # gzip, deflate (default; may add br, zstd)",
+   "code_lang": "python",
+   "takeaways": [
+    "params= builds and encodes the query string; None values are dropped",
+    "headers= adds or overrides headers; values must be strings",
+    "Let Requests set Content-Type for json=, data= and files="
+   ],
+   "pitfalls": [
+    "Formatting URLs with f-strings like f'{url}?q={term}', which breaks on spaces and &."
+   ],
+   "quiz": [
+    {
+     "q": "What URL does requests.get('https://x.org/s', params={'q': 'a b', 'n': None}) request?",
+     "options": [
+      "https://x.org/s?q=a b&n=None",
+      "https://x.org/s?q=a+b",
+      "https://x.org/s?q=a%20b&n=",
+      "https://x.org/s"
+     ],
+     "answer": 1,
+     "explain": "Values are URL-encoded (space becomes +) and keys with None are omitted."
+    }
+   ],
+   "docs": "https://requests.readthedocs.io/en/latest/user/quickstart/#passing-parameters-in-urls",
+   "requires": [
+    "requests.first-get",
+    "python.dicts"
+   ]
+  },
+  {
+   "id": "requests.sending-data",
+   "name": "Sending JSON, forms and other bodies",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Send request bodies with json=, data= and files= using POST, PUT and PATCH, and know which Content-Type each sets.",
+   "why": "Creating or updating resources through an API means sending a body in the format the server expects.",
+   "body": "Requests offers three ways to send a body, and each sets the right `Content-Type` for you:\n\n- `json=obj` serialises a dict or list to JSON and sets `Content-Type: application/json`. This is what most modern REST APIs expect.\n- `data=dict` sends an HTML-form body, `application/x-www-form-urlencoded`, the way a browser submits a simple form.\n- `data=str_or_bytes` sends the content as-is with no `Content-Type` added. Use it for XML, plain text or a pre-serialised payload, and set the header yourself.\n- `files={\"field\": file_obj}` sends `multipart/form-data`, used for uploads (covered in a later lesson).\n\nThe methods are the usual HTTP verbs: `post` to create, `put` to replace, `patch` to update partially, `delete` to remove. They all accept the same keyword arguments as `get`.\n\nTwo classic mistakes:\n\n- Using `data=` when the API wants JSON. `data={\"a\": 1}` sends `a=1` as a form, and a JSON API will reply with `400` or `415`. Use `json=`.\n- Passing both `json=` and `data=`: when `data` is given, `json` is ignored.\n\nThe response to a create call is often `201 Created` with the new resource in the body and its URL in the `Location` header. Some APIs reply `204 No Content`, where `r.json()` would fail because the body is empty.",
+   "code": "import requests\n\nbase = \"https://httpbin.org\"\n\nr = requests.post(f\"{base}/post\", json={\"name\": \"Ada\", \"tags\": [\"math\"]}, timeout=10)\necho = r.json()\nprint(echo[\"headers\"][\"Content-Type\"])   # application/json\nprint(echo[\"json\"])                      # {'name': 'Ada', 'tags': ['math']}\n\nr = requests.post(f\"{base}/post\", data={\"name\": \"Ada\", \"lang\": \"en\"}, timeout=10)\necho = r.json()\nprint(echo[\"headers\"][\"Content-Type\"])   # application/x-www-form-urlencoded\nprint(echo[\"form\"])                      # {'lang': 'en', 'name': 'Ada'}\n\nxml = \"<user><name>Ada</name></user>\"\nr = requests.put(f\"{base}/put\", data=xml,\n                 headers={\"Content-Type\": \"application/xml\"}, timeout=10)\nprint(r.json()[\"data\"])                  # <user><name>Ada</name></user>\nprint(requests.delete(f\"{base}/delete\", timeout=10).status_code)  # 200",
+   "code_lang": "python",
+   "takeaways": [
+    "json= for JSON APIs, data= for forms or raw bodies, files= for uploads",
+    "Each sets Content-Type, except raw data= strings and bytes",
+    "post, put, patch and delete take the same arguments as get"
+   ],
+   "pitfalls": [
+    "Sending data={'a': 1} to a JSON API and getting a 400 or 415 back."
+   ],
+   "quiz": [
+    {
+     "q": "You call requests.post(url, data={'a': 1}). What Content-Type does the request have?",
+     "options": [
+      "application/json",
+      "text/plain",
+      "multipart/form-data",
+      "application/x-www-form-urlencoded"
+     ],
+     "answer": 3,
+     "explain": "A dict passed as data is form-encoded; use json= for JSON."
+    }
+   ],
+   "docs": "https://requests.readthedocs.io/en/latest/user/quickstart/#more-complicated-post-requests",
+   "requires": [
+    "requests.params-headers",
+    "requests.response-object"
+   ]
+  },
+  {
+   "id": "requests.errors",
+   "name": "Errors and raise_for_status",
+   "module": "responses",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Turn HTTP error statuses into exceptions with raise_for_status and handle the Requests exception hierarchy.",
+   "why": "Robust code must distinguish network failures, timeouts and server errors, and react to each correctly.",
+   "body": "Since error statuses do not raise on their own, the idiom is to call `r.raise_for_status()` right after the request. It does nothing for statuses below 400 and raises `requests.HTTPError` for 4xx and 5xx. The exception carries the response as `err.response`, so you can still read the status and error body.\n\nAll Requests exceptions inherit from `requests.RequestException` (itself an `OSError`). The important subclasses:\n\n- `ConnectionError`: DNS failure, refused connection, network down. Note this is `requests.ConnectionError`, not Python's built-in `ConnectionError`.\n- `Timeout`: with subclasses `ConnectTimeout` and `ReadTimeout`.\n- `HTTPError`: raised by `raise_for_status`.\n- `TooManyRedirects`, `InvalidURL`, `MissingSchema` (you forgot `https://`), `SSLError` (a subclass of `ConnectionError`).\n- `JSONDecodeError` from `r.json()`.\n\nCatch the most specific exception you can handle and let the rest propagate. A common structure:\n\n- catch `Timeout` and `ConnectionError` to retry or report \"service unreachable\",\n- catch `HTTPError` and branch on `err.response.status_code` (404 means not found, 401 means re-authenticate, 5xx might be retried),\n- catch `RequestException` last as a fallback.\n\nAvoid bare `except Exception` around requests: it hides programming errors like typos in your own code. And remember that `raise_for_status` must be called; forgetting it is the usual reason an error page ends up in `r.json()`.",
+   "code": "import requests\n\ndef fetch_user(user_id):\n    try:\n        r = requests.get(f\"https://httpbin.org/status/{user_id}\", timeout=5)\n        r.raise_for_status()\n        return \"ok\"\n    except requests.HTTPError as err:\n        code = err.response.status_code\n        return \"not found\" if code == 404 else f\"server said {code}\"\n    except (requests.ConnectionError, requests.Timeout) as err:\n        return f\"unreachable: {type(err).__name__}\"\n\nprint(fetch_user(200))   # ok\nprint(fetch_user(404))   # not found\nprint(fetch_user(503))   # server said 503\n\ntry:\n    requests.get(\"httpbin.org/get\", timeout=5)\nexcept requests.exceptions.MissingSchema as e:\n    print(type(e).__name__)   # MissingSchema\nprint(issubclass(requests.ConnectTimeout, requests.Timeout))  # True",
+   "code_lang": "python",
+   "takeaways": [
+    "Call raise_for_status() after requests to turn 4xx/5xx into HTTPError",
+    "err.response gives access to the failed response",
+    "Catch specific exceptions; RequestException is the base class"
+   ],
+   "pitfalls": [
+    "Catching Python's built-in ConnectionError instead of requests.ConnectionError."
+   ],
+   "quiz": [
+    {
+     "q": "Which exception does raise_for_status() raise for a 503 response?",
+     "options": [
+      "requests.ConnectionError",
+      "requests.Timeout",
+      "Nothing; it only raises for 4xx",
+      "requests.HTTPError"
+     ],
+     "answer": 3,
+     "explain": "Both 4xx and 5xx statuses raise HTTPError."
+    }
+   ],
+   "docs": "https://requests.readthedocs.io/en/latest/user/quickstart/#errors-and-exceptions",
+   "requires": [
+    "requests.response-object",
+    "python.exceptions"
+   ]
+  },
+  {
+   "id": "requests.timeouts",
+   "name": "Timeouts",
+   "module": "robust",
+   "level": 2,
+   "minutes": 8,
+   "summary": "Always set timeout=, understand connect versus read timeouts, and know what a timeout does not limit.",
+   "why": "Without a timeout, one stuck server can hang your program forever.",
+   "body": "By default Requests has **no timeout**: if the server accepts the connection and then never answers, `requests.get` waits indefinitely. Production code should pass `timeout=` on every call. Linters such as Bandit and Ruff flag calls without it.\n\n`timeout` can be a single number or a `(connect, read)` tuple, in seconds:\n\n- The **connect timeout** limits establishing the TCP (and TLS) connection. A value slightly above a multiple of 3 seconds, such as 3.05, is a common recommendation because TCP retransmits after 3 seconds.\n- The **read timeout** limits how long to wait **between bytes** from the server once connected. It is not a limit on the total download time: a server trickling one byte every few seconds can keep a request alive far longer than the read timeout.\n\nWhen they fire, you get `requests.ConnectTimeout` or `requests.ReadTimeout`, both subclasses of `requests.Timeout`. A connect timeout is safe to retry, since the request never reached the server. A read timeout is ambiguous for non-idempotent methods like `POST`: the server may already have processed the request.\n\nIf you need a hard deadline for the whole operation, enforce it around the request: stream the body and check elapsed time, or run the call in a worker with a deadline. HTTPX offers a more granular timeout configuration if this matters a lot.\n\nNote that `timeout=None` explicitly means wait forever.",
+   "code": "import time\nimport requests\n\ntry:\n    requests.get(\"https://httpbin.org/delay/3\", timeout=1)\nexcept requests.ReadTimeout as e:\n    print(\"read timeout\")          # read timeout\n\nt = time.perf_counter()\nr = requests.get(\"https://httpbin.org/delay/1\", timeout=(3.05, 5))\nprint(r.status_code, round(time.perf_counter() - t))  # 200 1\n\nfor exc in (requests.ConnectTimeout, requests.ReadTimeout):\n    print(exc.__name__, issubclass(exc, requests.Timeout))\n# ConnectTimeout True\n# ReadTimeout True",
+   "code_lang": "python",
+   "takeaways": [
+    "Requests waits forever unless you pass timeout=",
+    "timeout=(connect, read); read limits the gap between bytes, not total time",
+    "Connect timeouts are safe to retry; read timeouts may mean the server acted"
+   ],
+   "pitfalls": [
+    "Believing timeout=10 caps a large download at 10 seconds."
+   ],
+   "quiz": [
+    {
+     "q": "A server sends one byte every 4 seconds for a minute. With timeout=5, what happens?",
+     "options": [
+      "ReadTimeout after 5 seconds",
+      "ConnectTimeout",
+      "It is retried",
+      "The request completes after about a minute"
+     ],
+     "answer": 3,
+     "explain": "The read timeout resets with each received byte, so a slow but steady response never triggers it."
+    }
+   ],
+   "docs": "https://requests.readthedocs.io/en/latest/user/advanced/#timeouts",
+   "requires": [
+    "requests.errors"
+   ]
+  },
+  {
+   "id": "requests.sessions",
+   "name": "Sessions: connection reuse and defaults",
+   "module": "sessions",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Use requests.Session to reuse connections, persist cookies and share headers, auth and other defaults across calls.",
+   "why": "Sessions make repeated calls to one API faster and keep login state, and they are how real clients are structured.",
+   "body": "Each top-level `requests.get` creates a throwaway session and a new connection. A `requests.Session` keeps state across requests:\n\n- **Connection pooling.** Requests to the same host reuse open TCP and TLS connections (HTTP keep-alive). For many calls to one API this is often a large speedup, because the TLS handshake is skipped.\n- **Cookies.** Cookies set by responses are stored in `s.cookies` and sent automatically on later requests, so logins work like in a browser.\n- **Defaults.** Attributes like `s.headers`, `s.params`, `s.auth`, `s.verify` and `s.proxies` apply to every request. Per-request arguments are merged with them; for dicts, a per-request key overrides the session key, and setting a key to `None` removes it for that request.\n\nUse a session as a context manager so its connections are closed when you are done:\n\n```python\nwith requests.Session() as s:\n    s.headers[\"Authorization\"] = f\"Bearer {token}\"\n    s.get(...)\n```\n\nIn a larger application, create one session per API client (for example in a small wrapper class with a `base_url`) and reuse it, instead of creating a session for each request.\n\nOne gotcha: there is no session-wide default `timeout` attribute. Setting `s.timeout = 5` does nothing. Pass `timeout=` on each call, or wrap the session (subclass and override `request`, or use a helper function) to apply a default.",
+   "code": "import requests\n\nwith requests.Session() as s:\n    s.headers.update({\"User-Agent\": \"demo/1.0\", \"Accept\": \"application/json\"})\n    s.params = {\"api_key\": \"abc\"}\n\n    s.get(\"https://httpbin.org/cookies/set/session_id/42\", timeout=10)\n    print(s.cookies.get(\"session_id\"))          # 42\n\n    r = s.get(\"https://httpbin.org/get\", params={\"page\": 1}, timeout=10)\n    echo = r.json()\n    print(echo[\"args\"])        # {'api_key': 'abc', 'page': '1'}  (merged)\n    print(echo[\"headers\"][\"User-Agent\"])        # demo/1.0\n\n    r = s.get(\"https://httpbin.org/headers\", headers={\"Accept\": None}, timeout=10)\n    print(\"Accept\" in r.json()[\"headers\"])      # False: removed for this request\n\n    r = s.get(\"https://httpbin.org/cookies\", timeout=10)\n    print(r.json())                              # {'cookies': {'session_id': '42'}}",
+   "code_lang": "python",
+   "takeaways": [
+    "A Session reuses connections and persists cookies",
+    "Session headers, params, auth and verify are merged into each request",
+    "There is no session-level timeout; pass timeout= per request"
+   ],
+   "pitfalls": [
+    "Creating a new Session for every request, which throws away connection reuse."
+   ],
+   "quiz": [
+    {
+     "q": "You set s.timeout = 5 on a Session. What timeout do requests made with s.get(url) use?",
+     "options": [
+      "No timeout at all",
+      "5 seconds",
+      "The urllib3 default of 30 seconds",
+      "It raises AttributeError"
+     ],
+     "answer": 0,
+     "explain": "Session has no timeout setting; the attribute is ignored and requests wait indefinitely unless timeout= is passed."
+    }
+   ],
+   "docs": "https://requests.readthedocs.io/en/latest/user/advanced/#session-objects",
+   "requires": [
+    "requests.sending-data",
+    "requests.timeouts",
+    "python.context-managers"
+   ]
+  },
+  {
+   "id": "requests.authentication",
+   "name": "Authentication",
+   "module": "sessions",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Authenticate with Basic auth, bearer tokens and custom AuthBase classes, and keep credentials out of code.",
+   "why": "Nearly every real API requires credentials, and getting auth right keeps secrets safe.",
+   "body": "The `auth=` argument attaches credentials to a request. Common schemes:\n\n- **Basic auth**: `auth=(\"user\", \"pass\")`, a shortcut for `HTTPBasicAuth`. The credentials are only base64-encoded, so use it over HTTPS only.\n- **Digest auth**: `HTTPDigestAuth(\"user\", \"pass\")`, rare today.\n- **Bearer tokens** (OAuth 2 access tokens, API keys): set the header `Authorization: Bearer <token>`, either per request or on a session's `headers`.\n- **API keys** in a custom header such as `X-API-Key`, or occasionally in the query string.\n\nFor anything custom, subclass `requests.auth.AuthBase` and implement `__call__(self, r)`, which receives the `PreparedRequest` and returns it after modifying headers. This keeps auth logic in one place and lets you set `session.auth = MyAuth(...)`. Request-signing schemes (HMAC signatures over the body) are written this way.\n\nRequests also reads credentials from a `~/.netrc` file automatically when no `auth=` is given. That surprises people when a header they set by hand is replaced, so be aware of it.\n\nSecurity habits:\n\n- Load secrets from environment variables or a secret manager, not source code.\n- Requests strips the `Authorization` header when a redirect goes to a different host, so credentials do not leak to third parties.\n- Never log full request headers.\n\nFor OAuth 2 flows (getting and refreshing tokens), use a library such as `requests-oauthlib` or `authlib` rather than writing the flow by hand.",
+   "code": "import os\nimport requests\nfrom requests.auth import AuthBase\n\nr = requests.get(\"https://httpbin.org/basic-auth/ada/s3cret\",\n                 auth=(\"ada\", \"s3cret\"), timeout=10)\nprint(r.status_code, r.json())   # 200 {'authenticated': True, 'user': 'ada'}\n\nclass BearerAuth(AuthBase):\n    def __init__(self, token):\n        self.token = token\n    def __call__(self, r):       # r is the PreparedRequest\n        r.headers[\"Authorization\"] = f\"Bearer {self.token}\"\n        return r\n\ntoken = os.environ.get(\"API_TOKEN\", \"demo-token\")\nwith requests.Session() as s:\n    s.auth = BearerAuth(token)\n    r = s.get(\"https://httpbin.org/bearer\", timeout=10)\n    print(r.json())              # {'authenticated': True, 'token': 'demo-token'}\n\nprint(requests.get(\"https://httpbin.org/bearer\", timeout=10).status_code)  # 401",
+   "code_lang": "python",
+   "takeaways": [
+    "auth=(user, pass) for Basic; an Authorization header or AuthBase for tokens",
+    "AuthBase.__call__ modifies the prepared request; set it on a session",
+    "Load secrets from the environment; Authorization is dropped on cross-host redirects"
+   ],
+   "pitfalls": [
+    "Hard-coding API tokens in source code that ends up in version control."
+   ],
+   "quiz": [
+    {
+     "q": "What must the __call__ method of a custom AuthBase return?",
+     "options": [
+      "The token string",
+      "True if authentication succeeded",
+      "The (possibly modified) prepared request",
+      "A new Session"
+     ],
+     "answer": 2,
+     "explain": "Requests passes the PreparedRequest through the auth object and uses whatever it returns."
+    }
+   ],
+   "docs": "https://requests.readthedocs.io/en/latest/user/authentication/",
+   "requires": [
+    "requests.sessions"
+   ]
+  },
+  {
+   "id": "requests.testing",
+   "name": "Testing code that uses Requests",
+   "module": "sessions",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Test HTTP-calling code without a network by mocking responses with the responses library or a session fake.",
+   "why": "Tests that hit real APIs are slow, flaky and can't easily simulate errors; mocks make them fast and deterministic.",
+   "body": "Code that calls an API should be tested without the API. Two common approaches:\n\nThe **responses** library (by Sentry, `pip install responses`) patches Requests' transport so registered URLs return canned responses. Inside `@responses.activate` (or the `responses.RequestsMock()` context manager), any request to an unregistered URL raises `ConnectionError`, so tests can never touch the network by accident. You can register JSON bodies, status codes, headers, exceptions (`body=requests.ConnectionError()`) and callbacks, and afterwards assert on `responses.calls` to check what your code sent.\n\n**Dependency injection** is the other approach: design functions and clients to accept a `Session` (or a client object). Tests then pass a fake or a `unittest.mock.Mock(spec=requests.Session)`. This keeps the code easy to test with any tool and makes it easy to share one session in production.\n\nWhat to test:\n\n- the happy path parses data correctly,\n- error statuses (404, 500) and network errors lead to the behaviour you want,\n- the request is correct: URL, query parameters, headers, JSON body,\n- timeouts are passed (assert on the call arguments).\n\nFor integration tests against a real service, keep them separate and opt-in (for example a pytest marker), and use a local test server or recorded cassettes (`vcrpy`, `pytest-recording`) rather than production endpoints.",
+   "code": "import requests\nimport responses\n\ndef get_temperature(city, session=requests):\n    r = session.get(\"https://api.example.com/weather\", params={\"city\": city}, timeout=5)\n    r.raise_for_status()\n    return r.json()[\"temp\"]\n\n@responses.activate\ndef test_weather():\n    responses.get(\"https://api.example.com/weather\", json={\"temp\": 21.5})\n    assert get_temperature(\"Yerevan\") == 21.5\n    assert responses.calls[0].request.params == {\"city\": \"Yerevan\"}\n\n    responses.get(\"https://api.example.com/weather\", status=503)\n    try:\n        get_temperature(\"Paris\")\n    except requests.HTTPError as e:\n        print(\"handled\", e.response.status_code)   # handled 503\n\ntest_weather()\nprint(\"ok\")   # ok",
+   "code_lang": "python",
+   "takeaways": [
+    "The responses library intercepts Requests and blocks unregistered URLs",
+    "Accepting a session parameter makes code easy to fake",
+    "Test error paths and the exact request sent, not just success"
+   ],
+   "pitfalls": [
+    "Writing unit tests that call real third-party APIs."
+   ],
+   "quiz": [
+    {
+     "q": "Inside @responses.activate, what happens when code requests a URL that was not registered?",
+     "options": [
+      "The real network request is made",
+      "An empty 200 response is returned",
+      "The test is skipped",
+      "A ConnectionError is raised"
+     ],
+     "answer": 3,
+     "explain": "responses blocks unregistered URLs with ConnectionError so tests stay offline."
+    }
+   ],
+   "docs": "https://github.com/getsentry/responses",
+   "requires": [
+    "requests.errors",
+    "requests.sessions",
+    "python.testing"
+   ]
+  },
+  {
+   "id": "requests.retries",
+   "name": "Retries with HTTPAdapter and urllib3",
+   "module": "robust",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Configure automatic retries with backoff by mounting an HTTPAdapter with a urllib3 Retry policy on a session.",
+   "why": "Transient failures (resets, 502, 503, 429) are normal at scale; a retry policy turns them into non-events.",
+   "body": "Requests does not retry failed requests by default (it retries nothing beyond what urllib3 does internally for a dead pooled connection). To add a policy, build a `urllib3.util.Retry` and attach it to a **transport adapter** mounted on a session:\n\n```python\nretry = Retry(total=5, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])\ns.mount(\"https://\", HTTPAdapter(max_retries=retry))\n```\n\nImportant `Retry` options:\n\n- `total`, `connect`, `read`, `status`: overall and per-category limits.\n- `backoff_factor`: exponential backoff. The first retry happens immediately, then urllib3 sleeps `backoff_factor * 2 ** (n - 1)` seconds, where n counts consecutive failures, so 0.1 gives 0, 0.2, 0.4 and so on, capped by `backoff_max`. Add `backoff_jitter` to avoid synchronised retry storms.\n- `status_forcelist`: response statuses that should be retried.\n- `allowed_methods`: by default only **idempotent** methods (GET, HEAD, PUT, DELETE, OPTIONS, TRACE) are retried. `POST` is excluded because repeating it could create duplicates. Add it only if the API supports idempotency keys.\n- `respect_retry_after_header` (default `True`): honours `Retry-After` on 429 and 503.\n- `raise_on_status`: when retries are exhausted on a status, raise `requests.exceptions.RetryError` (default) or return the last response.\n\nRetries multiply worst-case latency: each attempt can wait up to the timeout, plus backoff. Budget total time accordingly, and log retries so silent degradation is visible.",
+   "code": "import time\nimport requests\nfrom requests.adapters import HTTPAdapter\nfrom urllib3.util import Retry\n\nretry = Retry(\n    total=3,\n    backoff_factor=0.1,\n    status_forcelist=[429, 500, 502, 503, 504],\n    allowed_methods={\"GET\", \"PUT\", \"DELETE\"},\n)\nwith requests.Session() as s:\n    s.mount(\"https://\", HTTPAdapter(max_retries=retry))\n    s.mount(\"http://\", HTTPAdapter(max_retries=retry))\n\n    t = time.perf_counter()\n    try:\n        s.get(\"https://httpbin.org/status/503\", timeout=5)\n    except requests.exceptions.RetryError as e:\n        print(\"gave up:\", type(e).__name__)      # gave up: RetryError\n    print(f\"{time.perf_counter() - t:.1f}s with backoff\")  # about 0.6s\n\n    r = s.post(\"https://httpbin.org/status/503\", timeout=5)\n    print(r.status_code)                         # 503  (POST is not retried)",
+   "code_lang": "python",
+   "takeaways": [
+    "Mount HTTPAdapter(max_retries=Retry(...)) on a session to retry",
+    "status_forcelist and backoff_factor define what and how fast to retry",
+    "Only idempotent methods are retried by default; POST needs care"
+   ],
+   "pitfalls": [
+    "Retrying POST requests blindly and creating duplicate orders or payments."
+   ],
+   "quiz": [
+    {
+     "q": "Why does urllib3's Retry exclude POST from allowed_methods by default?",
+     "options": [
+      "Retrying a non-idempotent request may perform the action twice",
+      "POST requests can't fail",
+      "POST bodies cannot be resent",
+      "HTTP forbids retrying POST"
+     ],
+     "answer": 0,
+     "explain": "If the first POST reached the server, a retry could duplicate its effect."
+    }
+   ],
+   "docs": "https://requests.readthedocs.io/en/latest/user/advanced/#transport-adapters",
+   "requires": [
+    "requests.timeouts",
+    "requests.sessions"
+   ]
+  },
+  {
+   "id": "requests.streaming-uploads",
+   "name": "Streaming downloads and file uploads",
+   "module": "robust",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Download large files without loading them into memory using stream=True, and upload files with multipart or streamed bodies.",
+   "why": "Large files break the default load-everything behaviour, and uploads have their own body formats.",
+   "body": "By default Requests downloads the entire body into memory before returning. For large files pass `stream=True`: only the headers are read, and you consume the body in pieces with `r.iter_content(chunk_size=...)` (bytes) or `r.iter_lines()` (for line-based streams such as server-sent events or NDJSON).\n\nWith streaming, the connection is held until the body is fully read or the response is closed. Use the response as a context manager, `with s.get(url, stream=True) as r:`, so the connection returns to the pool even if you stop early. `iter_content` transparently decompresses gzip responses; `r.raw` gives the undecoded urllib3 stream if you really need raw bytes.\n\nFor **uploads**, there are two shapes:\n\n- **Multipart form uploads**, as browsers do: `files={\"file\": open(\"report.pdf\", \"rb\")}` or a tuple `(\"name.pdf\", fileobj, \"application/pdf\")` to set the filename and content type. You can combine `files=` with `data=` for extra form fields. Open files in binary mode.\n- **Streaming the body**: pass a file object or a generator as `data=`. A file is streamed from disk without reading it into memory. A generator sends the body with chunked transfer encoding.\n\nNote that multipart encoding with `files=` builds the whole body in memory. For very large multipart uploads, the `requests-toolbelt` package provides a streaming `MultipartEncoder`.",
+   "code": "import requests\n\nwith requests.Session() as s:\n    with s.get(\"https://httpbin.org/bytes/100000\", stream=True, timeout=10) as r:\n        r.raise_for_status()\n        size = 0\n        with open(\"download.bin\", \"wb\") as f:\n            for chunk in r.iter_content(chunk_size=16_384):\n                f.write(chunk)\n                size += len(chunk)\n    print(size)                                   # 100000\n\n    with open(\"download.bin\", \"rb\") as f:\n        r = s.post(\"https://httpbin.org/post\",\n                   files={\"upload\": (\"data.bin\", f, \"application/octet-stream\")},\n                   data={\"note\": \"test\"}, timeout=10)\n    echo = r.json()\n    print(echo[\"form\"], list(echo[\"files\"]))      # {'note': 'test'} ['upload']\n    print(echo[\"headers\"][\"Content-Type\"][:30])   # multipart/form-data; boundary=",
+   "code_lang": "python",
+   "takeaways": [
+    "stream=True plus iter_content downloads in chunks",
+    "Use the streamed response as a context manager to release the connection",
+    "files= sends multipart; a file object or generator as data= streams the body"
+   ],
+   "pitfalls": [
+    "Opening upload files in text mode instead of 'rb'."
+   ],
+   "quiz": [
+    {
+     "q": "You call requests.get(url, stream=True) and only read the headers. What should you do?",
+     "options": [
+      "Nothing, the body is discarded automatically",
+      "Close the response (or use it in a with block) to release the connection",
+      "Call r.json() to finish the request",
+      "Set stream=False afterwards"
+     ],
+     "answer": 1,
+     "explain": "With streaming the connection stays checked out until the body is consumed or the response is closed."
+    }
+   ],
+   "docs": "https://requests.readthedocs.io/en/latest/user/advanced/#body-content-workflow",
+   "requires": [
+    "requests.sessions",
+    "requests.sending-data",
+    "python.files"
+   ]
+  },
+  {
+   "id": "requests.tls-proxies",
+   "name": "TLS verification, certificates and proxies",
+   "module": "robust",
+   "level": 3,
+   "minutes": 11,
+   "summary": "Control certificate verification with verify=, use client certificates, and route traffic through proxies, including environment settings.",
+   "why": "Corporate networks, internal CAs and mutual TLS are everyday realities, and disabling verification is the wrong fix.",
+   "body": "Requests verifies HTTPS certificates by default against the CA bundle from the `certifi` package. A failed check raises `requests.exceptions.SSLError`.\n\nWhen a server uses an **internal or corporate CA**, do not turn verification off. Point Requests at the right bundle instead:\n\n- `verify=\"/path/to/ca-bundle.pem\"` per request or on a session,\n- or the `REQUESTS_CA_BUNDLE` environment variable (also `CURL_CA_BUNDLE`).\n\n`verify=False` disables all checks, which makes man-in-the-middle attacks trivial; urllib3 emits an `InsecureRequestWarning` for each such request. Keep it for throwaway local experiments.\n\nFor **mutual TLS**, where the server authenticates the client, pass `cert=(\"client.crt\", \"client.key\")` or a single PEM file containing both.\n\n**Proxies** are configured with `proxies={\"http\": \"...\", \"https\": \"...\"}`, keyed by the scheme of the target URL. Proxy URLs can contain credentials (`http://user:pass@proxy:3128`), and SOCKS proxies work with `pip install requests[socks]` and a `socks5h://` URL (the `h` resolves DNS through the proxy).\n\nRequests also honours the environment: `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `REQUESTS_CA_BUNDLE` and `.netrc` credentials. This is controlled by `session.trust_env` (default `True`). Setting it to `False` makes behaviour independent of the environment, which can help in tests but surprises users who rely on corporate proxy variables. Note that environment settings take precedence over session attributes like `s.verify` in some cases, while per-request arguments always win.",
+   "code": "import requests\n\ns = requests.Session()\nprint(s.verify, s.trust_env)            # True True\n\n# Internal CA: point at the bundle, don't disable verification\n# s.verify = \"/etc/ssl/certs/corp-ca.pem\"\n\n# Mutual TLS: client certificate and key\n# s.cert = (\"client.crt\", \"client.key\")\n\ns.proxies = {\"https\": \"http://proxy.internal:3128\"}\nprint(s.proxies[\"https\"])               # http://proxy.internal:3128\n\nsettings = s.merge_environment_settings(\n    \"https://example.com\", proxies={}, stream=None, verify=None, cert=None)\nprint(sorted(settings))                 # ['cert', 'proxies', 'stream', 'verify']\n\ntry:\n    requests.get(\"https://self-signed.badssl.com/\", timeout=10)\nexcept requests.exceptions.SSLError:\n    print(\"certificate rejected\")        # certificate rejected\nexcept requests.ConnectionError:\n    print(\"no network\")",
+   "code_lang": "python",
+   "takeaways": [
+    "Verification is on by default; fix CA problems with verify=path or REQUESTS_CA_BUNDLE",
+    "cert= supplies a client certificate for mutual TLS",
+    "proxies= and the HTTP(S)_PROXY / NO_PROXY variables route traffic; trust_env controls env use"
+   ],
+   "pitfalls": [
+    "Setting verify=False to silence an SSLError in production code."
+   ],
+   "quiz": [
+    {
+     "q": "Your company uses an internal CA and requests raises SSLError. What is the right fix?",
+     "options": [
+      "verify=False",
+      "Downgrade to http://",
+      "Pass verify='/path/to/company-ca.pem' or set REQUESTS_CA_BUNDLE",
+      "Set trust_env=False"
+     ],
+     "answer": 2,
+     "explain": "Trusting the correct CA keeps verification on while accepting the internal certificates."
+    }
+   ],
+   "docs": "https://requests.readthedocs.io/en/latest/user/advanced/#ssl-cert-verification",
+   "requires": [
+    "requests.sessions",
+    "requests.errors"
+   ]
+  },
+  {
+   "id": "requests.prepared-requests",
+   "name": "Prepared requests and the request lifecycle",
+   "module": "internals",
+   "level": 4,
+   "minutes": 13,
+   "summary": "Follow a request from Request to PreparedRequest to adapter, and use prepared requests to inspect or tweak exactly what is sent.",
+   "why": "Debugging odd API behaviour and building advanced clients requires knowing how arguments become bytes on the wire.",
+   "body": "`requests.get(...)` is a thin wrapper. Internally:\n\n- A `Request` object is created from your arguments: method, URL, headers, params, data, json, files, auth, cookies, hooks.\n- `Session.prepare_request` merges it with session defaults (headers, cookies, auth, params) and calls `PreparedRequest.prepare`, which builds the final URL with encoded query string, the body bytes, the `Content-Type` and `Content-Length` headers, and applies auth (including `.netrc`).\n- `Session.send` merges environment settings (proxies, verify, cert from the environment when `trust_env` is true), picks the **transport adapter** whose mounted prefix best matches the URL, and calls `adapter.send`.\n- The adapter turns the prepared request into a urllib3 call, builds a `Response`, and `Session.send` runs **response hooks**, extracts cookies, and follows redirects by building new prepared requests (`resolve_redirects`), which also handles method changes on 303 and auth stripping.\n\nYou can drive this manually: `req = requests.Request(\"POST\", url, json=...)`, `prep = s.prepare_request(req)`, adjust `prep.headers` or `prep.body`, then `s.send(prep, timeout=...)`. This is useful for signing the exact bytes being sent, for logging, and for sending something the high-level API would normalise.\n\nNote `send` does not apply `merge_environment_settings` for you; call it yourself if you need proxies and CA settings from the environment. Also, `prep.body` is bytes or a string after preparation, not your dict.",
+   "code": "import hashlib\nimport requests\n\nwith requests.Session() as s:\n    s.headers[\"User-Agent\"] = \"lifecycle-demo\"\n    req = requests.Request(\"POST\", \"https://httpbin.org/post\",\n                           params={\"v\": 2}, json={\"id\": 7})\n    prep = s.prepare_request(req)          # merges session defaults\n\n    print(prep.url)                        # https://httpbin.org/post?v=2\n    print(prep.body)                       # b'{\"id\": 7}'\n    print(prep.headers[\"Content-Type\"])    # application/json\n    print(prep.headers[\"User-Agent\"])      # lifecycle-demo\n\n    prep.headers[\"X-Body-SHA256\"] = hashlib.sha256(prep.body).hexdigest()[:12]\n    settings = s.merge_environment_settings(prep.url, {}, None, None, None)\n    r = s.send(prep, timeout=10, **settings)\n    print(r.json()[\"headers\"][\"X-Body-Sha256\"])  # ad559f4e2220",
+   "code_lang": "python",
+   "takeaways": [
+    "Request -> prepare_request (merge defaults) -> PreparedRequest -> adapter.send",
+    "Prepared requests expose the final URL, headers and body bytes",
+    "Session.send skips environment merging; call merge_environment_settings yourself"
+   ],
+   "pitfalls": [
+    "Expecting s.send(prep) to pick up proxy and CA settings from the environment automatically."
+   ],
+   "quiz": [
+    {
+     "q": "Which object holds the final encoded body bytes that go on the wire?",
+     "options": [
+      "requests.Request",
+      "requests.PreparedRequest",
+      "requests.Session",
+      "The adapter's PoolManager"
+     ],
+     "answer": 1,
+     "explain": "Preparation turns the Request's high-level arguments into the final URL, headers and body."
+    }
+   ],
+   "docs": "https://requests.readthedocs.io/en/latest/user/advanced/#prepared-requests",
+   "requires": [
+    "requests.authentication",
+    "requests.retries",
+    "requests.tls-proxies"
+   ]
+  },
+  {
+   "id": "requests.connection-pooling",
+   "name": "Connection pooling and thread safety",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Tune urllib3 connection pools through HTTPAdapter and use Requests safely from threads.",
+   "why": "High-throughput clients hit pool limits and threading pitfalls that are invisible at low volume.",
+   "body": "Each `HTTPAdapter` owns a urllib3 `PoolManager`, which keeps one **connection pool per host** (scheme, host and port). Two parameters control it:\n\n- `pool_connections`: how many per-host pools to cache (default 10). Talking to more hosts than this evicts pools and loses keep-alive.\n- `pool_maxsize`: how many connections each pool keeps for reuse (default 10). With more concurrent threads than this, extra connections are opened and then **discarded** after use, with the warning \"Connection pool is full, discarding connection\". Throughput drops because new TLS handshakes happen constantly.\n- `pool_block=True` makes threads wait for a free connection instead of opening extra ones, capping concurrency per host.\n\nSo for a thread pool of 32 workers hitting one API, mount `HTTPAdapter(pool_maxsize=32)`.\n\n**Thread safety**: Requests does not formally guarantee that `Session` is thread-safe. In practice the connection pool is thread-safe and sharing one session for simple GETs works widely, but mutable session state is not protected: cookies being updated by concurrent responses, or code changing `s.headers` while other threads send, can interleave badly. Safer patterns are one session per thread (`threading.local`), or a shared session whose configuration is frozen after setup and that does not rely on cookies.\n\nConnections are returned to the pool only when the response body has been fully read or closed. Forgetting to close streamed responses is the classic cause of pool exhaustion.\n\nFor thousands of concurrent requests, threads plus Requests become expensive; an async client is the better tool.",
+   "code": "import threading\nfrom concurrent.futures import ThreadPoolExecutor\nimport requests\nfrom requests.adapters import HTTPAdapter\n\nlocal = threading.local()\n\ndef get_session():\n    if not hasattr(local, \"s\"):                   # one session per thread\n        s = requests.Session()\n        s.mount(\"https://\", HTTPAdapter(pool_connections=4, pool_maxsize=8))\n        s.mount(\"http://\", HTTPAdapter(pool_connections=4, pool_maxsize=8))\n        local.s = s\n    return local.s\n\ndef fetch(i):\n    r = get_session().get(\"https://httpbin.org/get\", params={\"i\": i}, timeout=10)\n    return r.json()[\"args\"][\"i\"]\n\nwith ThreadPoolExecutor(max_workers=8) as pool:\n    results = list(pool.map(fetch, range(20)))\nprint(results[:5], len(results))                  # ['0', '1', '2', '3', '4'] 20",
+   "code_lang": "python",
+   "takeaways": [
+    "An HTTPAdapter's pool keeps pool_maxsize connections per host",
+    "Size pool_maxsize to your thread count or connections are discarded",
+    "Prefer one session per thread or treat a shared session as read-only"
+   ],
+   "pitfalls": [
+    "Seeing 'Connection pool is full, discarding connection' and ignoring it."
+   ],
+   "quiz": [
+    {
+     "q": "32 threads share a session with the default adapter and call one host. What happens?",
+     "options": [
+      "Requests raise PoolError immediately",
+      "Only 10 run, the others fail",
+      "Extra connections are created and discarded after use, losing keep-alive",
+      "Requests are serialised over one connection"
+     ],
+     "answer": 2,
+     "explain": "Without pool_block the pool opens extra connections but only keeps pool_maxsize=10 for reuse."
+    }
+   ],
+   "docs": "https://requests.readthedocs.io/en/latest/api/#requests.adapters.HTTPAdapter",
+   "requires": [
+    "requests.retries",
+    "requests.streaming-uploads",
+    "python.threads-processes"
+   ]
+  },
+  {
+   "id": "requests.hooks-adapters",
+   "name": "Event hooks and custom transport adapters",
+   "module": "internals",
+   "level": 4,
+   "minutes": 13,
+   "summary": "Run code on every response with hooks, and replace the transport itself by writing and mounting a custom adapter.",
+   "why": "Hooks and adapters are how logging, metrics, caching and non-HTTP backends plug into Requests cleanly.",
+   "body": "Requests has two extension points beyond auth.\n\n**Event hooks.** The only hook is `\"response\"`: a callable that receives the `Response` (and keyword arguments such as `timeout` and `verify`) after it arrives. Register it per request (`hooks={\"response\": fn}`) or on a session (`s.hooks[\"response\"].append(fn)`). If the hook returns a value, that value replaces the response; returning `None` keeps it. Typical uses are logging, metrics, and calling `raise_for_status` automatically for every request of a client.\n\n**Transport adapters.** `Session.mount(prefix, adapter)` routes every URL that starts with `prefix` to an adapter, choosing the **longest matching prefix**. So `s.mount(\"https://api.example.com/\", special)` overrides the default `https://` adapter for that one API only. An adapter subclasses `requests.adapters.BaseAdapter` (or `HTTPAdapter`) and implements `send(request, **kwargs)` returning a `Response`, plus `close()`.\n\nCustom adapters power:\n\n- per-host configuration (different retries or pool sizes),\n- caching (`requests-cache` and `CacheControl` work this way),\n- non-network backends: serving `file://` URLs, routing to a WSGI app in tests, or Unix sockets (`requests-unixsocket`),\n- fault injection in tests.\n\nWhen subclassing `HTTPAdapter`, override `send` and call `super().send(...)` to keep the normal behaviour around your additions. Keep hooks fast and side-effect free: they run synchronously in the request path.",
+   "code": "import requests\nfrom requests.adapters import BaseAdapter\n\nclass StaticAdapter(BaseAdapter):\n    \"\"\"Answers every request locally; useful for tests or offline mode.\"\"\"\n    def send(self, request, **kwargs):\n        resp = requests.Response()\n        resp.status_code = 200\n        resp._content = f'{{\"echo\": \"{request.method} {request.path_url}\"}}'.encode()\n        resp.headers[\"Content-Type\"] = \"application/json\"\n        resp.url, resp.request = request.url, request\n        return resp\n    def close(self):\n        pass\n\nlog = []\nwith requests.Session() as s:\n    s.mount(\"https://api.example.com/\", StaticAdapter())   # longest prefix wins\n    s.hooks[\"response\"].append(lambda r, *a, **kw: log.append(r.status_code))\n    r = s.get(\"https://api.example.com/users?id=1\", timeout=5)\n    print(r.json())     # {'echo': 'GET /users?id=1'}\nprint(log)              # [200]",
+   "code_lang": "python",
+   "takeaways": [
+    "The 'response' hook runs on every response and may replace it",
+    "mount(prefix, adapter) routes URLs by longest matching prefix",
+    "Custom adapters enable caching, test doubles and non-HTTP transports"
+   ],
+   "pitfalls": [
+    "Doing slow work (like network calls) inside a response hook, which delays every request."
+   ],
+   "quiz": [
+    {
+     "q": "A session has adapters mounted at 'https://' and 'https://api.example.com/'. Which handles https://api.example.com/v1/items?",
+     "options": [
+      "The 'https://api.example.com/' adapter",
+      "The 'https://' adapter",
+      "Both, in mount order",
+      "Whichever was mounted last"
+     ],
+     "answer": 0,
+     "explain": "Requests picks the adapter with the longest matching prefix."
+    }
+   ],
+   "docs": "https://requests.readthedocs.io/en/latest/user/advanced/#transport-adapters",
+   "requires": [
+    "requests.prepared-requests",
+    "requests.testing"
+   ]
+  }
+ ]
+}

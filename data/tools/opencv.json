@@ -1,0 +1,974 @@
+{
+ "tool": {
+  "id": "opencv",
+  "name": "OpenCV",
+  "category": "library",
+  "tagline": "The standard library for computer vision and image processing",
+  "description": "OpenCV is a large C++ computer vision library with first-class Python bindings (cv2) that work directly on NumPy arrays. It covers image I/O, filtering, geometry, feature detection, video, camera calibration and running neural networks. It is the default toolbox for preprocessing images, classic vision pipelines and real-time video work.",
+  "icon": "CV",
+  "color": "#5C3EE8",
+  "official_docs": "https://docs.opencv.org/4.x/",
+  "version": "4.12+ / 5.x (cv2)",
+  "aliases": [
+   "cv2",
+   "open cv",
+   "opencv-python"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   },
+   {
+    "tool": "numpy",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Images and I/O"
+  },
+  {
+   "id": "processing",
+   "name": "Image processing"
+  },
+  {
+   "id": "shapes",
+   "name": "Shapes and segmentation"
+  },
+  {
+   "id": "video",
+   "name": "Video and motion"
+  },
+  {
+   "id": "geometry",
+   "name": "Geometry and features"
+  },
+  {
+   "id": "dnn",
+   "name": "Deep learning"
+  },
+  {
+   "id": "internals",
+   "name": "Performance and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "opencv.images-as-arrays",
+   "name": "Images are NumPy arrays",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "In cv2 an image is just an ndarray: height x width x channels, usually uint8, with channels in BGR order.",
+   "why": "Every OpenCV call takes and returns NumPy arrays, so knowing the layout lets you mix cv2 with plain NumPy freely.",
+   "body": "OpenCV's Python package is imported as `cv2`. Unlike the C++ API with its `cv::Mat` class, the Python bindings use plain **NumPy arrays** for images. There is no special image type to learn.\n\nThe layout is fixed by convention:\n\n- A colour image has shape `(height, width, 3)`: rows first, then columns, then channels.\n- A grayscale image has shape `(height, width)`, with no channel axis.\n- The usual dtype is `uint8`, values 0 to 255. Some operations produce `float32` or `int16`, for example gradients.\n- Channels are in **BGR** order, not RGB. This is a historical choice that every newcomer trips over; pixel `img[y, x]` returns `[blue, green, red]`.\n\nBecause indexing is `img[row, col]`, the **y coordinate comes first** when you index. But OpenCV functions that take points, sizes or rectangles use `(x, y)` and `(width, height)`. Keep both conventions in mind: NumPy indexing is `(y, x)`, cv2 arguments are `(x, y)`.\n\nSince an image is an array, you can create one with `np.zeros`, crop with slicing and adjust brightness with arithmetic. Watch the dtype, though: NumPy `uint8` arithmetic wraps around, while `cv2.add` **saturates** (clamps at 255).",
+   "code": "import cv2\nimport numpy as np\n\nimg = np.zeros((120, 200, 3), dtype=np.uint8)   # black, 200 wide x 120 tall\nimg[:, :100] = (255, 0, 0)                      # left half BLUE (BGR!)\nprint(img.shape, img.dtype)                     # (120, 200, 3) uint8\nprint(img[10, 10])                              # [255   0   0]\n\nh, w = img.shape[:2]\nprint(\"width\", w, \"height\", h)                  # width 200 height 120\n\na = np.array([[250]], dtype=np.uint8)\nprint(a + np.uint8(10))                         # [[4]]   NumPy wraps\nprint(cv2.add(a, np.array([[10]], np.uint8)))  # [[255]] OpenCV saturates",
+   "code_lang": "python",
+   "takeaways": [
+    "An image is an ndarray of shape (h, w) or (h, w, channels), usually uint8",
+    "Colour channels are BGR, not RGB",
+    "Index as img[y, x]; cv2 functions take points as (x, y)",
+    "cv2 arithmetic saturates, NumPy uint8 arithmetic wraps"
+   ],
+   "pitfalls": [
+    "Passing `img.shape[:2]` (h, w) where cv2 expects a size `(w, h)`, which swaps width and height."
+   ],
+   "quiz": [
+    {
+     "q": "A colour image has shape (480, 640, 3). What is its width in pixels?",
+     "options": [
+      "480",
+      "640",
+      "3",
+      "1920"
+     ],
+     "answer": 1,
+     "explain": "Shape is (height, width, channels), so width is the second number."
+    },
+    {
+     "q": "`img[5, 2]` on a BGR image returns `[0, 0, 255]`. What colour is that pixel?",
+     "options": [
+      "Red",
+      "Blue",
+      "Green",
+      "White"
+     ],
+     "answer": 0,
+     "explain": "The last channel in BGR order is red, so only red is at full intensity."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/d3/df2/tutorial_py_basic_ops.html",
+   "requires": [
+    "numpy.ndarray-basics",
+    "numpy.dtypes"
+   ]
+  },
+  {
+   "id": "opencv.read-write-show",
+   "name": "Reading, writing and showing images",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Load images with cv2.imread, save with cv2.imwrite and display them with imshow plus waitKey.",
+   "why": "Getting pixels in and out reliably is the first step of every vision script, and imread fails silently.",
+   "body": "`cv2.imread(path, flags)` loads an image file into a NumPy array. The flag picks what you get:\n\n- `cv2.IMREAD_COLOR` (default): 3-channel BGR, any alpha dropped\n- `cv2.IMREAD_GRAYSCALE`: single channel\n- `cv2.IMREAD_UNCHANGED`: keep alpha and bit depth, e.g. 16-bit PNGs\n\nThe big gotcha: **imread does not raise** on a missing or unreadable file. It returns `None`, and the error only surfaces later as a confusing `'NoneType' object has no attribute 'shape'`. Always check the result.\n\n`cv2.imwrite(path, img, params)` picks the format from the file extension and returns `True` on success. Optional params control encoding, for example `[cv2.IMWRITE_JPEG_QUALITY, 90]` or `[cv2.IMWRITE_PNG_COMPRESSION, 9]`.\n\nTo work in memory (web uploads, databases), use `cv2.imencode('.png', img)`, which returns `(ok, buffer)`, and `cv2.imdecode(np_bytes, flags)`. This is also the workaround for file paths with non-ASCII characters on Windows.\n\nFor a quick look, `cv2.imshow(window_name, img)` opens a window, but nothing is drawn until you call `cv2.waitKey(ms)`, which also pumps the GUI events; `waitKey(0)` waits for a key. Finish with `cv2.destroyAllWindows()`. In Jupyter or on headless servers (`opencv-python-headless`), there is no GUI: convert to RGB and show with matplotlib instead.",
+   "code": "import cv2\nimport numpy as np\n\nimg = np.full((60, 80, 3), (0, 128, 255), np.uint8)    # orange in BGR\nok = cv2.imwrite(\"orange.png\", img)\nprint(ok)                                         # True\n\nback = cv2.imread(\"orange.png\")                   # BGR uint8\nprint(back.shape, back[0, 0])                     # (60, 80, 3) [  0 128 255]\ngray = cv2.imread(\"orange.png\", cv2.IMREAD_GRAYSCALE)\nprint(gray.shape)                                 # (60, 80)\n\nmissing = cv2.imread(\"no_such_file.jpg\")\nprint(missing is None)                            # True -- no exception!\n\nok, buf = cv2.imencode(\".jpg\", img, [cv2.IMWRITE_JPEG_QUALITY, 90])\nprint(ok, buf.dtype)                              # True uint8 (encoded bytes)\ndecoded = cv2.imdecode(buf, cv2.IMREAD_COLOR)\nprint(decoded.shape)                              # (60, 80, 3)",
+   "code_lang": "python",
+   "takeaways": [
+    "`imread` returns None instead of raising: always check it",
+    "The flag chooses colour, grayscale or unchanged (alpha, 16-bit)",
+    "`imwrite` picks the format from the extension; `imencode`/`imdecode` work in memory",
+    "`imshow` needs `waitKey` to actually draw"
+   ],
+   "pitfalls": [
+    "Calling `cv2.imshow` without `cv2.waitKey`, so the window never paints, or using it on a headless install."
+   ],
+   "quiz": [
+    {
+     "q": "What does `cv2.imread('typo.jpg')` do if the file does not exist?",
+     "options": [
+      "Raises FileNotFoundError",
+      "Returns an empty black image",
+      "Returns None",
+      "Prints a warning and exits"
+     ],
+     "answer": 2,
+     "explain": "imread signals failure by returning None, so you must check the result yourself."
+    },
+    {
+     "q": "You need to keep a PNG's transparency when loading it. Which flag do you use?",
+     "options": [
+      "cv2.IMREAD_COLOR",
+      "cv2.IMREAD_GRAYSCALE",
+      "cv2.IMREAD_REDUCED_COLOR_2",
+      "cv2.IMREAD_UNCHANGED"
+     ],
+     "answer": 3,
+     "explain": "IMREAD_UNCHANGED keeps the alpha channel and original bit depth."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/db/deb/tutorial_display_image.html",
+   "requires": [
+    "opencv.images-as-arrays",
+    "python.files"
+   ]
+  },
+  {
+   "id": "opencv.color-spaces",
+   "name": "Colour spaces and cvtColor",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Convert between BGR, RGB, grayscale and HSV with cv2.cvtColor, and know why HSV is used for colour picking.",
+   "why": "Most algorithms want grayscale, other libraries want RGB, and colour segmentation works far better in HSV.",
+   "body": "`cv2.cvtColor(img, code)` converts an image between colour spaces. The codes read like `COLOR_<from>2<to>`:\n\n- `cv2.COLOR_BGR2GRAY`: one channel, a weighted sum 0.299R + 0.587G + 0.114B\n- `cv2.COLOR_BGR2RGB`: needed before handing images to matplotlib, Pillow or most deep learning models\n- `cv2.COLOR_BGR2HSV`: hue, saturation, value\n- `cv2.COLOR_BGR2LAB`: perceptually more uniform; good for colour distances and contrast tweaks\n\n**HSV** separates *which colour* (hue) from *how strong* (saturation) and *how bright* (value). A red ball under shade and in sunlight has very different BGR values but a similar hue, which is why colour thresholding is done in HSV.\n\nFor 8-bit images OpenCV squeezes hue into **0 to 179** (degrees divided by 2) so it fits in a byte; S and V use 0 to 255. Red sits at both ends of the hue circle, around 0 and around 179, so selecting red needs two ranges.\n\nGray to BGR (`COLOR_GRAY2BGR`) does not invent colour; it copies the one channel three times so you can draw coloured annotations on it.\n\nFlipping channel order with slicing, `img[..., ::-1]`, also converts BGR to RGB, but it returns a non-contiguous view that some cv2 functions reject; `cvtColor` always returns a fresh contiguous array.",
+   "code": "import cv2\nimport numpy as np\n\nimg = np.zeros((1, 3, 3), np.uint8)\nimg[0] = [(0, 0, 255), (0, 255, 0), (255, 0, 0)]   # red, green, blue (BGR)\n\ngray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)\nprint(gray)                 # [[ 76 150  29]]\n\nrgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)\nprint(rgb[0, 0])            # [255   0   0]  red is first now\n\nhsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)\nprint(hsv[0, :, 0])         # [  0  60 120]  hue in 0..179 (degrees / 2)\nprint(hsv[0, :, 1:])        # saturation and value are 255",
+   "code_lang": "python",
+   "takeaways": [
+    "`cv2.cvtColor(img, cv2.COLOR_X2Y)` converts colour spaces",
+    "Convert BGR to RGB before passing images to other libraries",
+    "HSV separates colour from brightness; 8-bit hue runs 0 to 179",
+    "Red wraps around hue 0/179, so it needs two ranges"
+   ],
+   "pitfalls": [
+    "Using hue thresholds in degrees (0 to 360) on 8-bit HSV images, where hue is halved."
+   ],
+   "quiz": [
+    {
+     "q": "In an 8-bit HSV image from OpenCV, a pure green pixel has hue value...",
+     "options": [
+      "120",
+      "60",
+      "85",
+      "180"
+     ],
+     "answer": 1,
+     "explain": "Green is 120 degrees, and OpenCV stores hue divided by 2 for uint8 images."
+    },
+    {
+     "q": "Why is colour segmentation usually done in HSV rather than BGR?",
+     "options": [
+      "HSV images use less memory",
+      "Hue stays fairly stable when lighting changes, while BGR values all shift",
+      "cv2.inRange only accepts HSV images",
+      "BGR cannot represent saturated colours"
+     ],
+     "answer": 1,
+     "explain": "HSV puts brightness in its own channel, so a hue range tolerates shadows and highlights."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/df/d9d/tutorial_py_colorspaces.html",
+   "requires": [
+    "opencv.images-as-arrays"
+   ]
+  },
+  {
+   "id": "opencv.drawing",
+   "name": "Drawing shapes and text",
+   "module": "basics",
+   "level": 1,
+   "minutes": 7,
+   "summary": "Annotate images in place with cv2.line, rectangle, circle, polylines and putText.",
+   "why": "Visualising detections, boxes and debug info on frames is how you check that a vision pipeline works.",
+   "body": "OpenCV's drawing functions **modify the image in place** and take coordinates as `(x, y)` tuples of ints:\n\n- `cv2.line(img, pt1, pt2, color, thickness)`\n- `cv2.rectangle(img, top_left, bottom_right, color, thickness)`\n- `cv2.circle(img, center, radius, color, thickness)`\n- `cv2.polylines(img, [pts], isClosed, color, thickness)` where `pts` is an int32 array of shape `(n, 1, 2)` or `(n, 2)`\n- `cv2.putText(img, text, origin, font, scale, color, thickness, lineType)`; the origin is the **bottom-left** of the text\n\nColours are BGR tuples, `(0, 0, 255)` is red. A `thickness` of `-1` (or `cv2.FILLED`) fills the shape. Pass `lineType=cv2.LINE_AA` for anti-aliased, smoother edges.\n\nCoordinates must be integers. Detection boxes often come as floats, so convert with `int(...)` or `np.round(...).astype(int)` before drawing; recent versions raise an error on floats.\n\nBecause drawing changes the array, draw on `img.copy()` when you still need the clean image, for example to feed it to the next stage of a pipeline.\n\n`cv2.getTextSize(text, font, scale, thickness)` returns the text's width and height plus the baseline, which lets you draw a filled background box behind a label so it stays readable on any image. Only a small set of Hershey fonts is built in, without Unicode; for other scripts, render text with Pillow.",
+   "code": "import cv2\nimport numpy as np\n\ncanvas = np.zeros((200, 300, 3), np.uint8)\ncv2.rectangle(canvas, (20, 30), (140, 120), (0, 255, 0), 2)    # green box\ncv2.circle(canvas, (220, 75), 40, (0, 0, 255), -1)             # filled red\ncv2.line(canvas, (0, 199), (299, 150), (255, 255, 255), 1, cv2.LINE_AA)\n\npts = np.array([[160, 180], [200, 140], [240, 180]], np.int32)\ncv2.polylines(canvas, [pts], True, (255, 0, 0), 2)              # blue triangle\n\nlabel = \"cat 0.93\"\nfont = cv2.FONT_HERSHEY_SIMPLEX\n(tw, th), base = cv2.getTextSize(label, font, 0.5, 1)\ncv2.rectangle(canvas, (20, 30 - th - base), (20 + tw, 30), (0, 255, 0), -1)\ncv2.putText(canvas, label, (20, 30 - base), font, 0.5, (0, 0, 0), 1, cv2.LINE_AA)\n\nprint(canvas[75, 220])      # [  0   0 255]  inside the red circle\nprint(canvas[30, 80])       # [  0 255   0]  on the box edge",
+   "code_lang": "python",
+   "takeaways": [
+    "Drawing functions modify the image in place; copy first if needed",
+    "Points are integer (x, y) tuples, colours are BGR",
+    "thickness=-1 fills; LINE_AA smooths edges",
+    "putText's origin is the text's bottom-left corner"
+   ],
+   "pitfalls": [
+    "Passing float coordinates from a detector straight into cv2.rectangle."
+   ],
+   "quiz": [
+    {
+     "q": "What does `cv2.circle(img, (50, 20), 10, (255, 0, 0), -1)` draw?",
+     "options": [
+      "A filled blue circle centred at x=50, y=20",
+      "An outlined red circle centred at row 50, column 20",
+      "A filled red circle centred at x=50, y=20",
+      "Nothing, because -1 is an invalid thickness"
+     ],
+     "answer": 0,
+     "explain": "Points are (x, y), (255, 0, 0) is blue in BGR, and thickness -1 fills the shape."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/dc/da5/tutorial_py_drawing_functions.html",
+   "requires": [
+    "opencv.images-as-arrays"
+   ]
+  },
+  {
+   "id": "opencv.resize-crop-flip",
+   "name": "Resize, crop, flip and rotate",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Crop with slicing, scale with cv2.resize and the right interpolation, and flip or rotate by 90 degrees.",
+   "why": "Nearly every model and pipeline needs images at a fixed size and orientation, and the wrong interpolation costs quality.",
+   "body": "**Cropping** needs no cv2 call: slice the array, `img[y1:y2, x1:x2]`. The result is a view, so drawing on it changes the original; add `.copy()` for an independent crop.\n\n`cv2.resize(img, dsize, fx=..., fy=..., interpolation=...)` scales an image. Either pass an explicit size as **`(width, height)`** or pass `dsize=None` with scale factors `fx`, `fy`. To keep the aspect ratio, compute one side from the other.\n\nThe **interpolation** choice matters:\n\n- `cv2.INTER_AREA`: best for shrinking; averages pixels and avoids moire\n- `cv2.INTER_LINEAR` (default): fast and fine for moderate enlarging\n- `cv2.INTER_CUBIC` or `INTER_LANCZOS4`: sharper enlargements, slower\n- `cv2.INTER_NEAREST`: no blending; use it for label masks and segmentation maps, where averaging would invent classes that don't exist\n\n`cv2.flip(img, code)` mirrors: `1` horizontally, `0` vertically, `-1` both. Horizontal flips are a common data augmentation.\n\n`cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE)` (also `ROTATE_180`, `ROTATE_90_COUNTERCLOCKWISE`) rotates by right angles exactly, swapping width and height for 90-degree turns. Arbitrary angles need an affine warp, covered later.\n\nMany models also expect **letterboxing**: resize to fit inside the target while keeping aspect ratio, then pad the rest with `cv2.copyMakeBorder`.",
+   "code": "import cv2\nimport numpy as np\n\nimg = np.random.default_rng(0).integers(0, 256, (480, 640, 3), dtype=np.uint8)\n\ncrop = img[100:300, 200:500]                 # rows y, then cols x\nprint(crop.shape)                            # (200, 300, 3)\n\nsmall = cv2.resize(img, (320, 240), interpolation=cv2.INTER_AREA)  # (w, h)!\nprint(small.shape)                           # (240, 320, 3)\n\nhalf = cv2.resize(img, None, fx=0.5, fy=0.5)\nprint(half.shape)                            # (240, 320, 3)\n\ntarget_w = 200                               # keep aspect ratio\nh, w = img.shape[:2]\nfit = cv2.resize(img, (target_w, round(h * target_w / w)), interpolation=cv2.INTER_AREA)\nprint(fit.shape)                             # (150, 200, 3)\n\nmirrored = cv2.flip(img, 1)\nprint((mirrored[:, 0] == img[:, -1]).all())  # True\nprint(cv2.rotate(img, cv2.ROTATE_90_CLOCKWISE).shape)   # (640, 480, 3)",
+   "code_lang": "python",
+   "takeaways": [
+    "Crop by slicing `img[y1:y2, x1:x2]` (a view)",
+    "`cv2.resize` takes `(width, height)` or scale factors",
+    "INTER_AREA to shrink, LINEAR/CUBIC to enlarge, NEAREST for masks",
+    "`cv2.flip` and `cv2.rotate` handle mirrors and right-angle turns"
+   ],
+   "pitfalls": [
+    "Resizing a segmentation mask with the default linear interpolation, which creates blended label values."
+   ],
+   "quiz": [
+    {
+     "q": "`cv2.resize(img, (100, 50))` on a (200, 400, 3) image returns which shape?",
+     "options": [
+      "(100, 50, 3)",
+      "(50, 100, 3)",
+      "(200, 400, 3)",
+      "(100, 200, 3)"
+     ],
+     "answer": 1,
+     "explain": "dsize is (width, height), and the array shape is (height, width, channels)."
+    },
+    {
+     "q": "Which interpolation should you use to resize an integer class-label mask?",
+     "options": [
+      "cv2.INTER_CUBIC",
+      "cv2.INTER_LINEAR",
+      "cv2.INTER_NEAREST",
+      "cv2.INTER_LANCZOS4"
+     ],
+     "answer": 2,
+     "explain": "Nearest neighbour copies existing labels instead of averaging them into invalid values."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/da/d54/group__imgproc__transform.html",
+   "requires": [
+    "opencv.images-as-arrays",
+    "numpy.indexing-slicing"
+   ]
+  },
+  {
+   "id": "opencv.thresholding",
+   "name": "Thresholding and Otsu",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Turn grayscale images into binary masks with fixed, Otsu and adaptive thresholds.",
+   "why": "Binary masks are the input to contours, morphology and measurement, and the threshold choice decides their quality.",
+   "body": "**Thresholding** splits pixels into foreground and background. `cv2.threshold(gray, thresh, maxval, type)` returns a tuple `(used_threshold, result)`:\n\n- `cv2.THRESH_BINARY`: pixels above `thresh` become `maxval`, others 0\n- `cv2.THRESH_BINARY_INV`: the opposite, handy for dark objects on a light background\n- `THRESH_TRUNC`, `THRESH_TOZERO`: clip or zero instead of binarising\n\nPicking `thresh` by hand is fragile. Add `cv2.THRESH_OTSU` to the type (and pass 0 as `thresh`) and **Otsu's method** chooses the value that best separates a two-peaked histogram. The first return value tells you which threshold it chose.\n\nA single global value fails when lighting varies across the image, as with a photographed document that is darker in one corner. `cv2.adaptiveThreshold(gray, 255, method, type, blockSize, C)` computes a separate threshold for each pixel from its neighbourhood (`ADAPTIVE_THRESH_MEAN_C` or `ADAPTIVE_THRESH_GAUSSIAN_C`), minus a constant `C`. `blockSize` must be odd.\n\nThresholds expect a **single-channel** image, so convert with `cvtColor` first. Blurring slightly before thresholding (`cv2.GaussianBlur`) removes speckle noise that would otherwise become tiny false blobs. For colour-based masks, use `cv2.inRange` on HSV instead.",
+   "code": "import cv2\nimport numpy as np\n\nrng = np.random.default_rng(1)\ngray = np.full((100, 100), 60, np.uint8)        # dark background\ngray[30:70, 30:70] = 190                        # bright square\ngray = cv2.add(gray, rng.integers(0, 30, gray.shape, dtype=np.uint8))\n\nt, fixed = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)\nprint(t, fixed[50, 50], fixed[5, 5])            # 127.0 255 0\n\nt, otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)\nprint(\"otsu chose\", t)                          # somewhere between the two peaks\nprint((otsu == 255).sum())                      # 1600  (the 40x40 square)\n\nramp = np.tile(np.linspace(0, 200, 100, dtype=np.uint8), (100, 1))\nramp[45:55, ::10] += 40                         # faint marks on uneven light\nad = cv2.adaptiveThreshold(ramp, 255, cv2.ADAPTIVE_THRESH_MEAN_C,\n                           cv2.THRESH_BINARY, 11, -10)\nprint(ad.dtype, np.unique(ad))                  # uint8 [  0 255]",
+   "code_lang": "python",
+   "takeaways": [
+    "`cv2.threshold` returns (threshold, mask)",
+    "Add THRESH_OTSU to let OpenCV pick the threshold",
+    "Use adaptiveThreshold when lighting varies across the image",
+    "Threshold a single-channel image, ideally lightly blurred"
+   ],
+   "pitfalls": [
+    "Forgetting that cv2.threshold returns a tuple and treating the whole tuple as the image."
+   ],
+   "quiz": [
+    {
+     "q": "What is the first value returned by `cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)`?",
+     "options": [
+      "Always 0, the value you passed",
+      "The number of foreground pixels",
+      "The maximum pixel value",
+      "The threshold Otsu computed"
+     ],
+     "answer": 3,
+     "explain": "With THRESH_OTSU the passed threshold is ignored and the computed one is returned."
+    },
+    {
+     "q": "A scanned page is bright on the left and shadowed on the right. Which approach binarises the text best?",
+     "options": [
+      "A fixed global threshold of 127",
+      "adaptiveThreshold with a local block size",
+      "Otsu's global threshold",
+      "Converting to HSV first"
+     ],
+     "answer": 1,
+     "explain": "A local, per-neighbourhood threshold adapts to the changing illumination."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/d7/d4d/tutorial_py_thresholding.html",
+   "requires": [
+    "opencv.color-spaces",
+    "numpy.boolean-masks"
+   ]
+  },
+  {
+   "id": "opencv.filtering-blur",
+   "name": "Blurring and convolution filters",
+   "module": "processing",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Smooth noise with box, Gaussian, median and bilateral filters, and apply custom kernels with filter2D.",
+   "why": "Denoising is the first step before thresholding, edges or features, and each filter trades detail for noise differently.",
+   "body": "A **filter** replaces each pixel with a function of its neighbourhood. Linear filters compute a weighted sum defined by a **kernel**.\n\n- `cv2.blur(img, (5, 5))`: box filter, the plain average\n- `cv2.GaussianBlur(img, (5, 5), sigmaX)`: weights fall off with distance; the go-to smoother. Kernel sizes must be odd; pass `(0, 0)` with a sigma to let OpenCV pick the size.\n- `cv2.medianBlur(img, 5)`: takes the median, which removes **salt-and-pepper** noise completely while keeping edges sharper than averaging. Not linear.\n- `cv2.bilateralFilter(img, d, sigmaColor, sigmaSpace)`: averages only pixels that are close *and* similar in colour, so it smooths flat areas but preserves edges. Much slower.\n\n`cv2.filter2D(img, ddepth, kernel)` applies any kernel you define, such as sharpening or embossing. `ddepth=-1` keeps the input dtype; use `cv2.CV_32F` when results can go negative or above 255. Strictly it computes correlation, not convolution, which only matters for asymmetric kernels.\n\nAt the borders the kernel overhangs the image. The `borderType` argument decides how missing pixels are invented; the default `BORDER_REFLECT_101` mirrors the image without repeating the edge pixel.\n\nSeparable kernels like the Gaussian are computed as a row pass then a column pass, so even large blurs are cheap.",
+   "code": "import cv2\nimport numpy as np\n\nimg = np.full((50, 50), 128, np.uint8)\nnoisy = img.copy()\nrng = np.random.default_rng(0)\nys, xs = rng.integers(0, 50, (2, 100))\nnoisy[ys, xs] = 255                              # salt noise\n\nbox = cv2.blur(noisy, (5, 5))\ngauss = cv2.GaussianBlur(noisy, (5, 5), 0)\nmedian = cv2.medianBlur(noisy, 5)\nprint(box.max(), gauss.max())                   # still above 128: spikes smeared\nprint(median.max())                             # 128 -- median removed them\n\nsharpen = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]], np.float32)\nstep = np.zeros((5, 5), np.uint8); step[:, 2:] = 100\nprint(cv2.filter2D(step, -1, sharpen)[2])       # [  0   0 200 100 100] clipped\nprint(cv2.filter2D(step, cv2.CV_32F, sharpen)[2])  # [   0. -100.  200.  100.  100.]",
+   "code_lang": "python",
+   "takeaways": [
+    "Gaussian blur is the default smoother; kernel sizes are odd",
+    "Median blur removes salt-and-pepper noise and keeps edges",
+    "Bilateral filter preserves edges at a high cost in speed",
+    "filter2D applies custom kernels; use a float ddepth for signed results"
+   ],
+   "pitfalls": [
+    "Using filter2D with ddepth=-1 on uint8 when the result can be negative, silently clipping it to 0."
+   ],
+   "quiz": [
+    {
+     "q": "An image has scattered pure white and black pixels. Which filter removes them best?",
+     "options": [
+      "cv2.medianBlur",
+      "cv2.blur",
+      "cv2.GaussianBlur",
+      "cv2.filter2D with a sharpening kernel"
+     ],
+     "answer": 0,
+     "explain": "The median ignores outliers in the neighbourhood, so isolated spikes disappear."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/d4/d13/tutorial_py_filtering.html",
+   "requires": [
+    "opencv.thresholding",
+    "numpy.vectorized-arithmetic"
+   ]
+  },
+  {
+   "id": "opencv.morphology",
+   "name": "Morphological operations",
+   "module": "processing",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Clean binary masks with erode, dilate, opening and closing using structuring elements.",
+   "why": "Real thresholded masks are full of specks and holes; morphology fixes them before you count or measure objects.",
+   "body": "**Morphology** treats a binary mask as a set of shapes and grows or shrinks them with a **structuring element** (kernel), created with `cv2.getStructuringElement(cv2.MORPH_RECT | MORPH_ELLIPSE | MORPH_CROSS, (w, h))`.\n\n- `cv2.erode`: a pixel stays white only if the whole kernel fits inside the white region. Shapes shrink, thin bridges break, small specks vanish.\n- `cv2.dilate`: a pixel becomes white if the kernel touches any white. Shapes grow, small holes and gaps fill.\n\nCombinations via `cv2.morphologyEx(mask, op, kernel)`:\n\n- `MORPH_OPEN` (erode then dilate): removes small white noise while mostly keeping object size\n- `MORPH_CLOSE` (dilate then erode): fills small black holes and joins nearby fragments\n- `MORPH_GRADIENT`: dilation minus erosion, an outline of each shape\n- `MORPH_TOPHAT` and `MORPH_BLACKHAT`: extract small bright or dark details relative to the background\n\nThe kernel size sets the scale of what gets removed: an opening with a 5x5 kernel deletes anything thinner than about 5 pixels. `iterations=` repeats the operation.\n\nThe conventions assume **white foreground on black background**. If your objects are dark, invert the mask first (or use `THRESH_BINARY_INV`), otherwise erode and dilate swap meanings.",
+   "code": "import cv2\nimport numpy as np\n\nmask = np.zeros((40, 40), np.uint8)\nmask[10:30, 10:30] = 255          # the object\nmask[15, 15] = 0                  # a hole inside it\nmask[2, 35] = 255                 # a stray speck\n\nk = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))\nopened = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k)\nprint(opened[2, 35])              # 0    speck removed\nclosed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, k)\nprint(closed[15, 15])             # 255  hole filled\n\nprint((mask == 255).sum())                     # 400\nprint((cv2.erode(mask, k) == 255).sum())       # fewer: shapes shrank\nprint((cv2.dilate(mask, k) == 255).sum())      # more: shapes grew\nedge = cv2.morphologyEx(closed, cv2.MORPH_GRADIENT, k)\nprint(edge[20, 10], edge[20, 20])              # 255 0  outline only",
+   "code_lang": "python",
+   "takeaways": [
+    "Erode shrinks white regions, dilate grows them",
+    "Opening removes small specks, closing fills small holes",
+    "Kernel size sets the scale of what gets removed",
+    "Morphology assumes white objects on black"
+   ],
+   "pitfalls": [
+    "Applying morphology to dark-on-light masks without inverting, which reverses the effect."
+   ],
+   "quiz": [
+    {
+     "q": "After thresholding, a mask has many isolated white dots around the real objects. Which operation removes them?",
+     "options": [
+      "Closing",
+      "Dilation",
+      "Opening",
+      "Morphological gradient"
+     ],
+     "answer": 2,
+     "explain": "Opening erodes away small white specks and then dilates the survivors back to size."
+    },
+    {
+     "q": "What does closing (`MORPH_CLOSE`) do first?",
+     "options": [
+      "Erode",
+      "Invert the mask",
+      "Blur",
+      "Dilate"
+     ],
+     "answer": 3,
+     "explain": "Closing is dilation followed by erosion, which fills holes and gaps."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/d9/d61/tutorial_py_morphological_ops.html",
+   "requires": [
+    "opencv.thresholding"
+   ]
+  },
+  {
+   "id": "opencv.edges-gradients",
+   "name": "Gradients and Canny edges",
+   "module": "processing",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Compute image gradients with Sobel and find clean, thin edges with the Canny detector.",
+   "why": "Edges outline objects and feed contour finding, line detection and many classic measurement pipelines.",
+   "body": "An **edge** is where intensity changes sharply. `cv2.Sobel(gray, ddepth, dx, dy, ksize)` estimates the derivative in x or y. Use a signed output depth such as `cv2.CV_16S` or `cv2.CV_64F`: with `uint8` output, negative slopes (light-to-dark edges) are clipped to zero and lost. Convert back for display with `cv2.convertScaleAbs`. `cv2.Laplacian` gives the second derivative and is a quick focus or blur measure: its variance drops for blurry images.\n\nThe **Canny** detector, `cv2.Canny(gray, low, high)`, turns gradients into thin, connected edge lines:\n\n- it smooths and computes gradient magnitude and direction,\n- keeps only local maxima across the edge (non-maximum suppression), giving one-pixel-wide lines,\n- applies **hysteresis**: pixels above `high` are edges, pixels between `low` and `high` survive only if connected to a strong edge.\n\nA ratio of about 1:2 or 1:3 between `low` and `high` is typical. A common heuristic derives both from the median intensity of the image. Blur first if the image is noisy, or Canny will report texture as edges.\n\nCanny returns a binary `uint8` image (0 or 255), ready for `findContours` or `cv2.HoughLinesP` to detect straight segments.",
+   "code": "import cv2\nimport numpy as np\n\nimg = np.zeros((60, 60), np.uint8)\nimg[:, 30:] = 200                         # vertical step edge at x = 30\n\ngx8 = cv2.Sobel(img[:, ::-1].copy(), cv2.CV_8U, 1, 0)   # dark-to-light reversed\nprint(gx8.max())                          # 0  -- negative slope clipped away!\ngx = cv2.Sobel(img[:, ::-1].copy(), cv2.CV_16S, 1, 0)\nprint(gx.min())                           # -800  kept with a signed depth\nprint(cv2.convertScaleAbs(gx).max())      # 255 for display\n\nedges = cv2.Canny(img, 50, 150)\nprint(np.unique(edges))                   # [  0 255]\nprint(np.nonzero(edges[30])[0])           # one-pixel wide edge near x = 30\n\nsharp_var = cv2.Laplacian(img, cv2.CV_64F).var()\nblurry_var = cv2.Laplacian(cv2.GaussianBlur(img, (9, 9), 0), cv2.CV_64F).var()\nprint(sharp_var > blurry_var)             # True: a simple blur detector",
+   "code_lang": "python",
+   "takeaways": [
+    "Use a signed ddepth (CV_16S, CV_64F) for Sobel so negative gradients survive",
+    "Canny gives thin binary edges using two hysteresis thresholds",
+    "Blur noisy images before edge detection",
+    "Variance of the Laplacian is a quick sharpness score"
+   ],
+   "pitfalls": [
+    "Running Sobel with a uint8 output and losing every light-to-dark edge."
+   ],
+   "quiz": [
+    {
+     "q": "In `cv2.Canny(img, 50, 150)`, a pixel with gradient 100 becomes an edge when...",
+     "options": [
+      "Always, because it is above 50",
+      "Only if it is connected to a pixel above 150",
+      "Never, because it is below 150",
+      "Only if its neighbours are all below 50"
+     ],
+     "answer": 1,
+     "explain": "Hysteresis keeps weak (between thresholds) pixels only when they connect to strong edges."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/da/d22/tutorial_py_canny.html",
+   "requires": [
+    "opencv.filtering-blur"
+   ]
+  },
+  {
+   "id": "opencv.histograms",
+   "name": "Histograms and contrast",
+   "module": "processing",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Measure intensity distributions with calcHist and improve contrast with equalizeHist and CLAHE.",
+   "why": "Histograms reveal exposure problems and drive thresholds; CLAHE is a standard fix for low-contrast images.",
+   "body": "A **histogram** counts how many pixels have each intensity. `cv2.calcHist([img], [channel], mask, [bins], [range])` takes lists because it can combine several images and channels; for a gray image use `cv2.calcHist([gray], [0], None, [256], [0, 256])`, which returns float32 counts of shape `(256, 1)` in OpenCV 4 (flat `(256,)` in OpenCV 5). The upper range bound is exclusive, so 256 covers 0 to 255. `np.bincount(gray.ravel(), minlength=256)` gives the same counts.\n\nHistograms tell you a lot at a glance: everything bunched at the left means underexposed, two clear peaks mean a threshold (or Otsu) will work well. 2-D hue-saturation histograms are used for colour-based object matching (`cv2.compareHist`) and back-projection.\n\n**Histogram equalisation**, `cv2.equalizeHist(gray)`, remaps intensities so the cumulative histogram becomes roughly linear, spreading a narrow range across 0 to 255. It works on the whole image, so it can over-amplify noise and wash out regions.\n\n**CLAHE** (Contrast Limited Adaptive Histogram Equalisation) equalises small tiles separately and clips each histogram to limit noise amplification:\n\n```python\nclahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))\nout = clahe.apply(gray)\n```\n\nFor colour images, never equalise B, G and R separately (that shifts colours). Convert to LAB, apply CLAHE to the L channel, and convert back.",
+   "code": "import cv2\nimport numpy as np\n\nrng = np.random.default_rng(0)\ndull = rng.integers(100, 140, (64, 64), dtype=np.uint8)   # low contrast\n\nhist = cv2.calcHist([dull], [0], None, [256], [0, 256])\nprint(hist.shape, int(hist[:100].sum()))      # (256, 1) 0  -- (256,) in OpenCV 5\nprint(dull.min(), dull.max())                 # 100 139\n\neq = cv2.equalizeHist(dull)\nprint(eq.min(), eq.max())                     # spread to roughly 0..255\n\nclahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4))\nprint(clahe.apply(dull).std() > dull.std())   # True: more contrast\n\nbgr = cv2.merge([dull, dull, rng.integers(0, 255, (64, 64), dtype=np.uint8)])\nlab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)\nl, a, b = cv2.split(lab)\nlab = cv2.merge([clahe.apply(l), a, b])       # only lightness changed\nout = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)\nprint(out.shape)                              # (64, 64, 3)",
+   "code_lang": "python",
+   "takeaways": [
+    "`calcHist` takes lists: images, channels, bins, ranges",
+    "equalizeHist spreads intensities globally",
+    "CLAHE equalises tiles with a clip limit and amplifies less noise",
+    "For colour, equalise the L channel of LAB, not B, G, R"
+   ],
+   "pitfalls": [
+    "Equalising each BGR channel independently, which distorts the colours."
+   ],
+   "quiz": [
+    {
+     "q": "Why is CLAHE usually preferred to equalizeHist on photos with mixed lighting?",
+     "options": [
+      "It works locally on tiles and clips the histogram, limiting noise amplification",
+      "It is faster",
+      "It works on colour images directly without conversion",
+      "It produces a binary image"
+     ],
+     "answer": 0,
+     "explain": "Local, contrast-limited equalisation boosts detail in each region without blowing up noise."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/d5/daf/tutorial_py_histogram_equalization.html",
+   "requires": [
+    "opencv.color-spaces",
+    "numpy.aggregations-axis"
+   ]
+  },
+  {
+   "id": "opencv.masks-bitwise",
+   "name": "Colour masks and bitwise operations",
+   "module": "shapes",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Select colour ranges with cv2.inRange and combine or apply masks with bitwise_and, or, not.",
+   "why": "Colour segmentation and compositing (green screens, overlays, regions of interest) are built from masks.",
+   "body": "`cv2.inRange(img, lower, upper)` returns a `uint8` mask that is 255 where **every** channel lies within the inclusive bounds and 0 elsewhere. On an HSV image this is the classic colour detector:\n\n```python\nmask = cv2.inRange(hsv, (35, 80, 60), (85, 255, 255))   # greens\n```\n\nFor red, whose hue wraps around 0, combine two ranges with `cv2.bitwise_or`.\n\nThe bitwise functions work per pixel and per bit: `cv2.bitwise_and`, `bitwise_or`, `bitwise_xor`, `bitwise_not`. Their most useful form takes a `mask=` argument: `cv2.bitwise_and(img, img, mask=mask)` keeps the image where the mask is non-zero and blacks out the rest.\n\nTo **composite** one image onto another, cut a hole in the background with the inverted mask, keep the foreground with the mask, and add the two. `cv2.addWeighted(a, alpha, b, beta, gamma)` blends instead, for semi-transparent overlays such as heatmaps.\n\nMasks must be single-channel `uint8` of the same height and width as the image. A NumPy boolean mask works for indexing (`img[mask > 0] = (0, 0, 255)`), but cv2 functions want the `uint8` form. Convert with `mask.astype(np.uint8) * 255`.",
+   "code": "import cv2\nimport numpy as np\n\nimg = np.zeros((50, 100, 3), np.uint8)\nimg[:, :50] = (0, 200, 0)          # green half\nimg[:, 50:] = (0, 0, 200)          # red half\nhsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)\n\ngreen = cv2.inRange(hsv, (35, 80, 60), (85, 255, 255))\nprint(green.dtype, green[0, 10], green[0, 90])   # uint8 255 0\n\nred = cv2.bitwise_or(cv2.inRange(hsv, (0, 80, 60), (10, 255, 255)),\n                     cv2.inRange(hsv, (170, 80, 60), (179, 255, 255)))\nprint(red[0, 90])                                # 255\n\nonly_green = cv2.bitwise_and(img, img, mask=green)\nprint(only_green[0, 90])                         # [0 0 0]  blacked out\n\nbg = np.full_like(img, 255)                      # white background\ncomp = cv2.add(cv2.bitwise_and(bg, bg, mask=cv2.bitwise_not(green)), only_green)\nprint(comp[0, 10], comp[0, 90])                  # [  0 200   0] [255 255 255]\n\noverlay = cv2.addWeighted(img, 0.7, bg, 0.3, 0)\nprint(overlay[0, 10])                            # [ 76 216  76]",
+   "code_lang": "python",
+   "takeaways": [
+    "`cv2.inRange` makes a 0/255 mask from per-channel bounds",
+    "Combine masks with bitwise_or/and/not",
+    "`bitwise_and(img, img, mask=m)` keeps only the masked region",
+    "`addWeighted` blends two images for overlays"
+   ],
+   "pitfalls": [
+    "Passing a boolean or 3-channel mask to a cv2 function that expects single-channel uint8."
+   ],
+   "quiz": [
+    {
+     "q": "What does `cv2.bitwise_and(img, img, mask=m)` return?",
+     "options": [
+      "A binary mask",
+      "img with m blended on top at 50%",
+      "The pixels of img where m is non-zero, black elsewhere",
+      "The pixels where m is zero"
+     ],
+     "answer": 2,
+     "explain": "AND-ing the image with itself is a no-op, and the mask restricts the output to its non-zero pixels."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/d0/d86/tutorial_py_image_arithmetics.html",
+   "requires": [
+    "opencv.color-spaces",
+    "opencv.thresholding"
+   ]
+  },
+  {
+   "id": "opencv.contours",
+   "name": "Contours and shape measurement",
+   "module": "shapes",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Find object outlines in binary masks and measure their area, bounding boxes, centroids and shape.",
+   "why": "Contours turn a mask into countable objects with positions and sizes, the core of classic detection and inspection.",
+   "body": "`cv2.findContours(mask, mode, method)` traces the boundaries of white regions in a binary image and returns `(contours, hierarchy)` in OpenCV 4 and later. Each contour is an int32 array of points with shape `(n, 1, 2)`.\n\n- `mode`: `cv2.RETR_EXTERNAL` returns only outer boundaries (usually what you want); `RETR_TREE` also returns holes, with parent/child links in `hierarchy`.\n- `method`: `cv2.CHAIN_APPROX_SIMPLE` compresses straight runs to their end points, saving memory; `CHAIN_APPROX_NONE` keeps every pixel.\n\nWith contours you can measure:\n\n- `cv2.contourArea(c)` and `cv2.arcLength(c, closed=True)`\n- `cv2.boundingRect(c)` gives an upright `(x, y, w, h)`; `cv2.minAreaRect(c)` a rotated box\n- `cv2.moments(c)`: centroid at `(m10/m00, m01/m00)`\n- `cv2.approxPolyDP(c, eps, True)` simplifies to a polygon; 4 vertices suggests a rectangle\n- `cv2.convexHull`, and circularity `4*pi*area/perimeter**2` (1 for a circle)\n\nFilter by area to drop noise, sort by area to find the largest object. `cv2.drawContours(img, contours, -1, color, thickness)` draws them; index `-1` means all.\n\nFeed it a clean binary mask (threshold, Canny, morphology first). Old OpenCV 3 returned three values, which is why older tutorials unpack `_, contours, _`.",
+   "code": "import cv2\nimport numpy as np\n\nmask = np.zeros((100, 160), np.uint8)\ncv2.rectangle(mask, (10, 10), (60, 40), 255, -1)\ncv2.circle(mask, (110, 60), 25, 255, -1)\nmask[90, 5] = 255                               # one-pixel noise\n\ncontours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL,\n                                       cv2.CHAIN_APPROX_SIMPLE)\nprint(len(contours))                            # 3\nobjs = [c for c in contours if cv2.contourArea(c) > 20]\nfor c in sorted(objs, key=cv2.contourArea, reverse=True):\n    area = cv2.contourArea(c)\n    x, y, w, h = cv2.boundingRect(c)\n    m = cv2.moments(c)\n    cx, cy = m[\"m10\"] / m[\"m00\"], m[\"m01\"] / m[\"m00\"]\n    peri = cv2.arcLength(c, True)\n    corners = len(cv2.approxPolyDP(c, 0.02 * peri, True))\n    circ = 4 * np.pi * area / peri ** 2\n    print(int(area), (x, y, w, h), (round(cx), round(cy)), corners, round(circ, 2))\n# 1890 (85, 35, 51, 51) (110, 60) 8 0.87   circle: many corners, round\n# 1500 (10, 10, 51, 31) (35, 25) 4 0.74    rectangle: 4 corners",
+   "code_lang": "python",
+   "takeaways": [
+    "findContours needs a binary mask and returns (contours, hierarchy)",
+    "RETR_EXTERNAL for outer outlines, RETR_TREE for nested holes",
+    "Measure with contourArea, boundingRect, moments, approxPolyDP",
+    "Filter tiny contours by area to ignore noise"
+   ],
+   "pitfalls": [
+    "Running findContours on a noisy, un-thresholded grayscale image and getting thousands of tiny contours."
+   ],
+   "quiz": [
+    {
+     "q": "You only want the outlines of separate objects, ignoring holes inside them. Which mode?",
+     "options": [
+      "cv2.RETR_TREE",
+      "cv2.RETR_LIST",
+      "cv2.RETR_CCOMP",
+      "cv2.RETR_EXTERNAL"
+     ],
+     "answer": 3,
+     "explain": "RETR_EXTERNAL returns only the outermost contours."
+    },
+    {
+     "q": "How do you compute a contour's centroid x from its moments `m`?",
+     "options": [
+      "m['m00'] / m['m10']",
+      "m['m10'] / m['m00']",
+      "m['m01'] / m['m00']",
+      "m['mu20']"
+     ],
+     "answer": 1,
+     "explain": "The first-order moment m10 divided by the area m00 gives the mean x."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/d4/d73/tutorial_py_contours_begin.html",
+   "requires": [
+    "opencv.morphology",
+    "opencv.edges-gradients"
+   ]
+  },
+  {
+   "id": "opencv.video-io",
+   "name": "Video files and cameras",
+   "module": "video",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Read frames from files and webcams with VideoCapture and write processed video with VideoWriter.",
+   "why": "Video is just a stream of images, and most real-time vision apps are a loop over VideoCapture frames.",
+   "body": "`cv2.VideoCapture(source)` opens a video file, an image sequence pattern, a stream URL (RTSP, HTTP) or a camera by index (`0` is the default webcam). Check `cap.isOpened()`, then loop:\n\n```python\nwhile True:\n    ok, frame = cap.read()\n    if not ok:\n        break\n```\n\n`read()` returns `(False, None)` at the end of a file or when a camera drops, so always check `ok`. Each frame is a normal BGR array.\n\n`cap.get(cv2.CAP_PROP_FPS)`, `CAP_PROP_FRAME_COUNT`, `CAP_PROP_FRAME_WIDTH` and `HEIGHT` report properties; `cap.set(...)` requests camera settings, which the driver may ignore. Frame counts from containers are sometimes estimates. Call `cap.release()` when done.\n\n`cv2.VideoWriter(path, fourcc, fps, (width, height))` writes frames. The codec is a four-character code such as `cv2.VideoWriter_fourcc(*\"mp4v\")` for `.mp4` or `*\"MJPG\"` for `.avi`. Every frame you write must exactly match the declared size and be 3-channel unless you pass `isColor=False`; mismatched frames are **silently dropped**, leaving an empty file. Available codecs depend on how OpenCV was built (FFmpeg, GStreamer, platform APIs).\n\nFor a live preview, `cv2.imshow` plus `cv2.waitKey(1)` in the loop gives about real-time display and lets you exit on a key.",
+   "code": "import cv2\nimport numpy as np\n\nw, h, fps = 160, 120, 10\nout = cv2.VideoWriter(\"demo.avi\", cv2.VideoWriter_fourcc(*\"MJPG\"), fps, (w, h))\nfor i in range(30):\n    frame = np.zeros((h, w, 3), np.uint8)\n    cv2.circle(frame, (5 * i, 60), 10, (0, 255, 255), -1)   # moving dot\n    out.write(frame)\nout.release()\n\ncap = cv2.VideoCapture(\"demo.avi\")\nprint(cap.isOpened(), cap.get(cv2.CAP_PROP_FPS))   # True 10.0\nn = 0\nwhile True:\n    ok, frame = cap.read()\n    if not ok:\n        break\n    n += 1\ncap.release()\nprint(n, frame is None)                            # 30 True",
+   "code_lang": "python",
+   "takeaways": [
+    "Loop `ok, frame = cap.read()` and stop when ok is False",
+    "VideoCapture opens files, URLs and cameras by index",
+    "VideoWriter needs a fourcc, fps and the exact (width, height) of every frame",
+    "Release captures and writers when done"
+   ],
+   "pitfalls": [
+    "Writing frames whose size differs from the VideoWriter's declared size, which produces an empty video without any error."
+   ],
+   "quiz": [
+    {
+     "q": "Your VideoWriter output file is tiny and won't play, yet no error was raised. What is the most likely cause?",
+     "options": [
+      "The frames written had a different size from the one passed to VideoWriter",
+      "The fps was not an integer",
+      "You called cap.read() instead of cap.grab()",
+      "BGR frames must be converted to RGB first"
+     ],
+     "answer": 0,
+     "explain": "VideoWriter silently ignores frames that don't match the declared size or channel count."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/dd/d43/tutorial_py_video_display.html",
+   "requires": [
+    "opencv.read-write-show",
+    "python.loops"
+   ]
+  },
+  {
+   "id": "opencv.motion",
+   "name": "Background subtraction and optical flow",
+   "module": "video",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Detect moving objects with MOG2/KNN background models and track points between frames with Lucas-Kanade flow.",
+   "why": "Motion is the cheapest strong signal in video: it powers people counters, surveillance and camera stabilisation.",
+   "body": "**Background subtraction** learns what the static scene looks like and flags pixels that differ. `cv2.createBackgroundSubtractorMOG2(history, varThreshold, detectShadows)` models each pixel as a mixture of Gaussians that adapts over time. Call `fg = sub.apply(frame)` on every frame; the result is a mask with 255 for foreground and, if shadow detection is on, 127 for shadows. Threshold at 200 to drop shadows, clean up with morphology, then find contours to get moving blobs. `createBackgroundSubtractorKNN` is an alternative. The model needs some frames to learn, and a moving camera breaks the assumption entirely.\n\n**Optical flow** estimates how pixels move between two frames.\n\n- Sparse: `cv2.goodFeaturesToTrack` picks corners, then `cv2.calcOpticalFlowPyrLK(prev_gray, gray, p0, None)` follows them, returning the new points, a status array (1 = tracked) and errors. Keep only points with status 1 and re-detect periodically as points are lost. The pyramidal version handles larger motion.\n- Dense: `cv2.calcOpticalFlowFarneback` gives a `(h, w, 2)` displacement field for every pixel, useful for motion heatmaps but much slower.\n\nFor tracking a specific object, OpenCV also provides tracker classes such as `cv2.TrackerMIL_create`, while modern pipelines often pair a DNN detector with a lightweight tracker.",
+   "code": "import cv2\nimport numpy as np\n\nsub = cv2.createBackgroundSubtractorMOG2(history=50, detectShadows=False)\nbg = np.full((80, 80), 100, np.uint8)\nfor _ in range(30):\n    sub.apply(bg)                               # learn the empty scene\nframe = bg.copy()\nframe[30:50, 30:50] = 250                       # an object appears\nfg = sub.apply(frame)\nprint(fg[40, 40], fg[5, 5])                     # 255 0\n\nprev = np.zeros((100, 100), np.uint8)\ncv2.rectangle(prev, (30, 30), (60, 60), 255, -1)\nnxt = np.roll(prev, (2, 3), axis=(0, 1))        # moved 3 px right, 2 px down\np0 = cv2.goodFeaturesToTrack(prev, maxCorners=4, qualityLevel=0.1, minDistance=5)\np1, st, err = cv2.calcOpticalFlowPyrLK(prev, nxt, p0, None)\nmoves = (p1 - p0)[st.ravel() == 1].reshape(-1, 2)\nprint(np.round(moves.mean(axis=0)))             # [3. 2.]  (dx, dy)",
+   "code_lang": "python",
+   "takeaways": [
+    "MOG2/KNN subtractors learn a background model; apply() returns a foreground mask",
+    "Shadows are marked 127 in MOG2; threshold them away",
+    "calcOpticalFlowPyrLK tracks sparse points; keep only status == 1",
+    "Farneback gives dense per-pixel flow at higher cost"
+   ],
+   "pitfalls": [
+    "Using background subtraction with a moving or zooming camera, where everything looks like foreground."
+   ],
+   "quiz": [
+    {
+     "q": "What does the `status` array returned by calcOpticalFlowPyrLK tell you?",
+     "options": [
+      "The speed of each point in pixels per second",
+      "Which points are corners",
+      "Whether each point was successfully tracked into the new frame",
+      "The frame index of each point"
+     ],
+     "answer": 2,
+     "explain": "A status of 1 means the flow for that point was found; 0 means it was lost."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/d4/dee/tutorial_optical_flow.html",
+   "requires": [
+    "opencv.video-io",
+    "opencv.contours"
+   ]
+  },
+  {
+   "id": "opencv.geometric-transforms",
+   "name": "Affine and perspective warps",
+   "module": "geometry",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Rotate, scale and shear with warpAffine, and rectify planes such as documents with a perspective homography.",
+   "why": "Aligning, straightening and augmenting images all rely on warps, and the matrix conventions are easy to get wrong.",
+   "body": "An **affine** transform (rotation, scale, translation, shear) keeps parallel lines parallel and is a 2x3 float matrix. Build one and apply it:\n\n```python\nM = cv2.getRotationMatrix2D(center, angle_deg, scale)   # positive = counter-clockwise\nout = cv2.warpAffine(img, M, (w, h))\n```\n\n`cv2.getAffineTransform(src3, dst3)` builds the matrix from three point pairs. The output size is the canvas: rotating within the original size cuts off corners, so for a full rotation compute the new bounding size and add a translation to the matrix.\n\nA **perspective** transform (homography) is a 3x3 matrix that maps any quadrilateral to any other. It is how you turn a photo of a tilted document or a whiteboard into a flat top-down view: `cv2.getPerspectiveTransform(src4, dst4)` from four corners (float32 arrays), then `cv2.warpPerspective(img, H, (w, h))`.\n\nTo transform **points** rather than images, use `cv2.transform(pts, M)` for affine matrices and `cv2.perspectiveTransform(pts, H)` for homographies; points need shape `(n, 1, 2)` and a float dtype.\n\nWarps sample source pixels for each destination pixel, so `flags=` picks interpolation (`INTER_NEAREST` for masks), and `borderMode`/`borderValue` fill uncovered regions. `cv2.invertAffineTransform` and `np.linalg.inv(H)` map back.",
+   "code": "import cv2\nimport numpy as np\n\nimg = np.zeros((100, 200, 3), np.uint8)\ncv2.rectangle(img, (80, 30), (120, 70), (255, 255, 255), -1)\n\nM = cv2.getRotationMatrix2D((100, 50), 90, 1.0)   # 90 deg counter-clockwise\nprint(M.shape)                                    # (2, 3)\nrot = cv2.warpAffine(img, M, (200, 100))\nprint(rot.shape)                                  # (100, 200, 3) same canvas\n\nsrc = np.float32([[20, 10], [180, 30], [190, 90], [10, 80]])   # tilted quad\ndst = np.float32([[0, 0], [300, 0], [300, 200], [0, 200]])     # flat page\nH = cv2.getPerspectiveTransform(src, dst)\npage = cv2.warpPerspective(img, H, (300, 200))\nprint(page.shape)                                 # (200, 300, 3)\n\npts = src.reshape(-1, 1, 2)\nprint(cv2.perspectiveTransform(pts, H).reshape(-1, 2).round().astype(int))\n# [[  0   0] [300   0] [300 200] [  0 200]]",
+   "code_lang": "python",
+   "takeaways": [
+    "Affine = 2x3 matrix, applied with warpAffine; perspective = 3x3, warpPerspective",
+    "getRotationMatrix2D uses degrees, positive is counter-clockwise",
+    "Four point pairs give a homography that can flatten a document",
+    "Transform points with cv2.transform / perspectiveTransform, shape (n, 1, 2) float"
+   ],
+   "pitfalls": [
+    "Passing int32 point arrays to getPerspectiveTransform, which requires float32."
+   ],
+   "quiz": [
+    {
+     "q": "How many point correspondences does cv2.getPerspectiveTransform need?",
+     "options": [
+      "2",
+      "3",
+      "4",
+      "8"
+     ],
+     "answer": 2,
+     "explain": "A homography has 8 degrees of freedom, fixed by four point pairs."
+    },
+    {
+     "q": "You rotate an image by 30 degrees with warpAffine and the corners are cut off. Why?",
+     "options": [
+      "warpAffine only supports multiples of 90 degrees",
+      "The angle must be given in radians",
+      "The image must be grayscale",
+      "The output size equals the original, so the rotated corners fall outside the canvas"
+     ],
+     "answer": 3,
+     "explain": "The dsize argument fixes the canvas; enlarge it and add translation to keep everything."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/da/d6e/tutorial_py_geometric_transformations.html",
+   "requires": [
+    "opencv.resize-crop-flip",
+    "numpy.linear-algebra"
+   ]
+  },
+  {
+   "id": "opencv.features-matching",
+   "name": "Keypoints, descriptors and matching",
+   "module": "geometry",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Detect ORB or SIFT keypoints, match descriptors between images and estimate a homography robustly with RANSAC.",
+   "why": "Feature matching underlies panorama stitching, object localisation and image alignment without any training.",
+   "body": "**Keypoints** are distinctive locations (corners, blobs) that can be found again in another view; a **descriptor** is a vector describing the patch around each one.\n\n- `cv2.ORB_create(nfeatures)`: fast, free, binary descriptors compared with Hamming distance\n- `cv2.SIFT_create()`: float descriptors, more robust to scale and lighting, compared with L2 distance; in the main package since 4.4 after its patent expired\n- `cv2.AKAZE_create()`: a good middle ground\n\n`kp, des = detector.detectAndCompute(gray, None)` returns both.\n\nMatch with `cv2.BFMatcher(norm)` (brute force) or FLANN for large sets. Use `NORM_HAMMING` for ORB and `NORM_L2` for SIFT. Raw matches contain many mistakes; filter them with **Lowe's ratio test**: take the two nearest neighbours via `knnMatch(des1, des2, k=2)` and keep a match only if the best distance is clearly smaller (for example under 0.75x) than the second best.\n\nEven filtered matches include outliers, so estimate geometry robustly: `cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)` returns the matrix and an inlier mask. Many inliers mean the object is really there; the matrix lets you draw its outline or warp one image onto the other. `cv2.USAC_MAGSAC` is a newer, often more accurate robust method.",
+   "code": "import cv2\nimport numpy as np\n\nrng = np.random.default_rng(3)\nimg1 = np.zeros((240, 320), np.uint8)\nfor x, y, w, h, v in zip(*rng.integers([0, 0, 5, 5, 60], [300, 220, 30, 30, 255], (60, 5)).T):\n    cv2.rectangle(img1, (int(x), int(y)), (int(x + w), int(y + h)), int(v), -1)\nM = np.float32([[1, 0, 25], [0, 1, 15]])             # shift by (25, 15)\nimg2 = cv2.warpAffine(img1, M, (320, 240))\n\norb = cv2.ORB_create(500)\nkp1, des1 = orb.detectAndCompute(img1, None)\nkp2, des2 = orb.detectAndCompute(img2, None)\npairs = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(des1, des2, k=2)\ngood = [m for m, n in (p for p in pairs if len(p) == 2) if m.distance < 0.75 * n.distance]\n\nsrc = np.float32([kp1[m.queryIdx].pt for m in good]).reshape(-1, 1, 2)\ndst = np.float32([kp2[m.trainIdx].pt for m in good]).reshape(-1, 1, 2)\nH, inliers = cv2.findHomography(src, dst, cv2.RANSAC, 3.0)\nprint(len(good), int(inliers.sum()))                 # e.g. 200+ matches, most inliers\nprint(H[:2, 2].round())                              # about [25. 15.]: the shift",
+   "code_lang": "python",
+   "takeaways": [
+    "detectAndCompute gives keypoints plus descriptors",
+    "ORB uses Hamming distance, SIFT uses L2",
+    "Lowe's ratio test removes ambiguous matches",
+    "findHomography with RANSAC rejects outliers and returns an inlier mask"
+   ],
+   "pitfalls": [
+    "Matching ORB's binary descriptors with NORM_L2, which gives meaningless distances."
+   ],
+   "quiz": [
+    {
+     "q": "Why use knnMatch with k=2 and a ratio test instead of just the single best match?",
+     "options": [
+      "It doubles the number of matches",
+      "A match whose best and second-best distances are similar is ambiguous and likely wrong",
+      "BFMatcher requires k=2",
+      "It converts binary descriptors to float"
+     ],
+     "answer": 1,
+     "explain": "The ratio test keeps only distinctive matches whose nearest neighbour is clearly better than the next."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/dc/dc3/tutorial_py_matcher.html",
+   "requires": [
+    "opencv.geometric-transforms",
+    "opencv.edges-gradients"
+   ]
+  },
+  {
+   "id": "opencv.camera-calibration",
+   "name": "Camera calibration and undistortion",
+   "module": "geometry",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Estimate a camera's intrinsic matrix and lens distortion from chessboard images, then undistort frames.",
+   "why": "Any measurement in real-world units, 3-D pose estimation or AR overlay needs a calibrated camera.",
+   "body": "A camera is described by its **intrinsic matrix** K (focal lengths `fx`, `fy` in pixels and principal point `cx`, `cy`) and **distortion coefficients** (radial k1, k2, k3 and tangential p1, p2) that bend straight lines, especially with wide-angle lenses.\n\nCalibration recipe:\n\n- Print a chessboard and photograph it 10 to 20 times from different angles and distances, covering the whole frame.\n- For each image, `cv2.findChessboardCorners(gray, (cols, rows))` finds the inner corners; refine them with `cv2.cornerSubPix`. `(cols, rows)` counts inner corners, not squares.\n- Build matching 3-D object points: a grid with z = 0, scaled by the real square size.\n- `ret, K, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, image_size, None, None)`.\n\n`ret` is the RMS reprojection error in pixels; under about 0.5 is good. Larger values point to blurry shots, wrong pattern size or too little variety.\n\nThen `cv2.undistort(img, K, dist)` straightens images; for video, precompute maps once with `cv2.initUndistortRectifyMap` and apply `cv2.remap` per frame. `cv2.solvePnP(object_pts, image_pts, K, dist)` recovers the pose of a known object, and `cv2.projectPoints` draws 3-D points onto the image.\n\nThe intrinsics are only valid for the resolution and zoom/focus you calibrated with. The ChArUco boards in the aruco module are more robust when the board is partly visible.",
+   "code": "import cv2\nimport numpy as np\n\npattern, square = (7, 5), 30.0                 # inner corners, mm per square\nobj = np.zeros((7 * 5, 3), np.float32)\nobj[:, :2] = np.mgrid[0:7, 0:5].T.reshape(-1, 2) * square\n\nK_true = np.array([[800, 0, 320], [0, 800, 240], [0, 0, 1]], np.float64)\nobjpoints, imgpoints = [], []\nfor rx, ry in [(0.3, 0.1), (-0.2, 0.3), (0.1, -0.3), (0.4, 0.4), (-0.3, -0.2)]:\n    rvec = np.array([rx, ry, 0.05]); tvec = np.array([-90.0, -60.0, 600.0])\n    pts, _ = cv2.projectPoints(obj, rvec, tvec, K_true, None)   # simulated corners\n    objpoints.append(obj); imgpoints.append(pts.astype(np.float32))\n\nrms, K, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, (640, 480), None, None)\nprint(rms < 0.01)                              # True: perfect synthetic data\nprint(K.round())                               # close to fx=fy=800, cx=320, cy=240\nprint(dist.shape)                              # (1, 5) k1 k2 p1 p2 k3",
+   "code_lang": "python",
+   "takeaways": [
+    "Intrinsics K and distortion coefficients describe the camera",
+    "Calibrate from many varied chessboard views; the pattern size counts inner corners",
+    "The RMS reprojection error should be well under a pixel",
+    "Undistort with undistort, or precomputed maps plus remap for video"
+   ],
+   "pitfalls": [
+    "Calibrating at one resolution and using the matrix on frames of another resolution or zoom."
+   ],
+   "quiz": [
+    {
+     "q": "calibrateCamera returns an RMS error of 4.2 pixels. What does that suggest?",
+     "options": [
+      "Something is wrong: bad corner detections, wrong pattern size or too few varied views",
+      "Excellent calibration",
+      "The lens has strong distortion, which is normal",
+      "The image size must be given as (height, width)"
+     ],
+     "answer": 0,
+     "explain": "A good calibration reprojects corners within a fraction of a pixel; several pixels indicates a problem."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/dc/dbb/tutorial_py_calibration.html",
+   "requires": [
+    "opencv.geometric-transforms"
+   ]
+  },
+  {
+   "id": "opencv.dnn-inference",
+   "name": "Running neural networks with cv2.dnn",
+   "module": "dnn",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Load ONNX models with cv2.dnn, prepare inputs with blobFromImage and run inference without a deep learning framework.",
+   "why": "cv2.dnn lets you deploy trained classifiers and detectors in a lightweight app with only OpenCV installed.",
+   "body": "The **dnn module** runs pretrained networks for inference. Train in PyTorch or TensorFlow, export to **ONNX**, and load it with `net = cv2.dnn.readNet(\"model.onnx\")` (or `readNetFromONNX`). Training is not supported.\n\nInputs go in as a 4-D **blob** in NCHW layout (batch, channels, height, width), float32. `cv2.dnn.blobFromImage` does the usual preprocessing in one call:\n\n```python\nblob = cv2.dnn.blobFromImage(img, scalefactor=1/255, size=(224, 224),\n                             mean=(0, 0, 0), swapRB=True, crop=False)\n```\n\n- `scalefactor` multiplies pixels (after mean subtraction)\n- `size` resizes; `crop=True` centre-crops instead of stretching\n- `swapRB=True` turns OpenCV's BGR into the RGB most models were trained on\n\nThen `net.setInput(blob)` and `out = net.forward()`. The output layout depends on the model: class scores for classifiers, boxes and scores for detectors, which you decode yourself and filter with `cv2.dnn.NMSBoxes` (non-maximum suppression). Higher-level wrappers such as `cv2.dnn.DetectionModel` handle some of this.\n\n`net.setPreferableBackend` and `setPreferableTarget` choose the engine: the default CPU backend, CUDA, OpenVINO or OpenCL, depending on the build. Preprocessing must match training exactly: wrong scaling, channel order or normalisation silently ruins accuracy. OpenCV 5 reworks the dnn engine with broader ONNX coverage, but the Python workflow stays the same.",
+   "code": "import cv2\nimport numpy as np\n\nimg = np.zeros((300, 400, 3), np.uint8)\nimg[..., 2] = 255                                  # pure red in BGR\n\nblob = cv2.dnn.blobFromImage(img, scalefactor=1 / 255, size=(224, 224),\n                             mean=(0, 0, 0), swapRB=True, crop=False)\nprint(blob.shape, blob.dtype)                      # (1, 3, 224, 224) float32\nprint(blob[0, :, 0, 0])                            # [1. 0. 0.]  now RGB, scaled\n\nboxes = [[10, 10, 100, 100], [12, 12, 100, 100], [200, 50, 80, 80]]   # x, y, w, h\nscores = [0.9, 0.8, 0.75]\nkeep = cv2.dnn.NMSBoxes(boxes, scores, score_threshold=0.5, nms_threshold=0.4)\nprint(sorted(np.array(keep).ravel().tolist()))     # [0, 2]  duplicate box removed\n\n# With a real model file:\n# net = cv2.dnn.readNet(\"resnet18.onnx\")\n# net.setInput(blob); scores = net.forward()      # e.g. shape (1, 1000)",
+   "code_lang": "python",
+   "takeaways": [
+    "cv2.dnn runs inference only; train elsewhere and export to ONNX",
+    "blobFromImage makes NCHW float32 input: scale, resize, mean, swapRB",
+    "Decode outputs yourself and filter boxes with NMSBoxes",
+    "Preprocessing must match the model's training exactly"
+   ],
+   "pitfalls": [
+    "Forgetting swapRB=True for a model trained on RGB images, quietly lowering accuracy."
+   ],
+   "quiz": [
+    {
+     "q": "What shape does `cv2.dnn.blobFromImage(img, size=(320, 240))` produce for one colour image?",
+     "options": [
+      "(240, 320, 3)",
+      "(1, 240, 320, 3)",
+      "(1, 3, 240, 320)",
+      "(3, 320, 240)"
+     ],
+     "answer": 2,
+     "explain": "Blobs are NCHW: batch 1, 3 channels, then height 240 and width 320."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/d6/d0f/group__dnn.html",
+   "requires": [
+    "opencv.resize-crop-flip",
+    "opencv.color-spaces"
+   ]
+  },
+  {
+   "id": "opencv.mat-numpy-bridge",
+   "name": "How cv2 maps NumPy arrays to cv::Mat",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Understand how the bindings convert arrays, why non-contiguous or wrong-dtype inputs fail or copy, and how outputs are allocated.",
+   "why": "Most mysterious cv2 errors in Python come from the array-to-Mat conversion, not from the algorithm itself.",
+   "body": "OpenCV is C++; every Python call goes through generated bindings that convert ndarrays to `cv::Mat` (or `cv::InputArray`). A Mat is a header (rows, cols, type, step) pointing at a data buffer, so a suitable ndarray is **wrapped without copying**.\n\nWhat counts as suitable:\n\n- Supported dtypes map to Mat depths: `uint8` CV_8U, `int8`, `uint16`, `int16`, `int32`, `float32`, `float64` (OpenCV 5 adds more, such as `bool`, `uint32`, `int64`). `int64` arrays, NumPy's default integer, are rejected or converted by many functions, which is why points should be `int32` or `float32`.\n- The last axis becomes channels (limited to 512, `CV_CN_MAX`) when the array is 3-D.\n- Rows may be strided, but each row's pixels must be contiguous. A view like `img[..., ::-1]` has a negative channel stride, and functions that **write into an argument** (drawing, `out=`/`dst=` parameters) raise \"Layout of the output array is incompatible with cv::Mat\". Fix it with `np.ascontiguousarray`.\n\n**In-place** functions like `cv2.rectangle` mutate your array because the Mat shares its memory. Functions returning a new image allocate a fresh ndarray; passing a correctly shaped `dst=` array reuses memory in hot loops.\n\n**Saturation**: cv2 arithmetic and conversions use `saturate_cast`, clamping instead of wrapping, and rounding float-to-int to nearest rather than truncating as NumPy's `astype` does.\n\nRead error messages carefully: \"Expected Ptr<cv::UMat> for argument\" usually means the array argument had an unsupported dtype or shape, since the binding tried every overload and none matched.",
+   "code": "import cv2\nimport numpy as np\n\nimg = np.zeros((50, 50, 3), np.uint8)\nrgb_view = img[..., ::-1]                        # negative channel stride\nprint(rgb_view.flags[\"C_CONTIGUOUS\"])            # False\ntry:\n    cv2.rectangle(rgb_view, (5, 5), (20, 20), (255, 0, 0), -1)\nexcept cv2.error as e:\n    print(\"error:\", \"Layout\" in str(e))         # error: True\nfixed = np.ascontiguousarray(rgb_view)\ncv2.rectangle(fixed, (5, 5), (20, 20), (255, 0, 0), -1)   # works\n\npts64 = np.array([[1, 1], [10, 1], [10, 10]])    # int64 by default\npts32 = pts64.astype(np.int32)\ncv2.fillPoly(img, [pts32], (0, 255, 0))          # int32 is what cv2 expects\n\nf = np.array([[1.6, -0.4, 300.0]], np.float32)\nprint(f.astype(np.uint8))                        # NumPy: [[1 0 44]] (truncate, wrap)\nprint(cv2.convertScaleAbs(f))                    # cv2: [[  2   0 255]] round + saturate",
+   "code_lang": "python",
+   "takeaways": [
+    "Suitable ndarrays are wrapped as cv::Mat without copying",
+    "Output/in-place arguments must be contiguous within each row: use np.ascontiguousarray",
+    "Prefer int32 or float32 for points; int64 often fails",
+    "cv2 conversions round and saturate, NumPy astype truncates and wraps"
+   ],
+   "pitfalls": [
+    "Drawing on `img[..., ::-1]` or another non-contiguous view and getting a cryptic layout error."
+   ],
+   "quiz": [
+    {
+     "q": "Why can cv2.rectangle fail on `img[:, :, ::-1]` but work on `img.copy()`?",
+     "options": [
+      "The view has the wrong dtype",
+      "The view is read-only",
+      "The view's channels are stored with a negative stride, which cv::Mat cannot represent for output",
+      "cv2 only accepts RGB images"
+     ],
+     "answer": 2,
+     "explain": "Mat requires elements within a row to be laid out contiguously; reversing channels breaks that."
+    },
+    {
+     "q": "`cv2.convertScaleAbs(np.float32([[300.0]]))` returns...",
+     "options": [
+      "[[44]]",
+      "[[300]]",
+      "an error",
+      "[[255]]"
+     ],
+     "answer": 3,
+     "explain": "OpenCV saturates out-of-range values to 255 instead of wrapping modulo 256."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/d3/df2/tutorial_py_basic_ops.html",
+   "requires": [
+    "opencv.images-as-arrays",
+    "opencv.drawing",
+    "numpy.memory-layout-strides"
+   ]
+  },
+  {
+   "id": "opencv.performance",
+   "name": "Performance: threads, UMat and vectorising",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Measure and speed up cv2 pipelines with threading control, the T-API's UMat, and avoiding per-pixel Python loops.",
+   "why": "Real-time video leaves milliseconds per frame, so knowing where time goes in cv2 code is essential.",
+   "body": "Start by measuring. `cv2.getTickCount()` and `cv2.getTickFrequency()` give precise timings, as does `time.perf_counter`.\n\nThe biggest win is usually removing **Python-level pixel loops**. A loop over a 1080p frame touches two million pixels through the interpreter; the equivalent cv2 or NumPy call runs in optimised C++ with SIMD instructions (SSE, AVX, NEON). `cv2.useOptimized()` reports whether those optimised paths are enabled (they are by default).\n\nOpenCV parallelises many functions internally with its own thread pool. `cv2.setNumThreads(n)` sets the count; `cv2.getNumThreads()` reports it. When you already parallelise at a higher level (multiprocessing workers, a DataLoader with `num_workers`), set it to 0 or 1 inside workers to avoid oversubscribing the CPU.\n\nThe **Transparent API** (T-API) uses `cv2.UMat` instead of ndarrays. Functions called with UMat inputs may run on an OpenCL device (often an integrated GPU) and return UMats; call `.get()` to download the result. It pays off only for chains of heavy operations on large images, because each upload and download costs time. Check `cv2.ocl.haveOpenCL()`.\n\nOther levers:\n\n- Work at lower resolution when possible: halving width and height cuts most costs by four.\n- Reuse buffers with `dst=` arguments in loops.\n- Use `cv2.LUT` for per-pixel mappings such as gamma correction instead of math on every pixel.\n- CUDA functions (`cv2.cuda`) exist only in custom builds; pip wheels don't include them.",
+   "code": "import time\nimport cv2\nimport numpy as np\n\nimg = np.random.default_rng(0).integers(0, 256, (720, 1280), dtype=np.uint8)\n\ngamma = 0.5\ntable = np.array([((i / 255) ** gamma) * 255 for i in range(256)]).astype(np.uint8)\n\nt = time.perf_counter()\nslow = (((img / 255.0) ** gamma) * 255).astype(np.uint8)   # float math per pixel\nt_np = time.perf_counter() - t\n\nt = time.perf_counter()\nfast = cv2.LUT(img, table)                                 # one table lookup each\nt_lut = time.perf_counter() - t\nprint(np.abs(fast.astype(int) - slow).max() <= 1, t_lut < t_np)   # True True\n\nprint(cv2.useOptimized(), cv2.getNumThreads() >= 1)        # True True\ncv2.setNumThreads(1)          # e.g. inside a multiprocessing worker\n\nu = cv2.UMat(img)                                          # T-API container\nblur = cv2.GaussianBlur(u, (9, 9), 0)                      # may run via OpenCL\nprint(type(blur).__name__, blur.get().shape)               # UMat (720, 1280)",
+   "code_lang": "python",
+   "takeaways": [
+    "Replace per-pixel Python loops with cv2/NumPy calls or cv2.LUT",
+    "cv2.setNumThreads controls OpenCV's internal thread pool",
+    "UMat enables OpenCL offload; .get() downloads results",
+    "Downscaling and buffer reuse are often the cheapest speed-ups"
+   ],
+   "pitfalls": [
+    "Running many multiprocessing workers that each spawn a full OpenCV thread pool, oversubscribing the CPU."
+   ],
+   "quiz": [
+    {
+     "q": "When is converting a pipeline to cv2.UMat likely to help?",
+     "options": [
+      "Always, for any image size",
+      "For long chains of heavy operations on large images on a machine with a usable OpenCL device",
+      "Only for drawing functions",
+      "Only on headless builds"
+     ],
+     "answer": 1,
+     "explain": "Transfers to and from the device cost time, so only substantial GPU-side work pays them back."
+    }
+   ],
+   "docs": "https://docs.opencv.org/4.x/dc/d71/tutorial_py_optimization.html",
+   "requires": [
+    "opencv.filtering-blur",
+    "opencv.mat-numpy-bridge"
+   ]
+  },
+  {
+   "id": "opencv.builds-packages",
+   "name": "Packages, builds and contrib modules",
+   "module": "internals",
+   "level": 4,
+   "minutes": 10,
+   "summary": "Choose between opencv-python, -headless and -contrib wheels, inspect build options and know when to compile your own.",
+   "why": "Missing codecs, GUI errors on servers and absent modules all trace back to which OpenCV build is installed.",
+   "body": "OpenCV ships on PyPI as four mutually exclusive wheels that all provide the same `cv2` module:\n\n- `opencv-python`: main modules plus GUI (`imshow`) support\n- `opencv-python-headless`: no GUI dependencies; for servers, Docker and CI\n- `opencv-contrib-python` and `opencv-contrib-python-headless`: add the extra **contrib** modules (`cv2.ximgproc`, `cv2.xfeatures2d`, `cv2.face`, tracking extras and more)\n\nInstall exactly one. Having two installed (often pulled in by different dependencies) makes them overwrite each other's files and leads to errors such as \"module cv2 has no attribute\". Fix by uninstalling all variants and reinstalling one.\n\n`print(cv2.getBuildInformation())` shows how your copy was built: version, enabled modules, video I/O backends (FFmpeg, GStreamer, V4L, Media Foundation), parallel framework, SIMD dispatch, OpenCL and whether CUDA is present. It answers most \"why doesn't this codec/camera/feature work\" questions.\n\nThe pip wheels don't include CUDA, non-free algorithms or GStreamer on every platform. When you need those, build from source with CMake (enabling `WITH_CUDA`, `OPENCV_EXTRA_MODULES_PATH` for contrib, and so on) or use a distribution package that has them.\n\nMajor versions matter too. OpenCV 5 reorganises some C++ modules (for example splitting calibration and 3-D code) and modernises the dnn engine, but the Python `cv2.*` API stays largely compatible; check `cv2.__version__` when following older tutorials.",
+   "code": "import cv2\n\nprint(cv2.__version__)                     # e.g. 4.12.0 or 5.0.0\n\ninfo = cv2.getBuildInformation()\nfor line in info.splitlines():\n    if any(k in line for k in (\"FFMPEG\", \"GStreamer\", \"Parallel framework\", \"OpenCL:\")):\n        print(line.strip())\n# FFMPEG:  YES ...  /  Parallel framework: pthreads  /  OpenCL: YES ...\n\nprint(hasattr(cv2, \"SIFT_create\"))         # True (main module since 4.4)\nprint(hasattr(cv2, \"ximgproc\"))            # True only with a contrib wheel\nprint(cv2.cuda.getCudaEnabledDeviceCount() if hasattr(cv2, \"cuda\") else 0)\n# 0 with pip wheels: no CUDA support compiled in",
+   "code_lang": "python",
+   "takeaways": [
+    "Four wheels (main/contrib x GUI/headless); install exactly one",
+    "cv2.getBuildInformation() reveals backends, codecs and acceleration",
+    "CUDA and some extras need a source build",
+    "Check cv2.__version__ when following older tutorials"
+   ],
+   "pitfalls": [
+    "Installing both opencv-python and opencv-python-headless, which overwrite each other's cv2 files."
+   ],
+   "quiz": [
+    {
+     "q": "A Docker image fails at `import cv2` with a missing libGL error. What is the simplest fix?",
+     "options": [
+      "Install opencv-python-headless instead of opencv-python",
+      "Install opencv-contrib-python instead",
+      "Build OpenCV with CUDA",
+      "Downgrade NumPy"
+     ],
+     "answer": 0,
+     "explain": "The headless wheel drops the GUI dependencies such as libGL that servers lack."
+    }
+   ],
+   "docs": "https://pypi.org/project/opencv-python/",
+   "requires": [
+    "opencv.read-write-show",
+    "python.venv-pip"
+   ]
+  }
+ ]
+}

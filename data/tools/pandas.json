@@ -1,0 +1,1639 @@
+{
+ "tool": {
+  "id": "pandas",
+  "name": "pandas",
+  "category": "library",
+  "tagline": "Labelled tables for loading, cleaning, analysing and reshaping data in Python",
+  "description": "pandas provides the DataFrame and Series: labelled, column-typed tables built on NumPy and Apache Arrow. It is the standard Python tool for reading data from files and databases, cleaning it, grouping, joining and reshaping it, and analysing time series. Learning it is the fastest route from raw data to answers in Python.",
+  "icon": "pd",
+  "color": "#150458",
+  "official_docs": "https://pandas.pydata.org/docs/",
+  "version": "2.2+ (notes on 3.0)",
+  "aliases": [
+   "pd",
+   "pandas dataframe"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   },
+   {
+    "tool": "numpy",
+    "level": 1
+   },
+   {
+    "tool": "sql",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Series and DataFrames"
+  },
+  {
+   "id": "io",
+   "name": "Reading and writing data"
+  },
+  {
+   "id": "selecting",
+   "name": "Selecting and filtering"
+  },
+  {
+   "id": "transform",
+   "name": "Cleaning and transforming"
+  },
+  {
+   "id": "combining",
+   "name": "Combining data"
+  },
+  {
+   "id": "analysis",
+   "name": "Grouping and analysis"
+  },
+  {
+   "id": "time",
+   "name": "Time series"
+  },
+  {
+   "id": "performance",
+   "name": "Dtypes and performance"
+  },
+  {
+   "id": "internals",
+   "name": "Internals and scale"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "pandas.series",
+   "name": "Series",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "A one-dimensional labelled array: values with a dtype plus an index of labels.",
+   "why": "Every DataFrame column is a Series, so its behaviour underlies everything you do in pandas.",
+   "body": "pandas is imported as `import pandas as pd`. Its simplest structure is the **Series**: a one-dimensional array of values (usually backed by a NumPy array) paired with an **index**, a sequence of labels for those values, plus an optional `name`.\n\nYou can build one from a list, where the index defaults to `0, 1, 2, ...`, or from a dict, where the keys become the index:\n\n```python\ns = pd.Series({\"apples\": 3, \"pears\": 5})\n```\n\nA Series feels like a mix of a NumPy array and a dict. Like an array, it has a `dtype`, supports vectorized arithmetic (`s * 2`), comparisons and NumPy ufuncs (`np.log(s)`), and has methods such as `sum`, `mean`, `max`, `idxmax`. Like a dict, you can look values up by label, test `\"apples\" in s` (which checks the **index**, not the values) and iterate over `s.items()`.\n\nUnlike NumPy, aggregations **skip missing values** by default: `pd.Series([1, None, 3]).mean()` is 2.0, not NaN.\n\nTo be explicit about how you look something up, use `s.loc[\"apples\"]` for labels and `s.iloc[0]` for positions. Plain `s[0]` on a Series with a non-integer index is ambiguous; it was positional with a deprecation warning in pandas 2.x and is label-only from pandas 3.0, so avoid it.\n\n`s.index` and `s.values` give the two halves; prefer `s.to_numpy()` over `s.values` when you need a NumPy array. Operations that return a Series keep the index, which is how labels follow your data through a computation.",
+   "code": "import numpy as np\nimport pandas as pd\n\nstock = pd.Series({\"apples\": 3, \"pears\": 5, \"plums\": 0}, name=\"stock\")\nprint(stock)\n# apples    3\n# pears     5\n# plums     0\n# Name: stock, dtype: int64\n\nprint(stock.loc[\"pears\"], stock.iloc[0])   # 5 3\nprint(\"pears\" in stock, 5 in stock)        # True False (checks the index)\nprint(stock[stock > 0].index.tolist())     # ['apples', 'pears']\nprint((stock * 1.5).idxmax())              # pears\n\nt = pd.Series([21.5, np.nan, 23.5])\nprint(t.mean())                            # 22.5  (NaN skipped)\nprint(t.to_numpy())                        # [21.5  nan 23.5]",
+   "code_lang": "python",
+   "takeaways": [
+    "A Series is values + index labels + dtype + optional name",
+    "Vectorized maths works like NumPy; aggregations skip NaN by default",
+    "Use `.loc` for labels and `.iloc` for positions",
+    "`in` tests the index, not the values"
+   ],
+   "pitfalls": [
+    "Writing `s[0]` and assuming it means 'first element': use `s.iloc[0]`."
+   ],
+   "quiz": [
+    {
+     "q": "`s = pd.Series([10, 20], index=['a', 'b'])`. What is `20 in s`?",
+     "options": [
+      "True",
+      "It raises KeyError",
+      "False",
+      "It returns a boolean Series"
+     ],
+     "answer": 2,
+     "explain": "Membership tests on a Series look at the index labels ('a', 'b'), not the values."
+    },
+    {
+     "q": "What is `pd.Series([2.0, None, 4.0]).sum()`?",
+     "options": [
+      "6.0",
+      "nan",
+      "None",
+      "It raises TypeError"
+     ],
+     "answer": 0,
+     "explain": "pandas aggregations skip missing values by default (skipna=True)."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/dsintro.html#series",
+   "requires": [
+    "numpy.ndarray-basics",
+    "python.dicts"
+   ]
+  },
+  {
+   "id": "pandas.dataframe",
+   "name": "DataFrame",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "A table of labelled columns sharing one row index; the central object of pandas.",
+   "why": "Nearly all pandas work means building, inspecting and transforming DataFrames.",
+   "body": "A **DataFrame** is a two-dimensional table: a collection of columns, each a Series with its own dtype, all sharing the same row **index**. Column labels live in `df.columns`.\n\nThe most common way to build one by hand is from a dict of lists (one key per column) or a list of dicts (one per row):\n\n```python\ndf = pd.DataFrame({\"city\": [\"Oslo\", \"Lima\"], \"temp\": [3.5, 19.0]})\n```\n\nFirst things to do with any DataFrame:\n\n- `df.shape` gives `(rows, columns)`; `len(df)` gives the row count\n- `df.head()` and `df.tail()` show the first or last rows; `df.sample(5)` a random few\n- `df.dtypes` lists each column's type; `df.info()` adds non-null counts and memory use\n- `df.columns` and `df.index` show the labels\n\nSelecting one column with `df[\"temp\"]` returns a Series; a list of columns, `df[[\"city\", \"temp\"]]`, returns a DataFrame. Attribute access (`df.temp`) also works for simple names, but breaks for names with spaces or that collide with methods (`df.count` is a method), so square brackets are the safer habit.\n\nBecause columns are stored separately and can have different types, think of a DataFrame as **column-oriented**. Operations on whole columns are fast; looping over rows is slow and rarely necessary.\n\nThe row index defaults to `0..n-1` (a memory-free `RangeIndex`). You can promote a column to be the index with `df.set_index(\"city\")`, which makes label lookups by city possible, and undo it with `reset_index()`. Most methods return a new DataFrame rather than modifying the original, so assign the result: `df = df.set_index(\"city\")`.",
+   "code": "import pandas as pd\n\ndf = pd.DataFrame({\n    \"city\": [\"Oslo\", \"Lima\", \"Cairo\", \"Perth\"],\n    \"temp\": [3.5, 19.0, 28.2, 22.4],\n    \"rain_mm\": [49, 1, 0, 14],\n})\nprint(df.shape)                # (4, 3)\nprint(df.head(2))\n#    city  temp  rain_mm\n# 0  Oslo   3.5       49\n# 1  Lima  19.0        1\n\nprint(df[\"temp\"].max())        # 28.2   a column is a Series\nprint(df[[\"city\", \"rain_mm\"]].columns.tolist())   # ['city', 'rain_mm']\nprint(df.dtypes[\"rain_mm\"])    # int64\n\nrows = [{\"city\": \"Rome\", \"temp\": 15.1, \"rain_mm\": 70}]\nprint(pd.DataFrame(rows))\n\nby_city = df.set_index(\"city\")\nprint(by_city.loc[\"Lima\", \"temp\"])   # 19.0",
+   "code_lang": "python",
+   "takeaways": [
+    "A DataFrame is a set of Series columns sharing one row index",
+    "Start with `shape`, `head`, `dtypes` and `info`",
+    "`df['col']` gives a Series, `df[['a', 'b']]` a DataFrame",
+    "Most methods return a new object; assign the result"
+   ],
+   "pitfalls": [
+    "Calling `df.set_index('id')` and expecting `df` to change: it returns a new DataFrame."
+   ],
+   "quiz": [
+    {
+     "q": "What type does `df[['price']]` return?",
+     "options": [
+      "A Series",
+      "A NumPy array",
+      "A list",
+      "A DataFrame with one column"
+     ],
+     "answer": 3,
+     "explain": "Passing a list of labels always returns a DataFrame, even with one label."
+    },
+    {
+     "q": "Why is `df['count']` safer than `df.count` for a column named 'count'?",
+     "options": [
+      "Attribute access is slower",
+      "df.count is the DataFrame.count method, not the column",
+      "Attribute access returns a copy",
+      "Brackets work only for numeric columns"
+     ],
+     "answer": 1,
+     "explain": "Attribute access is shadowed by methods and attributes with the same name."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/dsintro.html#dataframe",
+   "requires": [
+    "pandas.series"
+   ]
+  },
+  {
+   "id": "pandas.index-alignment",
+   "name": "Index and alignment",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "pandas matches data by index label, not position, in arithmetic and assignment.",
+   "why": "Automatic alignment prevents mismatched-row bugs but creates surprise NaNs if you don't expect it.",
+   "body": "The index is not just decoration. When you combine two Series or DataFrames, pandas **aligns** them on their labels first, then operates on matching pairs. Labels present in only one operand produce `NaN` in the result.\n\n```python\na = pd.Series([1, 2], index=[\"x\", \"y\"])\nb = pd.Series([10, 20], index=[\"y\", \"z\"])\na + b   # x NaN, y 12, z NaN\n```\n\nThe same happens when assigning a Series as a column: `df[\"new\"] = other_series` matches rows by index label, not by position. If the indexes don't line up you get NaNs, or silently wrong rows if they happen to overlap in the wrong way.\n\nThis is powerful when it's what you want: subtracting last year's sales from this year's by product just works, whatever the row order. It's surprising when you think positionally, for example after filtering or sorting one side only.\n\nTools to stay in control:\n\n- `a.add(b, fill_value=0)` (also `sub`, `mul`, `div`) treats missing labels as 0 instead of producing NaN.\n- `a.align(b, join=\"inner\")` returns both, restricted to common labels.\n- `reset_index(drop=True)` throws away the labels and renumbers 0..n-1, when you really mean \"by position\".\n- `.to_numpy()` on the right-hand side assigns by position, if the lengths match.\n- `df.reindex(new_labels)` conforms to a given set of labels, inserting NaN for new ones.\n\nIndexes can contain duplicate labels, which makes alignment produce every matching combination. Check `df.index.is_unique` when results suddenly have more rows than expected.",
+   "code": "import pandas as pd\n\nthis_year = pd.Series({\"tea\": 120, \"coffee\": 300, \"cocoa\": 40})\nlast_year = pd.Series({\"coffee\": 250, \"tea\": 100, \"juice\": 90})\n\nprint(this_year - last_year)\n# cocoa      NaN\n# coffee    50.0\n# juice      NaN\n# tea       20.0\nprint(this_year.sub(last_year, fill_value=0))   # cocoa 40, juice -90, ...\n\ndf = pd.DataFrame({\"v\": [1, 2, 3]}, index=[10, 20, 30])\ns = pd.Series([100, 200, 300])          # index 0, 1, 2\ndf[\"by_label\"] = s                      # no matching labels!\ndf[\"by_position\"] = s.to_numpy()\nprint(df)\n#     v  by_label  by_position\n# 10  1       NaN          100\n# 20  2       NaN          200\n# 30  3       NaN          300",
+   "code_lang": "python",
+   "takeaways": [
+    "Binary operations align on index labels before computing",
+    "Labels missing on one side give NaN; use `fill_value=` to avoid that",
+    "Assigning a Series as a column aligns by label, not position",
+    "Use `reset_index(drop=True)` or `.to_numpy()` when you mean position"
+   ],
+   "pitfalls": [
+    "Assigning a filtered or re-sorted Series to a column of another DataFrame and getting NaNs or misplaced rows."
+   ],
+   "quiz": [
+    {
+     "q": "`a` has index [0, 1, 2] and `b` has index [1, 2, 3]. How many NaNs does `a + b` contain (no NaNs in the inputs)?",
+     "options": [
+      "0",
+      "2",
+      "1",
+      "3"
+     ],
+     "answer": 1,
+     "explain": "The result has the union of labels 0-3; labels 0 and 3 appear on only one side, giving 2 NaNs."
+    },
+    {
+     "q": "After `df = df[df.x > 0]`, the index has gaps. What does `df['y'] = pd.Series(values)` do with a default 0..n-1 index?",
+     "options": [
+      "Assigns values in order of position",
+      "Raises because indexes differ",
+      "Aligns by label, so rows whose labels are missing from the new Series get NaN",
+      "Resets df's index first"
+     ],
+     "answer": 2,
+     "explain": "Column assignment from a Series aligns on the index; only labels present in both receive values."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/dsintro.html#data-alignment-and-arithmetic",
+   "requires": [
+    "pandas.series"
+   ]
+  },
+  {
+   "id": "pandas.reading-files",
+   "name": "Reading CSV, Excel and Parquet",
+   "module": "io",
+   "level": 1,
+   "minutes": 15,
+   "summary": "Load data with read_csv, read_excel and read_parquet, controlling columns, types, dates and missing markers.",
+   "why": "Getting data in correctly, with the right types, avoids most downstream cleaning headaches.",
+   "body": "pandas has a `read_*` function for each common format, each returning a DataFrame.\n\n**`pd.read_csv(path)`** is the workhorse. It accepts local paths, URLs and file-like objects, and infers compression from extensions like `.gz` or `.zip`. Options you'll use constantly:\n\n- `sep=\";\"` for other delimiters; `header=None` if there's no header row\n- `usecols=[...]` to read only some columns (faster and smaller)\n- `dtype={\"zip\": \"string\", \"qty\": \"int32\"}` to fix types instead of letting pandas guess; codes like zip codes or IDs with leading zeros must be read as strings\n- `parse_dates=[\"date\"]` to get real datetimes\n- `na_values=[\"-\", \"n/a\"]` for extra missing-value markers\n- `index_col=\"id\"`, `nrows=1000` for a quick look, `chunksize=` for files too large to load at once\n- `engine=\"pyarrow\"` for multi-threaded parsing of large files\n\n**`pd.read_excel(path, sheet_name=\"Data\")`** needs the `openpyxl` package for `.xlsx`. `sheet_name=None` reads every sheet into a dict of DataFrames. Excel files are slow to parse, so convert them once if you'll reread them.\n\n**`pd.read_parquet(path)`** reads Apache Parquet, a compressed, columnar binary format that stores the schema. Types, including datetimes and categoricals, survive a round trip exactly, and `columns=[...]` reads only what you need. It requires `pyarrow` (or `fastparquet`). For anything you'll load repeatedly, Parquet is far faster and smaller than CSV.\n\nReaders also accept `dtype_backend=\"numpy_nullable\"` or `\"pyarrow\"` to get nullable or Arrow-backed types. Always check the result with `df.info()` or `df.dtypes`: a numeric column that came in as text usually means stray non-numeric values in the file.",
+   "code": "import io\nimport pandas as pd\n\ncsv = io.StringIO(\n    \"order_id;date;zip;qty;price\\n\"\n    \"1;2024-03-01;02134;2;9.5\\n\"\n    \"2;2024-03-02;10001;n/a;12.0\\n\"\n    \"3;2024-03-02;94105;1;-\\n\"\n)\ndf = pd.read_csv(\n    csv,\n    sep=\";\",\n    dtype={\"zip\": \"string\"},         # keep leading zeros\n    parse_dates=[\"date\"],\n    na_values=[\"n/a\", \"-\"],\n    index_col=\"order_id\",\n)\nprint(df.dtypes)\n# date     datetime64[ns]  (datetime64[us] on pandas 3)\n# zip      string\n# qty      float64        (int column with a missing value)\n# price    float64\nprint(df.loc[1, \"zip\"])              # 02134\n\ndf.to_parquet(\"orders.parquet\")      # needs pyarrow\nback = pd.read_parquet(\"orders.parquet\", columns=[\"zip\", \"qty\"])\nprint(back.dtypes.astype(str).to_dict())   # {'zip': 'string', 'qty': 'float64'}",
+   "code_lang": "python",
+   "takeaways": [
+    "`read_csv` options: sep, usecols, dtype, parse_dates, na_values, index_col",
+    "Read IDs and codes as strings to keep leading zeros",
+    "Parquet keeps types and is much faster than CSV for repeated loads",
+    "Check `df.dtypes` right after loading"
+   ],
+   "pitfalls": [
+    "Letting pandas infer types on IDs like '00123', which become the integer 123."
+   ],
+   "quiz": [
+    {
+     "q": "A CSV column of integers contains a few blank cells. With default settings, what dtype does read_csv give it?",
+     "options": [
+      "float64, with NaN for the blanks",
+      "int64 with None",
+      "object",
+      "Int64"
+     ],
+     "answer": 0,
+     "explain": "Classic NumPy int64 can't hold NaN, so the column is upcast to float64 (use nullable Int64 to avoid that)."
+    },
+    {
+     "q": "Why is Parquet usually preferred over CSV for data you reload often?",
+     "options": [
+      "It is human-readable",
+      "It is the only format pandas can write",
+      "It supports more rows",
+      "It stores the schema and compressed columns, so loads are faster and types survive"
+     ],
+     "answer": 3,
+     "explain": "Parquet is a typed, columnar, compressed format: no type guessing and column pruning on read."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/io.html",
+   "requires": [
+    "pandas.dataframe"
+   ]
+  },
+  {
+   "id": "pandas.loc-iloc",
+   "name": "Selecting with loc and iloc",
+   "module": "selecting",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Select rows and columns by label with .loc and by integer position with .iloc.",
+   "why": "Explicit selection avoids ambiguous indexing bugs and is the only reliable way to assign to a subset.",
+   "body": "pandas has two explicit indexers, both taking `[rows, columns]`:\n\n- **`.loc`** selects by **label**: index labels for rows, column names for columns.\n- **`.iloc`** selects by **integer position**, like NumPy, regardless of labels.\n\nEach position accepts a single item, a list, a slice or (for `.loc`) a boolean array:\n\n```python\ndf.loc[\"2024-01-03\", \"price\"]          # one value\ndf.loc[[\"a\", \"c\"], [\"price\", \"qty\"]]   # sub-table\ndf.iloc[0]                             # first row as a Series\ndf.iloc[:5, -2:]                       # first 5 rows, last 2 columns\n```\n\nOne important difference: **`.loc` slices include the end label**, while `.iloc` slices exclude the end position, as in Python. `df.loc[\"a\":\"c\"]` includes row \"c\"; `df.iloc[0:2]` returns two rows. Label slicing works best on a sorted index.\n\nSelecting a single row or column returns a Series; selecting with lists or slices returns a DataFrame. `df.at[label, col]` and `df.iat[i, j]` are faster accessors for exactly one value.\n\nPlain `df[...]` is a shortcut with mixed rules: a string or list selects columns, a slice selects rows, a boolean Series filters rows. It's fine for those cases, but use `.loc`/`.iloc` whenever you select rows and columns together and **always when assigning**:\n\n```python\ndf.loc[df[\"qty\"] == 0, \"status\"] = \"out\"\n```\n\nA single `.loc` call both locates and sets in the original. Splitting it into two steps, `df[df[\"qty\"] == 0][\"status\"] = \"out\"`, is **chained assignment**: the first step produces a new object, so the original is never modified (pandas warns you).",
+   "code": "import pandas as pd\n\ndf = pd.DataFrame(\n    {\"price\": [9.5, 12.0, 4.25, 7.0], \"qty\": [2, 0, 5, 1]},\n    index=[\"a\", \"b\", \"c\", \"d\"],\n)\nprint(df.loc[\"b\", \"price\"])          # 12.0\nprint(df.loc[\"a\":\"c\", \"qty\"].tolist())   # [2, 0, 5]  end label included\nprint(df.iloc[0:2].index.tolist())   # ['a', 'b']  end position excluded\nprint(df.iloc[-1, 0])                # 7.0\nprint(df.loc[[\"d\", \"a\"], [\"qty\"]])   # DataFrame, rows in that order\n\ndf.loc[df[\"qty\"] == 0, \"status\"] = \"out\"   # one call: works\ndf.loc[df[\"qty\"] > 0, \"status\"] = \"ok\"\nprint(df[\"status\"].tolist())         # ['ok', 'out', 'ok', 'ok']\n\nprint(df.at[\"c\", \"qty\"])             # 5  fast scalar access",
+   "code_lang": "python",
+   "takeaways": [
+    "`.loc` is label-based, `.iloc` position-based; both take [rows, cols]",
+    "`.loc` slices include the end label; `.iloc` slices exclude it",
+    "Assign with one `.loc[row_selector, col] = value` call",
+    "`.at`/`.iat` are the fast way to read or write one cell"
+   ],
+   "pitfalls": [
+    "Chained assignment such as `df[mask]['col'] = x`, which never updates `df`."
+   ],
+   "quiz": [
+    {
+     "q": "`df` has the default index 0..9. How many rows does `df.loc[2:5]` return?",
+     "options": [
+      "3",
+      "5",
+      "4",
+      "6"
+     ],
+     "answer": 2,
+     "explain": ".loc slices by label and includes the end, so labels 2, 3, 4 and 5 are returned."
+    },
+    {
+     "q": "Which statement reliably sets 'flag' to 1 for rows where x > 0?",
+     "options": [
+      "df[df.x > 0]['flag'] = 1",
+      "df.loc[df.x > 0, 'flag'] = 1",
+      "df.iloc[df.x > 0]['flag'] = 1",
+      "df.flag[df.x > 0] = 1 inside a copy"
+     ],
+     "answer": 1,
+     "explain": "A single .loc call with row mask and column label assigns into df itself."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/indexing.html",
+   "requires": [
+    "pandas.dataframe",
+    "numpy.indexing-slicing"
+   ]
+  },
+  {
+   "id": "pandas.filtering",
+   "name": "Filtering rows",
+   "module": "selecting",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Keep rows matching conditions with boolean masks, isin, between, string tests and query.",
+   "why": "Narrowing data down to the rows you care about is the most frequent pandas operation.",
+   "body": "Filtering is NumPy boolean masking with labels. A comparison on a column returns a boolean Series aligned with the rows, and indexing with it keeps the True rows:\n\n```python\ncheap = df[df[\"price\"] < 10]\n```\n\nCombine conditions with `&` (and), `|` (or) and `~` (not), wrapping each condition in parentheses: `df[(df[\"price\"] < 10) & (df[\"qty\"] > 0)]`. Python's `and`/`or` raise \"The truth value of a Series is ambiguous\".\n\nHelpers for common conditions:\n\n- `df[\"city\"].isin([\"Oslo\", \"Lima\"])` for membership in a set of values\n- `df[\"temp\"].between(10, 20)` (inclusive on both ends by default)\n- `df[\"name\"].str.contains(\"ann\", case=False, na=False)` for text; `na=False` treats missing as no match\n- `df[\"x\"].notna()` to drop rows with a missing value in one column\n\n**`df.query(\"price < 10 and city == 'Oslo'\")`** expresses the same in a string. Inside query, `and`/`or` work, column names are bare, and `@var` refers to a Python variable. It reads nicely in method chains; backtick-quote column names with spaces.\n\nThe filtered result keeps the original index labels, so it has gaps. That's usually fine; call `reset_index(drop=True)` if you need 0..n-1 again.\n\nTo filter and select columns at once, use `.loc`: `df.loc[df[\"qty\"] > 0, [\"city\", \"qty\"]]`. And if you'll modify the filtered rows as their own table, keep the filtered result as a new variable (taking `.copy()` was the old advice; with copy-on-write in recent pandas it's no longer needed to avoid warnings).",
+   "code": "import pandas as pd\n\ndf = pd.DataFrame({\n    \"city\": [\"Oslo\", \"Lima\", \"Cairo\", \"Perth\", \"Quito\"],\n    \"temp\": [3.5, 19.0, 28.2, 22.4, None],\n    \"rain_mm\": [49, 1, 0, 14, 80],\n})\nprint(df[df[\"temp\"] > 20][\"city\"].tolist())             # ['Cairo', 'Perth']\nprint(df[(df[\"temp\"] > 10) & (df[\"rain_mm\"] < 10)].city.tolist())   # ['Lima', 'Cairo']\nprint(df[~df[\"city\"].isin([\"Oslo\", \"Lima\"])].shape)     # (3, 3)\nprint(df[df[\"temp\"].between(15, 25)].city.tolist())     # ['Lima', 'Perth']\nprint(df[df[\"temp\"].isna()].city.tolist())              # ['Quito']\n\nlimit = 20\nprint(df.query(\"temp > @limit or rain_mm > 40\").city.tolist())   # ['Oslo', 'Cairo', 'Perth', 'Quito']\n\nwet = df.loc[df[\"rain_mm\"] > 10, [\"city\", \"rain_mm\"]]\nprint(wet.index.tolist())                               # [0, 3, 4]  labels kept",
+   "code_lang": "python",
+   "takeaways": [
+    "`df[mask]` keeps rows where the boolean Series is True",
+    "Combine conditions with `& | ~` and parentheses",
+    "`isin`, `between`, `.str.contains` and `notna` cover common tests",
+    "`query` offers string syntax with `@variables`"
+   ],
+   "pitfalls": [
+    "Comparing with NaN using `== np.nan`, which is always False; use `isna()`."
+   ],
+   "quiz": [
+    {
+     "q": "Which keeps rows where 'a' is 1 or 'b' is missing?",
+     "options": [
+      "df[(df.a == 1) | df.b.isna()]",
+      "df[df.a == 1 or df.b.isna()]",
+      "df[df.a == 1 | df.b.isna()]",
+      "df[(df.a == 1) or (df.b == None)]"
+     ],
+     "answer": 0,
+     "explain": "Use | between parenthesised boolean Series; `or` raises and `== None` doesn't detect missing values."
+    },
+    {
+     "q": "In `df.query('qty > @min_qty')`, what does `@min_qty` refer to?",
+     "options": [
+      "A column named min_qty",
+      "A SQL parameter",
+      "A decorator",
+      "A Python variable in the calling scope"
+     ],
+     "answer": 3,
+     "explain": "The @ prefix pulls in a local Python variable; bare names are columns."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/indexing.html#boolean-indexing",
+   "requires": [
+    "pandas.loc-iloc",
+    "numpy.boolean-masks"
+   ]
+  },
+  {
+   "id": "pandas.sorting",
+   "name": "Sorting and ranking",
+   "module": "selecting",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Order rows with sort_values and sort_index, get top-n rows with nlargest, and rank values.",
+   "why": "Sorted output is how people read results, and top-n queries appear in almost every report.",
+   "body": "**`df.sort_values(by)`** sorts rows by one or more columns and returns a new DataFrame. Pass a list for multiple keys and a matching list for direction:\n\n```python\ndf.sort_values([\"country\", \"sales\"], ascending=[True, False])\n```\n\nMissing values go last by default; `na_position=\"first\"` changes that. The original index labels travel with their rows, so after sorting, `df.loc[0]` is still the same row it was before, and `df.iloc[0]` is the new first row. Add `ignore_index=True` to renumber.\n\nFor a single column, the default algorithm is quicksort, which isn't stable; pass `kind=\"stable\"` if equal values must keep their existing order. Sorting by several columns is always stable.\n\n**`df.sort_index()`** sorts by the row labels instead, which matters for time series and for fast label slicing. `axis=1` sorts the columns by name.\n\nFor \"top n\" questions, **`df.nlargest(5, \"sales\")`** and `nsmallest` are clearer and faster than sorting everything and taking `head`.\n\n**`rank()`** assigns positions to values: `df[\"sales\"].rank(ascending=False)` gives 1 to the biggest. The `method=` argument decides how ties are treated: `\"average\"` (default), `\"min\"` (like sports rankings: 1, 2, 2, 4), `\"dense\"` (1, 2, 2, 3) or `\"first\"`.\n\nSorting by a computed value doesn't need a temporary column: `key=` takes a function applied to the column before comparing, e.g. `df.sort_values(\"name\", key=lambda s: s.str.lower())` for case-insensitive order.",
+   "code": "import pandas as pd\n\ndf = pd.DataFrame({\n    \"rep\": [\"ana\", \"Bo\", \"cy\", \"Di\", \"ed\"],\n    \"region\": [\"N\", \"S\", \"N\", \"S\", \"N\"],\n    \"sales\": [120, 340, 340, 90, None],\n})\nprint(df.sort_values(\"sales\", ascending=False).rep.tolist())\n# ['Bo', 'cy', 'ana', 'Di', 'ed']   NaN last\n\nprint(df.sort_values([\"region\", \"sales\"], ascending=[True, False]).rep.tolist())\n# ['cy', 'ana', 'ed', 'Bo', 'Di']\n\nprint(df.nlargest(2, \"sales\").rep.tolist())        # ['Bo', 'cy']\nprint(df[\"sales\"].rank(ascending=False, method=\"min\").tolist())\n# [3.0, 1.0, 1.0, 4.0, nan]\n\nprint(df.sort_values(\"rep\", key=lambda s: s.str.lower()).rep.tolist())\n# ['ana', 'Bo', 'cy', 'Di', 'ed']",
+   "code_lang": "python",
+   "takeaways": [
+    "`sort_values(by, ascending=...)` accepts lists of keys and directions",
+    "Index labels move with rows; use `ignore_index=True` to renumber",
+    "`nlargest`/`nsmallest` answer top-n questions directly",
+    "`rank(method=...)` controls how ties are numbered"
+   ],
+   "pitfalls": [
+    "Calling `df.sort_values('x')` without assigning the result and wondering why `df` is unchanged."
+   ],
+   "quiz": [
+    {
+     "q": "Values [50, 80, 80, 30] ranked with `rank(ascending=False, method='dense')` give?",
+     "options": [
+      "[2, 1, 1, 3]",
+      "[3, 1, 1, 4]",
+      "[3, 1.5, 1.5, 4]",
+      "[3, 1, 2, 4]"
+     ],
+     "answer": 0,
+     "explain": "Dense ranking gives ties the same rank and leaves no gaps afterwards."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.sort_values.html",
+   "requires": [
+    "pandas.dataframe"
+   ]
+  },
+  {
+   "id": "pandas.adding-columns",
+   "name": "Adding and modifying columns",
+   "module": "transform",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Create, transform, rename, retype and drop columns with vectorized expressions, assign and np.where.",
+   "why": "Deriving new columns from existing ones is the core of data preparation.",
+   "body": "New columns come from vectorized expressions on existing ones:\n\n```python\ndf[\"total\"] = df[\"price\"] * df[\"qty\"]\n```\n\nThe right side can be a scalar (broadcast to every row), a Series (aligned by index), or an array of matching length. The same syntax overwrites an existing column.\n\n**`df.assign(total=..., margin=...)`** does the same but returns a new DataFrame, which suits method chains. Values can be lambdas that receive the DataFrame so far, so later arguments can use earlier ones: `df.assign(total=lambda d: d.price * d.qty)`.\n\nFor conditional values:\n\n- two cases: `np.where(df[\"qty\"] > 0, \"in stock\", \"out\")`\n- several cases: `np.select([cond1, cond2], [choice1, choice2], default=...)`\n- a lookup: `df[\"code\"].map({\"N\": \"North\", \"S\": \"South\"})`; unmatched keys become NaN\n- numeric bins: `pd.cut(df[\"age\"], bins=[0, 18, 65, 120], labels=[\"child\", \"adult\", \"senior\"])`\n\nOther everyday column operations:\n\n- `df.rename(columns={\"old\": \"new\"})`\n- `df.drop(columns=[\"a\", \"b\"])`\n- `df[\"n\"] = df[\"n\"].astype(\"int32\")`; `pd.to_numeric(s, errors=\"coerce\")` turns unparseable text into NaN\n- `df.insert(0, \"id\", values)` to place a column at a given position\n- `df.columns = df.columns.str.lower().str.replace(\" \", \"_\")` to tidy names\n\nAll of these are vectorized: they run per column in compiled code. Don't loop over rows with `iterrows` to compute a new column; it's orders of magnitude slower and almost always expressible as one of the forms above. To change values only in some rows, use `df.loc[mask, \"col\"] = value`.",
+   "code": "import numpy as np\nimport pandas as pd\n\ndf = pd.DataFrame({\n    \"Item\": [\"pen\", \"ink\", \"pad\"],\n    \"Price\": [1.5, 7.0, 3.25],\n    \"Qty\": [10, 0, 4],\n    \"Region\": [\"N\", \"S\", \"N\"],\n})\ndf.columns = df.columns.str.lower()\ndf[\"total\"] = df[\"price\"] * df[\"qty\"]\ndf[\"status\"] = np.where(df[\"qty\"] > 0, \"in stock\", \"out\")\ndf[\"region\"] = df[\"region\"].map({\"N\": \"North\", \"S\": \"South\"})\n\ndf = df.assign(\n    vat=lambda d: d.total * 0.2,\n    gross=lambda d: d.total + d.vat,      # uses vat from the line above\n).drop(columns=[\"status\"]).rename(columns={\"qty\": \"units\"})\n\ndf.loc[df[\"units\"] == 0, \"gross\"] = np.nan\nprint(df)\n#   item  price  units region  total  vat  gross\n# 0  pen   1.50     10  North   15.0  3.0   18.0\n# 1  ink   7.00      0  South    0.0  0.0    NaN\n# 2  pad   3.25      4  North   13.0  2.6   15.6",
+   "code_lang": "python",
+   "takeaways": [
+    "`df['new'] = expression` creates or overwrites a column, vectorized",
+    "`assign` returns a new DataFrame and accepts lambdas for chaining",
+    "`np.where`, `np.select`, `map` and `pd.cut` cover conditional values",
+    "Avoid `iterrows` for computing columns"
+   ],
+   "pitfalls": [
+    "Using `map` with an incomplete dict and not noticing the NaNs it produces for unmatched keys."
+   ],
+   "quiz": [
+    {
+     "q": "`s.map({'a': 1, 'b': 2})` is applied to a Series containing 'a', 'b' and 'c'. What does 'c' become?",
+     "options": [
+      "'c'",
+      "0",
+      "NaN",
+      "It raises KeyError"
+     ],
+     "answer": 2,
+     "explain": "map with a dict returns NaN for values not found among the keys."
+    },
+    {
+     "q": "Why can a later argument of `df.assign(x=..., y=lambda d: d.x * 2)` use `x`?",
+     "options": [
+      "assign modifies df in place first",
+      "x is a global variable",
+      "Arguments are evaluated in order and each lambda receives the DataFrame including earlier new columns",
+      "It can't; this raises KeyError"
+     ],
+     "answer": 2,
+     "explain": "assign processes keyword arguments in order, passing the updated frame to each callable."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.assign.html",
+   "requires": [
+    "pandas.loc-iloc",
+    "numpy.vectorized-arithmetic"
+   ]
+  },
+  {
+   "id": "pandas.describe-value-counts",
+   "name": "Exploring: describe and value_counts",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Summarise a dataset quickly with info, describe, value_counts, nunique and basic statistics.",
+   "why": "A few summary calls reveal ranges, outliers, typos and missing data before you trust any analysis.",
+   "body": "Before analysing a dataset, profile it. A handful of methods do most of the work.\n\n**`df.info()`** shows each column's dtype, non-null count and total memory: the fastest way to spot missing values and columns read with the wrong type.\n\n**`df.describe()`** summarises numeric columns: count, mean, std, min, quartiles and max. Look for impossible minimums (negative ages), suspicious maximums (outliers or unit errors) and counts below the row count (missing values). `describe(include=\"all\")` adds text columns with their number of unique values, the most frequent one and its frequency.\n\n**`s.value_counts()`** counts each distinct value, sorted by frequency. It is the quickest way to see categories, typos (\"NY\" vs \"ny\"), and imbalance. Useful options:\n\n- `normalize=True` gives proportions instead of counts\n- `dropna=False` includes a count of missing values (they're excluded by default)\n- `bins=5` groups a numeric column into ranges\n\n`df.value_counts([\"a\", \"b\"])` counts combinations of several columns.\n\nAlso handy: `s.nunique()` (number of distinct values), `s.unique()`, `df.isna().sum()` (missing per column), `df.duplicated().sum()`, `s.quantile([0.05, 0.95])`, and `df.corr(numeric_only=True)` for pairwise correlations.\n\nRemember that statistics skip NaN by default, so `mean` is the mean of the values present. That's convenient but can hide how much is missing, which is why counting missing values belongs in the first look too.",
+   "code": "import pandas as pd\n\ndf = pd.DataFrame({\n    \"city\": [\"NY\", \"ny\", \"LA\", \"NY\", \"SF\", None],\n    \"age\": [34, 29, -1, 41, 38, 52],\n    \"spend\": [120.0, 80.5, None, 300.0, 95.0, 60.0],\n})\ndf.info()                        # dtypes, non-null counts, memory\nprint(df.describe().loc[[\"min\", \"max\"], \"age\"].tolist())   # [-1.0, 52.0]  -1 is suspicious\n\nprint(df[\"city\"].value_counts().to_dict())   # {'NY': 2, 'ny': 1, 'LA': 1, 'SF': 1}\nprint(len(df[\"city\"].value_counts(dropna=False)))   # 5 groups, one is missing\nprint(df[\"city\"].str.upper().value_counts(normalize=True).round(2).to_dict())\n# {'NY': 0.6, 'LA': 0.2, 'SF': 0.2}\n\nprint(df.isna().sum().to_dict())  # {'city': 1, 'age': 0, 'spend': 1}\nprint(df[\"city\"].nunique())       # 4  (NaN not counted)",
+   "code_lang": "python",
+   "takeaways": [
+    "Start with `info()` and `describe()` on any new dataset",
+    "`value_counts` reveals categories, typos and imbalance; `normalize=True` for shares",
+    "`dropna=False` is needed to see missing values in counts",
+    "`df.isna().sum()` counts missing values per column"
+   ],
+   "pitfalls": [
+    "Reading `describe()` means without checking `count`: statistics silently ignore missing values."
+   ],
+   "quiz": [
+    {
+     "q": "A column has 1,000 rows; `describe()` shows count 870. What does that tell you?",
+     "options": [
+      "130 values are missing (NaN)",
+      "870 distinct values",
+      "130 values are duplicates",
+      "130 outliers were removed"
+     ],
+     "answer": 0,
+     "explain": "describe's count is the number of non-missing values."
+    },
+    {
+     "q": "Which call gives the share of each category including missing values?",
+     "options": [
+      "s.value_counts()",
+      "s.nunique(dropna=False)",
+      "s.describe()",
+      "s.value_counts(normalize=True, dropna=False)"
+     ],
+     "answer": 3,
+     "explain": "normalize turns counts into proportions and dropna=False includes NaN as a category."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.describe.html",
+   "requires": [
+    "pandas.dataframe"
+   ]
+  },
+  {
+   "id": "pandas.missing-data",
+   "name": "Missing data basics",
+   "module": "transform",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Find, drop and fill missing values (NaN, None, NaT, pd.NA) with isna, dropna, fillna and ffill.",
+   "why": "Nearly every real dataset has gaps, and how you handle them changes your results.",
+   "body": "pandas uses several markers for \"missing\": `NaN` in float columns, `None` or `NaN` in object columns, `NaT` in datetime columns, and `pd.NA` in the nullable dtypes. You don't need to tell them apart in everyday code: **`isna()`** and **`notna()`** detect all of them. Never test with `== np.nan`, which is always False.\n\nFinding gaps: `df.isna().sum()` per column, `df[df[\"x\"].isna()]` for the rows.\n\n**Dropping** with `dropna()`:\n\n- `df.dropna()` drops any row containing a missing value, often far too aggressive\n- `subset=[\"price\"]` considers only certain columns\n- `how=\"all\"` drops only fully empty rows; `thresh=3` keeps rows with at least 3 values\n\n**Filling** with `fillna()`:\n\n- a constant: `df[\"qty\"].fillna(0)`\n- per column: `df.fillna({\"qty\": 0, \"note\": \"\"})`\n- a statistic: `df[\"temp\"].fillna(df[\"temp\"].median())`\n- carry values forward or back in ordered data: `df[\"price\"].ffill()`, `bfill()` (the old `fillna(method=\"ffill\")` is deprecated)\n- interpolate numeric series: `s.interpolate()`\n\nA type gotcha: classic integer columns can't hold NaN, so one missing value turns an `int64` column into `float64` and a bool column into `object`. The nullable dtypes (`\"Int64\"`, `\"boolean\"`) avoid that by using `pd.NA`.\n\nBefore filling, ask why data is missing. Filling with 0 or the mean is a modelling decision: zero sales and unknown sales are different facts. Often it's worth adding an indicator column (`df[\"price_missing\"] = df[\"price\"].isna()`) before filling.",
+   "code": "import numpy as np\nimport pandas as pd\n\ndf = pd.DataFrame({\n    \"day\": pd.to_datetime([\"2024-05-01\", \"2024-05-02\", None, \"2024-05-04\"]),\n    \"price\": [10.0, np.nan, np.nan, 13.0],\n    \"qty\": [3, None, 2, 1],\n    \"note\": [\"ok\", None, \"late\", None],\n})\nprint(df.isna().sum().to_dict())   # {'day': 1, 'price': 2, 'qty': 1, 'note': 2}\nprint(df[\"qty\"].dtype)             # float64  (int + missing)\n\nprint(len(df.dropna()))                     # 1  too aggressive\nprint(len(df.dropna(subset=[\"price\"])))     # 2\n\nfilled = df.assign(\n    price=df[\"price\"].ffill(),              # [10, 10, 10, 13]\n    qty=df[\"qty\"].fillna(0).astype(int),\n    note=df[\"note\"].fillna(\"\"),\n)\nprint(filled[\"price\"].tolist(), filled[\"qty\"].tolist())\nprint(df[\"price\"].interpolate().tolist())   # [10.0, 11.0, 12.0, 13.0]\nprint(pd.Series([1, None], dtype=\"Int64\").tolist())   # [1, <NA>]",
+   "code_lang": "python",
+   "takeaways": [
+    "`isna()`/`notna()` detect NaN, None, NaT and pd.NA alike",
+    "`dropna(subset=..., how=..., thresh=...)` controls what gets dropped",
+    "`fillna`, `ffill`, `bfill` and `interpolate` fill gaps",
+    "Missing values turn int columns into float unless you use nullable dtypes"
+   ],
+   "pitfalls": [
+    "Calling `df.dropna()` on wide data and silently losing most rows because of one sparse column."
+   ],
+   "quiz": [
+    {
+     "q": "A column [5, NaN, 7] needs gaps carried forward from the previous value. Which call?",
+     "options": [
+      "s.fillna(0)",
+      "s.ffill()",
+      "s.bfill()",
+      "s.dropna()"
+     ],
+     "answer": 1,
+     "explain": "ffill propagates the last valid observation forward, giving [5, 5, 7]."
+    },
+    {
+     "q": "Why does an integer column read from CSV come back as float64?",
+     "options": [
+      "CSV stores all numbers as floats",
+      "It contains at least one missing value, which int64 can't represent",
+      "pandas always reads numbers as float",
+      "The column had decimals in the header"
+     ],
+     "answer": 1,
+     "explain": "NumPy int64 has no NaN, so pandas upcasts to float64 to represent missing values."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/missing_data.html",
+   "requires": [
+    "pandas.filtering"
+   ]
+  },
+  {
+   "id": "pandas.groupby",
+   "name": "groupby and aggregation",
+   "module": "analysis",
+   "level": 2,
+   "minutes": 18,
+   "summary": "Split rows into groups, apply aggregations or transformations per group, and combine the results.",
+   "why": "Group-level summaries (per customer, per month, per product) are the backbone of analysis and reporting.",
+   "body": "**`groupby`** follows the split-apply-combine pattern: split rows by key, apply a function to each group, combine the results. It's the pandas counterpart to SQL's `GROUP BY`.\n\n```python\ndf.groupby(\"region\")[\"sales\"].sum()\n```\n\nThe result is indexed by the group keys. Group by several columns with a list; the result then has a MultiIndex, or pass `as_index=False` (or call `reset_index()`) to keep keys as ordinary columns.\n\nFor several statistics, use **named aggregation**, which produces clean, flat column names:\n\n```python\ndf.groupby(\"region\").agg(\n    total=(\"sales\", \"sum\"),\n    orders=(\"order_id\", \"count\"),\n    avg_price=(\"price\", \"mean\"),\n)\n```\n\nKnow the difference between three kinds of operation:\n\n- **aggregate** (`sum`, `mean`, `agg`): one row per group\n- **transform**: a result the same length as the input, aligned with the original rows. `df.groupby(\"region\")[\"sales\"].transform(\"mean\")` puts each row's group mean next to it, ready for `sales / group_mean`.\n- **filter**: keeps or drops whole groups, e.g. `.filter(lambda g: len(g) >= 10)`\n\nOther details worth knowing: `size()` counts rows per group including missing values, while `count()` counts non-missing values per column. Rows whose key is NaN are dropped unless you pass `dropna=False`. For categorical keys, `observed=True` (the default from pandas 3.0) shows only categories that actually occur.\n\nBuilt-in aggregation names (`\"sum\"`, `\"mean\"`, `\"max\"`, `\"nunique\"`, `\"first\"`) run in optimised code. A custom Python function via `agg(lambda ...)` or `apply` runs once per group in Python and can be dramatically slower with many groups.",
+   "code": "import pandas as pd\n\ndf = pd.DataFrame({\n    \"region\": [\"N\", \"S\", \"N\", \"S\", \"N\", \"E\"],\n    \"rep\": [\"ana\", \"bo\", \"ana\", \"di\", \"cy\", \"ed\"],\n    \"sales\": [100, 250, 50, 80, 120, 60],\n})\nprint(df.groupby(\"region\")[\"sales\"].sum().to_dict())   # {'E': 60, 'N': 270, 'S': 330}\n\nsummary = df.groupby(\"region\", as_index=False).agg(\n    total=(\"sales\", \"sum\"),\n    reps=(\"rep\", \"nunique\"),\n    best=(\"sales\", \"max\"),\n)\nprint(summary)\n#   region  total  reps  best\n# 0      E     60     1    60\n# 1      N    270     2   120\n# 2      S    330     2   250\n\ndf[\"share\"] = df[\"sales\"] / df.groupby(\"region\")[\"sales\"].transform(\"sum\")\nprint(df[\"share\"].round(2).tolist())   # [0.37, 0.76, 0.19, 0.24, 0.44, 1.0]\n\nbig = df.groupby(\"region\").filter(lambda g: len(g) >= 2)\nprint(sorted(big[\"region\"].unique()))  # ['N', 'S']",
+   "code_lang": "python",
+   "takeaways": [
+    "groupby = split by key, apply, combine; keys become the index unless `as_index=False`",
+    "Named aggregation `agg(new=('col', 'func'))` gives tidy output",
+    "`transform` returns a row-aligned result; `filter` keeps whole groups",
+    "Built-in aggregation names are fast; Python lambdas per group are slow"
+   ],
+   "pitfalls": [
+    "Forgetting that NaN keys are dropped by default, so group totals don't add up to the overall total."
+   ],
+   "quiz": [
+    {
+     "q": "You need each row's sales divided by its region's total. Which groupby operation fits?",
+     "options": [
+      "agg",
+      "filter",
+      "transform",
+      "size"
+     ],
+     "answer": 2,
+     "explain": "transform returns a Series aligned with the original rows, so it can be used element-wise."
+    },
+    {
+     "q": "What's the difference between `g.size()` and `g.count()`?",
+     "options": [
+      "size counts rows per group including NaN; count counts non-missing values per column",
+      "None, they're aliases",
+      "count counts groups; size counts columns",
+      "size only works on numeric columns"
+     ],
+     "answer": 0,
+     "explain": "size is the number of rows in each group; count excludes missing values column by column."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/groupby.html",
+   "requires": [
+    "pandas.describe-value-counts",
+    "pandas.filtering",
+    "sql.group-by"
+   ]
+  },
+  {
+   "id": "pandas.merge-join",
+   "name": "merge and join",
+   "module": "combining",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Combine DataFrames on key columns or indexes with inner, left, right, outer and cross joins.",
+   "why": "Real data lives in several tables; joining them correctly is essential and a classic source of silent errors.",
+   "body": "**`pd.merge(left, right, on=\"key\", how=\"inner\")`** (or `left.merge(right, ...)`) combines rows from two DataFrames whose keys match, exactly like a SQL join.\n\nThe `how` argument:\n\n- `\"inner\"` (default): only keys present in both\n- `\"left\"`: all rows of `left`, with NaN where `right` has no match; `\"right\"` the mirror image\n- `\"outer\"`: all keys from both sides\n- `\"cross\"`: every combination (no key)\n\nWhen key columns have different names, use `left_on=\"cust_id\", right_on=\"id\"`. To join on the index, use `left_index=True` / `right_index=True`, or the shortcut **`left.join(right)`**, which joins on the index of `right` (a left join by default). Overlapping non-key column names get `suffixes=(\"_x\", \"_y\")`; set meaningful ones.\n\nThe biggest danger is **unexpected duplicate keys**. If a key appears twice on each side, the result has four rows for it, and totals computed afterwards are silently inflated. Defend against it:\n\n- `validate=\"many_to_one\"` (or `\"one_to_one\"`, `\"one_to_many\"`) raises if the keys don't have the expected uniqueness.\n- `indicator=True` adds a `_merge` column saying `left_only`, `right_only` or `both`, which is perfect for checking which rows failed to match.\n- Compare `len()` before and after a left join: it should not grow when the right side is a lookup table.\n\nKey dtypes must be compatible: merging an `int64` id with a string id raises an error, and float keys are fragile. Clean and convert keys first.\n\n`merge` always returns a new DataFrame. For \"keep rows of A whose key appears in B\" without adding columns, `A[A[\"key\"].isin(B[\"key\"])]` is simpler than a join.",
+   "code": "import pandas as pd\n\norders = pd.DataFrame({\"order_id\": [1, 2, 3, 4], \"cust_id\": [10, 20, 10, 30], \"amount\": [50, 20, 70, 15]})\ncustomers = pd.DataFrame({\"id\": [10, 20, 40], \"name\": [\"Ana\", \"Bo\", \"Cy\"]})\n\ninner = orders.merge(customers, left_on=\"cust_id\", right_on=\"id\")\nprint(inner[[\"order_id\", \"name\"]].values.tolist())   # [[1, 'Ana'], [2, 'Bo'], [3, 'Ana']]\n\nleft = orders.merge(customers, left_on=\"cust_id\", right_on=\"id\",\n                    how=\"left\", validate=\"many_to_one\", indicator=True)\nprint(len(orders), len(left))                 # 4 4  no row explosion\nprint(left.loc[left[\"_merge\"] == \"left_only\", \"cust_id\"].tolist())   # [30]\n\ndup = pd.DataFrame({\"id\": [10, 10], \"name\": [\"Ana\", \"Ana B.\"]})\ntry:\n    orders.merge(dup, left_on=\"cust_id\", right_on=\"id\", validate=\"many_to_one\")\nexcept pd.errors.MergeError as e:\n    print(\"caught:\", type(e).__name__)      # duplicate keys in right\n\ntotals = orders.groupby(\"cust_id\")[\"amount\"].sum().rename(\"total\")\nprint(customers.join(totals, on=\"id\").fillna({\"total\": 0}))",
+   "code_lang": "python",
+   "takeaways": [
+    "`merge(how=...)` mirrors SQL inner/left/right/outer/cross joins",
+    "Use `left_on`/`right_on` for different key names and `join` for index joins",
+    "`validate=` and `indicator=True` catch duplicate keys and unmatched rows",
+    "Make key dtypes match before merging"
+   ],
+   "pitfalls": [
+    "A left join to a lookup table that has duplicate keys, silently multiplying rows and inflating totals."
+   ],
+   "quiz": [
+    {
+     "q": "`left` has 100 rows; after `left.merge(lookup, on='k', how='left')` you get 130 rows. Most likely cause?",
+     "options": [
+      "Missing keys in lookup",
+      "NaN keys in left",
+      "A bug in pandas",
+      "Duplicate values of 'k' in lookup"
+     ],
+     "answer": 3,
+     "explain": "Each duplicate key on the right repeats the matching left rows; validate='many_to_one' would have raised."
+    },
+    {
+     "q": "What does `indicator=True` add to a merge result?",
+     "options": [
+      "A row number",
+      "A boolean column of duplicates",
+      "A _merge column marking left_only, right_only or both",
+      "The merge keys as the index"
+     ],
+     "answer": 2,
+     "explain": "The _merge column records which side(s) each row came from."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/merging.html",
+   "requires": [
+    "pandas.index-alignment",
+    "pandas.dataframe",
+    "sql.joins"
+   ]
+  },
+  {
+   "id": "pandas.concat",
+   "name": "Concatenating DataFrames",
+   "module": "combining",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Stack DataFrames vertically or side by side with pd.concat, controlling index and column alignment.",
+   "why": "Combining monthly files, batches or feature blocks into one table is routine data plumbing.",
+   "body": "**`pd.concat(list_of_frames)`** glues DataFrames (or Series) together along an axis. By default it stacks rows (`axis=0`).\n\nColumns are aligned **by name**, not position. If one frame has a column the other lacks, the result contains it with NaN for the rows that didn't have it. `join=\"inner\"` keeps only columns common to all frames instead.\n\nThe original index labels are kept, so stacking two frames with default indexes gives duplicate labels 0, 1, 2, 0, 1, 2. Pass **`ignore_index=True`** to renumber, which is what you usually want for row-wise stacking. Alternatively `keys=[\"jan\", \"feb\"]` adds an outer index level recording where each row came from, which can later become a column via `reset_index()`.\n\nWith `axis=1`, frames are placed side by side and rows are aligned on the index: rows with labels missing in one frame get NaN, much like an outer join on the index. That's convenient for combining several Series that share an index, such as per-day metrics, into one table.\n\nThe idiomatic pattern for reading many files:\n\n```python\nframes = [pd.read_csv(p) for p in paths]\ndf = pd.concat(frames, ignore_index=True)\n```\n\nConcatenate **once** at the end. Appending to a DataFrame inside a loop (the removed `DataFrame.append`, or `pd.concat([df, row])` per iteration) copies all existing data each time, which is quadratic. Collect pieces in a list first.\n\n`concat` is for stacking; when rows should be matched by a key column, use `merge`. Check dtypes afterwards too: concatenating an int column with a frame that lacks it produces float (because of the NaNs), and mismatched dtypes across frames may produce `object`.",
+   "code": "import pandas as pd\n\njan = pd.DataFrame({\"sku\": [\"a\", \"b\"], \"units\": [5, 3]})\nfeb = pd.DataFrame({\"sku\": [\"a\", \"c\"], \"units\": [7, 1], \"promo\": [True, False]})\n\nboth = pd.concat([jan, feb], ignore_index=True)\nprint(both)\n#   sku  units  promo\n# 0   a      5    NaN\n# 1   b      3    NaN\n# 2   a      7   True\n# 3   c      1  False\n\ntagged = pd.concat([jan, feb], keys=[\"jan\", \"feb\"], join=\"inner\")\nprint(tagged.reset_index(level=0).rename(columns={\"level_0\": \"month\"}).values.tolist())\n# [['jan', 'a', 5], ['jan', 'b', 3], ['feb', 'a', 7], ['feb', 'c', 1]]\n\nviews = pd.Series([100, 120], index=[\"mon\", \"tue\"], name=\"views\")\nclicks = pd.Series([4, 9, 2], index=[\"mon\", \"tue\", \"wed\"], name=\"clicks\")\nprint(pd.concat([views, clicks], axis=1))   # wed row: views NaN\n\nparts = [pd.DataFrame({\"i\": [k]}) for k in range(3)]\nprint(pd.concat(parts, ignore_index=True)[\"i\"].tolist())   # [0, 1, 2]",
+   "code_lang": "python",
+   "takeaways": [
+    "`pd.concat` stacks rows by default and aligns columns by name",
+    "Use `ignore_index=True` to renumber, or `keys=` to label sources",
+    "`axis=1` places frames side by side, aligned on the index",
+    "Collect pieces in a list and concatenate once"
+   ],
+   "pitfalls": [
+    "Concatenating inside a loop, which re-copies all data on every iteration."
+   ],
+   "quiz": [
+    {
+     "q": "Two frames with default 0..2 indexes are concatenated without options. What does `result.loc[0]` return?",
+     "options": [
+      "The first row only",
+      "Two rows, because label 0 appears twice",
+      "A KeyError",
+      "The column named 0"
+     ],
+     "answer": 1,
+     "explain": "concat keeps original labels, so 0 appears twice; ignore_index=True avoids that."
+    },
+    {
+     "q": "Frame A has columns [x, y]; frame B has [x, z]. What columns does `pd.concat([A, B])` have?",
+     "options": [
+      "[x, y, z]",
+      "[x]",
+      "[x, y]",
+      "It raises a ValueError"
+     ],
+     "answer": 0,
+     "explain": "With the default join='outer' the union of columns is kept, with NaN where values are absent."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/reference/api/pandas.concat.html",
+   "requires": [
+    "pandas.index-alignment"
+   ]
+  },
+  {
+   "id": "pandas.reshaping",
+   "name": "Reshaping: pivot, melt, stack",
+   "module": "analysis",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Switch between long and wide layouts with pivot_table, pivot, melt, stack, unstack and crosstab.",
+   "why": "Tools and reports expect different shapes: plots and groupby like long data, humans and models often like wide.",
+   "body": "The same data can be **long** (one row per observation: `date, city, temp`) or **wide** (one row per date, one column per city). Reshaping moves between them.\n\n**Long to wide:**\n\n- `df.pivot(index=\"date\", columns=\"city\", values=\"temp\")` rearranges without aggregating; it raises if any (index, column) pair appears twice.\n- `df.pivot_table(index=\"date\", columns=\"city\", values=\"temp\", aggfunc=\"mean\")` aggregates duplicates. Add `fill_value=0` for empty cells and `margins=True` for row and column totals. It's essentially a groupby on two keys followed by `unstack`.\n- `pd.crosstab(df.a, df.b)` is a quick frequency table of two columns (`normalize=` for shares).\n\n**Wide to long:**\n\n- `df.melt(id_vars=[\"date\"], var_name=\"city\", value_name=\"temp\")` turns every non-id column into rows of (variable, value). It's the standard way to tidy spreadsheet-style data, such as one column per month.\n\n**stack and unstack** move a level between the row index and the columns. `unstack()` pivots the innermost index level into columns (so `df.groupby([\"date\", \"city\"]).temp.mean().unstack()` gives the wide table) and `stack()` does the reverse.\n\nA useful rule of thumb: keep data **long** (\"tidy\": one variable per column, one observation per row) while computing, because groupby, merge and most plotting libraries expect it. Pivot to wide at the end for presentation or when a model needs one column per feature.\n\nAfter pivoting, the column index has a name (`city`) and sometimes multiple levels. `df.columns.name = None` or `reset_index()` tidy it for export.",
+   "code": "import pandas as pd\n\nlong = pd.DataFrame({\n    \"date\": [\"d1\", \"d1\", \"d2\", \"d2\", \"d2\"],\n    \"city\": [\"Oslo\", \"Lima\", \"Oslo\", \"Lima\", \"Lima\"],\n    \"temp\": [3, 19, 5, 21, 23],\n})\nwide = long.pivot_table(index=\"date\", columns=\"city\", values=\"temp\", aggfunc=\"mean\")\nprint(wide)\n# city  Lima  Oslo\n# date\n# d1    19.0   3.0\n# d2    22.0   5.0\n\ntry:\n    long.pivot(index=\"date\", columns=\"city\", values=\"temp\")\nexcept ValueError as e:\n    print(\"pivot:\", e)            # duplicate (d2, Lima)\n\nback = wide.reset_index().melt(id_vars=\"date\", var_name=\"city\", value_name=\"temp\")\nprint(back.shape)                 # (4, 3)\n\nprint(long.groupby([\"date\", \"city\"])[\"temp\"].mean().unstack().equals(wide))   # True\nprint(pd.crosstab(long[\"date\"], long[\"city\"]))   # counts per pair",
+   "code_lang": "python",
+   "takeaways": [
+    "`pivot_table` aggregates into a wide table; `pivot` only rearranges unique pairs",
+    "`melt` turns wide columns into long rows",
+    "`unstack` moves an index level to columns; `stack` reverses it",
+    "Compute on long (tidy) data; pivot wide for presentation"
+   ],
+   "pitfalls": [
+    "Using `pivot` on data with duplicate index/column pairs; use `pivot_table` with an explicit aggfunc."
+   ],
+   "quiz": [
+    {
+     "q": "A sheet has columns `store, Jan, Feb, Mar`. Which call gives rows of (store, month, sales)?",
+     "options": [
+      "df.pivot(index='store')",
+      "df.stack('store')",
+      "pd.crosstab(df.store, df.Jan)",
+      "df.melt(id_vars='store', var_name='month', value_name='sales')"
+     ],
+     "answer": 3,
+     "explain": "melt keeps the id column and turns each remaining column into (variable, value) rows."
+    },
+    {
+     "q": "Why might `pivot` fail where `pivot_table` succeeds?",
+     "options": [
+      "pivot can't aggregate, so duplicate index/column pairs raise an error",
+      "pivot only works on numbers",
+      "pivot needs a MultiIndex",
+      "pivot_table is newer"
+     ],
+     "answer": 0,
+     "explain": "pivot only rearranges; with duplicates it can't decide which value to use."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/reshaping.html",
+   "requires": [
+    "pandas.groupby"
+   ]
+  },
+  {
+   "id": "pandas.apply-vs-vectorized",
+   "name": "apply vs vectorized operations",
+   "module": "transform",
+   "level": 2,
+   "minutes": 12,
+   "summary": "When apply, map and row-wise functions are appropriate, and how to replace them with vectorized code.",
+   "why": "apply is the most common cause of slow pandas code; knowing the alternatives often gives 100x speedups.",
+   "body": "`apply` calls a Python function repeatedly: `s.apply(f)` once per element, `df.apply(f)` once per column, and `df.apply(f, axis=1)` once per **row**, building a Series for each row. That's flexible and easy to write, but it's a Python-level loop. On a million rows, `axis=1` apply can take tens of seconds where a vectorized expression takes milliseconds.\n\nPrefer, in this order:\n\n- **Column arithmetic and ufuncs**: `df.a * df.b`, `np.log(df.x)`, `df.x.clip(0, 100)`.\n- **Built-in methods**: `.str`, `.dt`, `round`, `abs`, `cumsum`, `diff`, `shift`, `between`, `isin`.\n- **Conditional logic**: `np.where`, `np.select`, `Series.where`/`mask`, `pd.cut`.\n- **Lookups**: `s.map(dict_or_series)`; `merge` for multi-column lookups.\n- **Group-wise work**: groupby with built-in aggregations or `transform`.\n\n`s.map(func)` and `s.apply(func)` on a Series are equivalent loops; `map` with a dict is a fast hash lookup. `DataFrame.map` (formerly `applymap`, renamed in 2.1) applies element-wise to every cell, also a loop.\n\nLegitimate uses of apply remain: calling a library function that only accepts scalars (a geocoder, a parser), complex per-group logic in `groupby(...).apply`, or small data where clarity matters more than speed. When you do need a loop over rows, `itertuples()` is much faster than `iterrows()`, which builds a Series per row and loses dtypes.\n\nIf a computation truly can't be vectorized and the data is large, push the loop into compiled code with Numba, or rethink the algorithm. Measure first: `%timeit` on a realistic sample tells you whether it matters.",
+   "code": "import numpy as np\nimport pandas as pd\nimport time\n\nrng = np.random.default_rng(0)\ndf = pd.DataFrame({\"price\": rng.uniform(1, 100, 200_000),\n                   \"qty\": rng.integers(0, 10, 200_000)})\n\ndef tier_row(row):                       # row-wise Python logic\n    total = row[\"price\"] * row[\"qty\"]\n    return \"big\" if total > 300 else \"small\" if total > 0 else \"none\"\n\nt = time.perf_counter()\nslow = df.apply(tier_row, axis=1)\nt_apply = time.perf_counter() - t\n\nt = time.perf_counter()\ntotal = df[\"price\"] * df[\"qty\"]\nfast = pd.Series(np.select([total > 300, total > 0], [\"big\", \"small\"], \"none\"), index=df.index)\nt_vec = time.perf_counter() - t\n\nprint(slow.equals(fast))                 # True\nprint(f\"apply {t_apply:.2f}s, vectorized {t_vec:.3f}s\")   # typically 30-100x apart\n\ncodes = pd.Series([\"N\", \"S\", \"N\"])\nprint(codes.map({\"N\": \"North\", \"S\": \"South\"}).tolist())   # fast dict lookup",
+   "code_lang": "python",
+   "takeaways": [
+    "`apply(axis=1)` is a Python loop over rows and is slow on large data",
+    "Prefer column arithmetic, built-in methods, `np.where`/`np.select` and `map` with dicts",
+    "Use `itertuples` rather than `iterrows` if you must loop",
+    "apply is fine for small data or scalar-only library calls"
+   ],
+   "pitfalls": [
+    "Reaching for `apply(lambda row: ..., axis=1)` for simple arithmetic between columns."
+   ],
+   "quiz": [
+    {
+     "q": "Which is the fastest way to compute `a * b` for two numeric columns?",
+     "options": [
+      "df.apply(lambda r: r.a * r.b, axis=1)",
+      "[r.a * r.b for r in df.itertuples()]",
+      "df['a'] * df['b']",
+      "df.map(lambda x: x)"
+     ],
+     "answer": 2,
+     "explain": "Column arithmetic runs in vectorized compiled code; the others loop in Python."
+    },
+    {
+     "q": "Why is `iterrows()` especially slow and lossy?",
+     "options": [
+      "It copies the DataFrame to disk",
+      "It sorts the rows first",
+      "It builds a Series for every row, which also upcasts mixed dtypes to a common type",
+      "It acquires a lock per row"
+     ],
+     "answer": 2,
+     "explain": "Each row becomes a new Series with one dtype for all its values, which is costly and can change types."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/enhancingperf.html",
+   "requires": [
+    "pandas.adding-columns",
+    "python.functions"
+   ]
+  },
+  {
+   "id": "pandas.string-methods",
+   "name": "Working with text (.str)",
+   "module": "transform",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Clean, search, split and extract text columns with vectorized .str methods and regular expressions.",
+   "why": "Names, codes, addresses and free text need cleaning before you can group, join or filter on them reliably.",
+   "body": "Text columns expose vectorized string operations through the **`.str` accessor**. Most mirror Python's `str` methods but apply to the whole column and pass missing values through as missing:\n\n- cleaning: `str.strip()`, `str.lower()`, `str.title()`, `str.replace(\"-\", \"\")`\n- testing: `str.contains(\"abc\")`, `str.startswith(\"A\")`, `str.isdigit()`, `str.len()`\n- slicing: `str[:3]`, `str.slice(0, 3)`, `str.zfill(5)`, `str.pad`\n- splitting: `str.split(\",\")` gives lists; `str.split(\",\", expand=True)` gives separate columns; `str.get(0)` picks an element\n- combining: `s1.str.cat(s2, sep=\" \")` or simply `s1 + \" \" + s2`\n\n**Regular expressions**: `contains` and `match` treat the pattern as a regex by default (pass `regex=False` for literal text, important if it contains `.` or `(`). `replace` is literal by default since pandas 2.0; pass `regex=True` for patterns. **`str.extract(r\"(?P<year>\\d{4})-(?P<month>\\d{2})\")`** pulls capture groups into named columns, a clean way to parse codes and IDs. `str.extractall` and `str.findall` return every match.\n\nMissing values: tests like `contains` return missing for missing input, which breaks boolean indexing. Pass `na=False` to treat them as non-matches.\n\nOn dtypes: in pandas 2.x text columns are `object` dtype by default; the dedicated `\"string\"` dtype (`astype(\"string\")`) makes intent explicit and uses `pd.NA`. pandas 3.0 makes a string dtype the default for text, backed by PyArrow when it's installed, which is much faster and more memory-efficient. The `.str` API is the same either way.\n\nFor a column with a few repeated values, consider `category` dtype: `.str` methods still work and are computed once per category.",
+   "code": "import pandas as pd\n\ndf = pd.DataFrame({\n    \"name\": [\"  Ana LOPEZ\", \"bo chen \", None, \"Cy Diaz\"],\n    \"code\": [\"ORD-2024-03-17\", \"ORD-2023-11-02\", \"ORD-2024-01-09\", \"BAD\"],\n})\ndf[\"name\"] = df[\"name\"].str.strip().str.title()\nprint(df[\"name\"].tolist())             # ['Ana Lopez', 'Bo Chen', nan, 'Cy Diaz'] (None/nan)\n\nparts = df[\"name\"].str.split(\" \", expand=True)\nprint(parts[1].tolist())               # ['Lopez', 'Chen', nan, 'Diaz']\n\ndates = df[\"code\"].str.extract(r\"ORD-(?P<year>\\d{4})-(?P<month>\\d{2})\")\nprint(dates.values.tolist())           # [['2024','03'], ['2023','11'], ['2024','01'], [nan, nan]]\n\nprint(df[\"name\"].str.contains(\"chen\", case=False, na=False).tolist())   # [False, True, False, False]\nprint(df[\"code\"].str.replace(\"ORD-\", \"\", regex=False).str.len().tolist())   # [10, 10, 10, 3]\nprint(df[\"code\"].str.contains(\".\", regex=False).sum())                   # 0",
+   "code_lang": "python",
+   "takeaways": [
+    "`.str` applies string methods to a whole column, passing missing values through",
+    "`contains`/`match` use regex by default; `replace` is literal unless `regex=True`",
+    "`str.extract` with named groups parses text into columns",
+    "Use `na=False` in tests used for filtering"
+   ],
+   "pitfalls": [
+    "Filtering with `df[s.str.contains('x')]` when the column has missing values: the NA in the mask raises or misbehaves; add `na=False`."
+   ],
+   "quiz": [
+    {
+     "q": "`s.str.contains('a.b')` on a column containing 'axb'. What's the result for that row?",
+     "options": [
+      "True, because '.' is a regex wildcard by default",
+      "False",
+      "NaN",
+      "It raises"
+     ],
+     "answer": 0,
+     "explain": "contains treats the pattern as a regex unless regex=False, and '.' matches any character."
+    },
+    {
+     "q": "What does `s.str.split('-', expand=True)` return?",
+     "options": [
+      "A Series of lists",
+      "A list of Series",
+      "The first piece only",
+      "A DataFrame with one column per piece"
+     ],
+     "answer": 3,
+     "explain": "expand=True spreads the pieces into separate columns."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/text.html",
+   "requires": [
+    "pandas.adding-columns",
+    "pandas.missing-data"
+   ]
+  },
+  {
+   "id": "pandas.dates-basics",
+   "name": "Dates and times basics",
+   "module": "time",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Parse dates with to_datetime, use the .dt accessor, date arithmetic, date ranges and DatetimeIndex slicing.",
+   "why": "Almost all business data is timestamped; correct parsing and date logic underpin every time-based analysis.",
+   "body": "Convert text to real datetimes with **`pd.to_datetime(s)`** (or `parse_dates=` when reading). Pass `format=\"%d/%m/%Y\"` when you know it: it's faster and avoids day/month ambiguity. `errors=\"coerce\"` turns unparseable values into `NaT` (not-a-time) instead of raising. The resulting dtype is `datetime64`; pandas' scalar type is `Timestamp`.\n\nThe **`.dt` accessor** gives vectorized date parts and operations: `dt.year`, `dt.month`, `dt.day_name()`, `dt.dayofweek` (Monday=0), `dt.quarter`, `dt.date`, and rounding with `dt.floor(\"D\")`, `dt.to_period(\"M\")` for \"month buckets\".\n\n**Arithmetic**: subtracting datetimes gives a `Timedelta` (`dt.days`, `dt.total_seconds()`); adding `pd.Timedelta(days=7)` shifts dates; `pd.DateOffset(months=1)` and offsets like `pd.offsets.MonthEnd()` respect calendar rules.\n\n**Ranges**: `pd.date_range(\"2024-01-01\", periods=12, freq=\"MS\")` makes regular sequences. Frequency aliases: `\"D\"` day, `\"h\"` hour, `\"min\"` minute, `\"W\"` weekly, `\"MS\"`/`\"ME\"` month start/end, `\"QE\"` quarter end, `\"YE\"` year end. pandas 2.2 renamed several (`\"M\"` to `\"ME\"`, `\"H\"` to `\"h\"`), so older code may show deprecation warnings.\n\n**DatetimeIndex**: set a datetime column as the index (`set_index(\"ts\").sort_index()`) and you can select with partial strings: `df.loc[\"2024-03\"]` is all of March, `df.loc[\"2024-03-01\":\"2024-03-15\"]` a range. That's also the basis for resampling and time-based rolling windows.\n\n**Time zones**: datetimes are naive by default. `dt.tz_localize(\"Europe/Oslo\")` attaches a zone, `dt.tz_convert(\"UTC\")` converts. Store and compute in UTC; convert for display.",
+   "code": "import pandas as pd\n\ndf = pd.DataFrame({\n    \"ts\": [\"03/01/2024 08:15\", \"17/02/2024 21:40\", \"bad\", \"31/03/2024 06:05\"],\n    \"amount\": [20, 35, 10, 50],\n})\ndf[\"ts\"] = pd.to_datetime(df[\"ts\"], format=\"%d/%m/%Y %H:%M\", errors=\"coerce\")\nprint(df[\"ts\"].isna().sum())                  # 1  ('bad' -> NaT)\n\ndf[\"weekday\"] = df[\"ts\"].dt.day_name()\ndf[\"month\"] = df[\"ts\"].dt.to_period(\"M\")\nprint(df[[\"weekday\", \"month\"]].iloc[0].tolist())   # ['Wednesday', Period('2024-01', 'M')]\n\ngap = df[\"ts\"].iloc[1] - df[\"ts\"].iloc[0]\nprint(gap.days)                               # 45\n\nprint(pd.date_range(\"2024-01-31\", periods=3, freq=\"ME\").strftime(\"%Y-%m-%d\").tolist())\n# ['2024-01-31', '2024-02-29', '2024-03-31']\n\ns = df.dropna().set_index(\"ts\").sort_index()[\"amount\"]\nprint(s.loc[\"2024-02\":\"2024-03\"].tolist())    # [35, 50]\nutc = s.index.tz_localize(\"Europe/Oslo\").tz_convert(\"UTC\")\nprint(utc[0])                                 # 2024-01-03 07:15:00+00:00",
+   "code_lang": "python",
+   "takeaways": [
+    "Parse with `pd.to_datetime(format=..., errors='coerce')`",
+    "`.dt` gives vectorized date parts, rounding and periods",
+    "Datetime differences are Timedeltas; use offsets for calendar-aware shifts",
+    "A sorted DatetimeIndex supports partial-string slicing like `loc['2024-03']`"
+   ],
+   "pitfalls": [
+    "Parsing ambiguous dates like 03/01/2024 without `format=` and silently mixing up days and months."
+   ],
+   "quiz": [
+    {
+     "q": "What does `pd.to_datetime(s, errors='coerce')` do with an unparseable value?",
+     "options": [
+      "Raises ValueError",
+      "Returns NaT for that value",
+      "Leaves the original string",
+      "Uses today's date"
+     ],
+     "answer": 1,
+     "explain": "coerce replaces unparseable values with NaT, the datetime missing marker."
+    },
+    {
+     "q": "With a sorted DatetimeIndex, what does `df.loc['2024-06']` select?",
+     "options": [
+      "Only midnight on 1 June 2024",
+      "All rows in June 2024",
+      "The 2024th row",
+      "A KeyError unless that exact label exists"
+     ],
+     "answer": 1,
+     "explain": "Partial string indexing on a DatetimeIndex selects the whole period the string describes."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/timeseries.html",
+   "requires": [
+    "pandas.adding-columns",
+    "pandas.reading-files"
+   ]
+  },
+  {
+   "id": "pandas.categorical",
+   "name": "Categorical data",
+   "module": "transform",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Store repeated labels as integer codes with the category dtype, and use ordered categories.",
+   "why": "Categoricals cut memory dramatically, speed up groupby, and encode meaningful order like low < mid < high.",
+   "body": "A **categorical** column stores each distinct value once (the **categories**) and keeps a small integer **code** per row pointing to its category. A column of a million country names with 200 distinct values shrinks from tens of megabytes of Python strings to about a megabyte of `int8`/`int16` codes plus the category list.\n\nConvert with `astype(\"category\")`, or read directly with `dtype={\"country\": \"category\"}`. Inspect with `s.cat.categories` and `s.cat.codes`.\n\n**Ordered categories** carry meaning beyond memory:\n\n```python\nsize = pd.CategoricalDtype([\"S\", \"M\", \"L\", \"XL\"], ordered=True)\ndf[\"size\"] = df[\"size\"].astype(size)\n```\n\nNow `sort_values` follows S < M < L < XL instead of alphabetical order, and comparisons like `df[\"size\"] >= \"L\"` work. `pd.cut` and `pd.qcut` produce ordered categoricals for numeric bins.\n\nThings that behave differently:\n\n- Values not in the category list become NaN on conversion, and assigning a new, unknown value raises. Use `s.cat.add_categories`, `rename_categories`, `remove_unused_categories` or `set_categories` to change the list.\n- In `groupby`, categories that don't occur can show up as empty groups unless `observed=True`. pandas 3.0 makes `observed=True` the default; in 2.x pass it explicitly to avoid surprising rows (and a FutureWarning).\n- Concatenating categoricals with different category lists falls back to `object`; use `pd.api.types.union_categoricals` if needed.\n\nUse categoricals for low-cardinality text (status, country, product line), not for mostly-unique values like IDs or free text, where the category list is as big as the data. Parquet preserves the dtype; CSV doesn't.",
+   "code": "import pandas as pd\n\nn = 300_000\nstatus = pd.Series([\"active\", \"paused\", \"closed\"] * (n // 3))\nprint(status.memory_usage(deep=True) // 1024, \"KiB as text\")\ncat = status.astype(\"category\")\nprint(cat.memory_usage(deep=True) // 1024, \"KiB as category\")   # far smaller\nprint(cat.cat.categories.tolist(), cat.cat.codes[:3].tolist())  # ['active', 'closed', 'paused'] [0, 2, 1]\n\nsizes = pd.CategoricalDtype([\"S\", \"M\", \"L\", \"XL\"], ordered=True)\ndf = pd.DataFrame({\"size\": [\"L\", \"S\", \"XL\", \"M\"], \"qty\": [3, 5, 1, 2]})\ndf[\"size\"] = df[\"size\"].astype(sizes)\nprint(df.sort_values(\"size\")[\"size\"].tolist())   # ['S', 'M', 'L', 'XL']\nprint(df.loc[df[\"size\"] >= \"L\", \"qty\"].sum())    # 4\n\nprint(df.groupby(\"size\", observed=False)[\"qty\"].sum().to_dict())   # all 4 categories\nbins = pd.cut(pd.Series([3, 17, 45, 80]), [0, 18, 65, 120], labels=[\"kid\", \"adult\", \"senior\"])\nprint(bins.tolist())                             # ['kid', 'kid', 'adult', 'senior']",
+   "code_lang": "python",
+   "takeaways": [
+    "Categoricals store integer codes plus a list of categories",
+    "Big memory and groupby wins for low-cardinality text",
+    "Ordered categories sort and compare in a meaningful order",
+    "Pass `observed=True` when grouping by categoricals (default in pandas 3)"
+   ],
+   "pitfalls": [
+    "Assigning a value that isn't among the categories and getting an error (or NaN on conversion)."
+   ],
+   "quiz": [
+    {
+     "q": "Which column benefits most from the category dtype?",
+     "options": [
+      "A unique customer email per row",
+      "A float price column",
+      "A 'country' column with ~200 distinct values over 10 million rows",
+      "A free-text comments column"
+     ],
+     "answer": 2,
+     "explain": "Few distinct values repeated many times is exactly what codes plus a category list compress."
+    },
+    {
+     "q": "Why might a groupby on a categorical column show groups with zero rows?",
+     "options": [
+      "With observed=False, all categories are shown, including ones absent from the data",
+      "A bug in pandas",
+      "Categoricals always add an 'other' group",
+      "NaN keys become categories"
+     ],
+     "answer": 0,
+     "explain": "observed=False produces a group for every category; observed=True limits output to categories that occur."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/categorical.html",
+   "requires": [
+    "pandas.describe-value-counts",
+    "pandas.adding-columns"
+   ]
+  },
+  {
+   "id": "pandas.method-chaining",
+   "name": "Method chaining",
+   "module": "transform",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Write a pipeline as one readable chain using assign, query, pipe, loc with callables and rename.",
+   "why": "Chains avoid half-modified intermediate variables and make data pipelines easy to read, test and reorder.",
+   "body": "Most pandas methods return a new DataFrame, so they can be **chained**: each step takes the previous result. Wrap the chain in parentheses and put one step per line:\n\n```python\nresult = (\n    df\n    .query(\"status == 'paid'\")\n    .assign(total=lambda d: d.price * d.qty)\n    .groupby(\"region\", as_index=False)[\"total\"].sum()\n    .sort_values(\"total\", ascending=False)\n)\n```\n\nThe building blocks that make chaining work:\n\n- **`assign`** with lambdas, so new columns refer to the DataFrame *at that step* (`d`), not a stale outer variable\n- **`query`** or **`loc[lambda d: d.x > 0]`** for filtering mid-chain\n- **`rename`**, `drop`, `astype`, `set_axis`, `reset_index` for tidying\n- **`pipe(func, *args)`** to insert your own function that takes and returns a DataFrame; this is how you name and reuse steps like `clean_names` or `drop_test_accounts`\n\nBenefits: no `df2`, `df3`, `df_final` variables; no accidental reuse of a half-processed frame; each step is easy to comment out while debugging. It also works naturally with copy-on-write, because you never modify an object that another variable still refers to.\n\nCosts and remedies: a long chain is harder to inspect. Insert `.pipe(lambda d: (print(d.shape), d)[1])` to peek at intermediate shapes, or break the chain into a few well-named stages. Don't force everything into one expression; a chain of 5-10 steps per stage is plenty.\n\nAvoid `inplace=True` in chains (and in general): it returns `None`, breaks chaining, and despite its name usually doesn't save memory.",
+   "code": "import pandas as pd\n\nraw = pd.DataFrame({\n    \"Region \": [\"N\", \"S\", \"N\", \"S\", \"N\"],\n    \"Status\": [\"paid\", \"paid\", \"refund\", \"paid\", \"paid\"],\n    \"Price\": [10.0, 4.0, 10.0, 6.5, 3.0],\n    \"Qty\": [2, 5, 1, 2, 10],\n})\n\ndef clean_names(d):\n    return d.rename(columns=lambda c: c.strip().lower())\n\nreport = (\n    raw\n    .pipe(clean_names)\n    .query(\"status == 'paid'\")\n    .assign(total=lambda d: d.price * d.qty)\n    .loc[lambda d: d.total > 10]\n    .groupby(\"region\", as_index=False)\n    .agg(revenue=(\"total\", \"sum\"), orders=(\"total\", \"size\"))\n    .sort_values(\"revenue\", ascending=False)\n)\nprint(report)\n#   region  revenue  orders\n# 0      N     50.0       2\n# 1      S     33.0       2",
+   "code_lang": "python",
+   "takeaways": [
+    "Wrap chains in parentheses, one method per line",
+    "`assign(col=lambda d: ...)` and `loc[lambda d: ...]` refer to the current step",
+    "`pipe` slots your own DataFrame-to-DataFrame functions into a chain",
+    "Avoid `inplace=True`: it returns None and rarely saves memory"
+   ],
+   "pitfalls": [
+    "Referring to the original variable inside a chain (`df.price` instead of `lambda d: d.price`), which uses stale, unfiltered data."
+   ],
+   "quiz": [
+    {
+     "q": "Why use `lambda d: d.price * d.qty` inside `assign` in a chain rather than `df.price * df.qty`?",
+     "options": [
+      "Lambdas are faster",
+      "assign only accepts functions",
+      "It avoids copying",
+      "The lambda receives the DataFrame at that step, so filtered or renamed data is used"
+     ],
+     "answer": 3,
+     "explain": "Referring to df uses the original frame, which may have different rows or column names than the current step."
+    },
+    {
+     "q": "What does `df.sort_values('x', inplace=True)` return?",
+     "options": [
+      "The sorted DataFrame",
+      "A view of df",
+      "None",
+      "The sort order indices"
+     ],
+     "answer": 2,
+     "explain": "inplace operations return None, which is why they break method chains."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.pipe.html",
+   "requires": [
+    "pandas.adding-columns",
+    "pandas.filtering",
+    "pandas.sorting"
+   ]
+  },
+  {
+   "id": "pandas.plotting",
+   "name": "Plotting basics",
+   "module": "analysis",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Make quick line, bar, histogram and scatter charts straight from Series and DataFrames with .plot.",
+   "why": "A quick chart reveals trends, outliers and distribution shapes that summary tables hide.",
+   "body": "Every Series and DataFrame has a **`.plot`** accessor that draws with Matplotlib (which must be installed). It's built for fast exploratory charts with sensible defaults: the index becomes the x-axis and each column becomes a series.\n\nChart kinds via `kind=` or the accessor methods:\n\n- `df.plot()` / `.plot.line()`: trends over an ordered index such as dates\n- `.plot.bar()` / `.plot.barh()`: compare categories, typically after a groupby\n- `.plot.hist(bins=30)`: distribution of one column; `.plot.box()` compares distributions\n- `.plot.scatter(x=\"a\", y=\"b\")`: relationship between two columns (DataFrame only)\n- `.plot.area()`, `.plot.pie()` for the occasional special case\n\nMost plotting is the last step of a chain: aggregate first, then plot. `df.groupby(\"region\")[\"sales\"].sum().sort_values().plot.barh()` is a complete chart. For a time series, set a DatetimeIndex, maybe `resample`, then plot.\n\nUseful arguments: `title=`, `figsize=(8, 4)`, `logy=True`, `subplots=True` (one panel per column), `ax=` to draw into an existing Matplotlib axes, and `color=`. Each call returns a Matplotlib `Axes`, so you can keep customising with the Matplotlib API: `ax.set_ylabel(\"EUR\")`, `ax.axhline(0)`, and save with `ax.figure.savefig(\"chart.png\", dpi=150)`.\n\nIn a script, call `matplotlib.pyplot.show()` to open a window; in Jupyter charts appear automatically.\n\npandas plotting is for exploration and simple reports. For publication styling or interactive charts, pass the tidy (long) data to Seaborn, Plotly or Altair. pandas can also switch its backend with `pd.options.plotting.backend = \"plotly\"` if that package is installed.",
+   "code": "import matplotlib\nmatplotlib.use(\"Agg\")                   # headless: just write files\nimport matplotlib.pyplot as plt\nimport numpy as np\nimport pandas as pd\n\nrng = np.random.default_rng(1)\ndays = pd.date_range(\"2024-01-01\", periods=90, freq=\"D\")\ndf = pd.DataFrame({\"visits\": rng.poisson(200, 90).cumsum(),\n                   \"region\": rng.choice([\"N\", \"S\", \"E\"], 90),\n                   \"spend\": rng.gamma(2, 20, 90)}, index=days)\n\nax = df[\"visits\"].plot(title=\"Cumulative visits\", figsize=(8, 3))\nax.set_ylabel(\"visits\")\nax.figure.savefig(\"visits.png\", dpi=120)\n\nfig, (left, right) = plt.subplots(1, 2, figsize=(9, 3))   # new figure\ndf.groupby(\"region\")[\"spend\"].sum().sort_values().plot.barh(ax=left)\ndf[\"spend\"].plot.hist(bins=20, alpha=0.7, ax=right, title=\"Spend\")\nfig.savefig(\"spend.png\")\nprint(type(left).__name__)              # Axes",
+   "code_lang": "python",
+   "takeaways": [
+    "`.plot` on a Series/DataFrame draws with Matplotlib; the index is the x-axis",
+    "Aggregate first, then plot: groupby result plus `.plot.bar()` is a full chart",
+    "Each call returns a Matplotlib Axes for further tweaks and `savefig`",
+    "Use Seaborn, Plotly or Altair for polished or interactive charts"
+   ],
+   "pitfalls": [
+    "Plotting unsorted, unaggregated raw rows as a line chart and getting a meaningless zigzag.",
+    "Calling `.plot` repeatedly in a script without `ax=` or a new figure, so charts are drawn on top of each other in the current axes."
+   ],
+   "quiz": [
+    {
+     "q": "What does `df.groupby('city')['sales'].sum().plot.bar()` put on the x-axis?",
+     "options": [
+      "Row numbers",
+      "The cities (the index of the aggregated Series)",
+      "The sales values",
+      "Nothing until you call set_xticks"
+     ],
+     "answer": 1,
+     "explain": "pandas plots against the index, which after groupby holds the group keys."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/visualization.html",
+   "requires": [
+    "pandas.groupby",
+    "pandas.dates-basics"
+   ]
+  },
+  {
+   "id": "pandas.writing-data",
+   "name": "Writing data out",
+   "module": "io",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Save results with to_csv, to_parquet, to_excel and to_json, choosing formats and options deliberately.",
+   "why": "Results only matter once they reach a file, a colleague or another system in a usable, correctly typed form.",
+   "body": "Every reader has a matching writer.\n\n**`df.to_csv(path, index=False)`** is universal. `index=False` is important: otherwise the row index becomes an unnamed first column that reappears as `Unnamed: 0` when you read it back. Other options: `sep=\";\"`, `float_format=\"%.2f\"`, `date_format=\"%Y-%m-%d\"`, `na_rep=\"\"`, `columns=[...]` to choose and order columns. Compression is inferred from the extension: `to_csv(\"out.csv.gz\")` writes gzip. CSV loses all type information, so dates, categories and leading zeros need care on the way back in.\n\n**`df.to_parquet(path)`** (needs `pyarrow`) keeps dtypes, compresses well and reads back fast. It's the best choice between Python steps, for data lakes, and for anything big. `partition_cols=[\"year\"]` writes a directory partitioned by a column, which query engines and `read_parquet(filters=...)` can skip through.\n\n**`df.to_excel(path, sheet_name=\"Summary\", index=False)`** (needs `openpyxl`) is for humans. To write several sheets into one workbook, use a writer:\n\n```python\nwith pd.ExcelWriter(\"report.xlsx\") as xw:\n    summary.to_excel(xw, sheet_name=\"Summary\", index=False)\n    detail.to_excel(xw, sheet_name=\"Detail\", index=False)\n```\n\n**`df.to_json(orient=\"records\", lines=True)`** gives one JSON object per line, a common format for APIs and log pipelines; `date_format=\"iso\"` makes dates readable.\n\nAlso available: `to_sql` for databases, `to_feather` for fast local interchange, `to_markdown` and `to_html` for reports, and `to_dict(orient=\"records\")` to hand plain Python structures to other code.\n\nWrite to a temporary name and rename when the output feeds other jobs, so readers never see a half-written file.",
+   "code": "import pandas as pd\nfrom pathlib import Path\n\nout = Path(\"out\"); out.mkdir(exist_ok=True)\ndf = pd.DataFrame({\n    \"zip\": [\"02134\", \"10001\"],\n    \"day\": pd.to_datetime([\"2024-05-01\", \"2024-05-02\"]),\n    \"revenue\": [1234.567, 98.1],\n})\n\ndf.to_csv(out / \"rev.csv.gz\", index=False, float_format=\"%.2f\", date_format=\"%Y-%m-%d\")\nback = pd.read_csv(out / \"rev.csv.gz\")\nprint(back.dtypes.astype(str).to_dict())   # zip -> int64, day -> text: CSV lost types\n\ndf.to_parquet(out / \"rev.parquet\", index=False)\nprint(pd.read_parquet(out / \"rev.parquet\").dtypes.astype(str).to_dict())   # types kept\n\nwith pd.ExcelWriter(out / \"report.xlsx\") as xw:\n    df.to_excel(xw, sheet_name=\"Detail\", index=False)\n    df[[\"revenue\"]].sum().to_frame(\"total\").to_excel(xw, sheet_name=\"Summary\")\n\nprint(df.to_json(orient=\"records\", lines=True, date_format=\"iso\").splitlines()[0])\n# {\"zip\":\"02134\",\"day\":\"2024-05-01T00:00:00.000\",\"revenue\":1234.567}",
+   "code_lang": "python",
+   "takeaways": [
+    "Pass `index=False` to `to_csv` unless the index holds real data",
+    "Parquet keeps dtypes and is the default choice between pipeline steps",
+    "Use `pd.ExcelWriter` to put several sheets in one workbook",
+    "Compression is inferred from file extensions like `.gz`"
+   ],
+   "pitfalls": [
+    "Round-tripping through CSV and losing leading zeros, dates and categories without noticing."
+   ],
+   "quiz": [
+    {
+     "q": "A colleague's CSV, written from pandas, has a first column called 'Unnamed: 0' when read. Why?",
+     "options": [
+      "It was written with the default index=True, so the index was saved as an unnamed column",
+      "The file is corrupt",
+      "read_csv always adds it",
+      "The header row is missing"
+     ],
+     "answer": 0,
+     "explain": "to_csv writes the index by default; it has no name, so read_csv labels it 'Unnamed: 0'."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/io.html",
+   "requires": [
+    "pandas.reading-files"
+   ]
+  },
+  {
+   "id": "pandas.multiindex",
+   "name": "MultiIndex (hierarchical indexing)",
+   "module": "analysis",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Index rows or columns by several levels, select with tuples, xs and IndexSlice, and reshape between levels.",
+   "why": "Multi-key groupbys and pivots return MultiIndexes, so you need to read and tame them even if you never build one.",
+   "body": "A **MultiIndex** labels each row (or column) with a tuple, one value per **level**, such as `(region, store)` or `(year, month)`. You usually get one from `groupby` on several keys, `set_index([\"a\", \"b\"])`, `pivot_table` with several columns, or `agg` with several functions per column (which gives MultiIndex *columns*).\n\nSelecting:\n\n- `df.loc[\"north\"]` selects everything under the first-level label, dropping that level.\n- `df.loc[(\"north\", \"s1\")]` selects a full key; `df.loc[(\"north\", \"s1\"), \"sales\"]` a cell.\n- `df.xs(\"s1\", level=\"store\")` takes a cross-section on an inner level.\n- `idx = pd.IndexSlice; df.loc[idx[:, [\"s1\", \"s2\"]], :]` slices inner levels; this requires a **lexsorted** index, so call `sort_index()` first (otherwise you get a `PerformanceWarning` or `UnsortedIndexError`).\n\nReshaping: `unstack(\"store\")` moves a level into the columns, `stack()` moves it back, `swaplevel()` and `reorder_levels()` change order, `droplevel(0)` removes one.\n\nAggregating by level: `df.groupby(level=\"region\").sum()`.\n\nFlattening, which you often want before export or plotting:\n\n```python\ndf.columns = [\"_\".join(map(str, c)) for c in df.columns]  # ('sales', 'sum') -> 'sales_sum'\ndf = df.reset_index()                                     # index levels -> columns\n```\n\nNamed aggregation (`agg(total=(\"sales\", \"sum\"))`) avoids MultiIndex columns in the first place.\n\nMultiIndexes are compact and powerful for panel-like data, but many people find flat tables with ordinary key columns easier to reason about. A good habit: use MultiIndexes transiently (for unstack, level-wise selection) and `reset_index()` before handing data on.",
+   "code": "import pandas as pd\n\ndf = pd.DataFrame({\n    \"region\": [\"N\", \"N\", \"S\", \"S\", \"S\"],\n    \"store\": [\"s1\", \"s2\", \"s1\", \"s3\", \"s3\"],\n    \"month\": [1, 1, 1, 1, 2],\n    \"sales\": [100, 80, 60, 90, 30],\n})\ng = df.groupby([\"region\", \"store\"])[\"sales\"].sum().sort_index()\nprint(g.index.nlevels, g.loc[\"S\"].to_dict())     # 2 {'s1': 60, 's3': 120}\nprint(g.loc[(\"N\", \"s2\")])                        # 80\nprint(g.xs(\"s1\", level=\"store\").to_dict())       # {'N': 100, 'S': 60}\n\nidx = pd.IndexSlice\nprint(g.loc[idx[:, [\"s1\", \"s3\"]]].tolist())      # [100, 60, 120]\nprint(g.unstack(\"store\", fill_value=0))\n# store   s1  s2   s3\n# region\n# N      100  80    0\n# S       60   0  120\n\nwide = df.groupby(\"region\").agg({\"sales\": [\"sum\", \"max\"]})\nprint(wide.columns.tolist())                     # [('sales', 'sum'), ('sales', 'max')]\nwide.columns = [\"_\".join(c) for c in wide.columns]\nprint(wide.reset_index().columns.tolist())       # ['region', 'sales_sum', 'sales_max']",
+   "code_lang": "python",
+   "takeaways": [
+    "A MultiIndex labels rows or columns with tuples across levels",
+    "Select with `loc` tuples, `xs(level=...)` and `pd.IndexSlice`",
+    "Sort the index before slicing inner levels",
+    "Flatten columns and `reset_index()` before exporting"
+   ],
+   "pitfalls": [
+    "Slicing an unsorted MultiIndex and hitting UnsortedIndexError or a PerformanceWarning."
+   ],
+   "quiz": [
+    {
+     "q": "`s` has a (country, city) MultiIndex. What does `s.loc['FR']` return?",
+     "options": [
+      "A KeyError: you must pass a tuple",
+      "Only the first FR row",
+      "A DataFrame with both levels",
+      "All rows for FR, indexed by city only"
+     ],
+     "answer": 3,
+     "explain": "Selecting by a first-level label returns that subset with the selected level dropped."
+    },
+    {
+     "q": "Which call moves the 'store' level from the row index into the columns?",
+     "options": [
+      "unstack('store')",
+      "stack('store')",
+      "swaplevel('store')",
+      "droplevel('store')"
+     ],
+     "answer": 0,
+     "explain": "unstack pivots an index level into column labels; stack does the reverse."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/advanced.html",
+   "requires": [
+    "pandas.groupby",
+    "pandas.reshaping"
+   ]
+  },
+  {
+   "id": "pandas.window-functions",
+   "name": "Window functions: rolling, expanding, ewm",
+   "module": "time",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Compute moving averages, running totals and exponentially weighted statistics, by count or by time.",
+   "why": "Smoothing, trend detection, running KPIs and feature engineering all rely on windowed calculations.",
+   "body": "Window functions compute a statistic over a window of neighbouring rows for every row, much like SQL's `OVER (...)` clauses.\n\n**`rolling(window)`** uses a fixed-size moving window: `s.rolling(7).mean()` is a 7-row moving average. The first six results are NaN because the window isn't full; `min_periods=1` relaxes that. `center=True` centres the window instead of looking back.\n\nWith a DatetimeIndex (sorted), the window can be a **time span**: `s.rolling(\"7D\").sum()` includes all observations in the last 7 days, however many there are. That's correct for irregular data, where a 7-*row* window would mean different things on different days. Use `on=\"ts\"` to window on a column instead of the index.\n\n**`expanding()`** grows from the start: `s.expanding().max()` is the running maximum, `expanding().mean()` the cumulative average. (For sums, `cumsum()` is the simpler equivalent.)\n\n**`ewm(span=10)`** gives exponentially weighted statistics, which react faster than simple moving averages because recent points weigh more. `span`, `halflife`, `com` and `alpha` are alternative ways to set the decay.\n\nWindows combine with groupby for per-entity calculations:\n\n```python\ndf.groupby(\"store\")[\"sales\"].rolling(3).mean()\n```\n\nThe result carries a MultiIndex (store, original index); `reset_index(level=0, drop=True)` aligns it back to `df`. Alternatively, `transform(lambda s: s.rolling(3).mean())` returns a row-aligned result directly.\n\nRelated shift-based tools: `shift(1)` (previous value), `diff()`, `pct_change()`. Remember that a rolling window includes the current row; for features in predictive models use `shift(1)` first to avoid leaking today's value into today's prediction. Custom functions via `rolling(...).apply(f, raw=True)` work but are slow; `engine=\"numba\"` can speed them up.",
+   "code": "import pandas as pd\n\nts = pd.to_datetime([\"2024-01-01\", \"2024-01-02\", \"2024-01-03\", \"2024-01-07\", \"2024-01-08\"])\ns = pd.Series([10, 20, 30, 40, 50], index=ts)\n\nprint(s.rolling(2).mean().tolist())          # [nan, 15.0, 25.0, 35.0, 45.0]\nprint(s.rolling(\"3D\").sum().tolist())        # [10.0, 30.0, 60.0, 40.0, 90.0]  by time\nprint(s.expanding().max().tolist())          # [10.0, 20.0, 30.0, 40.0, 50.0]\nprint(s.ewm(span=3).mean().round(1).tolist())\n\ndf = pd.DataFrame({\"store\": [\"a\", \"a\", \"a\", \"b\", \"b\"], \"sales\": [1, 2, 3, 10, 20]})\ndf[\"ma2\"] = df.groupby(\"store\")[\"sales\"].transform(lambda x: x.rolling(2, min_periods=1).mean())\ndf[\"prev\"] = df.groupby(\"store\")[\"sales\"].shift(1)    # no look-ahead leakage\nprint(df)\n#   store  sales   ma2  prev\n# 0     a      1   1.0   NaN\n# 1     a      2   1.5   1.0\n# 2     a      3   2.5   2.0\n# 3     b     10  10.0   NaN\n# 4     b     20  15.0  10.0",
+   "code_lang": "python",
+   "takeaways": [
+    "`rolling(n)` is a fixed row window; `rolling('7D')` a time window on a sorted DatetimeIndex",
+    "`expanding()` accumulates from the start; `ewm()` weights recent values more",
+    "Combine with groupby for per-entity windows",
+    "Shift before rolling when building predictive features"
+   ],
+   "pitfalls": [
+    "Using a row-count window on irregular timestamps, so '7 rows' covers very different time spans."
+   ],
+   "quiz": [
+    {
+     "q": "Daily data has missing days. You want the sum over the last 7 calendar days. Which call?",
+     "options": [
+      "s.rolling(7).sum()",
+      "s.expanding(7).sum()",
+      "s.rolling('7D').sum()",
+      "s.ewm(span=7).sum()"
+     ],
+     "answer": 2,
+     "explain": "A time-based window counts calendar time, regardless of how many rows fall inside."
+    },
+    {
+     "q": "Why is `s.rolling(3).mean()` NaN for the first two rows by default?",
+     "options": [
+      "Rolling ignores the first rows",
+      "The index must start at 3",
+      "min_periods defaults to the window size, so incomplete windows give NaN",
+      "It's a bug fixed by center=True"
+     ],
+     "answer": 2,
+     "explain": "By default a full window of 3 observations is required; set min_periods to relax this."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/window.html",
+   "requires": [
+    "pandas.dates-basics",
+    "pandas.groupby"
+   ]
+  },
+  {
+   "id": "pandas.resampling",
+   "name": "Time series resampling",
+   "module": "time",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Change the frequency of time series with resample: downsample with aggregation, upsample with filling.",
+   "why": "Turning event streams into daily, weekly or monthly series is the standard first step of time-series analysis.",
+   "body": "**`resample(rule)`** is a groupby over time buckets. It requires a DatetimeIndex (or `on=\"ts\"` for a column) and a frequency alias.\n\n**Downsampling** (to a coarser frequency) aggregates:\n\n```python\ndaily = events.resample(\"D\")[\"amount\"].sum()\nmonthly = events.resample(\"ME\").agg({\"amount\": \"sum\", \"user\": \"nunique\"})\n```\n\n`.ohlc()` gives open/high/low/close per bucket, useful for prices. Empty buckets appear as well (sum gives 0, mean gives NaN), which a groupby on the date wouldn't do. That gap-filling is often exactly what you want for charts and models.\n\n**Upsampling** (to a finer frequency) creates new empty slots that you fill: `resample(\"h\").ffill()`, `.bfill()`, `.interpolate()`, or `.asfreq()` to just insert NaN.\n\nBucket edges matter. Defaults depend on the frequency: for \"D\" and \"h\" buckets are closed and labelled on the left; for end-anchored rules like `\"ME\"`, `\"QE\"`, `\"W\"` they're closed and labelled on the right. `closed=` and `label=` override this, and `origin=`/`offset=` shift where buckets start (e.g. days starting at 06:00). In pandas 2.2+ month-end is `\"ME\"` and month-start `\"MS\"`; old `\"M\"` is deprecated.\n\nTwo alternatives with the same machinery:\n\n- `df.groupby([\"store\", pd.Grouper(key=\"ts\", freq=\"W\")])[\"sales\"].sum()` resamples per store.\n- `df.groupby(df.ts.dt.to_period(\"M\"))` groups by calendar periods, giving period labels like `2024-03`.\n\nTime zones and daylight saving apply: resampling a tz-aware series to days uses local days, so some days have 23 or 25 hours. Convert to UTC first if you need uniform buckets.",
+   "code": "import pandas as pd\n\nevents = pd.DataFrame({\n    \"ts\": pd.to_datetime([\"2024-01-01 09:00\", \"2024-01-01 17:30\", \"2024-01-03 08:00\",\n                          \"2024-02-10 12:00\", \"2024-02-11 13:00\"]),\n    \"store\": [\"a\", \"b\", \"a\", \"a\", \"b\"],\n    \"amount\": [20, 35, 10, 50, 5],\n}).set_index(\"ts\")\n\ndaily = events[\"amount\"].resample(\"D\").sum()\nprint(daily.loc[\"2024-01-01\":\"2024-01-03\"].tolist())   # [55, 0, 10]  empty day kept\n\nmonthly = events.resample(\"ME\").agg({\"amount\": \"sum\", \"store\": \"nunique\"})\nprint(monthly)\n#             amount  store\n# ts\n# 2024-01-31      65      2\n# 2024-02-29      55      2\n\nhourly = pd.Series([1.0, 4.0], index=pd.to_datetime([\"2024-01-01 00:00\", \"2024-01-01 03:00\"]))\nprint(hourly.resample(\"h\").interpolate().tolist())     # [1.0, 2.0, 3.0, 4.0]\n\nper_store = events.groupby([\"store\", pd.Grouper(freq=\"MS\")])[\"amount\"].sum()\nprint(per_store.tolist())                 # [30, 50, 35, 5]  (a Jan, a Feb, b Jan, b Feb)",
+   "code_lang": "python",
+   "takeaways": [
+    "`resample(rule)` groups by time buckets on a DatetimeIndex",
+    "Downsample with aggregations; upsample with ffill, interpolate or asfreq",
+    "Empty buckets are included, unlike a plain groupby",
+    "Use `pd.Grouper(freq=...)` inside groupby to resample per entity"
+   ],
+   "pitfalls": [
+    "Using the deprecated 'M' alias or assuming left-labelled buckets for month-end rules, then misreading which period a value belongs to."
+   ],
+   "quiz": [
+    {
+     "q": "How does `resample('D').sum()` differ from grouping by `dt.date` and summing?",
+     "options": [
+      "It includes days with no events (sum 0), producing a regular daily series",
+      "It's slower",
+      "It drops weekends",
+      "There's no difference"
+     ],
+     "answer": 0,
+     "explain": "resample produces every bucket in the range, including empty ones."
+    },
+    {
+     "q": "You have hourly readings and need 15-minute values by linear interpolation. Which call?",
+     "options": [
+      "s.resample('15min').sum()",
+      "s.rolling('15min').mean()",
+      "s.asfreq('h')",
+      "s.resample('15min').interpolate()"
+     ],
+     "answer": 3,
+     "explain": "Upsampling to 15 minutes creates slots; interpolate fills them linearly."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/timeseries.html#resampling",
+   "requires": [
+    "pandas.dates-basics",
+    "pandas.groupby"
+   ]
+  },
+  {
+   "id": "pandas.performance",
+   "name": "Performance: dtypes, memory, vectorization",
+   "module": "performance",
+   "level": 3,
+   "minutes": 18,
+   "summary": "Make pandas fast and lean: measure memory, choose compact dtypes, read less, and avoid Python-level loops.",
+   "why": "Moderately sized data often becomes slow or crashes only because of wasteful dtypes and row-wise code.",
+   "body": "Start by **measuring**. `df.info(memory_usage=\"deep\")` or `df.memory_usage(deep=True)` shows real memory per column; `deep=True` matters because Python string objects in `object` columns are much larger than the 8-byte pointers counted otherwise.\n\n**Shrink dtypes**:\n\n- text with few distinct values: `category`\n- text in general: the Arrow-backed string dtype (`\"string[pyarrow]\"`, default for text in pandas 3) is more compact and faster than `object`\n- numbers: `pd.to_numeric(s, downcast=\"integer\")` or explicit `int32`/`float32` when the range and precision allow\n- booleans stored as \"Y\"/\"N\" text: convert to `bool`\n\n**Read less**: `usecols=`, `dtype=` and `parse_dates=` in `read_csv`; Parquet with `columns=` and `filters=`; `engine=\"pyarrow\"` for faster CSV parsing.\n\n**Compute vectorized**: whole-column arithmetic, `.str` and `.dt` methods, `np.where`/`np.select`, `map` with dicts, groupby with built-in aggregations. Avoid `apply(axis=1)`, `iterrows` and Python loops. Build DataFrames in one go from lists or dicts, never by appending rows in a loop.\n\n**Groupby tips**: `observed=True` for categorical keys, `sort=False` when order doesn't matter, built-in names like `\"sum\"` instead of lambdas.\n\n**Index**: lookups on a sorted, unique index are fast; repeated `df[df.key == x]` scans are O(n) each. If you query by key repeatedly, `set_index(\"key\").sort_index()` and use `.loc`.\n\n**eval/query**: `df.eval(\"a + b * c\")` and `query` can use numexpr to avoid temporaries on large frames; worthwhile mainly beyond ~100k rows.\n\nProfile before optimising: `%timeit`, `%memit` or a line profiler on realistic data. Beyond a point, the next step is a different engine (see scaling beyond memory).",
+   "code": "import numpy as np\nimport pandas as pd\n\nn = 500_000\nrng = np.random.default_rng(0)\ndf = pd.DataFrame({\n    \"user_id\": rng.integers(0, 50_000, n),\n    \"country\": rng.choice([\"DE\", \"FR\", \"IT\", \"ES\"], n).astype(object),\n    \"flag\": rng.choice([\"Y\", \"N\"], n).astype(object),\n    \"score\": rng.random(n) * 100,\n})\nbefore = df.memory_usage(deep=True).sum() / 1e6\n\nslim = df.assign(\n    user_id=pd.to_numeric(df[\"user_id\"], downcast=\"integer\"),   # -> int32\n    country=df[\"country\"].astype(\"category\"),\n    flag=df[\"flag\"].eq(\"Y\"),                                    # -> bool\n    score=df[\"score\"].astype(\"float32\"),\n)\nafter = slim.memory_usage(deep=True).sum() / 1e6\nprint(f\"{before:.1f} MB -> {after:.1f} MB\")      # several times smaller (more on 2.x)\nprint(slim.dtypes.astype(str).to_dict())\n\n# vectorized vs row loop for the same feature\nfast = np.where(slim[\"flag\"], slim[\"score\"] * 1.1, slim[\"score\"])\nprint(fast[:3].round(2))",
+   "code_lang": "python",
+   "takeaways": [
+    "Measure with `memory_usage(deep=True)` before optimising",
+    "Use category, Arrow strings, downcast numerics and real bools",
+    "Read only needed columns with explicit dtypes; prefer Parquet",
+    "Stay vectorized and index by sorted keys for repeated lookups"
+   ],
+   "pitfalls": [
+    "Judging memory with `memory_usage()` without `deep=True`, which hides the cost of Python string objects."
+   ],
+   "quiz": [
+    {
+     "q": "A 2 GB DataFrame has a 'status' object column with five distinct values. What's the most effective single change?",
+     "options": [
+      "Convert it to float32",
+      "Convert it to category",
+      "Call df.copy()",
+      "Sort by status"
+     ],
+     "answer": 1,
+     "explain": "Category stores five strings once plus small integer codes instead of millions of string objects."
+    },
+    {
+     "q": "Why can `df.memory_usage()` badly underestimate memory for text columns?",
+     "options": [
+      "It ignores the index",
+      "Without deep=True it counts only the 8-byte pointers, not the Python string objects they refer to",
+      "It reports in kilobytes",
+      "It samples rows"
+     ],
+     "answer": 1,
+     "explain": "object columns hold pointers; deep=True measures the referenced strings too."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/enhancingperf.html",
+   "requires": [
+    "pandas.apply-vs-vectorized",
+    "pandas.categorical",
+    "numpy.vectorization-patterns"
+   ]
+  },
+  {
+   "id": "pandas.copy-on-write",
+   "name": "Copy-on-write semantics",
+   "module": "performance",
+   "level": 3,
+   "minutes": 15,
+   "summary": "How copy-on-write (default in pandas 3.0, opt-in in 2.x) defines when changes propagate, and why chained assignment stops working.",
+   "why": "CoW removes SettingWithCopyWarning ambiguity and silent sharing bugs, but changes behaviour older code relied on.",
+   "body": "Historically, whether a pandas operation returned a **view** (sharing data with the original) or a **copy** depended on internals. Modifying a result might or might not change the parent, and `SettingWithCopyWarning` tried, imperfectly, to warn you.\n\n**Copy-on-write (CoW)** replaces that with one simple rule: *every DataFrame or Series derived from another behaves as a copy*. Modifying it never changes the parent, and modifying the parent never changes it. CoW is the only mode in **pandas 3.0**; in pandas 2.2 enable it with `pd.options.mode.copy_on_write = True`, or set it to `\"warn\"` to find code whose behaviour will change.\n\nIt's also faster. Internally, derived objects still *share* memory as lazy views. A real copy happens only when one of them is written to, and only for the data being modified. So operations like `reset_index`, `rename`, `set_index` or selecting columns no longer copy eagerly, and defensive `.copy()` calls become unnecessary.\n\nConsequences for your code:\n\n- **Chained assignment never works**: `df[\"a\"][mask] = 0` or `df[df.x > 0][\"y\"] = 1` modify a temporary object and leave `df` unchanged; pandas emits a `ChainedAssignmentError` warning. Write `df.loc[mask, \"a\"] = 0`.\n- Updating a column extracted earlier (`s = df[\"a\"]; s.iloc[0] = 99`) no longer changes `df`.\n- `inplace=True` on a column selection, like `df[\"a\"].fillna(0, inplace=True)`, doesn't touch `df`. Use `df[\"a\"] = df[\"a\"].fillna(0)`.\n- `df.to_numpy()` and `s.values` may return **read-only** arrays when they share memory with the frame; call `.copy()` on the array to write to it.\n\nThe mental model becomes simple: to change a DataFrame, assign to it directly with `df[...] =` or `df.loc[...] =`. Everything else produces a new object.",
+   "code": "import pandas as pd\n\nif pd.__version__.startswith(\"2.\"):\n    pd.options.mode.copy_on_write = True # opt in on 2.x; always on in 3.0\ndf = pd.DataFrame({\"x\": [1, -2, 3], \"y\": [0, 0, 0]})\n\nsubset = df[df[\"x\"] > 0]\nsubset.loc[:, \"y\"] = 1                   # modifies subset only\nprint(df[\"y\"].tolist())                  # [0, 0, 0]\n\ncol = df[\"x\"]\ncol.iloc[0] = 100                        # copy happens lazily here\nprint(df[\"x\"].tolist())                  # [1, -2, 3]\n\ndf[df[\"x\"] > 0][\"y\"] = 5                 # chained: warns, has no effect\nprint(df[\"y\"].tolist())                  # [0, 0, 0]\n\ndf.loc[df[\"x\"] > 0, \"y\"] = 5             # the correct way\nprint(df[\"y\"].tolist())                  # [5, 0, 5]\n\narr = df[\"x\"].to_numpy()\nprint(arr.flags.writeable)               # False: shares memory with df",
+   "code_lang": "python",
+   "takeaways": [
+    "Under CoW every derived object behaves as an independent copy",
+    "Copies are lazy: memory is shared until something is written",
+    "Chained assignment never updates the original; use one `.loc[...] =`",
+    "Default in pandas 3.0; opt in on 2.2 with `pd.options.mode.copy_on_write`"
+   ],
+   "pitfalls": [
+    "Calling `df['col'].replace(..., inplace=True)` and expecting `df` to change under CoW."
+   ],
+   "quiz": [
+    {
+     "q": "Under copy-on-write, `s = df['a']; s[0] = 99`. What happens to `df`?",
+     "options": [
+      "df['a'][0] becomes 99",
+      "It raises an error",
+      "df is unchanged; s gets its own copy of the data when written",
+      "Both change until df is copied"
+     ],
+     "answer": 2,
+     "explain": "s behaves as a copy; the write triggers a real copy of the shared data, leaving df alone."
+    },
+    {
+     "q": "Why is `df.reset_index()` cheaper under CoW than before?",
+     "options": [
+      "It no longer copies the column data eagerly; the result shares memory until either side is modified",
+      "It skips building a new index",
+      "It runs on multiple threads",
+      "It returns a view that can modify df"
+     ],
+     "answer": 0,
+     "explain": "CoW lets derived objects share buffers lazily and copy only on write."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/copy_on_write.html",
+   "requires": [
+    "pandas.adding-columns",
+    "pandas.method-chaining",
+    "numpy.copies-views"
+   ]
+  },
+  {
+   "id": "pandas.nullable-arrow-dtypes",
+   "name": "Nullable and Arrow-backed dtypes",
+   "module": "performance",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Int64, boolean, string and ArrowDtype columns: proper missing values without float upcasting, and pd.NA logic.",
+   "why": "Modern dtypes fix decades-old gotchas (ints turning into floats, text as slow objects) and match databases and Parquet.",
+   "body": "Classic pandas columns are NumPy arrays, which have no missing marker for integers or booleans. pandas therefore upcasts: one missing value makes an int column `float64` and a bool column `object`. Two families of dtypes fix that.\n\n**Nullable NumPy-backed dtypes** pair a data array with a validity mask: `\"Int64\"`, `\"Int32\"`, `\"UInt8\"` (capitalised), `\"Float64\"`, `\"boolean\"` and `\"string\"`. Missing values are **`pd.NA`**, which follows three-valued logic like SQL's NULL: `pd.NA == 1` is `NA`, `True | pd.NA` is `True`, `False & pd.NA` is `False`. Filtering with a boolean mask containing NA treats NA as False in `loc`/`[]`.\n\n**Arrow-backed dtypes** store data in Apache Arrow memory via PyArrow: `pd.ArrowDtype(pa.int64())`, written as strings like `\"int64[pyarrow]\"`, `\"string[pyarrow]\"`, `\"timestamp[us][pyarrow]\"`, plus types NumPy lacks, such as lists, structs and decimals. Arrow strings are much faster and smaller than Python objects. Arrow is also the in-memory format of Parquet readers, Polars and DuckDB, so conversions can be zero-copy.\n\nGetting them:\n\n- `df.convert_dtypes()` picks nullable types for existing columns\n- `pd.read_csv(..., dtype_backend=\"numpy_nullable\")` or `\"pyarrow\"`; same for `read_parquet`, `read_sql`\n- `astype(\"Int64\")`, `astype(\"string[pyarrow]\")`\n\nString defaults changed in **pandas 3.0**: text columns get the `str` dtype, backed by PyArrow if installed. For compatibility it uses `NaN` (not `pd.NA`) as its missing value; the explicit `\"string\"` dtype keeps `pd.NA` semantics. In pandas 2.x text is `object` unless you ask otherwise.\n\nCaveats: a few operations still fall back to slower paths or convert to NumPy, and passing nullable columns to libraries that expect plain NumPy may need `to_numpy(dtype=float, na_value=np.nan)`.",
+   "code": "import pandas as pd\nimport pyarrow as pa\n\nclassic = pd.Series([1, None, 3])\nprint(classic.dtype)                         # float64  (upcast)\nnullable = pd.Series([1, None, 3], dtype=\"Int64\")\nprint(nullable.dtype, nullable.tolist())     # Int64 [1, <NA>, 3]\nprint((nullable > 1).tolist())               # [False, <NA>, True]\nprint(nullable[nullable > 1].tolist())       # [3]  NA treated as False\n\nprint(pd.NA | True, pd.NA & False)           # True False\n\ndf = pd.DataFrame({\"n\": [1, 2, None], \"ok\": [True, None, False], \"s\": [\"a\", None, \"c\"]})\nprint(df.convert_dtypes().dtypes.astype(str).tolist())   # ['Int64', 'boolean', 'string']\n\narrow = pd.Series([\"x\", \"yy\", None], dtype=\"string[pyarrow]\")\nprint(arrow.str.len().tolist())              # [1, 2, <NA>]\nlists = pd.Series([[1, 2], [3]], dtype=pd.ArrowDtype(pa.list_(pa.int64())))\nprint(lists.dtype)                           # list<item: int64>[pyarrow]\nprint(nullable.to_numpy(dtype=\"float64\", na_value=float(\"nan\")))   # [ 1. nan  3.]",
+   "code_lang": "python",
+   "takeaways": [
+    "Nullable dtypes (`Int64`, `boolean`, `string`) keep types and use `pd.NA`",
+    "`pd.NA` follows three-valued logic like SQL NULL",
+    "Arrow-backed dtypes are fast, compact and interoperate with Parquet, Polars and DuckDB",
+    "pandas 3.0 defaults text to a (PyArrow-backed) `str` dtype"
+   ],
+   "pitfalls": [
+    "Using `if value is np.nan` checks on nullable data, where missing values are `pd.NA`; use `pd.isna(value)`."
+   ],
+   "quiz": [
+    {
+     "q": "What is `pd.Series([1, None], dtype='Int64') + 1`?",
+     "options": [
+      "[2.0, nan] as float64",
+      "TypeError",
+      "[2, 1]",
+      "[2, <NA>] as Int64"
+     ],
+     "answer": 3,
+     "explain": "Nullable integer arithmetic keeps the Int64 dtype and propagates NA."
+    },
+    {
+     "q": "What does `True | pd.NA` evaluate to?",
+     "options": [
+      "pd.NA",
+      "False",
+      "True",
+      "It raises TypeError"
+     ],
+     "answer": 2,
+     "explain": "Under three-valued (Kleene) logic, True OR unknown is True whatever the unknown is."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/pyarrow.html",
+   "requires": [
+    "pandas.missing-data",
+    "pandas.string-methods"
+   ]
+  },
+  {
+   "id": "pandas.sql-interop",
+   "name": "SQL interop: read_sql and to_sql",
+   "module": "io",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Query databases into DataFrames with read_sql, write tables with to_sql, safely and efficiently.",
+   "why": "Most production data lives in databases; moving it to and from pandas correctly is a daily task.",
+   "body": "**`pd.read_sql(query, con)`** runs a query and returns a DataFrame. The connection can be a SQLAlchemy engine or connection (any supported database), an ADBC driver connection (pandas 2.2+), or a plain `sqlite3` connection. Other raw DB-API connections are not officially supported and emit a warning.\n\nGood practice:\n\n- **Push work into SQL**. Filter, join and aggregate in the database, which has indexes and doesn't have to ship millions of rows over the network. Pull only the result you need.\n- **Use parameters, never string formatting**, for values: `pd.read_sql(\"SELECT * FROM t WHERE id = ?\", con, params=(42,))` for sqlite3 (placeholder style depends on the driver; with SQLAlchemy use `text(\"... :id\")` and `params={\"id\": 42}`). Formatting values into the SQL string invites SQL injection.\n- `parse_dates=[\"created_at\"]` and `dtype=` fix types; `index_col=` sets the index; `dtype_backend=\"pyarrow\"` gives Arrow types.\n- `chunksize=50_000` returns an iterator of DataFrames, so large results can be processed in pieces.\n\n**`df.to_sql(\"table\", con, if_exists=\"append\", index=False)`** writes rows. `if_exists` is `\"fail\"` (default), `\"replace\"` (drops and recreates the table, losing indexes and constraints) or `\"append\"`. `dtype=` maps columns to SQL types, `chunksize=` batches inserts, and `method=\"multi\"` uses multi-row INSERTs. For bulk loads of millions of rows, a database's native loader (PostgreSQL `COPY`, ADBC ingest) is far faster.\n\nWatch type mapping at the boundary: SQL `NULL` in an integer column arrives as float NaN with classic dtypes (nullable or Arrow backends fix this), and time zones and decimals need explicit handling. Inspect `dtypes` after reading.",
+   "code": "import sqlite3\nimport pandas as pd\n\ncon = sqlite3.connect(\":memory:\")\norders = pd.DataFrame({\n    \"id\": [1, 2, 3, 4],\n    \"customer\": [\"ana\", \"bo\", \"ana\", \"cy\"],\n    \"amount\": [50.0, 20.0, 70.0, None],\n    \"created\": [\"2024-05-01\", \"2024-05-02\", \"2024-05-03\", \"2024-05-03\"],\n})\norders.to_sql(\"orders\", con, index=False, if_exists=\"replace\")\n\nmin_amount = 30\nq = (\n    \"SELECT customer, COUNT(*) AS n, SUM(amount) AS total, MAX(created) AS last \"\n    \"FROM orders WHERE amount >= ? GROUP BY customer\"\n)\nsummary = pd.read_sql(q, con, params=(min_amount,), parse_dates=[\"last\"])\nprint(summary)\n#   customer  n  total       last\n# 0      ana  2  120.0 2024-05-03\n\nfor chunk in pd.read_sql(\"SELECT * FROM orders\", con, chunksize=2):\n    print(len(chunk), end=\" \")       # 2 2",
+   "code_lang": "python",
+   "takeaways": [
+    "`read_sql` accepts SQLAlchemy, ADBC or sqlite3 connections",
+    "Filter and aggregate in SQL; bring back only what you need",
+    "Pass values with `params=`, never string formatting",
+    "`to_sql(if_exists='append', index=False)`; `replace` drops the table"
+   ],
+   "pitfalls": [
+    "Building queries with f-strings from user input, opening the door to SQL injection."
+   ],
+   "quiz": [
+    {
+     "q": "Why is `params=` preferred over an f-string for values in read_sql?",
+     "options": [
+      "It's the only way to use WHERE",
+      "The driver sends values separately, preventing SQL injection and quoting bugs",
+      "f-strings are slower",
+      "params enables chunking"
+     ],
+     "answer": 1,
+     "explain": "Parameter binding keeps data out of the SQL text, so it can't change the query's meaning."
+    },
+    {
+     "q": "What does `to_sql(..., if_exists='replace')` do to an existing table?",
+     "options": [
+      "Drops it and creates a new one from the DataFrame, losing its indexes and constraints",
+      "Updates matching rows",
+      "Appends rows",
+      "Raises an error"
+     ],
+     "answer": 0,
+     "explain": "replace drops and recreates the table, so hand-made indexes and constraints disappear."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/reference/api/pandas.read_sql.html",
+   "requires": [
+    "pandas.reading-files",
+    "pandas.writing-data",
+    "sql.select"
+   ]
+  },
+  {
+   "id": "pandas.internals",
+   "name": "Internals: BlockManager and Index engines",
+   "module": "internals",
+   "level": 4,
+   "minutes": 20,
+   "summary": "How DataFrames store columns in typed blocks, why fragmentation happens, and how indexes do fast lookups.",
+   "why": "Internals explain performance cliffs: slow row access, fragmentation warnings and expensive non-unique lookups.",
+   "body": "A DataFrame is not a list of Series. Its data lives in a **BlockManager** (reachable as the private `df._mgr`): a collection of **blocks**, each a 2-D NumPy array holding several columns of the same dtype, plus 1-D blocks for extension arrays such as `Int64`, `category` or Arrow types. Each block records which column positions it holds.\n\nConsequences:\n\n- **Column operations are cheap**, row operations aren't. `df[\"a\"]` slices one row of a block; `df.iloc[5]` must gather a value from every block and find a common dtype, often `object`. This is why `iterrows` is slow and lossy.\n- **Fragmentation**: adding columns one at a time (`df[f\"c{i}\"] = ...` in a loop) appends a new block each time. Past about 100 blocks, pandas emits `PerformanceWarning: DataFrame is highly fragmented`. Build all new columns at once with `pd.concat([df, new_cols], axis=1)` or a dict, or call `df.copy()` to consolidate.\n- **Mixed-dtype `to_numpy()`** must combine blocks into one array, copying and upcasting.\n- **Copy-on-write** tracks references between blocks and the objects sharing them, so a write knows whether it must copy first.\n\nThe **Index** holds row labels and powers lookups through an **index engine**, a hash table built lazily on first lookup. Engines specialise by situation:\n\n- **Unique** labels: `get_loc` is an O(1) hash lookup.\n- **Monotonic** (sorted) labels: slicing and `searchsorted` use binary search, and label slices don't need the hash table; `is_monotonic_increasing` is cached.\n- **Non-unique**, unsorted labels: lookups return masks or arrays of positions and are much slower; alignment between non-unique indexes produces cartesian products.\n\n`RangeIndex` stores only start, stop and step, costing no memory. Keeping indexes unique and sorted, and resetting to a RangeIndex when labels carry no meaning, keeps both memory and lookups efficient.",
+   "code": "import warnings\nimport numpy as np\nimport pandas as pd\n\ndf = pd.DataFrame({\"a\": [1, 2], \"b\": [3, 4], \"x\": [0.5, 1.5], \"s\": [\"p\", \"q\"]})\nprint([blk.dtype for blk in df._mgr.blocks])    # e.g. [int64, float64, object/str]  (private API)\nprint(df.iloc[0].dtype)                         # object: a row mixes dtypes\n\nwide = pd.DataFrame({\"k\": np.arange(3)})\nwith warnings.catch_warnings(record=True) as w:\n    warnings.simplefilter(\"always\")\n    for i in range(120):\n        wide[f\"c{i}\"] = i                       # one new block per column\n    print(any(\"fragmented\" in str(x.message) for x in w))   # True\nnew = pd.DataFrame({f\"c{i}\": i for i in range(120)}, index=wide.index)\nok = pd.concat([wide[[\"k\"]], new], axis=1)      # built in one go\n\nidx = pd.Index([30, 10, 20])\nprint(idx.is_unique, idx.is_monotonic_increasing)    # True False\nprint(idx.get_loc(20))                               # 2  (hash lookup)\ndup = pd.Index([\"a\", \"b\", \"a\"])\nprint(dup.get_loc(\"a\"))                              # [ True False  True]\nprint(pd.RangeIndex(10**9).memory_usage())           # tiny, no array stored",
+   "code_lang": "python",
+   "takeaways": [
+    "Columns of one dtype share a 2-D block; extension types get their own blocks",
+    "Column access is cheap; row access gathers across blocks and upcasts",
+    "Adding columns one by one fragments the frame; add them together",
+    "Unique, sorted indexes give fast hash and binary-search lookups"
+   ],
+   "pitfalls": [
+    "Looping over `iloc[i]` row access on a mixed-dtype frame, paying a cross-block gather and upcast for every row."
+   ],
+   "quiz": [
+    {
+     "q": "Why does inserting 500 columns one by one trigger a PerformanceWarning?",
+     "options": [
+      "Too many column names",
+      "Columns are copied to disk",
+      "The index gets rebuilt every time",
+      "Each insert creates a new block, leaving the BlockManager highly fragmented"
+     ],
+     "answer": 3,
+     "explain": "Every insertion adds a block; many small blocks slow down later operations until consolidated."
+    },
+    {
+     "q": "For which index does `get_loc(label)` return a boolean mask rather than an integer?",
+     "options": [
+      "A non-unique, unsorted index where the label appears several times",
+      "A unique, sorted index",
+      "A RangeIndex",
+      "A DatetimeIndex"
+     ],
+     "answer": 0,
+     "explain": "With duplicates in unsorted order, the engine can't return one position or a slice, so it returns a mask."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/development/internals.html",
+   "requires": [
+    "pandas.copy-on-write",
+    "pandas.performance",
+    "pandas.multiindex",
+    "numpy.memory-layout-strides"
+   ]
+  },
+  {
+   "id": "pandas.extension-arrays",
+   "name": "Extension arrays and accessors",
+   "module": "internals",
+   "level": 4,
+   "minutes": 20,
+   "summary": "The ExtensionArray/ExtensionDtype interface behind Categorical, Int64 and Arrow types, and custom accessors.",
+   "why": "Libraries like GeoPandas and pint-pandas add new column types this way; knowing it lets you build or debug them.",
+   "body": "pandas started as a layer over NumPy, which limited it to NumPy's types. The **extension array** interface lets any array-like type live in a Series or DataFrame column and take part in indexing, `take`, concat, groupby, `isna` and I/O.\n\nTwo classes define a new type:\n\n- An **`ExtensionDtype`** subclass describes it: `name`, `type` (the scalar type), `na_value`, and `construct_array_type()`. Decorate it with `@pd.api.extensions.register_extension_dtype` so strings like `astype(\"mytype\")` work.\n- An **`ExtensionArray`** subclass holds the data. The required methods are small: `_from_sequence`, `_from_factorized`, `__getitem__`, `__len__`, `__eq__`, `dtype`, `nbytes`, `isna`, `take`, `copy` and `_concat_same_type`. Everything else (`unique`, `factorize`, `value_counts`, sorting) has generic defaults built on these, which you can override with faster versions. `ExtensionScalarOpsMixin` adds arithmetic by applying scalar ops.\n\npandas' own types use this interface: `Categorical`, `IntegerArray` (`Int64`), `BooleanArray`, `StringArray`, `DatetimeArray` with time zones, `PeriodArray`, `IntervalArray`, `SparseArray` and `ArrowExtensionArray`. Third-party examples include GeoPandas geometry columns and pint-pandas unit-aware quantities.\n\nIn the BlockManager, extension arrays live in 1-D blocks, never consolidated, so a frame with many extension columns has many blocks. Methods that need NumPy call `to_numpy()`, which may cost a conversion.\n\nMost teams don't need a new dtype; they want domain methods. **Accessors** cover that cheaply: `@pd.api.extensions.register_series_accessor(\"geo\")` (or `register_dataframe_accessor`) attaches a namespace, so `s.geo.distance_to(...)` works like `.str` and `.dt`, with validation in `__init__`.",
+   "code": "import pandas as pd\n\n@pd.api.extensions.register_series_accessor(\"money\")\nclass MoneyAccessor:\n    def __init__(self, s: pd.Series):\n        if not pd.api.types.is_numeric_dtype(s):\n            raise AttributeError(\"money accessor needs numeric data\")\n        self._s = s\n\n    def fmt(self, symbol=\"EUR\"):\n        return self._s.map(lambda v: f\"{v:,.2f} {symbol}\")\n\n    def vat(self, rate=0.2):\n        return (self._s * rate).round(2)\n\nprices = pd.Series([1234.5, 99.0])\nprint(prices.money.fmt().tolist())   # ['1,234.50 EUR', '99.00 EUR']\nprint(prices.money.vat().tolist())   # [246.9, 19.8]\n\n# Built-in extension arrays behind familiar dtypes\nfor s in [pd.Series([1, None], dtype=\"Int64\"),\n          pd.Series([\"a\", \"b\"], dtype=\"category\"),\n          pd.Series(pd.date_range(\"2024\", periods=2, tz=\"UTC\"))]:\n    print(type(s.array).__name__, s.dtype)\n# IntegerArray Int64 / Categorical category / DatetimeArray datetime64[ns, UTC] (us on 3.x)\nprint(isinstance(pd.Series([1, None], dtype=\"Int64\").array, pd.api.extensions.ExtensionArray))   # True",
+   "code_lang": "python",
+   "takeaways": [
+    "`ExtensionDtype` + `ExtensionArray` let any array type become a pandas column",
+    "A small set of required methods unlocks indexing, concat, groupby and more",
+    "Categorical, Int64, tz-aware datetimes and Arrow types are all extension arrays",
+    "Accessors add domain methods without defining a new dtype"
+   ],
+   "pitfalls": [
+    "Building a full ExtensionArray when an accessor over an existing dtype would meet the need."
+   ],
+   "quiz": [
+    {
+     "q": "What does `s.array` return for a Series with dtype 'category'?",
+     "options": [
+      "A NumPy ndarray of strings",
+      "A list",
+      "A Categorical, the extension array backing the column",
+      "An Index"
+     ],
+     "answer": 2,
+     "explain": ".array exposes the backing ExtensionArray (or NumpyExtensionArray for NumPy dtypes)."
+    },
+    {
+     "q": "When is a custom accessor a better choice than a new ExtensionArray?",
+     "options": [
+      "When you need a new way to store values in memory",
+      "When you need a new missing-value marker",
+      "When you only want domain-specific methods on data that existing dtypes already represent",
+      "Never; accessors are deprecated"
+     ],
+     "answer": 2,
+     "explain": "Accessors add a method namespace; storage and semantics stay those of the existing dtype."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/development/extending.html",
+   "requires": [
+    "pandas.nullable-arrow-dtypes",
+    "pandas.internals"
+   ]
+  },
+  {
+   "id": "pandas.scaling",
+   "name": "Scaling beyond memory",
+   "module": "internals",
+   "level": 4,
+   "minutes": 20,
+   "summary": "Handle data larger than RAM: chunking, column pruning, Parquet and Arrow, and when to switch to Polars, DuckDB or Dask.",
+   "why": "pandas is in-memory and mostly single-threaded; knowing the escape routes avoids crashes and day-long jobs.",
+   "body": "pandas loads everything into memory and most operations run on one core. Intermediate copies during joins or groupbys can need several times the input size, so trouble starts well before data reaches your RAM size. Options, roughly from least to most change:\n\n**Load less.** Read only needed columns (`usecols`, Parquet `columns=`), filter rows at read time (`read_parquet(filters=[(\"year\", \"=\", 2024)])` skips row groups and partitions), and use compact dtypes (category, downcast numerics, Arrow strings). A 20 GB CSV is often 2 GB as typed, pruned Parquet.\n\n**Stream in chunks.** `pd.read_csv(path, chunksize=1_000_000)` (and `read_sql(chunksize=...)`) yields DataFrames one at a time. This works for operations that decompose: filters, per-chunk aggregates you combine afterwards (sums and counts, not medians), or converting a big CSV into partitioned Parquet once.\n\n**Use Arrow as the hub.** PyArrow datasets read partitioned Parquet lazily with predicate pushdown, and because Arrow is a shared memory format, data passes between PyArrow, Polars, DuckDB and pandas (with Arrow dtypes) with little or no copying.\n\n**Switch engines for the heavy step**, then come back to pandas for the small result:\n\n- **DuckDB**: an in-process SQL engine that queries Parquet files and even pandas DataFrames directly, in parallel and out of core.\n- **Polars**: a multi-threaded DataFrame library with a lazy query optimiser and streaming execution.\n- **Dask DataFrame**: a pandas-like API over many partitions, scaling to clusters.\n- **PySpark** (with its pandas API) for distributed data already in a Spark platform.\n\nMeasure peak memory, not just runtime. And question the premise: a database query, a sample, or pre-aggregation often removes the need to load everything.",
+   "code": "import numpy as np\nimport pandas as pd\nfrom pathlib import Path\n\npath = Path(\"big.csv\")\nrng = np.random.default_rng(0)\npd.DataFrame({\"store\": rng.integers(0, 50, 300_000),\n              \"amount\": rng.random(300_000).round(2),\n              \"note\": \"x\" * 20}).to_csv(path, index=False)\n\n# 1) stream: combine per-chunk partial aggregates (sums and counts compose)\npartials = []\nfor chunk in pd.read_csv(path, usecols=[\"store\", \"amount\"],\n                         dtype={\"store\": \"int16\", \"amount\": \"float32\"},\n                         chunksize=100_000):\n    partials.append(chunk.groupby(\"store\")[\"amount\"].agg([\"sum\", \"count\"]))\nagg = pd.concat(partials).groupby(level=0).sum()\nagg[\"mean\"] = agg[\"sum\"] / agg[\"count\"]\nprint(agg.shape)                               # (50, 3)\n\n# 2) convert once to partitioned Parquet, then read with pruning and filters\ndf = pd.read_csv(path, usecols=[\"store\", \"amount\"])\ndf.assign(bucket=df.store % 5).to_parquet(\"big_pq\", partition_cols=[\"bucket\"])\npart = pd.read_parquet(\"big_pq\", columns=[\"amount\"], filters=[(\"bucket\", \"=\", 3)])\nprint(len(part) < len(df))                     # True: only one partition read\n\n# 3) heavy step elsewhere, e.g. DuckDB (pip install duckdb):\n# import duckdb; duckdb.sql(\"SELECT store, avg(amount) FROM 'big_pq/**/*.parquet' GROUP BY 1\").df()",
+   "code_lang": "python",
+   "takeaways": [
+    "Load less: prune columns, filter at read time, use compact dtypes",
+    "Chunked reading works for decomposable operations like sums and counts",
+    "Partitioned Parquet plus Arrow enable pushdown and cheap interchange",
+    "Use DuckDB, Polars or Dask for the heavy step, pandas for the result"
+   ],
+   "pitfalls": [
+    "Averaging per-chunk means to get an overall mean, which is wrong when chunks differ in size; combine sums and counts instead."
+   ],
+   "quiz": [
+    {
+     "q": "You compute medians per chunk with read_csv(chunksize=...). Why is combining them problematic?",
+     "options": [
+      "A median of medians is not the overall median; medians don't decompose like sums and counts",
+      "Chunks are read in random order",
+      "Chunks lose the header",
+      "groupby doesn't work on chunks"
+     ],
+     "answer": 0,
+     "explain": "Only decomposable statistics (sum, count, min, max) can be merged exactly from partial results."
+    },
+    {
+     "q": "Which tool can run SQL directly over Parquet files and pandas DataFrames, out of core and in parallel, inside your Python process?",
+     "options": [
+      "SQLite",
+      "openpyxl",
+      "matplotlib",
+      "DuckDB"
+     ],
+     "answer": 3,
+     "explain": "DuckDB is an embedded analytical engine that reads Parquet and DataFrames directly."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/scale.html",
+   "requires": [
+    "pandas.performance",
+    "pandas.nullable-arrow-dtypes"
+   ]
+  },
+  {
+   "id": "pandas.api-edge-cases",
+   "name": "API edge cases and gotchas",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "The surprises experienced pandas users know: integer labels vs positions, alignment, NaN keys, dtype drift and more.",
+   "why": "These edge cases cause silent wrong answers; recognising them is what separates expert pandas users.",
+   "body": "A tour of behaviours that regularly bite experienced users:\n\n- **Integer labels vs positions.** With an integer index such as `[10, 20, 30]`, `s[0]` raises `KeyError` because `[]` uses labels when the index is integer. Use `.iloc` for positions, always. For non-integer indexes, positional `s[0]` was deprecated in 2.x and is label-only in 3.0.\n- **Slicing semantics differ**: `s.loc[a:b]` includes `b`, `s.iloc[a:b]` excludes it, and `s[2:5]` on a Series is positional (unless the index is float).\n- **Alignment in assignment**: `df.loc[mask, \"x\"] = other_series` aligns `other_series` by label first. Missing labels produce NaN, not an error.\n- **Boolean truthiness**: `if df[\"x\"] > 0:` raises \"truth value is ambiguous\"; use `.any()`/`.all()`. `x in s` checks the index, not the values.\n- **Missing keys vanish**: `groupby` drops NaN keys by default (`dropna=False` keeps them), so group totals may not sum to the overall total. `merge` *does* match NaN keys with each other, unlike SQL.\n- **dtype drift**: inserting NaN into an int column makes it float; setting a string into a float column used to silently upcast to object, warns since 2.1 and raises `TypeError` in 3.0; `concat` of int with missing columns gives float.\n- **`inplace=True`** rarely saves memory, returns None, and with copy-on-write doesn't propagate through selections.\n- **Duplicates in the index** make `loc` return a DataFrame instead of a row, and alignment explode into combinations.\n- **Renamed or removed APIs**: `DataFrame.append` (use `concat`), `applymap` (now `DataFrame.map`), `fillna(method=)` (use `ffill`/`bfill`), frequency aliases such as `\"M\"` (now `\"ME\"`).\n- **`value_counts`** sorts by count, and ties keep first-seen order; don't rely on alphabetical order.\n\nThe common thread: be explicit. Use `.loc`/`.iloc`, name your join keys and validate them, pass `dropna=`, `observed=` and dtypes deliberately, and check shapes and dtypes after each important step.",
+   "code": "import numpy as np\nimport pandas as pd\n\ns = pd.Series([1, 2, 3], index=[10, 20, 30])\ntry:\n    s[0]\nexcept KeyError:\n    print(\"s[0] is a label lookup -> KeyError; use s.iloc[0] =\", s.iloc[0])\n\ndf = pd.DataFrame({\"k\": [\"a\", np.nan, \"a\"], \"v\": [1, 2, 3]})\nprint(df.groupby(\"k\")[\"v\"].sum().sum(), df[\"v\"].sum())          # 4 6  NaN key dropped\nprint(df.groupby(\"k\", dropna=False)[\"v\"].sum().sum())           # 6\n\nleft = pd.DataFrame({\"key\": [np.nan, \"x\"], \"l\": [1, 2]})\nright = pd.DataFrame({\"key\": [np.nan, \"y\"], \"r\": [9, 8]})\nprint(len(left.merge(right, on=\"key\")))   # 1  NaN matched NaN (SQL would not)\n\nd = pd.DataFrame({\"x\": [1, 2, 3]})\nd.loc[[0, 2], \"y\"] = pd.Series([100, 300], index=[2, 0])        # aligned by label!\nprint(d[\"y\"].tolist())                    # [300.0, nan, 100.0]\n\nints = pd.Series([1, 2, 3])\nints.loc[1] = np.nan\nprint(ints.dtype)                         # float64: dtype drift",
+   "code_lang": "python",
+   "takeaways": [
+    "Use `.iloc` for positions; `[]` with an integer index means labels",
+    "groupby drops NaN keys, merge matches them: pass `dropna=` explicitly",
+    "Assignment from a Series aligns by label before writing",
+    "Watch for dtype drift and removed APIs when upgrading"
+   ],
+   "pitfalls": [
+    "Upgrading pandas without running tests with warnings enabled, missing deprecations that turn into behaviour changes."
+   ],
+   "quiz": [
+    {
+     "q": "`s = pd.Series([5, 6], index=[1, 0])`. What is `s[0]`?",
+     "options": [
+      "5 (first position)",
+      "6 (the label 0)",
+      "KeyError",
+      "A Series"
+     ],
+     "answer": 1,
+     "explain": "With an integer index, [] looks up labels, and label 0 holds 6."
+    },
+    {
+     "q": "How do `groupby` and `merge` treat NaN keys by default?",
+     "options": [
+      "Both drop them",
+      "groupby drops them, merge matches NaN with NaN",
+      "Both match them",
+      "groupby keeps them, merge drops them"
+     ],
+     "answer": 1,
+     "explain": "groupby has dropna=True by default, while merge treats NaN keys as equal to each other, unlike SQL."
+    }
+   ],
+   "docs": "https://pandas.pydata.org/docs/user_guide/gotchas.html",
+   "requires": [
+    "pandas.copy-on-write",
+    "pandas.multiindex",
+    "pandas.merge-join"
+   ]
+  }
+ ]
+}

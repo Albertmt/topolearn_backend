@@ -1,0 +1,578 @@
+{
+ "tool": {
+  "id": "lightgbm",
+  "name": "LightGBM",
+  "category": "library",
+  "tagline": "Fast, memory-efficient gradient boosting with leaf-wise trees",
+  "description": "LightGBM is Microsoft's gradient boosting framework, built for speed and large datasets. It grows trees leaf-wise on histogram-binned features, handles categorical features and missing values natively, and supports classification, regression, ranking and custom objectives. With a scikit-learn compatible API and a native API, it is a go-to choice for tabular data from Kaggle to production.",
+  "icon": "LG",
+  "color": "#2E6B30",
+  "official_docs": "https://lightgbm.readthedocs.io/en/stable/",
+  "version": "4.x",
+  "aliases": [
+   "lgbm",
+   "light gbm",
+   "LGBMClassifier"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   },
+   {
+    "tool": "scikit-learn",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "start",
+   "name": "Getting started"
+  },
+  {
+   "id": "training",
+   "name": "Training and tuning"
+  },
+  {
+   "id": "tasks",
+   "name": "Objectives and special tasks"
+  },
+  {
+   "id": "internals",
+   "name": "Internals and performance"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "lightgbm.sklearn-api",
+   "name": "LightGBM with the scikit-learn API",
+   "module": "start",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Train LGBMClassifier and LGBMRegressor like any scikit-learn estimator.",
+   "why": "The scikit-learn wrapper gets you a strong tabular model in a few lines and fits into pipelines and searches.",
+   "body": "LightGBM is a gradient boosting library: it adds decision trees one at a time, each correcting the errors of the ensemble so far. The `lightgbm` package provides scikit-learn compatible estimators:\n\n- `LGBMClassifier` (binary and multi-class),\n- `LGBMRegressor`,\n- `LGBMRanker` for learning to rank.\n\nThe usual API applies: constructor hyperparameters, `fit(X, y)`, `predict`, `predict_proba`, `score`, and full compatibility with `Pipeline`, `cross_val_score` and `GridSearchCV`. Inputs can be NumPy arrays, pandas DataFrames (column names are kept; `category` columns are used natively) or SciPy sparse matrices.\n\nDefaults: 100 trees (`n_estimators`), `learning_rate=0.1`, `num_leaves=31`, no depth limit. No feature scaling is needed and missing values are handled natively. Unlike XGBoost, class labels may be strings: the classifier encodes them and `classes_` lists them.\n\nLightGBM logs warnings such as \"No further splits with positive gain\" during training. Pass `verbose=-1` to the constructor to silence them once you know what they mean.\n\nIts main selling point is **speed**: histogram-based, leaf-wise training with careful engineering, often several times faster than other boosting libraries on large data with similar accuracy.",
+   "code": "import lightgbm as lgb\nfrom sklearn.datasets import load_breast_cancer\nfrom sklearn.model_selection import train_test_split\n\nX, y = load_breast_cancer(return_X_y=True, as_frame=True)\nX_tr, X_te, y_tr, y_te = train_test_split(X, y, stratify=y, random_state=0)\n\nmodel = lgb.LGBMClassifier(n_estimators=200, learning_rate=0.05, verbose=-1)\nmodel.fit(X_tr, y_tr)\n\nprint(round(model.score(X_te, y_te), 3))           # 0.944\nprint(model.predict_proba(X_te.iloc[:2]).round(3))\n# [[0. 1.]\n#  [1. 0.]]\n\nlabels = y_tr.map({0: \"malignant\", 1: \"benign\"})    # string labels work too\nprint(lgb.LGBMClassifier(verbose=-1).fit(X_tr, labels).classes_)  # ['benign' 'malignant']",
+   "code_lang": "python",
+   "takeaways": [
+    "LGBMClassifier/LGBMRegressor follow the scikit-learn API",
+    "No scaling needed; NaN and pandas categories are handled natively",
+    "`verbose=-1` silences training warnings"
+   ],
+   "pitfalls": [
+    "Silencing warnings with verbose=-1 before ever reading them; they often reveal data problems."
+   ],
+   "quiz": [
+    {
+     "q": "Which of these does LightGBM's LGBMClassifier accept without extra preprocessing?",
+     "options": [
+      "String class labels",
+      "Only integer labels 0..k-1",
+      "Only standardised features",
+      "Only dense NumPy arrays"
+     ],
+     "answer": 0,
+     "explain": "The classifier encodes string labels internally and exposes them via classes_."
+    }
+   ],
+   "docs": "https://lightgbm.readthedocs.io/en/stable/pythonapi/lightgbm.LGBMClassifier.html",
+   "requires": [
+    "scikit-learn.estimator-api",
+    "scikit-learn.train-test-split"
+   ]
+  },
+  {
+   "id": "lightgbm.leaf-wise-trees",
+   "name": "Leaf-wise growth and num_leaves",
+   "module": "start",
+   "level": 1,
+   "minutes": 11,
+   "summary": "Understand how leaf-wise tree growth works and control it with num_leaves, max_depth and min_child_samples.",
+   "why": "num_leaves is LightGBM's most important parameter, and it behaves differently from max_depth in other libraries.",
+   "body": "Most tree libraries grow trees **level-wise**: split every node at one depth before going deeper. LightGBM grows **leaf-wise** (best-first): at each step it splits the single leaf with the largest loss reduction, anywhere in the tree. For the same number of leaves this reduces loss more, but it can build deep, lopsided trees that overfit small datasets.\n\nSo model capacity is controlled mainly by:\n\n- `num_leaves` (default 31): the maximum number of leaves per tree. This is the key parameter. A level-wise tree of depth d has up to 2^d leaves, so `num_leaves=31` is comparable in size to depth 5, but shaped very differently. Keep `num_leaves` below `2^max_depth` when both are set.\n- `max_depth` (default -1, unlimited): an extra guard against very deep branches, useful on small data.\n- `min_child_samples` (`min_data_in_leaf`, default 20): minimum rows per leaf. Raising it (50-500 for large data) is one of the most effective ways to curb overfitting.\n- `min_child_weight` (minimum hessian sum) and `min_split_gain` provide similar control.\n\nTogether with `learning_rate` and `n_estimators`, these define most of the model's behaviour. A typical starting point for medium data: `num_leaves` 15-63, `min_child_samples` 20-100, `learning_rate` 0.05, and early stopping for the number of trees.",
+   "code": "import lightgbm as lgb\nfrom sklearn.datasets import make_regression\n\nX, y = make_regression(n_samples=5000, n_features=10, noise=10, random_state=0)\n\nfor params in [dict(num_leaves=31),\n               dict(num_leaves=31, max_depth=5),\n               dict(num_leaves=31, min_child_samples=300)]:\n    m = lgb.LGBMRegressor(n_estimators=50, verbose=-1, **params).fit(X, y)\n    t = m.booster_.trees_to_dataframe()\n    leaves = t[t[\"left_child\"].isna()]\n    avg_leaves = leaves.groupby(\"tree_index\").size().mean()\n    print(params, round(avg_leaves, 1), int(leaves[\"node_depth\"].max()) - 1)\n# {'num_leaves': 31} 31.0 14                    (31 leaves, but 14 levels deep: lopsided)\n# {'num_leaves': 31, 'max_depth': 5} 27.3 5      (depth cap limits the branches)\n# {'num_leaves': 31, 'min_child_samples': 300} 13.0 12  (big leaves stop splitting early)",
+   "code_lang": "python",
+   "takeaways": [
+    "Trees grow leaf-wise: always split the best leaf",
+    "`num_leaves` is the main capacity control; keep it below 2^max_depth",
+    "Raise `min_child_samples` to fight overfitting"
+   ],
+   "pitfalls": [
+    "Copying max_depth=6 from XGBoost and leaving num_leaves=31, then wondering why trees behave differently."
+   ],
+   "quiz": [
+    {
+     "q": "Your LightGBM model overfits a small dataset. Which change is most directly helpful?",
+     "options": [
+      "Increase num_leaves to 255",
+      "Decrease num_leaves and increase min_child_samples",
+      "Increase learning_rate",
+      "Remove max_depth"
+     ],
+     "answer": 1,
+     "explain": "Fewer leaves and more samples per leaf limit how finely the trees can fit noise."
+    }
+   ],
+   "docs": "https://lightgbm.readthedocs.io/en/stable/Parameters-Tuning.html",
+   "requires": [
+    "lightgbm.sklearn-api",
+    "scikit-learn.decision-trees"
+   ]
+  },
+  {
+   "id": "lightgbm.categorical-and-missing",
+   "name": "Categorical features and missing values",
+   "module": "start",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Use pandas category columns for native categorical splits and let LightGBM handle NaN.",
+   "why": "Native handling is faster and often more accurate than one-hot encoding or imputing.",
+   "body": "**Categorical features.** LightGBM splits categorical features natively: for a categorical column it sorts categories by their gradient statistics and finds the best partition into two groups, which is much better than one-hot encoding for high-cardinality features. Two ways to declare them:\n\n- pandas columns with `category` dtype are detected automatically (`categorical_feature=\"auto\"`),\n- or pass `categorical_feature=[\"city\", ...]` (names or indices) to `fit` / `lgb.Dataset`; those columns must contain non-negative integers.\n\nCategory codes are stored with the model, and at prediction time pandas categories are mapped consistently as long as the column has the same categories; re-use the training `CategoricalDtype` to be safe. Controls against overfitting rare categories: `min_data_per_group` (default 100), `cat_smooth`, `cat_l2` and `max_cat_threshold`. With very many rare categories, consider grouping them first.\n\n**Missing values.** `NaN` is treated as missing by default (`use_missing=True`): each split learns which side missing values go to. Zeros can also be treated as missing with `zero_as_missing=True`, useful for sparse data where absent means unknown. Don't impute by reflex: the learned direction can use missingness as information.\n\nObject (string) columns are rejected; convert with `astype(\"category\")`.",
+   "code": "import lightgbm as lgb\nimport numpy as np\nimport pandas as pd\n\nrng = np.random.default_rng(0)\nn = 5000\ndf = pd.DataFrame({\"store\": rng.choice([f\"s{i}\" for i in range(50)], n),\n                   \"temp\": rng.normal(20, 8, n)})\neffect = {f\"s{i}\": rng.normal(0, 10) for i in range(50)}\ny = df[\"store\"].map(effect) + 0.5 * df[\"temp\"] + rng.normal(0, 2, n)\ndf.loc[rng.random(n) < 0.1, \"temp\"] = np.nan          # 10% missing\ndf[\"store\"] = df[\"store\"].astype(\"category\")           # native categorical\n\nmodel = lgb.LGBMRegressor(n_estimators=300, learning_rate=0.05, verbose=-1).fit(df, y)\nnew = pd.DataFrame({\"store\": pd.Categorical([\"s3\", \"s7\"], categories=df[\"store\"].cat.categories),\n                    \"temp\": [25.0, np.nan]})\nprint(model.predict(new).round(1))                    # [6.1 1.2]\nprint(round(effect[\"s3\"] + 0.5 * 25, 1))              # 5.7 (true mean for the first row)",
+   "code_lang": "python",
+   "takeaways": [
+    "pandas `category` columns are used as native categorical features",
+    "Each split learns where NaN goes; avoid imputing by default",
+    "Keep the same categories at prediction time"
+   ],
+   "pitfalls": [
+    "Passing integer-coded categories without declaring them, so they are split as ordered numbers."
+   ],
+   "quiz": [
+    {
+     "q": "How should you pass a 'city' column with 500 distinct names to LightGBM?",
+     "options": [
+      "One-hot encode it into 500 columns",
+      "Map names to random integers and leave them numeric",
+      "Convert it to pandas category dtype",
+      "Drop it"
+     ],
+     "answer": 2,
+     "explain": "Native categorical handling finds good groupings of categories without creating hundreds of sparse columns."
+    }
+   ],
+   "docs": "https://lightgbm.readthedocs.io/en/stable/Advanced-Topics.html",
+   "requires": [
+    "lightgbm.sklearn-api"
+   ]
+  },
+  {
+   "id": "lightgbm.early-stopping",
+   "name": "Early stopping with callbacks",
+   "module": "training",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Stop training when a validation metric stops improving, using eval_set and the early_stopping callback.",
+   "why": "Early stopping chooses the number of trees and prevents overfitting with almost no extra effort.",
+   "body": "Pass validation data and a callback to `fit`:\n\n```python\nmodel.fit(X_tr, y_tr, eval_X=X_val, eval_y=y_val, eval_metric=\"auc\",\n          callbacks=[lgb.early_stopping(50), lgb.log_evaluation(100)])\n```\n\n- `lgb.early_stopping(stopping_rounds)` stops when a validation metric hasn't improved for that many rounds. By default it watches **every** metric and stops on whichever stalls first; `first_metric_only=True` restricts it to the first.\n- `lgb.log_evaluation(period)` prints progress every `period` rounds (0 for silence).\n- `lgb.record_evaluation(d)` stores the full history in a dict; with the scikit-learn API, `model.evals_result_` holds it too.\n\nAfter training, `model.best_iteration_` gives the best round, and `predict` uses it automatically. The objective's default metric is always evaluated; `eval_metric` adds more.\n\nSince 4.7, validation data is passed as `eval_X` and `eval_y` (tuples for several sets); the older `eval_set=[(X, y)]` still works but is deprecated. Early stopping considers every validation set, so don't include the training data there.\n\nSet `n_estimators` generously with a small learning rate and let early stopping decide; keep the validation set separate from the test set.",
+   "code": "import lightgbm as lgb\nfrom sklearn.datasets import make_classification\nfrom sklearn.model_selection import train_test_split\n\nX, y = make_classification(n_samples=6000, n_features=20, n_informative=8,\n                           flip_y=0.05, random_state=0)\nX_tr, X_val, y_tr, y_val = train_test_split(X, y, test_size=0.2, random_state=0)\n\nmodel = lgb.LGBMClassifier(n_estimators=5000, learning_rate=0.03, verbose=-1)\nmodel.fit(X_tr, y_tr, eval_X=X_val, eval_y=y_val, eval_metric=\"auc\",\n          callbacks=[lgb.early_stopping(100, verbose=False), lgb.log_evaluation(0)])\n\nhist = model.evals_result_[\"valid_0\"]\nprint(model.best_iteration_, sorted(hist))       # 80 ['auc', 'binary_logloss']\nprint(round(model.best_score_[\"valid_0\"][\"auc\"], 4))   # 0.9637\nlogloss = hist[\"binary_logloss\"]\nprint(logloss.index(min(logloss)) + 1)           # 178: logloss was still improving!\n# AUC stalled first and stopped training; use first_metric_only=True with the\n# metric you care about listed first if that matters",
+   "code_lang": "python",
+   "takeaways": [
+    "Early stopping is a callback: `callbacks=[lgb.early_stopping(n)]`",
+    "Pass validation data as `eval_X`/`eval_y`; `predict` uses `best_iteration_`",
+    "With several metrics, the first to stall stops training"
+   ],
+   "pitfalls": [
+    "Adding eval_metric=\"auc\" and not noticing that AUC, not logloss, decided when to stop."
+   ],
+   "quiz": [
+    {
+     "q": "Where is the early-stopping round count specified in LightGBM 4.x's scikit-learn API?",
+     "options": [
+      "fit(early_stopping_rounds=50)",
+      "LGBMClassifier(early_stop=50)",
+      "eval_metric=\"early50\"",
+      "callbacks=[lgb.early_stopping(50)]"
+     ],
+     "answer": 3,
+     "explain": "Early stopping is configured through the early_stopping callback; the old fit argument was removed in 4.0."
+    }
+   ],
+   "docs": "https://lightgbm.readthedocs.io/en/stable/pythonapi/lightgbm.early_stopping.html",
+   "requires": [
+    "lightgbm.leaf-wise-trees",
+    "scikit-learn.classification-metrics"
+   ]
+  },
+  {
+   "id": "lightgbm.native-api",
+   "name": "The native API: Dataset, train and cv",
+   "module": "training",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Use lgb.Dataset, lgb.train and lgb.cv with parameter dicts for full control and faster repeated training.",
+   "why": "The native API exposes every parameter, reuses binned data across runs and is what the wrapper uses inside.",
+   "body": "The native API works with a `Dataset` and a parameter dict:\n\n- `lgb.Dataset(X, label=y, weight=w, categorical_feature=..., free_raw_data=True)` holds data. The binning (\"construction\") happens lazily on first use and can be reused across many trainings. A validation set should reference the training set: `lgb.Dataset(X_val, y_val, reference=dtrain)`, so it uses the same bins.\n- `lgb.train(params, dtrain, num_boost_round, valid_sets=[dval], callbacks=[...])` returns a `Booster`.\n- `booster.predict(X)` returns probabilities for binary objectives (no separate predict_proba), `raw_score=True` gives margins, and `num_iteration=booster.best_iteration` selects trees.\n- `lgb.cv(params, dtrain, nfold=5, stratified=True, callbacks=[lgb.early_stopping(50)])` returns a dict of mean and stdv metric lists; their length is the best number of rounds. `return_cvbooster=True` returns the fold models.\n\nParameters use the canonical names from the parameter docs: `objective`, `metric`, `learning_rate`, `num_leaves`, `min_data_in_leaf`, `feature_fraction`, `bagging_fraction`, `bagging_freq`, `lambda_l2`, `verbosity`. Many have aliases (the scikit-learn wrapper's `colsample_bytree` is `feature_fraction`). Don't pass the same parameter under two names.\n\nDataset-level parameters such as `max_bin` are fixed at construction; changing them requires a new Dataset.",
+   "code": "import lightgbm as lgb\nfrom sklearn.datasets import load_breast_cancer\nfrom sklearn.model_selection import train_test_split\n\nX, y = load_breast_cancer(return_X_y=True)\nX_tr, X_val, y_tr, y_val = train_test_split(X, y, stratify=y, random_state=0)\ndtrain = lgb.Dataset(X_tr, label=y_tr)\ndval = lgb.Dataset(X_val, label=y_val, reference=dtrain)    # same bins\n\nparams = {\"objective\": \"binary\", \"metric\": \"auc\", \"learning_rate\": 0.05,\n          \"num_leaves\": 15, \"feature_fraction\": 0.8, \"verbosity\": -1}\ncv = lgb.cv(params, dtrain, num_boost_round=2000, nfold=5, seed=0,\n            callbacks=[lgb.early_stopping(50, verbose=False)])\nbest_rounds = len(cv[\"valid auc-mean\"])\nprint(best_rounds, round(cv[\"valid auc-mean\"][-1], 4))    # 154 0.9952\n\nbooster = lgb.train(params, dtrain, num_boost_round=best_rounds, valid_sets=[dval])\nprint(booster.predict(X_val[:3]).round(3))                # [0.999 0.    0.   ]",
+   "code_lang": "python",
+   "takeaways": [
+    "`lgb.Dataset` + params dict + `lgb.train` -> Booster",
+    "Validation Datasets need `reference=dtrain`",
+    "`lgb.cv` with early stopping finds the number of rounds"
+   ],
+   "pitfalls": [
+    "Passing a parameter twice under different aliases, for example colsample_bytree and feature_fraction."
+   ],
+   "quiz": [
+    {
+     "q": "Why create the validation set with lgb.Dataset(X_val, y_val, reference=dtrain)?",
+     "options": [
+      "So it uses the same feature bins as the training data",
+      "To copy the labels",
+      "To enable early stopping",
+      "To make it read-only"
+     ],
+     "answer": 0,
+     "explain": "Binning is learned on the training data; the reference makes validation data use identical bin boundaries."
+    }
+   ],
+   "docs": "https://lightgbm.readthedocs.io/en/stable/Python-Intro.html",
+   "requires": [
+    "lightgbm.early-stopping",
+    "lightgbm.categorical-and-missing"
+   ]
+  },
+  {
+   "id": "lightgbm.regularisation-tuning",
+   "name": "Regularisation and tuning",
+   "module": "training",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Tune bagging, feature fraction, L1/L2 penalties and leaf constraints in a sensible order.",
+   "why": "Beyond num_leaves, a handful of parameters reliably trade training fit for generalisation.",
+   "body": "LightGBM's anti-overfitting toolbox:\n\n- **Row subsampling (bagging)**: `subsample` (`bagging_fraction`) below 1, together with `subsample_freq` (`bagging_freq`) of 1 or more. Bagging is **off** unless the frequency is positive, a common surprise.\n- **Column subsampling**: `colsample_bytree` (`feature_fraction`) 0.5-0.9; `feature_fraction_bynode` samples per split.\n- **Penalties**: `reg_lambda` (L2) and `reg_alpha` (L1) on leaf values, both 0 by default; `min_split_gain` requires a minimum gain per split.\n- **Leaf constraints**: `min_child_samples`, `min_child_weight`, `max_depth`, `num_leaves`.\n- **Feature binning**: smaller `max_bin` gives coarser splits, a mild regulariser.\n- `path_smooth` and `extra_trees=True` (random thresholds) add smoothing and randomness.\n\nA practical recipe:\n\n1. Fix `learning_rate` at 0.05-0.1 and use early stopping.\n2. Tune `num_leaves` and `min_child_samples`.\n3. Tune `colsample_bytree`, `subsample` with `subsample_freq=1`.\n4. Tune `reg_lambda`, `reg_alpha`, `min_split_gain`.\n5. Lower the learning rate (and raise the number of trees) for the final model.\n\nUse random search or Bayesian optimisation (Optuna has a dedicated LightGBM tuner) rather than large grids, and remember that LightGBM uses all cores by default, so parallelise either the search or the model.",
+   "code": "import lightgbm as lgb\nfrom sklearn.datasets import make_regression\nfrom sklearn.model_selection import cross_val_score\n\nX, y = make_regression(n_samples=2000, n_features=40, n_informative=10,\n                       noise=30, random_state=0)\nbase = dict(n_estimators=400, learning_rate=0.05, verbose=-1, random_state=0)\n\nfor extra in [{},\n              {\"subsample\": 0.7},                               # no effect: freq is 0\n              {\"subsample\": 0.7, \"subsample_freq\": 1, \"colsample_bytree\": 0.7},\n              {\"subsample\": 0.7, \"subsample_freq\": 1, \"colsample_bytree\": 0.7,\n               \"reg_lambda\": 5.0, \"min_child_samples\": 40}]:\n    m = lgb.LGBMRegressor(**base, **extra)\n    print(round(cross_val_score(m, X, y, cv=5).mean(), 4), extra)\n# 0.9056 {}\n# 0.9056 {'subsample': 0.7}                 (identical: bagging never ran)\n# 0.9224 {'subsample': 0.7, 'subsample_freq': 1, 'colsample_bytree': 0.7}\n# 0.9264 {... 'reg_lambda': 5.0, 'min_child_samples': 40}",
+   "code_lang": "python",
+   "takeaways": [
+    "Bagging needs `subsample_freq` > 0 as well as `subsample` < 1",
+    "Feature fraction, L1/L2 and leaf constraints all reduce overfitting",
+    "Tune capacity first, then sampling, then penalties; lower the learning rate last"
+   ],
+   "pitfalls": [
+    "Setting subsample=0.8 without subsample_freq and believing bagging is on."
+   ],
+   "quiz": [
+    {
+     "q": "You set subsample=0.7 on LGBMRegressor and nothing changes. Why?",
+     "options": [
+      "subsample only works for classifiers",
+      "Bagging is disabled while subsample_freq is 0",
+      "subsample must be above 0.9",
+      "It needs max_depth to be set"
+     ],
+     "answer": 1,
+     "explain": "Row bagging happens every subsample_freq iterations; the default 0 means never."
+    }
+   ],
+   "docs": "https://lightgbm.readthedocs.io/en/stable/Parameters-Tuning.html#deal-with-over-fitting",
+   "requires": [
+    "lightgbm.leaf-wise-trees",
+    "lightgbm.early-stopping",
+    "scikit-learn.grid-search"
+   ]
+  },
+  {
+   "id": "lightgbm.importance-and-shap",
+   "name": "Feature importance and SHAP contributions",
+   "module": "training",
+   "level": 2,
+   "minutes": 11,
+   "summary": "Read split and gain importances and compute per-prediction SHAP values with pred_contrib.",
+   "why": "Understanding what drives predictions is required for debugging, trust and catching leakage.",
+   "body": "LightGBM reports two built-in importances:\n\n- `importance_type=\"split\"` (the scikit-learn wrapper's default for `feature_importances_`): how many times a feature is used,\n- `\"gain\"`: the total loss reduction from its splits, usually more meaningful.\n\nGet them with `model.booster_.feature_importance(importance_type=\"gain\")`, or set `LGBMRegressor(importance_type=\"gain\")` so `feature_importances_` uses gain. `lgb.plot_importance(model, importance_type=\"gain\")` plots them. Split counts favour continuous, high-cardinality features that offer many thresholds.\n\nFor per-prediction explanations, `model.predict(X, pred_contrib=True)` returns exact **SHAP** values computed with the TreeSHAP algorithm: one column per feature plus a final expected-value column. For each row they add up to the raw prediction (log-odds for binary classification). Averages of absolute SHAP values give a consistent global ranking, and the `shap` library can plot them.\n\nFor a model-agnostic check of how much a feature matters for your actual metric, use scikit-learn's `permutation_importance` on held-out data.\n\nAll of these describe the model, not causality, and correlated features split credit unpredictably.",
+   "code": "import lightgbm as lgb\nimport numpy as np\nfrom sklearn.datasets import load_diabetes\n\nX, y = load_diabetes(return_X_y=True, as_frame=True)\nmodel = lgb.LGBMRegressor(n_estimators=200, learning_rate=0.05, num_leaves=8,\n                          verbose=-1).fit(X, y)\n\nsplit = dict(zip(X.columns, model.booster_.feature_importance(\"split\")))\ngain = dict(zip(X.columns, model.booster_.feature_importance(\"gain\").round()))\nprint(sorted(split, key=split.get, reverse=True)[:3])   # ['bmi', 'bp', 's5']\nprint(sorted(gain, key=gain.get, reverse=True)[:3])     # ['s5', 'bmi', 'bp']\n\ncontrib = model.predict(X.iloc[:2], pred_contrib=True)\nprint(contrib.shape)                                    # (2, 11) = 10 features + expected value\nprint(np.allclose(contrib.sum(axis=1), model.predict(X.iloc[:2])))   # True",
+   "code_lang": "python",
+   "takeaways": [
+    "Prefer gain importance over split counts",
+    "`pred_contrib=True` returns per-row SHAP values plus an expected-value column",
+    "Validate with permutation importance on held-out data"
+   ],
+   "pitfalls": [
+    "Reporting split-count importance as 'how much a feature matters'."
+   ],
+   "quiz": [
+    {
+     "q": "What does each row of predict(X, pred_contrib=True) sum to for a regressor?",
+     "options": [
+      "1.0",
+      "The number of trees",
+      "The model's prediction for that row",
+      "The feature's split count"
+     ],
+     "answer": 2,
+     "explain": "SHAP contributions plus the expected value add up exactly to the raw prediction."
+    }
+   ],
+   "docs": "https://lightgbm.readthedocs.io/en/stable/pythonapi/lightgbm.Booster.html",
+   "requires": [
+    "lightgbm.early-stopping",
+    "scikit-learn.inspection"
+   ]
+  },
+  {
+   "id": "lightgbm.save-and-deploy",
+   "name": "Saving, loading and serving models",
+   "module": "training",
+   "level": 2,
+   "minutes": 8,
+   "summary": "Save boosters as text or JSON, reload them for prediction, and keep serving consistent with training.",
+   "why": "A model that can't be reloaded exactly in production is not finished.",
+   "body": "LightGBM models have a native text format:\n\n- `booster.save_model(\"model.txt\")` (or `model.booster_.save_model(...)` from the scikit-learn wrapper) writes all trees and parameters. Pass `num_iteration=booster.best_iteration` to save only the best trees.\n- `lgb.Booster(model_file=\"model.txt\")` loads it; `booster.predict(X)` works immediately.\n- `booster.model_to_string()` / `lgb.Booster(model_str=...)` do the same in memory, handy for storing models in databases.\n- `booster.dump_model()` returns a JSON-like dict of every tree, useful for inspection or custom runtimes.\n\nThe text format is readable by the C API, CLI and other language bindings, which is why many production systems serve LightGBM from Java, C++ or via ONNX converters.\n\nThe scikit-learn wrapper can also be pickled with `joblib`, which keeps attributes like `classes_` and works inside full pipelines, but ties the file to library versions; only load pickles you trust.\n\nServing pitfalls:\n\n- **Column order and dtypes** must match training. With a DataFrame, keep the same columns in the same order and the same categorical categories.\n- Predictions from a loaded `Booster` are probabilities for binary objectives, not labels.\n- Record the LightGBM version and parameters alongside the model.",
+   "code": "import lightgbm as lgb\nimport numpy as np\nfrom sklearn.datasets import load_breast_cancer\n\nX, y = load_breast_cancer(return_X_y=True)\nmodel = lgb.LGBMClassifier(n_estimators=100, verbose=-1).fit(X, y)\nmodel.booster_.save_model(\"cancer_lgb.txt\")\n\nbooster = lgb.Booster(model_file=\"cancer_lgb.txt\")\nproba = booster.predict(X[:3])                       # probabilities, not labels\nprint(proba.round(3))                                # [0. 0. 0.]\nprint(np.allclose(proba, model.predict_proba(X[:3])[:, 1]))   # True\n\ntext = booster.model_to_string()\nprint(text.splitlines()[0], booster.num_trees())     # tree 100",
+   "code_lang": "python",
+   "takeaways": [
+    "`save_model` writes a portable text format; `lgb.Booster(model_file=...)` loads it",
+    "A loaded Booster's `predict` returns probabilities for binary objectives",
+    "Keep column order, dtypes and categories identical at serving time"
+   ],
+   "pitfalls": [
+    "Feeding columns in a different order at serving time, which silently produces wrong predictions."
+   ],
+   "quiz": [
+    {
+     "q": "You load a binary model with lgb.Booster(model_file=...) and call predict. What do you get?",
+     "options": [
+      "Class labels 0/1",
+      "Log-odds",
+      "Leaf indices",
+      "Probabilities of the positive class"
+     ],
+     "answer": 3,
+     "explain": "The native Booster returns transformed scores, i.e. probabilities for the binary objective."
+    }
+   ],
+   "docs": "https://lightgbm.readthedocs.io/en/stable/pythonapi/lightgbm.Booster.html",
+   "requires": [
+    "lightgbm.native-api"
+   ]
+  },
+  {
+   "id": "lightgbm.objectives-metrics",
+   "name": "Objectives, metrics and imbalanced data",
+   "module": "tasks",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Pick objectives for counts, quantiles and skewed targets, add custom metrics, and handle class imbalance.",
+   "why": "Matching the loss to the problem often beats any amount of hyperparameter tuning.",
+   "body": "The `objective` defines the loss. Beyond the defaults (`regression` = L2, `binary`, `multiclass`):\n\n- `regression_l1`, `huber`, `fair`: robust to outliers,\n- `quantile` with `alpha=0.9`: conditional quantiles, for prediction intervals,\n- `poisson`, `gamma`, `tweedie` (`tweedie_variance_power`): counts, positive skewed amounts, insurance losses with many zeros (log link),\n- `cross_entropy` (`xentropy`): targets that are probabilities in [0, 1],\n- `multiclassova`: one-vs-all multi-class,\n- `lambdarank`, `rank_xendcg`: ranking.\n\n`metric` (or `eval_metric` in the wrapper) controls what is evaluated: `auc`, `average_precision`, `binary_logloss`, `l1`, `l2`, `quantile`, `ndcg`, `map` and more. A **custom metric** in the scikit-learn API is a function `(y_true, y_pred) -> (name, value, is_higher_better)` passed as `eval_metric`.\n\n**Imbalanced classes**: `is_unbalance=True` or `scale_pos_weight=n_neg/n_pos` (use one, not both) reweight the positive class; `class_weight=\"balanced\"` works in the wrapper, including multi-class. As with any reweighting, probabilities become inflated; tune the decision threshold or recalibrate if you need real probabilities. Monitor `average_precision` rather than accuracy.\n\nFor prediction intervals, train two quantile models (for example alpha 0.05 and 0.95) and check their empirical coverage on validation data.",
+   "code": "import lightgbm as lgb\nimport numpy as np\n\nrng = np.random.default_rng(1)\nX = rng.uniform(0, 10, size=(4000, 2))\ny = 5 * X[:, 0] + rng.normal(0, 1 + X[:, 0], 4000)        # noise grows with x0\nX_tr, X_val, y_tr, y_val = X[:3000], X[3000:], y[:3000], y[3000:]\n\nlo = lgb.LGBMRegressor(objective=\"quantile\", alpha=0.05, verbose=-1).fit(X_tr, y_tr)\nhi = lgb.LGBMRegressor(objective=\"quantile\", alpha=0.95, verbose=-1).fit(X_tr, y_tr)\ninside = (y_val >= lo.predict(X_val)) & (y_val <= hi.predict(X_val))\nprint(round(inside.mean(), 2))                          # 0.82 (target 0.90: check coverage, quantile models often undercover)\n\nwidth = hi.predict([[1.0, 5.0], [9.0, 5.0]]) - lo.predict([[1.0, 5.0], [9.0, 5.0]])\nprint(width.round(1))                                   # [ 4.7 27. ] (wider where noisier)\n\ndef mape(y_true, y_pred):\n    return \"mape\", float(np.mean(np.abs((y_true - y_pred) / y_true))), False\nm = lgb.LGBMRegressor(verbose=-1).fit(X_tr, y_tr + 100, eval_X=X_val, eval_y=y_val + 100,\n                                       eval_metric=mape)\nprint(sorted(m.evals_result_[\"valid_0\"]))               # ['l2', 'mape']",
+   "code_lang": "python",
+   "takeaways": [
+    "Match the objective to the target: quantile, Poisson/Tweedie, robust losses",
+    "Custom metrics return (name, value, is_higher_better)",
+    "Use one of is_unbalance or scale_pos_weight, and expect inflated probabilities"
+   ],
+   "pitfalls": [
+    "Setting both is_unbalance and scale_pos_weight, which LightGBM rejects."
+   ],
+   "quiz": [
+    {
+     "q": "How can you get a 90% prediction interval from LightGBM?",
+     "options": [
+      "Train quantile models with alpha=0.05 and alpha=0.95",
+      "Use objective='regression' and add +-10%",
+      "Set metric='interval'",
+      "Use predict_proba"
+     ],
+     "answer": 0,
+     "explain": "Two quantile regressions estimate the 5th and 95th conditional percentiles, bounding 90% of outcomes."
+    }
+   ],
+   "docs": "https://lightgbm.readthedocs.io/en/stable/Parameters.html#objective",
+   "requires": [
+    "lightgbm.regularisation-tuning",
+    "scikit-learn.imbalanced-data"
+   ]
+  },
+  {
+   "id": "lightgbm.ranking",
+   "name": "Learning to rank with LGBMRanker",
+   "module": "tasks",
+   "level": 3,
+   "minutes": 11,
+   "summary": "Train lambdarank models with query groups, label gains and NDCG evaluation.",
+   "why": "Search, recommendation and feed ordering are ranking problems, and LightGBM's lambdarank is an industry standard.",
+   "body": "For ranking, data is grouped by **query**: each query has several candidate items with graded relevance labels (integers 0, 1, 2, ...). The model learns scores whose order within each query matches relevance.\n\n`LGBMRanker(objective=\"lambdarank\")` (the default) is trained with:\n\n- `group=`: the **sizes** of consecutive query groups, for example `[10, 8, 12]` for three queries. Rows must be sorted so each query's items are contiguous. (XGBoost uses per-row query ids instead.)\n- `eval_X`, `eval_y` and `eval_group` for validation, with `eval_at=[5, 10]` to report NDCG@5 and NDCG@10.\n\nRelevant parameters:\n\n- `label_gain`: the gain for each relevance level, default `2^label - 1`; labels must be below its length (31 by default),\n- `lambdarank_truncation_level`: how deep in the ranking pairs are considered,\n- `lambdarank_norm`: normalisation of lambdas,\n- `objective=\"rank_xendcg\"`: an alternative, often faster objective.\n\n`predict` returns scores; sort within each query. Split data **by query** for validation (GroupKFold), and evaluate with per-query NDCG. Features describe the query-item pair: text relevance scores, item popularity, user history signals.",
+   "code": "import lightgbm as lgb\nimport numpy as np\nfrom sklearn.metrics import ndcg_score\n\nrng = np.random.default_rng(2)\nn_q, per_q = 300, 8\nX = rng.normal(size=(n_q * per_q, 6))\nrel = np.clip(np.round(1.5 + X[:, 0] + 0.5 * X[:, 2] + rng.normal(0, 0.6, len(X))), 0, 4).astype(int)\n\nn_train = 250 * per_q                                     # first 250 queries train\nranker = lgb.LGBMRanker(n_estimators=200, learning_rate=0.05, verbose=-1)\nranker.fit(X[:n_train], rel[:n_train], group=[per_q] * 250,\n           eval_X=X[n_train:], eval_y=rel[n_train:], eval_group=[[per_q] * 50], eval_at=[5])\n\nprint(round(ranker.best_score_[\"valid_0\"][\"ndcg@5\"], 3))  # 0.92\nscores = ranker.predict(X[n_train:]).reshape(-1, per_q)\nprint(round(ndcg_score(rel[n_train:].reshape(-1, per_q), scores, k=5), 3))   # 0.939",
+   "code_lang": "python",
+   "takeaways": [
+    "`group=` gives the sizes of consecutive query groups",
+    "Evaluate with NDCG@k per query; split by query",
+    "Relevance labels must be small non-negative integers (see `label_gain`)"
+   ],
+   "pitfalls": [
+    "Passing per-row query ids as group instead of group sizes."
+   ],
+   "quiz": [
+    {
+     "q": "For 3 queries with 10, 8 and 12 candidates (rows sorted by query), what is the group argument?",
+     "options": [
+      "[0]*10 + [1]*8 + [2]*12",
+      "[10, 8, 12]",
+      "[3]",
+      "[30]"
+     ],
+     "answer": 1,
+     "explain": "LightGBM expects group sizes in order; per-row ids are XGBoost's qid convention."
+    }
+   ],
+   "docs": "https://lightgbm.readthedocs.io/en/stable/pythonapi/lightgbm.LGBMRanker.html",
+   "requires": [
+    "lightgbm.native-api",
+    "scikit-learn.leakage-and-splitters"
+   ]
+  },
+  {
+   "id": "lightgbm.boosting-variants",
+   "name": "DART, GOSS, random forests and linear trees",
+   "module": "tasks",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Know when to use LightGBM's alternative boosting modes and sampling strategies.",
+   "why": "These variants can add accuracy or speed for specific data, and you will meet them in competition code.",
+   "body": "`boosting_type` (alias `boosting`) and related options change how the ensemble is built.\n\n**DART** (`boosting_type=\"dart\"`) applies dropout to trees: at each iteration some existing trees are temporarily dropped, so new trees cannot simply rely on them. It can improve accuracy on some problems but is slower, and **early stopping does not work reliably** because earlier trees are rescaled as training continues. Key parameters: `drop_rate`, `skip_drop`, `max_drop`.\n\n**GOSS** (Gradient-based One-Side Sampling) keeps all rows with large gradients and samples a fraction of the rest, re-weighting them to stay unbiased. It speeds up training on large data. Since LightGBM 4.0 it is a **data sampling strategy**, set with `data_sample_strategy=\"goss\"` (`top_rate`, `other_rate`), not a boosting type; GOSS is incompatible with bagging.\n\n**Random forest mode** (`boosting_type=\"rf\"`) builds independent trees on bagged samples, requiring `subsample` < 1 with `subsample_freq` > 0 (or feature fraction < 1).\n\n**Linear trees** (`linear_tree=True`) fit a linear model in each leaf instead of a constant, which helps when the target changes smoothly with features (extrapolation-like behaviour within leaves). Not available with categorical-only splits on all features and slower to train.\n\nStart with plain `gbdt`; reach for these when you have a measured reason.",
+   "code": "import lightgbm as lgb\nimport numpy as np\nfrom sklearn.model_selection import cross_val_score\n\nrng = np.random.default_rng(3)\nX = rng.uniform(0, 10, size=(3000, 3))\ny = 3 * X[:, 0] + 2 * X[:, 1] + rng.normal(0, 1, 3000)   # smooth, linear target\n\nconfigs = {\"gbdt\": {}, \"linear_tree\": {\"linear_tree\": True},\n           \"goss\": {\"data_sample_strategy\": \"goss\"},\n           \"rf\": {\"boosting_type\": \"rf\", \"subsample\": 0.7, \"subsample_freq\": 1}}\nfor name, extra in configs.items():\n    m = lgb.LGBMRegressor(n_estimators=200, num_leaves=15, verbose=-1, **extra)\n    print(name, round(cross_val_score(m, X, y, cv=5, scoring=\"neg_root_mean_squared_error\").mean(), 3))\n# gbdt -1.122\n# linear_tree -1.083  (leaves fit the linear trend)\n# goss -1.129\n# rf -2.37            (no boosting: weaker on this task)",
+   "code_lang": "python",
+   "takeaways": [
+    "DART can help accuracy but breaks early stopping",
+    "GOSS is `data_sample_strategy=\"goss\"` in LightGBM 4",
+    "`linear_tree=True` suits smooth targets; `rf` mode needs bagging enabled"
+   ],
+   "pitfalls": [
+    "Using boosting_type=\"goss\" from old tutorials; in 4.x use data_sample_strategy."
+   ],
+   "quiz": [
+    {
+     "q": "Why is early stopping unreliable with boosting_type='dart'?",
+     "options": [
+      "DART has no validation metric",
+      "DART trains only one tree",
+      "Dropped trees are rescaled later, so earlier iterations change after the fact",
+      "Early stopping is only for classifiers"
+     ],
+     "answer": 2,
+     "explain": "DART normalises old and new trees as training continues, so the model at a past iteration is not preserved."
+    }
+   ],
+   "docs": "https://lightgbm.readthedocs.io/en/stable/Parameters.html#boosting",
+   "requires": [
+    "lightgbm.regularisation-tuning"
+   ]
+  },
+  {
+   "id": "lightgbm.histogram-internals",
+   "name": "Histograms, EFB and GOSS internals",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Learn how binning, exclusive feature bundling and histogram subtraction make LightGBM fast.",
+   "why": "Knowing the internals explains max_bin, sparse-data speed and memory use, and when settings matter.",
+   "body": "LightGBM's speed comes from a few ideas from its original paper.\n\n**Histogram binning.** Before training, each feature is bucketed into at most `max_bin` (default 255) bins using quantiles computed on up to `bin_construct_sample_cnt` rows (default 200,000). Split finding then scans bins instead of sorted values: building a node's histogram costs O(rows in node), and finding its best split costs O(bins). Binned values fit in 8 bits, cutting memory. `min_data_in_bin` and `max_bin_by_feature` refine it; more bins mean finer splits and more memory.\n\n**Histogram subtraction.** A child's histogram equals the parent's minus its sibling's, so LightGBM builds only the smaller child's histogram and derives the other.\n\n**Exclusive Feature Bundling (EFB).** Sparse features that are rarely non-zero at the same time (such as one-hot columns) are bundled into a single feature by offsetting their bin ranges. Thousands of sparse columns may become a few dense ones, which is why LightGBM is fast on sparse data. `enable_bundle` and `max_conflict_rate` control it.\n\n**GOSS** keeps the top `top_rate` fraction of rows by gradient magnitude, samples `other_rate` of the rest, and multiplies the sampled small-gradient rows by `(1 - top_rate) / other_rate` so gain estimates stay approximately unbiased.\n\n**Parallel learning** (feature, data and voting parallel) distributes histogram building across machines.",
+   "code": "import lightgbm as lgb\nimport numpy as np\nfrom scipy import sparse\n\nrng = np.random.default_rng(4)\nn = 20000\ncats = rng.integers(0, 2000, n)                       # one-hot of 2000 categories\nX = sparse.csr_matrix((np.ones(n), (np.arange(n), cats)), shape=(n, 2000))\ny = (cats % 7 == 0).astype(float) + rng.normal(0, 0.1, n)\n\nparams = {\"objective\": \"regression\", \"max_bin\": 63, \"min_data_in_leaf\": 5, \"verbosity\": -1}\nds = lgb.Dataset(X, label=y, params=params).construct()\nprint(ds.num_feature())                               # 2000 (original features)\n\nbooster = lgb.train(params, ds, num_boost_round=50)\npred = booster.predict(X[:4])\nprint(np.round(pred, 2), (cats[:4] % 7 == 0).astype(int))   # [0.08 0.08 0.08 0.55] [0 0 0 1]",
+   "code_lang": "python",
+   "takeaways": [
+    "Features are binned into at most `max_bin` quantile bins before training",
+    "Histogram subtraction and EFB make sparse, wide data fast",
+    "GOSS reweights sampled small-gradient rows to keep gains unbiased"
+   ],
+   "pitfalls": [
+    "Raising max_bin to thousands for tiny gains while multiplying memory use."
+   ],
+   "quiz": [
+    {
+     "q": "Why is LightGBM fast on thousands of one-hot encoded columns?",
+     "options": [
+      "It drops sparse columns",
+      "It converts them to categorical automatically",
+      "It uses only the first 255 columns",
+      "Exclusive Feature Bundling merges mutually exclusive sparse features into few dense ones"
+     ],
+     "answer": 3,
+     "explain": "Columns that are never non-zero together can share one feature with offset bin ranges."
+    }
+   ],
+   "docs": "https://lightgbm.readthedocs.io/en/stable/Features.html",
+   "requires": [
+    "lightgbm.leaf-wise-trees",
+    "lightgbm.boosting-variants"
+   ]
+  },
+  {
+   "id": "lightgbm.custom-objective",
+   "name": "Custom objective functions",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Train on your own loss by returning gradients and hessians, in both the scikit-learn and native APIs.",
+   "why": "Business losses (asymmetric costs, special likelihoods) can be optimised directly instead of approximated.",
+   "body": "Gradient boosting needs only the first and second derivatives of the loss per row, so you can supply your own.\n\n**scikit-learn API**: pass a callable as `objective`:\n\n```python\ndef objective(y_true, y_pred):   # y_pred: raw scores\n    return grad, hess\nlgb.LGBMRegressor(objective=objective)\n```\n\n**Native API** (LightGBM 4.x): put the callable in the params dict, `params[\"objective\"] = f`, where `f(preds, train_data)` returns `(grad, hess)` and labels come from `train_data.get_label()`.\n\nThings to get right:\n\n- Predictions passed in are **raw scores** (before any sigmoid or exp). For classification-like losses apply the link yourself; and `predict` returns raw scores for custom objectives, so apply the inverse link to get probabilities.\n- Hessians must be **positive**. For non-convex losses clip them to a small value.\n- Set a sensible starting point: LightGBM's `boost_from_average` doesn't know your loss, so pass `init_score` (native) or `init_score=` in `fit`, or accept a slower start from zero.\n- Pair it with a custom metric that reports the real loss, so early stopping optimises the right thing.\n\nVerify gradients numerically on a few points; a sign error trains a model that gets steadily worse while appearing to run fine.",
+   "code": "import lightgbm as lgb\nimport numpy as np\n\nUNDER_COST = 3.0                         # under-forecasting stock costs 3x more\n\ndef asym_l2(y_true, y_pred):             # exactly (y_true, y_pred); y_pred = raw score\n    r = y_pred - y_true\n    w = np.where(r < 0, UNDER_COST, 1.0)\n    return 2 * w * r, 2 * w              # gradient, positive hessian\n\nrng = np.random.default_rng(5)\nX = rng.uniform(0, 10, size=(5000, 1))\ny = 2 * X[:, 0] + rng.normal(0, 3, 5000)\n\nplain = lgb.LGBMRegressor(n_estimators=200, verbose=-1).fit(X, y)\ncustom = lgb.LGBMRegressor(objective=asym_l2, n_estimators=200, verbose=-1)\ncustom.fit(X, y, init_score=np.full(len(y), y.mean()))     # sensible start\n\npred = custom.predict(X) + y.mean()      # raw output excludes init_score: add it back\nprint(round(float((plain.predict(X) < y).mean()), 2))      # 0.5  under-predicted share\nprint(round(float((pred < y).mean()), 2))                  # 0.34 (biased upward, as intended)",
+   "code_lang": "python",
+   "takeaways": [
+    "Custom objectives return per-row gradient and positive hessian of the raw score",
+    "`predict` returns raw scores; apply links and add back any init_score",
+    "Provide a starting point with init_score and a matching custom metric"
+   ],
+   "pitfalls": [
+    "Forgetting that predictions exclude the init_score you supplied at fit time."
+   ],
+   "quiz": [
+    {
+     "q": "With a custom objective, what does LGBMRegressor.predict return?",
+     "options": [
+      "Raw scores, without any link function or init_score",
+      "Probabilities",
+      "Gradients",
+      "Quantiles"
+     ],
+     "answer": 0,
+     "explain": "LightGBM cannot know your link, so it returns raw model output; add init_score and apply transforms yourself."
+    }
+   ],
+   "docs": "https://lightgbm.readthedocs.io/en/stable/pythonapi/lightgbm.LGBMRegressor.html",
+   "requires": [
+    "lightgbm.objectives-metrics",
+    "lightgbm.histogram-internals"
+   ]
+  },
+  {
+   "id": "lightgbm.performance",
+   "name": "Performance, determinism and scale",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Tune threads, row/column-wise histograms, Dataset reuse, GPU/CUDA builds and Dask for big workloads.",
+   "why": "On large data, configuration choices change training time by an order of magnitude.",
+   "body": "**Threads.** `n_jobs` (`num_threads`) defaults to all cores (OpenMP). Set it to the number of **physical** cores; hyper-threads rarely help. When running several models in parallel (cross-validation, searches), give each a share of cores to avoid oversubscription.\n\n**Histogram layout.** LightGBM chooses between `force_row_wise=True` (better with many rows, few features, or many threads) and `force_col_wise=True` (better with many features or few threads) by timing both at start-up; setting one explicitly saves that overhead and silences the related log message.\n\n**Data handling.** Build an `lgb.Dataset` once and reuse it across trainings with the same binning; `ds.save_binary(\"train.bin\")` caches it on disk. `free_raw_data=True` (default) drops the raw copy after construction. Using `float32` input halves memory.\n\n**Determinism.** Results can vary slightly between runs with multithreading. For reproducibility set `seed` (and specific seeds like `bagging_seed`), `deterministic=True` and `force_row_wise=True` or `force_col_wise=True`, accepting some slowdown.\n\n**Hardware and scale.** `device_type=\"cuda\"` uses the CUDA implementation (requires a CUDA-enabled build); `\"gpu\"` is the older OpenCL version. `lightgbm.dask` (`DaskLGBMClassifier` and friends) trains across a Dask cluster with data-parallel histogram aggregation; the CLI and Spark (SynapseML) support distributed training too.\n\nProfile first: often the bottleneck is data loading or a too-large `max_bin`, not training itself.",
+   "code": "import time\nimport lightgbm as lgb\nimport numpy as np\n\nrng = np.random.default_rng(6)\nX = rng.normal(size=(100_000, 20)).astype(np.float32)   # float32 halves memory\ny = X[:, 0] - 2 * X[:, 1] + rng.normal(0, 0.5, len(X))\n\nds = lgb.Dataset(X, label=y, params={\"verbosity\": -1}, free_raw_data=False).construct()\nbase = {\"objective\": \"regression\", \"verbosity\": -1, \"num_threads\": 1, \"seed\": 7,\n        \"deterministic\": True, \"force_row_wise\": True}\n\npreds = []\nfor _ in range(2):                                      # reuse the same binned Dataset\n    t0 = time.perf_counter()\n    booster = lgb.train(base, ds, num_boost_round=100)\n    preds.append(booster.predict(X[:1000]))\n    print(round(time.perf_counter() - t0, 1) < 30)      # True\nprint(np.array_equal(preds[0], preds[1]))               # True (deterministic)",
+   "code_lang": "python",
+   "takeaways": [
+    "Use physical-core thread counts and avoid nested parallelism",
+    "Set `force_row_wise` or `force_col_wise`, reuse Datasets, use float32",
+    "`deterministic=True` plus seeds for reproducible runs"
+   ],
+   "pitfalls": [
+    "Expecting bit-identical models across machines with different thread counts without deterministic settings."
+   ],
+   "quiz": [
+    {
+     "q": "Training 8 LightGBM models in parallel on an 8-core machine, each with default threads, is slow. Why?",
+     "options": [
+      "LightGBM cannot run in parallel",
+      "Each model uses all cores, so 64 threads compete for 8 cores",
+      "Datasets are rebuilt",
+      "GPU is disabled"
+     ],
+     "answer": 1,
+     "explain": "Default num_threads uses all cores per model, so running several at once oversubscribes the CPU."
+    }
+   ],
+   "docs": "https://lightgbm.readthedocs.io/en/stable/Parameters.html#learning-control-parameters",
+   "requires": [
+    "lightgbm.native-api",
+    "lightgbm.histogram-internals"
+   ]
+  }
+ ]
+}

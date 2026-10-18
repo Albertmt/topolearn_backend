@@ -1,0 +1,807 @@
+{
+ "tool": {
+  "id": "snowflake",
+  "name": "Snowflake",
+  "category": "database",
+  "tagline": "Cloud data warehouse with separate storage and elastic compute",
+  "description": "Snowflake is a fully managed cloud data platform that stores data once and lets any number of independent virtual warehouses query it with standard SQL. Data teams use it for analytics, ELT pipelines, semi-structured data and data sharing between organizations. Learning it means learning how warehouses, micro-partitions and roles drive cost, speed and security.",
+  "icon": "Sf",
+  "color": "#1A73B8",
+  "official_docs": "https://docs.snowflake.com/en/",
+  "version": "Snowflake service, 2026 releases",
+  "aliases": [
+   "snowflake data cloud",
+   "snowsql",
+   "snowsight"
+  ],
+  "requires": [
+   {
+    "tool": "sql",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "foundations",
+   "name": "Architecture and objects"
+  },
+  {
+   "id": "loading",
+   "name": "Loading data"
+  },
+  {
+   "id": "querying",
+   "name": "Querying and semi-structured data"
+  },
+  {
+   "id": "pipelines",
+   "name": "Pipelines and programmability"
+  },
+  {
+   "id": "performance",
+   "name": "Performance and cost"
+  },
+  {
+   "id": "governance",
+   "name": "Security and governance"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "snowflake.architecture",
+   "name": "Snowflake's architecture",
+   "module": "foundations",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Storage, compute (virtual warehouses) and cloud services are separate layers that scale independently.",
+   "why": "Every cost and performance decision in Snowflake follows from this separation.",
+   "body": "Snowflake splits a database into three layers that scale independently.\n\n- **Storage**: table data lives in the cloud provider's object storage (S3, Azure Blob or GCS) as compressed, columnar, immutable files called **micro-partitions**. You pay per terabyte stored per month and never manage files or disks.\n- **Compute**: **virtual warehouses** are clusters that run your queries. They hold no data permanently; any number of them can read the same tables at the same time without competing. You pay in **credits** only while a warehouse runs.\n- **Cloud services**: the brain that handles logins, metadata, query compilation and optimization, transactions and access control. Much of it is free; it is billed only when its daily usage exceeds 10% of your warehouse compute.\n\nTwo consequences matter every day. First, workloads are isolated by giving them separate warehouses: the nightly ELT job and the BI dashboards never slow each other down. Second, storage is cheap and compute is what costs money, so performance work is mostly about scanning less data with less warehouse time.\n\nYou interact with Snowflake through Snowsight (the web UI with SQL worksheets and notebooks), the Snowflake CLI or SnowSQL, drivers for Python, JDBC and others, and tools like dbt. All of them send SQL; Snowflake's dialect is ANSI SQL with extensions.",
+   "code": "-- Which warehouse, role, database and schema is this session using?\nSELECT CURRENT_WAREHOUSE(), CURRENT_ROLE(), CURRENT_DATABASE(), CURRENT_SCHEMA();\n\n-- Snowflake ships a shared sample database you can query right away\nSELECT c_mktsegment, COUNT(*) AS customers\nFROM SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.CUSTOMER\nGROUP BY c_mktsegment\nORDER BY customers DESC;\n-- BUILDING    30142\n-- FURNITURE   29968\n-- ...",
+   "code_lang": "sql",
+   "takeaways": [
+    "Storage, compute and cloud services scale and bill separately",
+    "Warehouses are compute only; many can query the same data at once",
+    "Compute time, not storage, is usually the main cost"
+   ],
+   "pitfalls": [
+    "Thinking a warehouse is where data is stored; it only runs queries."
+   ],
+   "quiz": [
+    {
+     "q": "Two teams run heavy queries on the same table at the same time from different warehouses. What happens?",
+     "options": [
+      "Both run without competing for compute",
+      "The second query waits for a table lock",
+      "The data is copied to each warehouse first",
+      "One warehouse must be suspended"
+     ],
+     "answer": 0,
+     "explain": "Warehouses are independent compute clusters reading shared storage, so they don't contend."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/user-guide/intro-key-concepts",
+   "requires": []
+  },
+  {
+   "id": "snowflake.warehouses",
+   "name": "Virtual warehouses and credits",
+   "module": "foundations",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Create and size warehouses, use auto-suspend and auto-resume, and understand per-second credit billing.",
+   "why": "Warehouse settings are the main lever on your Snowflake bill.",
+   "body": "A **virtual warehouse** is a named compute cluster. Sizes go X-Small, Small, Medium, Large, X-Large and up to 6X-Large; each step doubles both the compute and the credits per hour (X-Small uses 1 credit per hour, Small 2, Medium 4, and so on).\n\nBilling is **per second**, with a 60-second minimum each time a warehouse starts. Two settings keep that cheap:\n\n- `AUTO_SUSPEND = 60` suspends the warehouse after 60 idle seconds. Suspended warehouses cost nothing.\n- `AUTO_RESUME = TRUE` starts it automatically when a query arrives, usually within a second or two.\n\nChoosing a size: a bigger warehouse makes a single large query faster, roughly in proportion for scan-heavy work, so doubling size for half the runtime costs the same credits. It does not help many small queries waiting in line; that is a concurrency problem, solved by multi-cluster warehouses or separate warehouses per workload. Start small, check query times and the queue in the query history, and resize with `ALTER WAREHOUSE` at any time; running queries finish on the old size.\n\nA warehouse also keeps a local **cache** of the data it has read. Suspending it drops that cache, so very short auto-suspend times can make BI dashboards slower. Values between 60 seconds and a few minutes are typical.",
+   "code": "CREATE WAREHOUSE IF NOT EXISTS analytics_wh\n  WAREHOUSE_SIZE = 'XSMALL'\n  AUTO_SUSPEND = 60            -- seconds idle before suspending\n  AUTO_RESUME = TRUE\n  INITIALLY_SUSPENDED = TRUE;\n\nUSE WAREHOUSE analytics_wh;\n\n-- Temporarily scale up for a heavy backfill, then back down\nALTER WAREHOUSE analytics_wh SET WAREHOUSE_SIZE = 'LARGE';\n-- ... run the backfill ...\nALTER WAREHOUSE analytics_wh SET WAREHOUSE_SIZE = 'XSMALL';\n\nSHOW WAREHOUSES LIKE 'analytics_wh';\n-- name: ANALYTICS_WH  state: SUSPENDED  size: X-Small  auto_suspend: 60 ...",
+   "code_lang": "sql",
+   "takeaways": [
+    "Each size step doubles compute and credits per hour",
+    "Per-second billing with a 60-second minimum per resume",
+    "Always set AUTO_SUSPEND and AUTO_RESUME",
+    "Bigger size speeds big queries; more clusters help concurrency"
+   ],
+   "pitfalls": [
+    "Leaving a warehouse running with a long or no auto-suspend, burning credits while idle."
+   ],
+   "quiz": [
+    {
+     "q": "A query takes 20 minutes on a Medium warehouse and scans a lot of data. Roughly what happens on a Large?",
+     "options": [
+      "Same time, double the cost",
+      "About 5 minutes for half the credits",
+      "About 10 minutes for about the same credits",
+      "It fails because size can't change"
+     ],
+     "answer": 2,
+     "explain": "Large has twice the compute at twice the rate; for scan-heavy queries runtime roughly halves, so cost stays similar."
+    },
+    {
+     "q": "Many small dashboard queries are queuing. What usually helps most?",
+     "options": [
+      "A larger warehouse size",
+      "More clusters (multi-cluster) or a separate warehouse",
+      "Lower AUTO_SUSPEND",
+      "Clustering keys"
+     ],
+     "answer": 1,
+     "explain": "Queuing is a concurrency problem; more clusters run more queries in parallel."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/user-guide/warehouses-overview",
+   "requires": [
+    "snowflake.architecture"
+   ]
+  },
+  {
+   "id": "snowflake.objects",
+   "name": "Databases, schemas and context",
+   "module": "foundations",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Navigate the account → database → schema → object hierarchy, set session context with USE, and know how identifiers are case-folded.",
+   "why": "Every query depends on the right context and fully qualified names, and identifier case trips up everyone once.",
+   "body": "Objects in Snowflake live in a hierarchy: an **account** contains **databases**, a database contains **schemas**, and a schema contains tables, views, stages, file formats, functions, procedures, streams and tasks. Warehouses, users and roles are account-level objects.\n\nA fully qualified name is `database.schema.object`, e.g. `SALES.PUBLIC.ORDERS`. Unqualified names resolve against the session's current database and schema, which you set with `USE DATABASE`, `USE SCHEMA` or both at once (`USE SCHEMA sales.public`). The session also has a current role and current warehouse, and a query needs all of them: a role with privileges and a running warehouse.\n\n**Identifiers**: unquoted names are stored and resolved in **upper case**, so `orders`, `Orders` and `ORDERS` are the same table. Double quotes make a name case-sensitive: `\"orders\"` is a different table from `orders`. Tools that quote everything (some ORMs and loaders) can therefore create lowercase tables you then have to quote forever. Stick to unquoted names.\n\nUseful commands: `SHOW DATABASES`, `SHOW SCHEMAS`, `SHOW TABLES IN SCHEMA x`, `DESCRIBE TABLE t`, and `GET_DDL('TABLE', 't')` to see the DDL of any object. `INFORMATION_SCHEMA` views in each database answer the same questions in SQL.",
+   "code": "CREATE DATABASE IF NOT EXISTS shop;\nCREATE SCHEMA IF NOT EXISTS shop.raw;\nUSE SCHEMA shop.raw;\n\nCREATE TABLE orders (id INT, amount NUMBER(10, 2));\nSELECT * FROM shop.raw.ORDERS;      -- same table: unquoted names are upper-cased\n\nCREATE TABLE \"orders\" (id INT);     -- a DIFFERENT, case-sensitive table\nSHOW TABLES IN SCHEMA shop.raw;\n-- ORDERS\n-- orders\n\nSELECT GET_DDL('TABLE', 'ORDERS');\n-- create or replace TABLE ORDERS ( ID NUMBER(38,0), AMOUNT NUMBER(10,2) );",
+   "code_lang": "sql",
+   "takeaways": [
+    "Hierarchy: account → database → schema → objects",
+    "A query needs context: role, warehouse, database and schema",
+    "Unquoted identifiers are upper-cased; quoted ones are case-sensitive"
+   ],
+   "pitfalls": [
+    "Creating objects with quoted lowercase names and then failing to find them unquoted."
+   ],
+   "quiz": [
+    {
+     "q": "A table was created as \"events\" (with quotes). Which query finds it?",
+     "options": [
+      "SELECT * FROM events",
+      "SELECT * FROM EVENTS",
+      "Any of them",
+      "SELECT * FROM \"events\""
+     ],
+     "answer": 3,
+     "explain": "Quoted identifiers keep their case; unquoted events resolves to EVENTS, a different name."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/sql-reference/sql/use",
+   "requires": [
+    "snowflake.architecture"
+   ]
+  },
+  {
+   "id": "snowflake.tables-types",
+   "name": "Tables and data types",
+   "module": "foundations",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Create permanent, transient and temporary tables with Snowflake types like NUMBER, VARCHAR, TIMESTAMP_NTZ/LTZ/TZ and VARIANT.",
+   "why": "Types and table kinds affect correctness, time-zone behaviour and how much storage protection you pay for.",
+   "body": "Snowflake's types are mostly familiar, with a few specifics:\n\n- `NUMBER(p, s)` is the core numeric type; `INT` and `BIGINT` are aliases for `NUMBER(38, 0)`. `FLOAT` is 64-bit.\n- `VARCHAR` with no length is fine. The declared length doesn't change storage, so there's no reason to write `VARCHAR(255)`.\n- Timestamps come in three flavours. `TIMESTAMP_NTZ` is wall-clock time with no zone, `TIMESTAMP_LTZ` is an instant shown in the session's time zone, and `TIMESTAMP_TZ` stores an offset with each value. Plain `TIMESTAMP` maps to NTZ by default. Pick deliberately; for event times, LTZ or TZ avoids ambiguity.\n- `VARIANT`, `OBJECT` and `ARRAY` hold semi-structured data such as JSON.\n- `BOOLEAN`, `DATE`, `TIME`, `BINARY`, `GEOGRAPHY` and `VECTOR` also exist.\n\n**Constraints**: `PRIMARY KEY`, `UNIQUE` and `FOREIGN KEY` can be declared on standard tables but are **not enforced**; only `NOT NULL` is. They serve as documentation and hints for tools.\n\nTable kinds trade safety for cost. **Permanent** tables (the default) have Time Travel and a 7-day Fail-safe. **Transient** tables have at most 1 day of Time Travel and no Fail-safe, which suits staging data you can reload. **Temporary** tables live only for the session. `CREATE TABLE ... AS SELECT` (CTAS) and `CREATE OR REPLACE TABLE` are everyday idioms.",
+   "code": "CREATE OR REPLACE TABLE customers (\n  id         INT PRIMARY KEY,          -- declared, NOT enforced\n  email      VARCHAR NOT NULL,         -- NOT NULL is enforced\n  balance    NUMBER(12, 2),\n  created_at TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP(),\n  profile    VARIANT\n);\n\nINSERT INTO customers (id, email, balance) VALUES (1, 'a@x.io', 10), (1, 'b@x.io', 5);\nSELECT COUNT(*) FROM customers;          -- 2  (duplicate id accepted!)\n\n-- Cheaper table for reloadable staging data\nCREATE TRANSIENT TABLE stg_customers AS SELECT * FROM customers;\n\n-- Session-only scratch table\nCREATE TEMPORARY TABLE tmp_ids AS SELECT DISTINCT id FROM customers;",
+   "code_lang": "sql",
+   "takeaways": [
+    "INT is NUMBER(38,0); VARCHAR length doesn't affect storage",
+    "Choose TIMESTAMP_NTZ, LTZ or TZ deliberately",
+    "Only NOT NULL is enforced; PK/UNIQUE/FK are informational",
+    "Transient tables skip Fail-safe and cost less to keep"
+   ],
+   "pitfalls": [
+    "Relying on a PRIMARY KEY to prevent duplicate rows; deduplicate in your pipeline instead."
+   ],
+   "quiz": [
+    {
+     "q": "You insert two rows with the same id into a table declared with id INT PRIMARY KEY. What happens?",
+     "options": [
+      "The second insert fails",
+      "The second row replaces the first",
+      "Both rows are stored",
+      "The table is locked"
+     ],
+     "answer": 2,
+     "explain": "Snowflake does not enforce primary keys on standard tables."
+    },
+    {
+     "q": "Which table type is best for a staging table rebuilt every night from files?",
+     "options": [
+      "Transient",
+      "Permanent",
+      "External",
+      "Hybrid"
+     ],
+     "answer": 0,
+     "explain": "Transient tables avoid Fail-safe storage costs, and the data can simply be reloaded."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/sql-reference/data-types",
+   "requires": [
+    "snowflake.objects",
+    "sql.data-types"
+   ]
+  },
+  {
+   "id": "snowflake.stages-copy",
+   "name": "Stages and COPY INTO",
+   "module": "loading",
+   "level": 1,
+   "minutes": 14,
+   "summary": "Load files in bulk: put them in a stage, describe them with a file format, and load with COPY INTO.",
+   "why": "COPY INTO is the standard way data gets into Snowflake, and its load history prevents duplicate loads.",
+   "body": "Bulk loading has three pieces.\n\n**Stages** are locations of files. There are internal stages managed by Snowflake: the user stage `@~`, a table stage `@%orders`, and named stages `CREATE STAGE my_stage`. There are also **external stages**, which point at your own S3, GCS or Azure location, usually through a storage integration so no keys are embedded. Upload local files to an internal stage with `PUT file://... @stage` from SnowSQL, the Snowflake CLI or a driver, or with the upload dialog in Snowsight.\n\n**File formats** describe the files: `TYPE = CSV` with options such as `SKIP_HEADER`, `FIELD_OPTIONALLY_ENCLOSED_BY`, `NULL_IF`, or `TYPE = JSON | PARQUET | AVRO | ORC | XML`. Save a format as a named object and reuse it.\n\n**COPY INTO table FROM @stage** loads files in parallel on your warehouse. Important behaviour:\n\n- Snowflake remembers which files it loaded into each table for 64 days and **skips them** on later runs, so rerunning a COPY is safe. `FORCE = TRUE` overrides this.\n- `ON_ERROR` defaults to `ABORT_STATEMENT`; `CONTINUE` or `SKIP_FILE` tolerate bad rows or files.\n- `VALIDATION_MODE = RETURN_ERRORS` dry-runs the load and reports problems.\n- For Parquet and other columnar files, `MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE` maps columns by name.\n\nFiles of roughly 100 to 250 MB compressed load most efficiently, because each file is processed by one thread.",
+   "code": "CREATE FILE FORMAT csv_fmt TYPE = CSV SKIP_HEADER = 1\n  FIELD_OPTIONALLY_ENCLOSED_BY = '\"' NULL_IF = ('', 'NULL');\n\nCREATE STAGE raw_stage FILE_FORMAT = csv_fmt;\n\n-- From SnowSQL / Snowflake CLI: upload (and gzip) a local file\nPUT file:///tmp/orders_2025_06.csv @raw_stage/orders/;\n\nLIST @raw_stage/orders/;\n\n-- Check for problems without loading anything\nCOPY INTO orders FROM @raw_stage/orders/ VALIDATION_MODE = RETURN_ERRORS;\n\nCOPY INTO orders FROM @raw_stage/orders/\n  PATTERN = '.*orders_.*[.]csv[.]gz'\n  ON_ERROR = 'SKIP_FILE';\n-- file | status | rows_parsed | rows_loaded ...\n-- raw_stage/orders/orders_2025_06.csv.gz | LOADED | 1200 | 1200\n\nCOPY INTO orders FROM @raw_stage/orders/;   -- run again: 0 files loaded (already loaded)",
+   "code_lang": "sql",
+   "takeaways": [
+    "Stage (where files are) + file format (what they are) + COPY INTO (load)",
+    "COPY skips files already loaded into that table within 64 days",
+    "Use VALIDATION_MODE to test and ON_ERROR to control failures"
+   ],
+   "pitfalls": [
+    "Using FORCE = TRUE to 'retry' a load and ending up with duplicated rows."
+   ],
+   "quiz": [
+    {
+     "q": "You rerun the same COPY INTO over a stage path where every file was loaded yesterday. What happens?",
+     "options": [
+      "All rows are loaded again",
+      "COPY fails with a duplicate error",
+      "Only changed rows are loaded",
+      "The files are skipped thanks to load metadata"
+     ],
+     "answer": 3,
+     "explain": "Snowflake tracks loaded files per table and skips them unless FORCE = TRUE."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/sql-reference/sql/copy-into-table",
+   "requires": [
+    "snowflake.tables-types"
+   ]
+  },
+  {
+   "id": "snowflake.variant-json",
+   "name": "VARIANT and querying JSON",
+   "module": "querying",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Store JSON in VARIANT columns and query it with colon and dot paths, bracket access and :: casts.",
+   "why": "Event data and API payloads arrive as JSON, and Snowflake lets you query it directly without a fixed schema.",
+   "body": "A **VARIANT** column can hold any JSON-like value: object, array, string, number, boolean or null. Load JSON files with `COPY INTO` using `TYPE = JSON`, or convert text with `PARSE_JSON('...')`. Snowflake stores VARIANT data in a columnar way internally, extracting common paths into their own columns, so queries on frequent keys are efficient.\n\nPath syntax:\n\n- `src:customer` reads the top-level key `customer` (the colon is only for the first level).\n- `src:customer.address.city` walks nested objects with dots.\n- `src:items[0]` indexes arrays (0-based), and `src['odd key']` handles names with spaces or special characters.\n- Key names in paths are **case-sensitive**, unlike SQL identifiers.\n\nValues extracted from a VARIANT are still VARIANT. Selected strings display with double quotes, and comparisons may not behave as you expect. **Cast** them with `::`, as in `src:customer.name::STRING`, `src:total::NUMBER(10,2)`, `src:ts::TIMESTAMP_TZ`. Use `TRY_CAST` or the `TRY_TO_*` functions to get NULL instead of an error for bad values.\n\nMissing paths return SQL NULL, while a JSON `null` value is a VARIANT null that displays as `null`; `IS_NULL_VALUE()` tells them apart. Building JSON goes the other way: `OBJECT_CONSTRUCT('id', id, 'total', total)`, `ARRAY_CONSTRUCT`, `ARRAY_AGG` and `OBJECT_AGG`. `TYPEOF(v)` shows what a value holds.",
+   "code": "CREATE OR REPLACE TABLE raw_events (src VARIANT);\n\nINSERT INTO raw_events\nSELECT PARSE_JSON('{\"id\": 7, \"customer\": {\"name\": \"Ana\", \"tier\": \"gold\"},\n                    \"items\": [{\"sku\": \"A1\", \"qty\": 2}, {\"sku\": \"B9\", \"qty\": 1}],\n                    \"total\": \"41.50\"}');\n\nSELECT src:customer.name           AS raw_name,     -- \"Ana\"  (VARIANT, quoted)\n       src:customer.name::STRING   AS name,         -- Ana\n       src:items[0].sku::STRING    AS first_sku,    -- A1\n       src:total::NUMBER(10, 2)    AS total,        -- 41.50\n       src:Customer                AS wrong_case,   -- NULL (paths are case-sensitive)\n       TYPEOF(src:items)           AS t             -- ARRAY\nFROM raw_events;\n\nSELECT OBJECT_CONSTRUCT('id', 1, 'ok', TRUE);       -- { \"id\": 1, \"ok\": true }",
+   "code_lang": "sql",
+   "takeaways": [
+    "col:key.nested[0] navigates JSON; key names are case-sensitive",
+    "Cast extracted values with :: (or TRY_CAST) before comparing or aggregating",
+    "OBJECT_CONSTRUCT and ARRAY_AGG build JSON back up"
+   ],
+   "pitfalls": [
+    "Comparing or joining on uncast VARIANT values and getting no matches or odd sorting."
+   ],
+   "quiz": [
+    {
+     "q": "What does SELECT src:Name return if the JSON key is spelled \"name\"?",
+     "options": [
+      "The name value",
+      "NULL",
+      "An error",
+      "\"name\""
+     ],
+     "answer": 1,
+     "explain": "JSON path elements are case-sensitive, so a mismatched key is simply missing."
+    },
+    {
+     "q": "Why write src:total::NUMBER(10,2) instead of src:total?",
+     "options": [
+      "To make the query run on a smaller warehouse",
+      "To turn the VARIANT into a typed value for math, comparison and correct sorting",
+      "Because :: is required by COPY INTO",
+      "To index the column"
+     ],
+     "answer": 1,
+     "explain": "Extracted values stay VARIANT until cast."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/user-guide/querying-semistructured",
+   "requires": [
+    "snowflake.tables-types",
+    "sql.json"
+   ]
+  },
+  {
+   "id": "snowflake.flatten",
+   "name": "FLATTEN: arrays and nested data to rows",
+   "module": "querying",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Explode arrays and objects into rows with LATERAL FLATTEN, keep empty arrays with OUTER, and flatten recursively.",
+   "why": "Line items, tags and nested events must become rows before you can join or aggregate them.",
+   "body": "`FLATTEN` is a table function that turns each element of an array (or each key of an object) into a row. You combine it with the source table through `LATERAL`, or the equivalent `, TABLE(FLATTEN(...))` form, so each row is joined to its own elements.\n\nEach output row has columns you refer to through the alias:\n\n- `VALUE`: the element itself (a VARIANT, so cast it);\n- `INDEX`: the position in an array, `KEY`: the key for objects;\n- `PATH`, `SEQ` (identifies the source row) and `THIS` (the element being flattened).\n\nOptions:\n\n- `OUTER => TRUE` emits one row with NULLs for empty or missing arrays. Without it, source rows whose array is empty **disappear**, just like an inner join.\n- `RECURSIVE => TRUE` walks every nested level, which is useful for discovering a document's keys.\n- `PATH => 'a.b'` flattens a nested path.\n\nTo flatten two levels, such as orders → items → discounts, chain two LATERAL FLATTENs, the second taking `f1.value:discounts`. Going the other direction, `ARRAY_AGG(... ) WITHIN GROUP (ORDER BY ...)` re-nests rows into an array.\n\nA common pattern is a view or dbt model that flattens raw VARIANT events into typed, relational columns once, so analysts query normal tables.",
+   "code": "-- raw_events.src = {\"id\": 7, \"items\": [{\"sku\":\"A1\",\"qty\":2},{\"sku\":\"B9\",\"qty\":1}], ...}\nSELECT e.src:id::INT        AS order_id,\n       i.index              AS line_no,\n       i.value:sku::STRING  AS sku,\n       i.value:qty::INT     AS qty\nFROM raw_events e,\n     LATERAL FLATTEN(input => e.src:items) i;\n-- 7 | 0 | A1 | 2\n-- 7 | 1 | B9 | 1\n\n-- Keep orders with no items\nSELECT e.src:id::INT AS order_id, i.value:sku::STRING AS sku\nFROM raw_events e,\n     LATERAL FLATTEN(input => e.src:items, OUTER => TRUE) i;\n\n-- Discover every key path in the documents\nSELECT DISTINCT f.path\nFROM raw_events e, LATERAL FLATTEN(input => e.src, RECURSIVE => TRUE) f;",
+   "code_lang": "sql",
+   "takeaways": [
+    "LATERAL FLATTEN turns array elements into rows: use value, index, key",
+    "Without OUTER => TRUE, rows with empty arrays vanish",
+    "RECURSIVE => TRUE lists every nested path"
+   ],
+   "pitfalls": [
+    "Counting orders after flattening without OUTER and silently losing orders with no items."
+   ],
+   "quiz": [
+    {
+     "q": "An order has \"items\": []. Using LATERAL FLATTEN(input => src:items) without OUTER, how many rows does that order produce?",
+     "options": [
+      "One row with NULLs",
+      "One row per key of the order",
+      "An error",
+      "Zero rows"
+     ],
+     "answer": 3,
+     "explain": "An empty array produces no elements, so the order disappears unless OUTER => TRUE."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/sql-reference/functions/flatten",
+   "requires": [
+    "snowflake.variant-json"
+   ]
+  },
+  {
+   "id": "snowflake.time-travel-cloning",
+   "name": "Time Travel, UNDROP and zero-copy cloning",
+   "module": "foundations",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Query past versions of data with AT/BEFORE, restore dropped objects with UNDROP, and clone databases instantly without copying data.",
+   "why": "Recovering from a bad UPDATE or spinning up a full dev copy takes seconds once you know these features.",
+   "body": "Because micro-partitions are immutable, Snowflake can keep old versions of a table around. **Time Travel** lets you query or restore data as it was within the retention period: 1 day by default, up to 90 days for permanent objects on Enterprise edition (`DATA_RETENTION_TIME_IN_DAYS`). Transient and temporary tables allow at most 1 day.\n\n- `SELECT ... FROM t AT(TIMESTAMP => '2025-06-01 09:00'::TIMESTAMP_LTZ)`\n- `AT(OFFSET => -60*30)`: 30 minutes ago, in seconds.\n- `BEFORE(STATEMENT => '<query id>')`: just before a specific statement ran, ideal after a bad `DELETE`.\n- `UNDROP TABLE | SCHEMA | DATABASE` restores a dropped object.\n\nAfter Time Travel ends, permanent tables enter a 7-day **Fail-safe** that only Snowflake Support can recover from. Both periods consume storage for changed data.\n\n**Zero-copy cloning** creates a new table, schema or whole database that initially shares the original's micro-partitions: `CREATE DATABASE dev CLONE prod`. It completes in seconds or minutes regardless of size and costs no storage until either side changes data. Clones can be combined with Time Travel, `CLONE t AT(...)`, to snapshot a point in time.\n\nA common recovery move: clone the table as it was before the bad statement, check it, then swap it in with `ALTER TABLE ... SWAP WITH ...`.",
+   "code": "-- Oops: a bad delete\nDELETE FROM orders WHERE amount > 0;\nSET bad_qid = LAST_QUERY_ID();\n\n-- Look at the data just before that statement\nSELECT COUNT(*) FROM orders BEFORE(STATEMENT => $bad_qid);     -- 1200\n\n-- Restore: clone the old version, then swap it in\nCREATE TABLE orders_restored CLONE orders BEFORE(STATEMENT => $bad_qid);\nALTER TABLE orders SWAP WITH orders_restored;\n\nDROP TABLE orders_restored;   -- now holds the damaged version\nUNDROP TABLE orders_restored; -- ...and could still be brought back\n\n-- Full dev environment in seconds, no extra storage at first\nCREATE DATABASE shop_dev CLONE shop;",
+   "code_lang": "sql",
+   "takeaways": [
+    "AT / BEFORE query past data within the retention period",
+    "UNDROP restores dropped tables, schemas and databases",
+    "Clones share micro-partitions: instant and free until data diverges"
+   ],
+   "pitfalls": [
+    "Assuming Time Travel is a backup with unlimited history; it lasts only the retention period."
+   ],
+   "quiz": [
+    {
+     "q": "What does CREATE DATABASE dev CLONE prod cost in storage immediately after it runs?",
+     "options": [
+      "Almost nothing; storage grows only as either database changes",
+      "The full size of prod",
+      "Half the size of prod",
+      "It depends on the warehouse size"
+     ],
+     "answer": 0,
+     "explain": "Clones reference the same immutable micro-partitions until changes create new ones."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/user-guide/data-time-travel",
+   "requires": [
+    "snowflake.tables-types"
+   ]
+  },
+  {
+   "id": "snowflake.access-control",
+   "name": "Roles and access control",
+   "module": "governance",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Grant privileges to roles, not users; build role hierarchies; and understand system roles, ownership and future grants.",
+   "why": "Every query runs under a role, and a clean role design is what keeps a Snowflake account secure and manageable.",
+   "body": "Snowflake uses **role-based access control**. Privileges (`SELECT`, `INSERT`, `USAGE`, `CREATE TABLE`, `OPERATE`...) are granted to **roles**, roles are granted to users, and roles can be granted to other roles, forming a hierarchy in which a parent inherits its children's privileges. A session has a current role (`USE ROLE`), plus optional secondary roles.\n\nSystem roles to know:\n\n- `ACCOUNTADMIN`: top-level; use sparingly, never as a daily role.\n- `SECURITYADMIN` manages grants, `USERADMIN` creates users and roles.\n- `SYSADMIN` creates warehouses and databases; custom roles should be granted to it so admins can see what they create.\n- `PUBLIC`: granted to everyone.\n\nReading a table needs a **chain** of privileges: `USAGE` on the database, `USAGE` on the schema, `SELECT` on the table, and `USAGE` on a warehouse to run the query. A missing link produces \"does not exist or not authorized\", which is deliberately vague.\n\nEvery object has an **owner** role (the role that created it) with full control. **Future grants** (`GRANT SELECT ON FUTURE TABLES IN SCHEMA ...`) apply to objects created later, which avoids re-granting after every deploy.\n\nA common design is two layers: **access roles** holding privileges on objects (e.g. `SALES_READ`) and **functional roles** matching jobs (e.g. `ANALYST`) that are granted the access roles they need.",
+   "code": "USE ROLE USERADMIN;\nCREATE ROLE sales_read;\nCREATE ROLE analyst;\nGRANT ROLE sales_read TO ROLE analyst;    -- analyst inherits sales_read\nGRANT ROLE analyst TO ROLE SYSADMIN;      -- keep the hierarchy connected\nGRANT ROLE analyst TO USER ana;\n\nUSE ROLE SECURITYADMIN;\nGRANT USAGE ON DATABASE shop TO ROLE sales_read;\nGRANT USAGE ON SCHEMA shop.raw TO ROLE sales_read;\nGRANT SELECT ON ALL TABLES IN SCHEMA shop.raw TO ROLE sales_read;\nGRANT SELECT ON FUTURE TABLES IN SCHEMA shop.raw TO ROLE sales_read;\nGRANT USAGE ON WAREHOUSE analytics_wh TO ROLE analyst;\n\nSHOW GRANTS TO ROLE sales_read;",
+   "code_lang": "sql",
+   "takeaways": [
+    "Privileges go to roles; roles go to users and other roles",
+    "Reading needs USAGE on database, schema and warehouse plus SELECT",
+    "Future grants cover tables created later",
+    "Keep ACCOUNTADMIN for rare admin work"
+   ],
+   "pitfalls": [
+    "Granting SELECT on a table but forgetting USAGE on its database or schema."
+   ],
+   "quiz": [
+    {
+     "q": "A role has SELECT on shop.raw.orders but queries fail with 'does not exist or not authorized'. What is the most likely missing privilege?",
+     "options": [
+      "OWNERSHIP on the table",
+      "INSERT on the table",
+      "USAGE on the database or schema",
+      "MONITOR on the account"
+     ],
+     "answer": 2,
+     "explain": "Access requires USAGE on every container in the path, not just SELECT on the table."
+    },
+    {
+     "q": "Why grant custom roles to SYSADMIN?",
+     "options": [
+      "So SYSADMIN inherits their privileges and can manage the objects they own",
+      "It is required for login",
+      "It makes queries faster",
+      "To give them ACCOUNTADMIN rights"
+     ],
+     "answer": 0,
+     "explain": "Connecting custom roles to the hierarchy keeps their objects visible to administrators."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/user-guide/security-access-control-overview",
+   "requires": [
+    "snowflake.objects"
+   ]
+  },
+  {
+   "id": "snowflake.sql-extensions",
+   "name": "Snowflake SQL extensions: QUALIFY and friends",
+   "module": "querying",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Write tighter queries with QUALIFY, GROUP BY ALL, SELECT * EXCLUDE, IFF, ILIKE, MIN_BY/MAX_BY and the :: cast.",
+   "why": "These extensions remove whole subqueries from everyday analytics SQL.",
+   "body": "Snowflake SQL is ANSI-compatible with handy additions.\n\n- **QUALIFY** filters on window functions the way `HAVING` filters on aggregates, so \"latest row per key\" needs no subquery: `QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY updated_at DESC) = 1`.\n- **GROUP BY ALL** groups by every non-aggregate expression in the select list.\n- **SELECT * EXCLUDE (col1, col2)** and **SELECT * RENAME (a AS b)** avoid spelling out wide column lists. `REPLACE` is also available.\n- **IFF(cond, a, b)** is a compact two-branch CASE; `NVL`, `ZEROIFNULL`, `NULLIFZERO` and `EQUAL_NULL` handle NULLs.\n- **ILIKE** is case-insensitive LIKE; `LIKE ANY ('a%', 'b%')` matches a list of patterns.\n- **MIN_BY(x, y)** / **MAX_BY(x, y)** return x from the row with the min or max y.\n- `expr::type` is shorthand for `CAST`; `TRY_CAST` and `TRY_TO_NUMBER` return NULL instead of failing.\n- Column aliases can be reused later in the same select list and in `WHERE`.\n- `SAMPLE (10)` reads a random 10% of rows, and `RESULT_SCAN(LAST_QUERY_ID())` lets you query the previous result.\n\nDate helpers worth knowing: `DATE_TRUNC('month', ts)`, `DATEADD(day, -7, CURRENT_DATE())` and `DATEDIFF(day, a, b)`.",
+   "code": "-- Latest status per order, no subquery needed\nSELECT order_id, status, updated_at,\n       IFF(status = 'shipped', 'done', 'open') AS state\nFROM order_events\nQUALIFY ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY updated_at DESC) = 1;\n\nSELECT DATE_TRUNC('month', created_at)        AS month,\n       region,\n       COUNT(*)                              AS n_orders,\n       COUNT_IF(status ILIKE 'cancel%')      AS cancelled,\n       ROUND(cancelled / n_orders, 3)        AS cancel_rate,    -- reuses aliases\n       MAX_BY(order_id, amount)              AS biggest_order\nFROM orders\nWHERE created_at >= DATEADD(month, -6, CURRENT_DATE())\nGROUP BY ALL\nORDER BY month, region;\n\nSELECT * EXCLUDE (internal_notes, raw_payload) FROM customers LIMIT 10;",
+   "code_lang": "sql",
+   "takeaways": [
+    "QUALIFY filters window-function results directly",
+    "GROUP BY ALL and SELECT * EXCLUDE cut boilerplate",
+    "MAX_BY / MIN_BY, IFF, ILIKE and :: are daily shortcuts"
+   ],
+   "pitfalls": [
+    "Writing QUALIFY in a dialect that lacks it when porting SQL elsewhere, e.g. to PostgreSQL."
+   ],
+   "quiz": [
+    {
+     "q": "Which clause keeps only the first row per customer by a window function without a subquery?",
+     "options": [
+      "HAVING ROW_NUMBER() = 1",
+      "WHERE ROW_NUMBER() OVER (...) = 1",
+      "QUALIFY ROW_NUMBER() OVER (...) = 1",
+      "LIMIT 1 BY customer"
+     ],
+     "answer": 2,
+     "explain": "QUALIFY is evaluated after window functions, so it can filter on them."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/sql-reference/constructs/qualify",
+   "requires": [
+    "snowflake.variant-json",
+    "sql.window-functions"
+   ]
+  },
+  {
+   "id": "snowflake.caching",
+   "name": "Result cache and warehouse cache",
+   "module": "performance",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Understand the persisted result cache, the warehouse local disk cache and metadata-only answers, and when each applies.",
+   "why": "Caches explain why the same query is sometimes instant and free, and sometimes not.",
+   "body": "Snowflake has three layers that can make a query fast or free.\n\n**Result cache** (cloud services layer): when a query is repeated, its result is returned instantly **without using a warehouse**, if\n\n- the query text is identical (same case and whitespace),\n- the underlying data has not changed,\n- it contains no non-deterministic functions such as `CURRENT_TIMESTAMP()` or `RANDOM()`,\n- and the role has the necessary privileges.\n\nResults are kept for 24 hours, and each reuse extends that, up to 31 days. Set `USE_CACHED_RESULT = FALSE` in a session when benchmarking.\n\n**Warehouse cache** (local SSD): a running warehouse caches the micro-partitions it has read. Later queries reading the same data on the same warehouse skip remote storage reads. It is lost when the warehouse suspends or resizes, which is one reason to group similar workloads on one warehouse and avoid ultra-short auto-suspend for dashboards.\n\n**Metadata**: Snowflake keeps row counts and min/max values per micro-partition, so `SELECT COUNT(*) FROM t` or `MAX(id)` on a whole table can be answered from metadata alone, with no warehouse running.\n\nThe query profile shows which applied: \"QUERY RESULT REUSE\" for the result cache, and a \"percentage scanned from cache\" figure for the warehouse cache.",
+   "code": "ALTER SESSION SET USE_CACHED_RESULT = TRUE;     -- the default\n\nSELECT region, SUM(amount) FROM orders GROUP BY region;   -- runs on the warehouse\nSELECT region, SUM(amount) FROM orders GROUP BY region;   -- identical text: result cache, ~ms\n\n-- Not eligible: non-deterministic function\nSELECT region, SUM(amount), CURRENT_TIMESTAMP() FROM orders GROUP BY region;\n\n-- Answered from metadata, no warehouse needed\nSELECT COUNT(*), MIN(id), MAX(id) FROM orders;\n\n-- Benchmark honestly\nALTER SESSION SET USE_CACHED_RESULT = FALSE;",
+   "code_lang": "sql",
+   "takeaways": [
+    "Result cache: identical query + unchanged data = instant, no warehouse",
+    "Warehouse cache lives on local SSD and is lost on suspend",
+    "COUNT/MIN/MAX on whole tables come from metadata"
+   ],
+   "pitfalls": [
+    "Benchmarking a warehouse size with the result cache on and measuring cache hits."
+   ],
+   "quiz": [
+    {
+     "q": "Which change would prevent a repeated query from using the result cache?",
+     "options": [
+      "Running it from a different warehouse",
+      "Adding CURRENT_TIMESTAMP() to the select list",
+      "Running it two hours later with no data changes",
+      "Using the same role"
+     ],
+     "answer": 1,
+     "explain": "Non-deterministic functions make results ineligible; the warehouse used doesn't matter."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/user-guide/querying-persisted-results",
+   "requires": [
+    "snowflake.warehouses"
+   ]
+  },
+  {
+   "id": "snowflake.clustering",
+   "name": "Micro-partitions, pruning and clustering",
+   "module": "performance",
+   "level": 3,
+   "minutes": 15,
+   "summary": "See how micro-partition metadata enables pruning, read the query profile, and decide when a clustering key is worth it.",
+   "why": "Pruning is the main reason Snowflake queries are fast or slow on large tables.",
+   "body": "Every table is stored as **micro-partitions**: immutable files holding about 50 to 500 MB of uncompressed data each, stored column by column. For each micro-partition and column Snowflake keeps metadata such as min and max values, distinct counts and null counts.\n\nWhen a query filters (`WHERE event_date = '2025-06-01'`), the optimizer compares the filter to that metadata and **prunes** micro-partitions that cannot contain matches, before reading anything. In the **query profile**, the TableScan node shows \"Partitions scanned\" versus \"Partitions total\"; that ratio is the first thing to check on a slow query.\n\nPruning works only if matching values are concentrated in few micro-partitions. Data loaded in time order is naturally well clustered by time. Data that arrives randomly, or a filter on a column unrelated to load order, spreads values across every micro-partition.\n\nA **clustering key** (`ALTER TABLE t CLUSTER BY (event_date, tenant_id)`) tells Snowflake to reorganize data in the background (Automatic Clustering) so similar values sit together. Consider it when:\n\n- the table is large (multi-terabyte, or many thousands of micro-partitions),\n- queries filter on the same columns most of the time and prune poorly,\n- the table isn't rewritten constantly, since churn makes reclustering expensive.\n\nAutomatic Clustering consumes credits. Measure with `SYSTEM$CLUSTERING_INFORMATION`, where a lower `average_depth` is better. Use low-to-medium-cardinality columns or expressions like `TO_DATE(ts)` rather than raw timestamps or ids.",
+   "code": "-- How well is the table clustered on the column we filter by?\nSELECT SYSTEM$CLUSTERING_INFORMATION('events', '(TO_DATE(event_ts))');\n-- {\"cluster_by_keys\": \"LINEAR(TO_DATE(event_ts))\",\n--  \"total_partition_count\": 48211, \"average_depth\": 812.4, ...}   <- poor\n\nALTER TABLE events CLUSTER BY (TO_DATE(event_ts), tenant_id);\n\n-- Later: depth drops as Automatic Clustering works in the background\nSELECT SYSTEM$CLUSTERING_INFORMATION('events');\n\n-- Check pruning for a typical query in the query profile:\n--   TableScan: Partitions scanned 112 / Partitions total 48211\nSELECT tenant_id, COUNT(*) FROM events\nWHERE event_ts >= '2025-06-01' AND event_ts < '2025-06-02'\nGROUP BY tenant_id;\n\n-- Pause reclustering (and its credit use) if needed\nALTER TABLE events SUSPEND RECLUSTER;",
+   "code_lang": "sql",
+   "takeaways": [
+    "Micro-partition min/max metadata lets Snowflake prune before reading",
+    "Check partitions scanned vs total in the query profile",
+    "Clustering keys pay off on large, frequently filtered, rarely rewritten tables"
+   ],
+   "pitfalls": [
+    "Clustering by a high-cardinality column such as a raw timestamp or UUID, which is costly to maintain and prunes little."
+   ],
+   "quiz": [
+    {
+     "q": "A query on a 30 TB table scans 47,000 of 48,000 partitions despite a selective date filter. What is the likely cause?",
+     "options": [
+      "The warehouse is too small",
+      "The result cache is disabled",
+      "The table has no primary key",
+      "Rows for each date are spread across almost all micro-partitions"
+     ],
+     "answer": 3,
+     "explain": "Poor clustering on the filter column means min/max ranges overlap the filter everywhere, so little is pruned."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/user-guide/tables-clustering-keys",
+   "requires": [
+    "snowflake.caching",
+    "snowflake.tables-types"
+   ]
+  },
+  {
+   "id": "snowflake.streams-tasks",
+   "name": "Streams, tasks and Snowpipe",
+   "module": "pipelines",
+   "level": 3,
+   "minutes": 16,
+   "summary": "Track changes with streams, process them on a schedule with tasks and MERGE, and ingest files continuously with Snowpipe.",
+   "why": "Incremental pipelines built inside Snowflake avoid reprocessing whole tables and external schedulers.",
+   "body": "Three features combine into incremental pipelines.\n\n**Streams** record changes (CDC) to a table since the stream was last consumed: `CREATE STREAM orders_stream ON TABLE orders`. Selecting from a stream returns changed rows plus `METADATA$ACTION` (INSERT or DELETE), `METADATA$ISUPDATE` and `METADATA$ROW_ID`; an update appears as a DELETE plus INSERT pair. Reading a stream in a plain `SELECT` does not advance it. The offset moves only when the stream is used in a **DML statement that commits**. `APPEND_ONLY = TRUE` tracks inserts only and is cheaper. A stream that isn't consumed within the table's retention period becomes **stale**.\n\n**Tasks** run SQL on a schedule (`SCHEDULE = '5 MINUTE'` or `'USING CRON 0 * * * * UTC'`) or after another task (`AFTER parent`), forming DAGs. Omit `WAREHOUSE` for a serverless task. A `WHEN SYSTEM$STREAM_HAS_DATA('s')` condition skips runs when there's nothing to do. Tasks are created **suspended**; run `ALTER TASK ... RESUME`.\n\n**MERGE** applies the changes to a target, handling inserts, updates and deletes in one statement, the same idea as an upsert.\n\n**Snowpipe** loads files automatically as they land in a stage, triggered by cloud storage event notifications (`AUTO_INGEST = TRUE`) or a REST call, using serverless compute. It runs a `COPY INTO` definition and keeps its own load history. **Snowpipe Streaming** writes rows directly from clients such as Kafka connectors, with no files.",
+   "code": "CREATE STREAM orders_stream ON TABLE raw_orders;\n\nCREATE TASK merge_orders\n  WAREHOUSE = etl_wh\n  SCHEDULE = '5 MINUTE'\n  WHEN SYSTEM$STREAM_HAS_DATA('ORDERS_STREAM')\nAS\nMERGE INTO orders t\nUSING (SELECT * FROM orders_stream WHERE METADATA$ACTION = 'INSERT') s\n  ON t.id = s.id\nWHEN MATCHED THEN UPDATE SET t.status = s.status, t.amount = s.amount\nWHEN NOT MATCHED THEN INSERT (id, status, amount) VALUES (s.id, s.status, s.amount);\n\nALTER TASK merge_orders RESUME;          -- tasks start suspended\n\n-- Continuous file ingestion from an external stage\nCREATE PIPE orders_pipe AUTO_INGEST = TRUE AS\n  COPY INTO raw_orders FROM @s3_orders_stage FILE_FORMAT = (TYPE = JSON)\n  MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE;",
+   "code_lang": "sql",
+   "takeaways": [
+    "A stream's offset advances only when it's consumed by committed DML",
+    "Tasks are created suspended; WHEN SYSTEM$STREAM_HAS_DATA avoids empty runs",
+    "Snowpipe auto-ingests files; Snowpipe Streaming ingests rows"
+   ],
+   "pitfalls": [
+    "Forgetting ALTER TASK ... RESUME and wondering why nothing runs."
+   ],
+   "quiz": [
+    {
+     "q": "You SELECT * FROM a stream in a worksheet and then run the task. Does the task still see the changes?",
+     "options": [
+      "No, the SELECT consumed them",
+      "Only if the stream is APPEND_ONLY",
+      "Yes, only committed DML that reads the stream advances its offset",
+      "Only within 60 seconds"
+     ],
+     "answer": 2,
+     "explain": "Plain queries don't move a stream's offset; DML using it in a committed transaction does."
+    },
+    {
+     "q": "How does a stream represent an UPDATE to a row?",
+     "options": [
+      "As a DELETE and an INSERT with METADATA$ISUPDATE = TRUE",
+      "As one row with METADATA$ACTION = 'UPDATE'",
+      "It does not track updates",
+      "As two INSERT rows"
+     ],
+     "answer": 0,
+     "explain": "Updates are represented as a DELETE/INSERT pair flagged with METADATA$ISUPDATE."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/user-guide/streams-intro",
+   "requires": [
+    "snowflake.time-travel-cloning",
+    "snowflake.stages-copy",
+    "sql.upsert"
+   ]
+  },
+  {
+   "id": "snowflake.dynamic-tables",
+   "name": "Dynamic tables",
+   "module": "pipelines",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Declare a pipeline as a query with a target lag and let Snowflake refresh it incrementally.",
+   "why": "Dynamic tables replace much hand-written stream-and-task plumbing with one declarative statement.",
+   "body": "A **dynamic table** is defined by a query and a freshness goal. Snowflake keeps its contents up to date automatically:\n\n```sql\nCREATE DYNAMIC TABLE daily_revenue TARGET_LAG = '15 minutes' WAREHOUSE = etl_wh AS SELECT ...;\n```\n\nKey ideas:\n\n- **TARGET_LAG** is how stale the table may be relative to its sources. Snowflake schedules refreshes to meet it. `TARGET_LAG = DOWNSTREAM` means \"refresh only as often as the dynamic tables that depend on me need\".\n- **Refresh mode**: with `REFRESH_MODE = AUTO` (the default) Snowflake uses **incremental** refresh, processing only changed source rows, when the query supports it, and a **full** refresh otherwise. You can set `INCREMENTAL` or `FULL` explicitly; check the chosen mode with `SHOW DYNAMIC TABLES`.\n- Dynamic tables can read other dynamic tables, forming a pipeline DAG that Snowflake refreshes in dependency order with consistent snapshots.\n- You can't `INSERT` or `UPDATE` them directly; the query is the only source of truth.\n\nCompared with streams and tasks, dynamic tables suit transformations you can express as a single `SELECT` (joins, aggregations, flattening). Streams and tasks remain the tool for procedural logic, calling procedures, or exact control over when and how changes are applied.\n\nMonitor refreshes with `INFORMATION_SCHEMA.DYNAMIC_TABLE_REFRESH_HISTORY()` or Snowsight's graph view, and suspend with `ALTER DYNAMIC TABLE ... SUSPEND` when you need to pause costs.",
+   "code": "CREATE OR REPLACE DYNAMIC TABLE order_lines\n  TARGET_LAG = DOWNSTREAM\n  WAREHOUSE = etl_wh\nAS\nSELECT e.src:id::INT AS order_id, i.value:sku::STRING AS sku, i.value:qty::INT AS qty\nFROM raw_events e, LATERAL FLATTEN(input => e.src:items) i;\n\nCREATE OR REPLACE DYNAMIC TABLE sku_daily\n  TARGET_LAG = '15 minutes'\n  WAREHOUSE = etl_wh\nAS\nSELECT sku, SUM(qty) AS units\nFROM order_lines\nGROUP BY sku;\n\nSHOW DYNAMIC TABLES LIKE 'SKU_DAILY';   -- check refresh_mode, target_lag, scheduling_state\n\nALTER DYNAMIC TABLE sku_daily REFRESH;  -- manual refresh when needed",
+   "code_lang": "sql",
+   "takeaways": [
+    "Define the result as a query plus a TARGET_LAG; Snowflake keeps it fresh",
+    "AUTO refresh mode picks incremental when the query allows it",
+    "Chain dynamic tables; use DOWNSTREAM lag for intermediate steps"
+   ],
+   "pitfalls": [
+    "Setting a very low TARGET_LAG on everything, which keeps warehouses busy and costs credits."
+   ],
+   "quiz": [
+    {
+     "q": "What does TARGET_LAG = DOWNSTREAM mean for an intermediate dynamic table?",
+     "options": [
+      "It never refreshes",
+      "It refreshes every minute",
+      "It copies the lag of its source table",
+      "It refreshes only when dynamic tables that depend on it need fresh data"
+     ],
+     "answer": 3,
+     "explain": "DOWNSTREAM defers scheduling to the consumers' lag targets."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/user-guide/dynamic-tables-about",
+   "requires": [
+    "snowflake.streams-tasks",
+    "snowflake.flatten"
+   ]
+  },
+  {
+   "id": "snowflake.snowpark-udfs",
+   "name": "UDFs, stored procedures and Snowpark",
+   "module": "pipelines",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Extend SQL with SQL and Python UDFs, write stored procedures, and use Snowpark DataFrames that run inside Snowflake.",
+   "why": "Custom logic and Python data work can run next to the data instead of pulling it out.",
+   "body": "Snowflake runs code inside the platform in several forms.\n\n- **SQL UDFs**: `CREATE FUNCTION f(x NUMBER) RETURNS NUMBER AS 'x * 2'`. Simple, fast, and often inlined into the query.\n- **Python, Java, Scala and JavaScript UDFs**: the handler runs in a secure sandbox on the warehouse. Python UDFs can use packages from the built-in Anaconda channel via `PACKAGES = ('numpy')`. **Vectorized** Python UDFs receive pandas batches and are much faster than row-at-a-time ones.\n- **UDTFs** return a table, one input row producing many output rows.\n- **Stored procedures** (SQL Scripting, Python, Java, JavaScript) run procedural logic and can execute SQL statements: loops, DDL, dynamic SQL, error handling. Call them with `CALL`. Procedures run with **owner's rights** by default or with `EXECUTE AS CALLER`.\n\n**Snowpark** is a DataFrame API for Python, Java and Scala. You write `session.table(\"orders\").filter(col(\"amount\") > 100).group_by(\"region\").agg(...)`; nothing executes until an action such as `collect()` or `show()`, and then Snowpark compiles the whole chain into SQL that runs on the warehouse. Data never leaves Snowflake unless you `to_pandas()` it. The same session can register UDFs from Python functions.\n\nSQL Scripting blocks (`DECLARE ... BEGIN ... END`) can also run anonymously, without creating a procedure, which is handy for admin scripts.",
+   "code": "CREATE OR REPLACE FUNCTION net_price(price NUMBER(10,2), vat NUMBER(4,2))\n  RETURNS NUMBER(10,2)\n  AS 'price / (1 + vat)';\n\nCREATE OR REPLACE FUNCTION slugify(s STRING)\n  RETURNS STRING\n  LANGUAGE PYTHON\n  RUNTIME_VERSION = '3.11'\n  HANDLER = 'slug'\nAS $$\nimport re\ndef slug(s):\n    return re.sub(r'[^a-z0-9]+', '-', s.lower()).strip('-')\n$$;\n\nSELECT net_price(121, 0.21), slugify('Hello, Snowflake World!');\n-- 100.00 | hello-snowflake-world\n\n-- Snowpark (Python), run from a client or notebook:\n-- df = session.table(\"orders\").filter(col(\"amount\") > 100).group_by(\"region\").count()\n-- df.show()   # compiled to SQL and executed in Snowflake",
+   "code_lang": "sql",
+   "takeaways": [
+    "SQL UDFs for simple expressions; Python UDFs for richer logic",
+    "Vectorized Python UDFs process pandas batches and are much faster",
+    "Snowpark DataFrames are lazy and compile to SQL that runs in Snowflake"
+   ],
+   "pitfalls": [
+    "Calling to_pandas() on a huge Snowpark DataFrame and pulling everything to the client."
+   ],
+   "quiz": [
+    {
+     "q": "When does a Snowpark DataFrame query actually execute?",
+     "options": [
+      "When each method like filter() is called",
+      "When an action such as collect() or show() is called",
+      "Immediately when session.table() is called",
+      "Only inside a stored procedure"
+     ],
+     "answer": 1,
+     "explain": "Transformations are lazy and are compiled to one SQL statement at action time."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/developer-guide/udf/udf-overview",
+   "requires": [
+    "snowflake.sql-extensions",
+    "snowflake.access-control"
+   ]
+  },
+  {
+   "id": "snowflake.cost-control",
+   "name": "Cost control and warehouse scaling",
+   "module": "performance",
+   "level": 4,
+   "minutes": 16,
+   "summary": "Control spend with multi-cluster scaling policies, resource monitors, query acceleration and ACCOUNT_USAGE cost analysis.",
+   "why": "Snowflake bills by consumption, so cost engineering is a core skill for anyone running it at scale.",
+   "body": "Cost in Snowflake is compute credits, storage and serverless features (Snowpipe, clustering, tasks, search optimization). Compute usually dominates, so focus there.\n\n**Multi-cluster warehouses** (Enterprise edition) add clusters when queries queue: `MIN_CLUSTER_COUNT = 1, MAX_CLUSTER_COUNT = 4`. `SCALING_POLICY = STANDARD` starts clusters quickly to avoid queuing; `ECONOMY` waits until there's enough load to keep a new cluster busy, saving credits at the price of some queuing. Scale **up** (size) for slow individual queries, **out** (clusters) for concurrency.\n\n**Resource monitors** cap credits per warehouse or account per period. They can notify at a threshold and suspend warehouses at the limit, either letting running queries finish or killing them immediately.\n\n**Query Acceleration Service** offloads parts of large scans to serverless compute for outlier queries, without resizing the warehouse. **Statement timeouts** (`STATEMENT_TIMEOUT_IN_SECONDS`) kill runaway queries.\n\nMeasure, then act:\n\n- `SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY` gives credits per warehouse per hour.\n- `QUERY_HISTORY` (and `QUERY_ATTRIBUTION_HISTORY` for per-query credits) finds the expensive patterns.\n- `ACCOUNT_USAGE` views lag real time by up to a few hours.\n\nTypical wins: right-size warehouses and auto-suspend, consolidate idle warehouses, fix queries that scan entire tables, use transient tables for reloadable data, and shorten Time Travel on churny staging tables.",
+   "code": "ALTER WAREHOUSE bi_wh SET\n  MIN_CLUSTER_COUNT = 1\n  MAX_CLUSTER_COUNT = 4\n  SCALING_POLICY = 'ECONOMY'\n  STATEMENT_TIMEOUT_IN_SECONDS = 1800;\n\nUSE ROLE ACCOUNTADMIN;\nCREATE RESOURCE MONITOR bi_monthly WITH\n  CREDIT_QUOTA = 500\n  FREQUENCY = MONTHLY\n  START_TIMESTAMP = IMMEDIATELY\n  TRIGGERS ON 80 PERCENT DO NOTIFY\n           ON 100 PERCENT DO SUSPEND;\nALTER WAREHOUSE bi_wh SET RESOURCE_MONITOR = bi_monthly;\n\n-- Credits per warehouse over the last 30 days\nSELECT warehouse_name, ROUND(SUM(credits_used), 1) AS credits\nFROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY\nWHERE start_time >= DATEADD(day, -30, CURRENT_TIMESTAMP())\nGROUP BY warehouse_name\nORDER BY credits DESC;",
+   "code_lang": "sql",
+   "takeaways": [
+    "Scale up for slow queries, out (multi-cluster) for concurrency",
+    "Resource monitors notify and suspend at credit thresholds",
+    "Measure with ACCOUNT_USAGE metering and query history before tuning"
+   ],
+   "pitfalls": [
+    "Raising warehouse size to fix queuing, which doubles cost without adding concurrency."
+   ],
+   "quiz": [
+    {
+     "q": "What does SCALING_POLICY = 'ECONOMY' trade off?",
+     "options": [
+      "Faster queries for higher cost",
+      "Lower credits for possibly more queuing",
+      "Less storage for slower loads",
+      "Nothing; it is just a label"
+     ],
+     "answer": 1,
+     "explain": "Economy starts extra clusters only when they'd stay busy, saving credits but tolerating some queuing."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/user-guide/warehouses-multicluster",
+   "requires": [
+    "snowflake.clustering",
+    "snowflake.warehouses"
+   ]
+  },
+  {
+   "id": "snowflake.search-mv-acceleration",
+   "name": "Search optimization and materialized views",
+   "module": "performance",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Speed up point lookups with search optimization and repeated aggregations with materialized views, and know what each costs.",
+   "why": "Some workloads don't prune with clustering alone, and these services exist exactly for them.",
+   "body": "Clustering helps range filters on a few columns. Two Enterprise-edition services cover other patterns, each with background maintenance billed as serverless credits plus extra storage.\n\n**Search optimization** builds a persistent search access path, a kind of index, so highly selective lookups can skip most micro-partitions:\n\n- equality and `IN` filters on high-cardinality columns (find one customer's rows among billions),\n- substring and regex searches (`ON SUBSTRING(col)`),\n- lookups inside VARIANT fields and on geospatial values.\n\nEnable it per column and method: `ALTER TABLE t ADD SEARCH OPTIMIZATION ON EQUALITY(customer_id)`. It suits queries returning a few rows; it does little for large scans.\n\n**Materialized views** store a pre-computed query result that Snowflake keeps current in the background. Queries on the view are always consistent with the base table: if maintenance is behind, Snowflake combines the stored result with the newer base data. The optimizer can even rewrite queries against the base table to use a matching view. Limits: a materialized view queries a **single table** with no joins, and supports a restricted set of functions and aggregates.\n\nChoose by pattern: repeated heavy aggregations on one table call for a materialized view; needle-in-haystack filters call for search optimization; multi-table transformations call for dynamic tables. Check the maintenance cost with `SEARCH_OPTIMIZATION_HISTORY` and `MATERIALIZED_VIEW_REFRESH_HISTORY` before keeping them.",
+   "code": "-- Point lookups on a high-cardinality column\nALTER TABLE events ADD SEARCH OPTIMIZATION ON EQUALITY(customer_id), SUBSTRING(url);\nSHOW TABLES LIKE 'EVENTS';   -- search_optimization: ON, progress: 100 when built\n\nSELECT * FROM events WHERE customer_id = 'c_8f2a91';   -- prunes most partitions\n\n-- Pre-aggregate a heavy, repeated query on one table\nCREATE MATERIALIZED VIEW daily_event_counts AS\nSELECT TO_DATE(event_ts) AS day, event_type, COUNT(*) AS n\nFROM events\nGROUP BY TO_DATE(event_ts), event_type;\n\n-- Always consistent with events, even right after new inserts\nSELECT * FROM daily_event_counts WHERE day = CURRENT_DATE();",
+   "code_lang": "sql",
+   "takeaways": [
+    "Search optimization accelerates selective equality, substring and VARIANT lookups",
+    "Materialized views keep single-table aggregates fresh and always consistent",
+    "Both add serverless maintenance and storage costs: measure them"
+   ],
+   "pitfalls": [
+    "Creating a materialized view on a table that changes constantly, where maintenance credits outweigh savings."
+   ],
+   "quiz": [
+    {
+     "q": "Analysts often search a 5-billion-row table for one order_id. Which feature fits best?",
+     "options": [
+      "A materialized view",
+      "A larger warehouse",
+      "A transient table",
+      "Search optimization on EQUALITY(order_id)"
+     ],
+     "answer": 3,
+     "explain": "Highly selective equality lookups on a high-cardinality column are search optimization's use case."
+    },
+    {
+     "q": "Which query can a Snowflake materialized view NOT be defined with?",
+     "options": [
+      "A join between two tables",
+      "A GROUP BY on one table",
+      "A filter on one table",
+      "A projection of a few columns"
+     ],
+     "answer": 0,
+     "explain": "Materialized views are limited to a single table; use a dynamic table for joins."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/user-guide/search-optimization-service",
+   "requires": [
+    "snowflake.clustering",
+    "snowflake.dynamic-tables"
+   ]
+  },
+  {
+   "id": "snowflake.governance-sharing",
+   "name": "Data governance and secure data sharing",
+   "module": "governance",
+   "level": 4,
+   "minutes": 16,
+   "summary": "Protect columns with masking policies and rows with row access policies, and share live data with other accounts without copying it.",
+   "why": "Regulated data needs fine-grained controls, and sharing without copies is one of Snowflake's defining features.",
+   "body": "Beyond grants, Snowflake offers policy objects (Enterprise edition) that are attached to columns and tables and evaluated at query time for every user.\n\n**Masking policies** transform a column's value depending on context: `CREATE MASKING POLICY ... AS (val STRING) RETURNS STRING -> CASE WHEN IS_ROLE_IN_SESSION('PII_READER') THEN val ELSE '***' END`. Attach one to any number of columns with `ALTER TABLE ... MODIFY COLUMN ... SET MASKING POLICY`. Prefer `IS_ROLE_IN_SESSION` over `CURRENT_ROLE()` so inherited and secondary roles count. **Tag-based masking** attaches a policy to a tag such as `pii = 'email'`, so every tagged column is protected automatically.\n\n**Row access policies** return a boolean per row, typically by looking up the user's role in a mapping table, so one table can serve many regions or tenants.\n\n**Secure data sharing** grants other Snowflake accounts read access to live objects. The provider creates a **share**, grants database, schema and table or secure-view privileges to it, and adds consumer accounts. The consumer creates a read-only database from the share. No data is copied or moved: the consumer queries the provider's storage with the **consumer's own warehouse**, and sees updates immediately. Share subsets through **secure views**: shares accept secure objects by default, because an ordinary view's definition and optimizations could reveal data it is meant to hide. Cross-region and cross-cloud sharing relies on replication, which Marketplace listings can automate. Reader accounts let you share with organizations that don't have Snowflake.",
+   "code": "CREATE MASKING POLICY mask_email AS (val STRING) RETURNS STRING ->\n  CASE WHEN IS_ROLE_IN_SESSION('PII_READER') THEN val\n       ELSE REGEXP_REPLACE(val, '.+@', '***@') END;\nALTER TABLE customers MODIFY COLUMN email SET MASKING POLICY mask_email;\n-- analyst sees ***@x.io, PII_READER sees ana@x.io\n\nCREATE ROW ACCESS POLICY by_region AS (row_region STRING) RETURNS BOOLEAN ->\n  EXISTS (SELECT 1 FROM sec.region_access m\n          WHERE m.role_name = CURRENT_ROLE() AND m.region = row_region);\nALTER TABLE orders ADD ROW ACCESS POLICY by_region ON (region);\n\n-- Provider: share a secure view with a partner account\nCREATE SECURE VIEW shop.public.partner_orders AS\n  SELECT id, amount, created_at FROM shop.raw.orders WHERE partner_id = 42;\nCREATE SHARE partner_share;\nGRANT USAGE ON DATABASE shop TO SHARE partner_share;\nGRANT USAGE ON SCHEMA shop.public TO SHARE partner_share;\nGRANT SELECT ON VIEW shop.public.partner_orders TO SHARE partner_share;\nALTER SHARE partner_share ADD ACCOUNTS = partner_org.partner_acct;\n-- Consumer: CREATE DATABASE partner_data FROM SHARE provider_org.provider_acct.partner_share;",
+   "code_lang": "sql",
+   "takeaways": [
+    "Masking policies change column values per role at query time",
+    "Row access policies filter rows per user or role",
+    "Shares give live, read-only access with no copies; consumers pay compute"
+   ],
+   "pitfalls": [
+    "Trying to share a plain view; create it as a SECURE VIEW so its definition and filtered rows stay protected."
+   ],
+   "quiz": [
+    {
+     "q": "Who pays for the compute when a consumer queries data from a share?",
+     "options": [
+      "The provider",
+      "Nobody; shared queries are free",
+      "The consumer, using its own warehouse",
+      "Snowflake splits it evenly"
+     ],
+     "answer": 2,
+     "explain": "The consumer runs queries on its own warehouse; the provider pays only for storage."
+    },
+    {
+     "q": "Why prefer IS_ROLE_IN_SESSION('PII_READER') over CURRENT_ROLE() = 'PII_READER' in a masking policy?",
+     "options": [
+      "It also matches when PII_READER is inherited or active as a secondary role",
+      "It is faster",
+      "CURRENT_ROLE() is deprecated",
+      "It ignores the role hierarchy"
+     ],
+     "answer": 0,
+     "explain": "IS_ROLE_IN_SESSION respects the role hierarchy and secondary roles."
+    }
+   ],
+   "docs": "https://docs.snowflake.com/en/user-guide/security-column-ddm-intro",
+   "requires": [
+    "snowflake.access-control",
+    "snowflake.time-travel-cloning"
+   ]
+  }
+ ]
+}

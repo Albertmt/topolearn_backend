@@ -1,0 +1,678 @@
+{
+ "tool": {
+  "id": "zsh",
+  "name": "Zsh",
+  "category": "tool",
+  "tagline": "Interactive shell with powerful completion, globbing and customization",
+  "description": "Zsh is a Bourne-style Unix shell, largely compatible with bash, that adds a programmable completion system, rich globbing, a highly configurable line editor and prompt, and a large plugin ecosystem. It has been the default shell on macOS since Catalina, and many developers on Linux adopt it for a faster, friendlier terminal. Learning it well means fewer keystrokes every day and a shell configuration you understand rather than copy-paste.",
+  "icon": "zsh",
+  "color": "#C2410C",
+  "official_docs": "https://zsh.sourceforge.io/Doc/",
+  "version": "5.9",
+  "aliases": [
+   "z shell",
+   "zshell",
+   "oh my zsh",
+   "zshrc"
+  ],
+  "requires": [
+   {
+    "tool": "bash",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "setup",
+   "name": "Setup and configuration"
+  },
+  {
+   "id": "interactive",
+   "name": "Interactive power"
+  },
+  {
+   "id": "globbing",
+   "name": "Globbing"
+  },
+  {
+   "id": "scripting",
+   "name": "Scripting and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "zsh.why-zsh",
+   "name": "Zsh vs bash, and switching",
+   "module": "setup",
+   "level": 1,
+   "minutes": 7,
+   "summary": "What zsh adds over bash, how to check which shell you are in and how to make zsh your login shell.",
+   "why": "You need to know which shell is reading your commands before any configuration makes sense.",
+   "body": "Zsh is a Bourne-family shell, so everyday command lines, pipes, redirections, variables, `if` and `for` work as in bash. What it adds is mostly for interactive use: a far smarter completion system, recursive globbing with filters, spelling correction, shared history, a programmable line editor and prompt, and a big plugin ecosystem. It has been the default login shell on **macOS since 10.15 Catalina**; on Linux you install it with your package manager.\n\nTwo variables are easy to confuse. `$SHELL` is your **login shell** as recorded in the user database, not necessarily the shell you are running right now; `ps -p $$` or `echo $ZSH_VERSION` tells you the current one. Change your login shell with `chsh -s \"$(command -v zsh)\"`; the path must be listed in `/etc/shells`, and the change applies at your next login.\n\nThe first time zsh starts without a `~/.zshrc` it offers the `zsh-newuser-install` menu; you can quit it and write the file yourself. `zsh -f` starts a shell with **no** startup files, handy for testing whether a problem comes from your config.\n\nSwitching your interactive shell does not change scripts: a script with `#!/usr/bin/env bash` keeps running under bash. Keep writing portable scripts in bash or sh, and use zsh for your terminal.",
+   "code": "zsh --version                 # zsh 5.9 (x86_64-pc-linux-gnu)\necho $SHELL                   # login shell from the user database, e.g. /bin/zsh\nps -p $$ -o comm=             # the shell you are actually in: zsh\necho $ZSH_VERSION             # 5.9  (empty in bash)\ngrep zsh /etc/shells          # /bin/zsh /usr/bin/zsh  (allowed for chsh)\nchsh -s \"$(command -v zsh)\"   # make zsh your login shell; log in again\nzsh -f                        # a clean zsh with no config files\n./deploy.sh                   # a #!/usr/bin/env bash script still runs in bash",
+   "code_lang": "zsh",
+   "takeaways": [
+    "Zsh is Bourne-compatible for everyday use and adds interactive features",
+    "$SHELL is the login shell; ps -p $$ shows the current shell",
+    "chsh -s changes the login shell; scripts follow their shebang"
+   ],
+   "pitfalls": [
+    "Assuming $SHELL tells you which shell is running right now."
+   ],
+   "quiz": [
+    {
+     "q": "You switched your terminal to zsh. Which shell runs a script whose first line is #!/usr/bin/env bash?",
+     "options": [
+      "zsh",
+      "Whichever shell launched it last",
+      "sh",
+      "bash"
+     ],
+     "answer": 3,
+     "explain": "The kernel uses the shebang interpreter, regardless of your interactive shell."
+    },
+    {
+     "q": "What is `zsh -f` useful for?",
+     "options": [
+      "Forcing a login shell",
+      "Running zsh faster by skipping completion only",
+      "Starting zsh without any startup files to test your config",
+      "Formatting zsh scripts"
+     ],
+     "answer": 2,
+     "explain": "-f (NO_RCS) skips the startup files, so you can tell whether a problem comes from your configuration."
+    }
+   ],
+   "docs": "https://zsh.sourceforge.io/Doc/Release/Invocation.html",
+   "requires": [
+    "bash.shell-basics"
+   ]
+  },
+  {
+   "id": "zsh.startup-files",
+   "name": "Startup files: .zshenv, .zprofile, .zshrc",
+   "module": "setup",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Which zsh config file is read when, and what belongs in each one.",
+   "why": "Putting settings in the wrong file causes slow scripts, missing PATH entries and confusing behaviour.",
+   "body": "Zsh reads up to four user files, each after its system-wide twin in `/etc`, in this order:\n\n- `~/.zshenv`: read by **every** zsh, including scripts and `zsh -c`. Keep it tiny and silent: a few environment variables at most.\n- `~/.zprofile`: login shells, before `.zshrc`. A good place for `PATH` and other environment setup.\n- `~/.zshrc`: **interactive** shells. Aliases, options, completion, key bindings and the prompt go here.\n- `~/.zlogin`: login shells, after `.zshrc`; rarely needed. `~/.zlogout` runs when a login shell exits.\n\nUnlike bash, an interactive login shell reads **both** `.zprofile` and `.zshrc`, so there is no need to source one from the other. On macOS every new Terminal tab is a login shell, while most Linux terminal emulators start non-login shells.\n\nOn macOS, `/etc/zprofile` runs `path_helper`, which reorders `PATH`; entries you add in `.zshenv` can end up behind system directories, which is another reason to set `PATH` in `.zprofile`.\n\n`ZDOTDIR` relocates these files (for example to `~/.config/zsh`); set it in `~/.zshenv`. After editing, `exec zsh` replaces your shell with a fresh one, which is cleaner than `source ~/.zshrc` because settings removed from the file really disappear.",
+   "code": "# Order for an interactive login shell (e.g. a macOS Terminal tab):\n#   /etc/zshenv  ~/.zshenv  ->  /etc/zprofile  ~/.zprofile\n#   ->  /etc/zshrc  ~/.zshrc  ->  /etc/zlogin  ~/.zlogin\n# ~/.zshenv   : every zsh, scripts included -> keep it tiny\nexport EDITOR=vim\n# ~/.zprofile : login shells -> PATH and environment\nexport PATH=\"$HOME/.local/bin:$PATH\"\n# ~/.zshrc    : interactive shells -> aliases, options, prompt, completion\nalias ll='ls -lah'\nsetopt AUTO_CD\n# Reload after editing:\nexec zsh\n# See which files actually run at startup:\nzsh -o SOURCE_TRACE -i -c exit 2>&1 | head",
+   "code_lang": "zsh",
+   "takeaways": [
+    ".zshenv: every shell, keep minimal; .zprofile: login; .zshrc: interactive",
+    "Interactive login shells read both .zprofile and .zshrc",
+    "exec zsh reloads cleanly"
+   ],
+   "pitfalls": [
+    "Printing output or running slow commands in ~/.zshenv, which affects every script and scp session."
+   ],
+   "quiz": [
+    {
+     "q": "Where should aliases and the prompt be defined?",
+     "options": [
+      "~/.zshenv",
+      "~/.zlogout",
+      "~/.zshrc",
+      "/etc/shells"
+     ],
+     "answer": 2,
+     "explain": ".zshrc is read by interactive shells, which are the only ones that use aliases and prompts."
+    },
+    {
+     "q": "Which file is read even by a non-interactive `zsh script.zsh`?",
+     "options": [
+      "~/.zshenv",
+      "~/.zshrc",
+      "~/.zprofile",
+      "~/.zlogin"
+     ],
+     "answer": 0,
+     "explain": ".zshenv is read by every zsh invocation unless -f or NO_RCS is used."
+    }
+   ],
+   "docs": "https://zsh.sourceforge.io/Doc/Release/Files.html",
+   "requires": [
+    "zsh.why-zsh",
+    "bash.variables"
+   ]
+  },
+  {
+   "id": "zsh.completion-basics",
+   "name": "Tab completion",
+   "module": "interactive",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Turn on zsh's completion system, get a navigable menu and complete options, branches, hosts and paths.",
+   "why": "Completion is the single biggest productivity win of zsh, and it needs two lines to enable.",
+   "body": "Zsh's completion system (**compsys**) knows the options and arguments of hundreds of commands. It is enabled by loading and running `compinit`, which frameworks such as Oh My Zsh do for you. Once on:\n\n- `git checkout <Tab>` offers branches, `ssh <Tab>` hosts from `~/.ssh/config`, `kill <Tab>` processes, `tar -<Tab>` options with descriptions,\n- partial paths expand: `cd /u/lo/b<Tab>` becomes `cd /usr/local/bin/`,\n- pressing Tab again cycles through candidates, and Ctrl-D lists them without inserting.\n\nBehaviour is configured with **zstyle**, which sets a style for a context pattern. The two most popular: `zstyle ':completion:*' menu select` gives an arrow-key menu, and a `matcher-list` that makes matching case-insensitive. Styles are covered in depth when you write your own completions.\n\n`compinit` caches what it finds in `~/.zcompdump`. If a newly installed tool has no completion, delete that file and start a new shell. compinit also checks that completion directories are not writable by other users and warns about \"insecure directories\"; `compaudit` lists them so you can fix their permissions instead of silencing the check.\n\nKeep `compinit` after any changes to `fpath` (plugins add directories there), otherwise their completions are not found.",
+   "code": "# ~/.zshrc\nautoload -Uz compinit && compinit        # turn on the completion system\nzstyle ':completion:*' menu select       # arrow-key menu for candidates\nzstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'   # case-insensitive\nzstyle ':completion:*:descriptions' format '%B%d%b'      # bold group headings\n# Then try, pressing Tab where marked:\n#   cd /u/lo/b<Tab>      ->  cd /usr/local/bin/\n#   git checkout ma<Tab> ->  matching branch names\n#   tar -<Tab>           ->  every option with a description\n#   kill <Tab>           ->  running processes with their PIDs\n#   ssh <Tab>            ->  hosts from ~/.ssh/config and known_hosts\ncompaudit                                # lists insecure completion dirs, if any\nrm -f ~/.zcompdump && exec zsh           # rebuild the completion cache",
+   "code_lang": "zsh",
+   "takeaways": [
+    "autoload -Uz compinit && compinit enables completion",
+    "zstyle ':completion:*' menu select gives an interactive menu",
+    "Delete ~/.zcompdump when new completions do not show up"
+   ],
+   "pitfalls": [
+    "Calling compinit before plugins add their directories to fpath, so their completions are missing."
+   ],
+   "quiz": [
+    {
+     "q": "What does `zstyle ':completion:*' menu select` change?",
+     "options": [
+      "Completion is disabled for menus",
+      "Candidates can be chosen with the arrow keys",
+      "Only menu commands are completed",
+      "Completion becomes case-insensitive"
+     ],
+     "answer": 1,
+     "explain": "menu select turns the candidate list into a navigable menu."
+    },
+    {
+     "q": "A tool you just installed has a completion file but Tab does nothing. A likely fix?",
+     "options": [
+      "chmod +x the tool",
+      "Run zsh -f",
+      "Add the tool to /etc/shells",
+      "Delete ~/.zcompdump and start a new shell"
+     ],
+     "answer": 3,
+     "explain": "compinit caches discovered completions in ~/.zcompdump; rebuilding it picks up new ones."
+    }
+   ],
+   "docs": "https://zsh.sourceforge.io/Doc/Release/Completion-System.html",
+   "requires": [
+    "zsh.why-zsh"
+   ]
+  },
+  {
+   "id": "zsh.globbing-basics",
+   "name": "Recursive globs and qualifiers",
+   "module": "globbing",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Use ** for recursive matching and glob qualifiers like (.), (/) and (om) to filter and sort files.",
+   "why": "Zsh globs replace most simple find commands with something shorter you can type at the prompt.",
+   "body": "Zsh supports the same `*`, `?` and `[...]` patterns as bash, plus a few things that make it shine at the prompt.\n\n**Recursive globbing** is always on: `**/*.py` matches Python files in this directory and every subdirectory (bash needs `shopt -s globstar`).\n\n**Glob qualifiers** go in parentheses at the end of a pattern and filter or sort the matches:\n\n- `(.)` regular files, `(/)` directories, `(@)` symlinks, `(*)` executables,\n- `(om)` sort by modification time, newest first; `(on)` by name,\n- `[1]` or `[1,3]` take the first match or a range: `*(om[1])` is the newest file,\n- `(N)` makes this pattern expand to nothing if it matches nothing.\n\nThe biggest difference from bash: when a pattern matches nothing, zsh reports **\"no matches found\"** and does not run the command (option `NOMATCH`). Bash would pass the literal pattern along. This bites with URLs and arguments containing `?`, `*` or `[`, such as `curl https://x.io/?q=1` or `pip install foo[dev]`: quote them, or prefix the command with `noglob`.\n\nUse `print -l` (one item per line) to preview what a glob expands to before using it with `rm` or `mv`.",
+   "code": "cd \"$(mktemp -d)\"\nmkdir -p src/lib && touch src/a.py src/lib/b.py notes.txt\nprint -l **/*.py        # src/a.py  src/lib/b.py   (recursive, built in)\nprint -l *(/)           # src         (directories only)\nprint -l **/*(.)        # every regular file, recursively\ntouch -d '2 days ago' old.txt\nprint -l *.txt(om)      # notes.txt old.txt   (newest first)\nprint -l *.txt(om[1])   # notes.txt           (just the newest)\nprint -l *.zip(N)       # (nothing: N = null glob for this pattern)\nprint 'https://x.io/?q=1'   # quote URLs: ? is a glob character\nls *.zip                # zsh: no matches found: *.zip",
+   "code_lang": "zsh",
+   "takeaways": [
+    "** is recursive by default",
+    "Qualifiers like (.) (/) (om[1]) filter and sort matches",
+    "No match is an error in zsh; quote URLs or use (N) / noglob"
+   ],
+   "pitfalls": [
+    "Running `pip install requests[socks]` unquoted and getting 'no matches found'."
+   ],
+   "quiz": [
+    {
+     "q": "Which glob expands to the most recently modified file in the directory?",
+     "options": [
+      "*(om[1])",
+      "*(on[1])",
+      "*(/)",
+      "*(N)"
+     ],
+     "answer": 0,
+     "explain": "om sorts by modification time, newest first, and [1] picks the first match."
+    },
+    {
+     "q": "`curl https://api.example.com/items?id=4` fails with 'no matches found'. Why?",
+     "options": [
+      "The ? is treated as a glob that matches no file",
+      "curl is not installed",
+      "zsh blocks network commands",
+      "The URL needs https://"
+     ],
+     "answer": 0,
+     "explain": "Unquoted ? is a glob character; zsh refuses to run a command with an unmatched pattern."
+    }
+   ],
+   "docs": "https://zsh.sourceforge.io/Doc/Release/Expansion.html#Glob-Qualifiers",
+   "requires": [
+    "zsh.why-zsh",
+    "bash.loops"
+   ]
+  },
+  {
+   "id": "zsh.options-history",
+   "name": "Options and shared history",
+   "module": "setup",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Turn zsh behaviour on and off with setopt, and configure a large, shared, de-duplicated history.",
+   "why": "A handful of options and history settings make the shell noticeably nicer to live in.",
+   "body": "Most zsh behaviour is controlled by named **options**. `setopt NAME` turns one on, `unsetopt NAME` (or `setopt NO_NAME`) turns it off. Names are case-insensitive and underscores are ignored, so `AUTO_CD`, `autocd` and `AutoCd` are the same option. Plain `setopt` lists the options that differ from their defaults, and `[[ -o name ]]` tests one.\n\nPopular interactive options:\n\n- `AUTO_CD`: type a directory name alone to cd into it,\n- `AUTO_PUSHD` and `PUSHD_IGNORE_DUPS`: every cd pushes onto a stack; `cd -<Tab>` and `dirs -v` let you jump back,\n- `INTERACTIVE_COMMENTS`: allow `#` comments at the prompt (off by default!),\n- `CORRECT`: offer to fix mistyped commands.\n\n**History** is not saved unless you configure it. Set `HISTFILE` to a path, `HISTSIZE` (entries kept in memory) and `SAVEHIST` (entries written to the file). Then add:\n\n- `SHARE_HISTORY`: all open shells read and append to the same history as you go,\n- `HIST_IGNORE_ALL_DUPS`: drop older duplicates,\n- `HIST_IGNORE_SPACE`: commands typed with a leading space are not recorded, useful for secrets,\n- `EXTENDED_HISTORY`: store timestamps and durations.\n\n`history` (an alias of `fc -l`) shows entries; `history -i` adds ISO timestamps, and `!!`, `!$` and `!git` history expansion work as in bash.",
+   "code": "# ~/.zshrc\nsetopt AUTO_CD                        # 'projects' alone -> cd projects\nsetopt AUTO_PUSHD PUSHD_IGNORE_DUPS   # cd builds a stack: cd -<Tab>, dirs -v\nsetopt INTERACTIVE_COMMENTS           # allow # comments at the prompt\nsetopt CORRECT                        # zsh: correct 'gti' to 'git' [nyae]?\nHISTFILE=~/.zsh_history\nHISTSIZE=50000                        # entries kept in memory\nSAVEHIST=50000                        # entries written to HISTFILE\nsetopt SHARE_HISTORY                  # all shells share one live history\nsetopt HIST_IGNORE_ALL_DUPS HIST_IGNORE_SPACE EXTENDED_HISTORY\n# At the prompt:\nsetopt                                # options that differ from defaults\n[[ -o autocd ]] && echo \"autocd on\"   # case and underscores do not matter\nhistory -i -5                         # last 5 entries with timestamps",
+   "code_lang": "zsh",
+   "takeaways": [
+    "setopt / unsetopt; names ignore case and underscores",
+    "History is only saved with HISTFILE and SAVEHIST set",
+    "SHARE_HISTORY and HIST_IGNORE_SPACE are the favourite history options"
+   ],
+   "pitfalls": [
+    "Expecting history to persist without setting HISTFILE and SAVEHIST."
+   ],
+   "quiz": [
+    {
+     "q": "Which pair of settings is needed for zsh to write history to disk?",
+     "options": [
+      "HISTSIZE and SHARE_HISTORY",
+      "HISTFILE and SAVEHIST",
+      "EXTENDED_HISTORY and HISTSIZE",
+      "HIST_IGNORE_SPACE and HISTFILE"
+     ],
+     "answer": 1,
+     "explain": "HISTFILE names the file and SAVEHIST says how many entries to write to it."
+    },
+    {
+     "q": "Are `setopt AUTO_CD` and `setopt autocd` the same?",
+     "options": [
+      "Yes: option names ignore case and underscores",
+      "No, only the upper-case form works",
+      "No, autocd is a different option",
+      "Only inside .zshrc"
+     ],
+     "answer": 0,
+     "explain": "Zsh normalises option names by ignoring case and underscores."
+    }
+   ],
+   "docs": "https://zsh.sourceforge.io/Doc/Release/Options.html",
+   "requires": [
+    "zsh.startup-files"
+   ]
+  },
+  {
+   "id": "zsh.prompt",
+   "name": "Customizing the prompt",
+   "module": "setup",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Build a prompt with % escapes, colours, exit-status conditionals and the git branch via vcs_info.",
+   "why": "A good prompt shows where you are, which branch you are on and whether the last command failed.",
+   "body": "The prompt is the `PROMPT` variable (alias `PS1`); `RPROMPT` is shown on the right and disappears as you type into it. Zsh expands **percent escapes** in them:\n\n- `%n` user, `%m` short host name, `%~` current directory with `~` for home, `%1~` only its last component,\n- `%#` shows `#` for root and `%` otherwise, `%?` the last exit status, `%T` the time,\n- `%F{red}...%f` foreground colour (names or 0-255), `%B...%b` bold,\n- `%(?.yes.no)` a conditional: here \"yes\" if the last command succeeded.\n\nTo include the output of variables or functions that change, set `PROMPT_SUBST` and write the prompt in **single quotes**, so `${...}` is expanded every time the prompt is drawn rather than once when `.zshrc` runs.\n\nFor the git branch, zsh ships **vcs_info**: load it, call `vcs_info` from the `precmd` hook (run before each prompt), and use `$vcs_info_msg_0_`. Its `formats` style uses `%b` for the branch; it can also show staged or unstaged changes.\n\n`print -P '...'` expands prompt escapes so you can experiment. If you prefer a ready-made prompt, Powerlevel10k and the cross-shell Starship are popular, but understanding the escapes lets you read and tweak them.",
+   "code": "autoload -Uz vcs_info\nprecmd() { vcs_info }                       # refresh before each prompt\nzstyle ':vcs_info:git:*' formats ' (%b)'    # %b = branch name\nsetopt PROMPT_SUBST\nPROMPT='%F{cyan}%n@%m%f %F{yellow}%~%f${vcs_info_msg_0_} %(?.%F{green}.%F{red})%#%f '\nRPROMPT='%F{240}%T%f'                       # time on the right\nprint -P '%F{yellow}%~%f'                   # try escapes: ~/projects/app\nprint -P 'last: %(?.ok.failed with %?)'     # last: ok\n# The result looks like:\n# ada@laptop ~/projects/app (main) %                     12:41",
+   "code_lang": "zsh",
+   "takeaways": [
+    "%n %m %~ %# %? are the core prompt escapes",
+    "%F{color}...%f for colour, %(?.ok.fail) for conditionals",
+    "PROMPT_SUBST plus single quotes for values that change, vcs_info for git"
+   ],
+   "pitfalls": [
+    "Writing PROMPT in double quotes with ${...}, so the value is frozen when .zshrc runs."
+   ],
+   "quiz": [
+    {
+     "q": "What does %(?.✔.✘) show after a failing command?",
+     "options": [
+      "✔",
+      "Nothing",
+      "The exit code",
+      "✘"
+     ],
+     "answer": 3,
+     "explain": "%(?.a.b) shows a when the last exit status was 0 and b otherwise."
+    },
+    {
+     "q": "Why is the prompt written in single quotes with PROMPT_SUBST set?",
+     "options": [
+      "So ${...} is expanded each time the prompt is drawn",
+      "Double quotes are invalid in PROMPT",
+      "To enable colours",
+      "So the prompt is right-aligned"
+     ],
+     "answer": 0,
+     "explain": "Single quotes keep ${...} literal in the variable; PROMPT_SUBST expands it on every redraw."
+    }
+   ],
+   "docs": "https://zsh.sourceforge.io/Doc/Release/Prompt-Expansion.html",
+   "requires": [
+    "zsh.startup-files"
+   ]
+  },
+  {
+   "id": "zsh.plugins",
+   "name": "Plugins, frameworks and aliases",
+   "module": "interactive",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Add autosuggestions and syntax highlighting, choose between a framework and plain sourcing, and use global and suffix aliases.",
+   "why": "Plugins give fish-like suggestions and highlighting, but each one costs startup time.",
+   "body": "A zsh **plugin** is just a script you `source` from `.zshrc`, sometimes adding a directory to `fpath` for completions. Two are near-universal:\n\n- **zsh-autosuggestions**: shows a grey suggestion from history as you type; Right arrow or End accepts it.\n- **zsh-syntax-highlighting**: colours the command line, red for unknown commands. Source it **last**, after other plugins and key bindings.\n\nYou can manage plugins three ways: clone repositories and source them yourself, use a lightweight plugin manager (antidote, zinit, zap), or use a framework. **Oh My Zsh** is the best-known framework: it bundles hundreds of plugins (`plugins=(git docker kubectl)`) and themes. It is convenient but loads a lot; measure with `time zsh -i -c exit` and keep the list short.\n\nBeyond normal aliases, zsh has two extra kinds:\n\n- **global aliases** (`alias -g G='| grep -i'`) expand anywhere on the line, not only in command position,\n- **suffix aliases** (`alias -s md=less`) open a file by typing its name: `README.md` runs `less README.md`.\n\nUse global aliases sparingly: they expand even inside arguments where you did not expect them. `alias` with no arguments lists everything currently defined, which helps when a framework surprises you.",
+   "code": "# Manual setup (no framework): clone once, then source in ~/.zshrc\ngit clone https://github.com/zsh-users/zsh-autosuggestions ~/.zsh/zsh-autosuggestions\ngit clone https://github.com/zsh-users/zsh-syntax-highlighting ~/.zsh/zsh-syntax-highlighting\n# ~/.zshrc\nsource ~/.zsh/zsh-autosuggestions/zsh-autosuggestions.zsh\nalias gs='git status'          # normal alias: command position only\nalias -g G='| grep -i'         # global alias: anywhere in the line\nalias -s md=less               # suffix alias: README.md -> less README.md\nsource ~/.zsh/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh   # last\n# At the prompt:\nps aux G zsh                   # runs: ps aux | grep -i zsh\ntime zsh -i -c exit            # how long your config takes to load\n# With Oh My Zsh instead, in ~/.zshrc:  plugins=(git docker kubectl)",
+   "code_lang": "zsh",
+   "takeaways": [
+    "Plugins are sourced scripts; source syntax highlighting last",
+    "alias -g expands anywhere, alias -s opens files by extension",
+    "Measure startup time and keep plugins few"
+   ],
+   "pitfalls": [
+    "Loading dozens of Oh My Zsh plugins and then living with a one-second shell startup."
+   ],
+   "quiz": [
+    {
+     "q": "After `alias -g L='| less'`, what does `cat log.txt L` run?",
+     "options": [
+      "cat log.txt L",
+      "less log.txt",
+      "cat log.txt | less",
+      "An error"
+     ],
+     "answer": 2,
+     "explain": "Global aliases are expanded anywhere on the command line."
+    },
+    {
+     "q": "Why should zsh-syntax-highlighting be sourced last?",
+     "options": [
+      "It disables other plugins",
+      "It needs to wrap widgets that other plugins and bindings define",
+      "It is slow",
+      "It must run after compinit only"
+     ],
+     "answer": 1,
+     "explain": "It hooks the line editor's widgets, so widgets created later would not be highlighted."
+    }
+   ],
+   "docs": "https://zsh.sourceforge.io/Doc/Release/Shell-Builtin-Commands.html",
+   "requires": [
+    "zsh.completion-basics",
+    "zsh.options-history"
+   ]
+  },
+  {
+   "id": "zsh.scripting-differences",
+   "name": "Scripting differences from bash",
+   "module": "scripting",
+   "level": 3,
+   "minutes": 12,
+   "summary": "No word splitting, 1-based arrays, typeset -A, last pipe stage in the current shell, and emulate for compatibility.",
+   "why": "Pasting bash snippets into zsh (or the reverse) breaks in subtle ways unless you know these differences.",
+   "body": "Zsh scripts look like bash scripts, but several defaults differ:\n\n- **No word splitting of unquoted variables.** With `v=\"a b\"`, `$v` stays one word. Use `${=v}` to split explicitly, or `setopt SH_WORD_SPLIT`. Globs inside variable values are not expanded either unless you write `${~v}`.\n- **Arrays are 1-based**: `$arr[1]` is the first element, `$arr[-1]` the last, `$#arr` the length, `$arr[2,3]` a slice. `$arr` alone gives all elements, and empty elements are dropped unless you use `\"${arr[@]}\"`.\n- **Associative arrays**: `typeset -A m`; `${(k)m}` lists keys, `${(v)m}` values.\n- `read -A` (not `-a`) reads words into an array.\n- The **last stage of a pipeline runs in the current shell**, so `cmd | read v` sets `v`.\n- An unmatched glob is an error (`NOMATCH`); use `(N)`.\n\nPrefer `print` over `echo` (`print -r --` for raw output, `print -l` one argument per line); like zsh's `echo`, plain `print` interprets backslash escapes.\n\nFor code that must behave like sh or ksh, `emulate -L sh` inside a function switches to those rules for that function only (`-L` makes options local). Conversely, libraries meant to work under any user configuration start with `emulate -L zsh` to get default zsh options.",
+   "code": "words=\"one two three\"\nfor w in $words; do print -- \"<$w>\"; done              # <one two three>\nfor w in ${=words}; do print -n -- \"<$w>\"; done; print # <one><two><three>\narr=(alpha beta gamma)\nprint $arr[1] $arr[-1] $#arr          # alpha gamma 3   (1-based)\nprint $arr[2,3]                       # beta gamma\ntypeset -A port=(http 80 https 443)\nprint $port[https]                    # 443\nprint ${(k)port}                      # https http  (order not guaranteed)\necho hi | read v; print \"v=$v\"        # v=hi   (in bash: v=)\nread -A parts <<< \"x y z\"; print $#parts   # 3\nf() { emulate -L sh; s=\"a b\"; set -- $s; print $#; }\nf                                     # 2   (sh rules: word splitting on)\nprint -l -- *.nomatch(N) done         # done",
+   "code_lang": "zsh",
+   "takeaways": [
+    "Unquoted $var is not split in zsh; ${=var} splits explicitly",
+    "Arrays start at 1; $#arr is the length",
+    "emulate -L sh or zsh sets predictable rules inside a function"
+   ],
+   "pitfalls": [
+    "Porting a bash loop over `$list` and getting a single iteration because zsh does not split it."
+   ],
+   "quiz": [
+    {
+     "q": "In zsh, with arr=(a b c), what is $arr[1]?",
+     "options": [
+      "a",
+      "b",
+      "An error",
+      "The whole array"
+     ],
+     "answer": 0,
+     "explain": "Zsh arrays are 1-based unless KSH_ARRAYS is set."
+    },
+    {
+     "q": "In zsh, `v=\"x y\"; for i in $v; do print $i; done` prints how many lines?",
+     "options": [
+      "2",
+      "0",
+      "3",
+      "1"
+     ],
+     "answer": 3,
+     "explain": "Zsh does not word-split unquoted parameter expansions by default."
+    }
+   ],
+   "docs": "https://zsh.sourceforge.io/Doc/Release/Parameters.html",
+   "requires": [
+    "zsh.why-zsh",
+    "bash.arrays",
+    "bash.parameter-expansion"
+   ]
+  },
+  {
+   "id": "zsh.glob-qualifiers",
+   "name": "Qualifiers, modifiers and extended globs",
+   "module": "globbing",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Filter files by size, age and owner, transform paths with :t :h :r :e and use ^ and ~ with EXTENDED_GLOB.",
+   "why": "These replace find, basename and dirname in one-liners, and work on variables too.",
+   "body": "Glob qualifiers combine freely inside one pair of parentheses:\n\n- **size** `L`: `(Lk+100)` larger than 100 KB, `(Lm-1)` smaller than 1 MB,\n- **time** `m` (modified), `a` (accessed), `c` (changed): `(mh-1)` within the last hour, `(md+30)` more than 30 days ago,\n- **owner**: `(U)` owned by you, `(u:root:)` by root; `(D)` includes dotfiles,\n- **sorting** with `o` (ascending) or `O` (descending) followed by `n` name, `L` size, `m` mtime; then a subscript like `[1,5]`,\n- `^` negates the next qualifier, `,` means OR between groups, and `(e:'expr':)` or `(+func)` run arbitrary tests.\n\n**Modifiers** transform each match and also work on variables: `:t` tail (basename), `:h` head (dirname), `:r` root (drop the extension), `:e` extension, `:a` absolute path, `:u` and `:l` change case. `$f:t` or `${f:r}` work on any variable.\n\nWith `setopt EXTENDED_GLOB` you get pattern operators: `^*.log` everything not matching, `pat~exclude` match then exclude, `#` and `##` for repetition, and `(#i)` for case-insensitive matching.\n\nZsh also has short loop forms (`for f in *.txt; mv ...` without do/done), which are handy at the prompt; use full syntax in scripts. For renaming many files, the bundled `zmv` function (`autoload -Uz zmv`) is safer than a loop.",
+   "code": "cd \"$(mktemp -d)\"\nmkdir logs && print x > a.txt && head -c 200000 /dev/zero > big.bin\ntouch -d '40 days ago' logs/old.log && touch logs/new.log\nprint -l **/*(.Lk+100)          # big.bin         (larger than 100 KB)\nprint -l **/*.log(.md+30)       # logs/old.log    (modified > 30 days ago)\nprint -l *(.oL)                 # a.txt big.bin   (by size, smallest first)\nf=/srv/app/report.final.csv\nprint $f:t $f:h                 # report.final.csv /srv/app\nprint $f:r $f:e                 # /srv/app/report.final csv\nprint -l logs/*(.:t:r)          # new old   (modifiers inside qualifiers)\nsetopt EXTENDED_GLOB\nprint -l *~*.bin                # a.txt logs    (~ excludes)\nprint -l **/^*.log(.)           # a.txt big.bin (^ negates the pattern)\nfor f in *.txt; mv -- $f $f:r.md      # short loop form: rename .txt -> .md\nprint -l *(.)                   # a.md big.bin",
+   "code_lang": "zsh",
+   "takeaways": [
+    "L size, m/a/c time, U/u owner, o/O sort, [n,m] range",
+    ":t :h :r :e modifiers work on matches and on variables",
+    "EXTENDED_GLOB adds ^ negation and ~ exclusion"
+   ],
+   "pitfalls": [
+    "Forgetting the (.) qualifier, so directories are included in a destructive command."
+   ],
+   "quiz": [
+    {
+     "q": "Which glob lists regular files larger than 1 MB, recursively?",
+     "options": [
+      "**/*(.Lm+1)",
+      "**/*(/Lm+1)",
+      "**/*(.Lm-1)",
+      "**/*(.mh+1)"
+     ],
+     "answer": 0,
+     "explain": "(.) restricts to regular files and Lm+1 means larger than 1 MB; mh is a time qualifier."
+    },
+    {
+     "q": "With f=photos/cat.jpeg, what does $f:r give?",
+     "options": [
+      "cat",
+      "photos",
+      "jpeg",
+      "photos/cat"
+     ],
+     "answer": 3,
+     "explain": ":r removes the extension but keeps the directory part; :t:r would give cat."
+    }
+   ],
+   "docs": "https://zsh.sourceforge.io/Doc/Release/Expansion.html#Glob-Qualifiers",
+   "requires": [
+    "zsh.globbing-basics",
+    "zsh.options-history"
+   ]
+  },
+  {
+   "id": "zsh.zle-widgets",
+   "name": "The line editor (ZLE) and custom widgets",
+   "module": "interactive",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Configure key bindings with bindkey, use prefix history search and write your own ZLE widgets.",
+   "why": "ZLE is what makes zsh's command line programmable: any editing action can be bound to any key.",
+   "body": "Everything you type at the prompt goes through **ZLE**, the Zsh Line Editor. Every action, from moving the cursor to searching history, is a **widget**, and **keymaps** bind key sequences to widgets.\n\n- `bindkey -e` selects emacs-style keys (the default unless your `EDITOR` contains \"vi\"); `bindkey -v` selects vi mode.\n- `bindkey` alone lists all bindings; `bindkey '^R'` shows one. `zle -al` lists all widgets.\n- Press Ctrl-V and then a key to see the sequence it sends, such as `^[[A` for Up in most terminals.\n\nUseful bundled widgets: `up-line-or-beginning-search` makes Up search history for lines starting with what you already typed; `edit-command-line` opens the current line in `$EDITOR`. Bundled widget functions must be loaded with `autoload -Uz name` and registered with `zle -N name` before binding.\n\nA **custom widget** is a shell function registered with `zle -N`. Inside it you can read and change special variables: `BUFFER` (the whole line), `LBUFFER` and `RBUFFER` (text left and right of the cursor) and `CURSOR` (position). `zle -M \"text\"` shows a message under the prompt, and calling `zle accept-line` runs the line. Key bindings and widgets belong in `.zshrc`, and should be set before plugins like syntax highlighting that wrap existing widgets.",
+   "code": "bindkey -e                                  # emacs keys (-v for vi mode)\nautoload -Uz up-line-or-beginning-search down-line-or-beginning-search\nzle -N up-line-or-beginning-search\nzle -N down-line-or-beginning-search\nbindkey '^[[A' up-line-or-beginning-search  # Up: history matching the typed prefix\nbindkey '^[[B' down-line-or-beginning-search\nautoload -Uz edit-command-line && zle -N edit-command-line\nbindkey '^X^E' edit-command-line            # edit the line in $EDITOR\n# A custom widget: Alt-s puts sudo in front of the current line\nprepend-sudo() {\n  [[ $BUFFER == sudo\\ * ]] || BUFFER=\"sudo $BUFFER\"\n  CURSOR=$#BUFFER                           # cursor to the end\n  zle -M \"sudo added\"\n}\nzle -N prepend-sudo\nbindkey '^[s' prepend-sudo\nbindkey '^R'                                # \"^R\" history-incremental-search-backward",
+   "code_lang": "zsh",
+   "takeaways": [
+    "Widgets are actions; bindkey maps key sequences to them",
+    "Custom widget = function + zle -N + bindkey",
+    "BUFFER, LBUFFER, RBUFFER and CURSOR expose the command line"
+   ],
+   "pitfalls": [
+    "Binding a bundled widget like edit-command-line without autoload and zle -N, which gives 'No such widget'."
+   ],
+   "quiz": [
+    {
+     "q": "What are the three steps to bind your own function `myw` to Ctrl-G?",
+     "options": [
+      "define myw; zle -N myw; bindkey '^G' myw",
+      "alias myw; bindkey; source",
+      "autoload myw; setopt myw; bindkey",
+      "define myw; export myw; bindkey"
+     ],
+     "answer": 0,
+     "explain": "The function must be registered as a widget with zle -N before it can be bound."
+    },
+    {
+     "q": "Inside a widget, which variable holds the text to the left of the cursor?",
+     "options": [
+      "BUFFER",
+      "RBUFFER",
+      "LBUFFER",
+      "PREBUFFER"
+     ],
+     "answer": 2,
+     "explain": "LBUFFER is everything before the cursor, RBUFFER everything after."
+    }
+   ],
+   "docs": "https://zsh.sourceforge.io/Doc/Release/Zsh-Line-Editor.html",
+   "requires": [
+    "zsh.options-history"
+   ]
+  },
+  {
+   "id": "zsh.parameter-flags",
+   "name": "Parameter expansion flags",
+   "module": "scripting",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Split, join, sort, deduplicate, change case and search arrays with ${(flags)name} and subscript flags.",
+   "why": "Flags let zsh do in one expansion what bash needs loops or external tools for.",
+   "body": "Zsh puts **flags** in parentheses right after the opening brace: `${(flags)name}`. Several can be combined and expansions nest, with the inner result feeding the outer one.\n\n- **Split and join**: `(s:,:)` splits on a string, `(f)` splits on newlines (the most common way to turn command output into an array), `(j:,:)` joins with a separator, `(F)` joins with newlines.\n- **Case**: `(U)` upper, `(L)` lower, `(C)` capitalise words.\n- **Order and uniqueness**: `(o)` sort ascending, `(O)` descending, `(n)` numeric sort, `(u)` unique.\n- **Associative arrays**: `(k)` keys, `(v)` values, `(kv)` pairs.\n- **Quoting**: `(q)` quotes the value for safe reuse as shell input, `(Q)` removes one level of quoting.\n- **Indirection**: `(P)` treats the value as the name of another parameter.\n- `(@)` keeps array elements separate inside double quotes, like `\"${arr[@]}\"`.\n\n**Subscript flags** search arrays: `$arr[(i)value]` gives the index of the first match (one past the end if missing), `$arr[(r)pattern]` the first matching element, `(I)` and `(R)` search from the end.\n\n**Nesting** avoids temporaries: `${${f:t}%%.*}` takes the base name, then strips every extension. `${:-text}` creates a value from literal text, handy as the innermost expansion. Splitting with `(s)` drops empty fields unless the expansion is quoted with `(@)`.",
+   "code": "csv=\"b,a,c,a\"\nparts=(${(s:,:)csv})\nprint $#parts                       # 4\nprint ${(j:-:)parts}                # b-a-c-a\nprint ${(uo)parts}                  # a b c   (unique, sorted)\nprint ${(U)csv}                     # B,A,C,A\nlines=(${(f)\"$(printf 'x 1\\ny 2\\n')\"})\nprint $#lines                       # 2   (split on newlines)\nfruits=(apple banana cherry)\nprint $fruits[(i)banana]            # 2   (index of the element)\nprint $fruits[(i)kiwi]              # 4   (not found: length + 1)\nprint $fruits[(r)c*]                # cherry\nref=fruits\nprint ${(P)ref}                     # apple banana cherry  (indirection)\nf=/a/b/archive.tar.gz\nprint ${${f:t}%%.*}                 # archive  (nested expansion)\ns=\"it's here\"\nprint -r -- ${(q)s}                 # it\\'s\\ here",
+   "code_lang": "zsh",
+   "takeaways": [
+    "${(s:x:)v} splits, ${(j:x:)arr} joins, (f) splits lines",
+    "(o) (O) (u) sort and deduplicate; (k) (v) for maps",
+    "$arr[(i)x] and $arr[(r)pat] search arrays"
+   ],
+   "pitfalls": [
+    "Using plain print to show (q) output: print interprets the backslashes again; use print -r."
+   ],
+   "quiz": [
+    {
+     "q": "What does ${(j:,:)${(s: :)${:-c a b}}} produce?",
+     "options": [
+      "c,a,b",
+      "a,b,c",
+      "c a b",
+      "cab"
+     ],
+     "answer": 0,
+     "explain": "The literal is split on spaces into (c a b) and joined with commas; no sorting flag is used."
+    },
+    {
+     "q": "With arr=(x y z), what is $arr[(i)q]?",
+     "options": [
+      "0",
+      "-1",
+      "An error",
+      "4"
+     ],
+     "answer": 3,
+     "explain": "The (i) subscript returns one past the last index when nothing matches."
+    }
+   ],
+   "docs": "https://zsh.sourceforge.io/Doc/Release/Expansion.html#Parameter-Expansion-Flags",
+   "requires": [
+    "zsh.scripting-differences",
+    "bash.parameter-expansion"
+   ]
+  },
+  {
+   "id": "zsh.completion-system",
+   "name": "Writing completions with compsys",
+   "module": "interactive",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Write a _command completion function with _arguments and _describe, register it via fpath and tune it with zstyle.",
+   "why": "Completions for your own tools and scripts make them as pleasant to use as git or docker.",
+   "body": "A completion is a function named after the command with a leading underscore, `_deploy`, stored in a file of the same name in a directory on **fpath**. The file's first line `#compdef deploy` tells `compinit` which commands it completes. compinit scans fpath when it builds `~/.zcompdump`, so add your directory to fpath **before** calling compinit.\n\nMost completions are built on `_arguments`, which takes one spec per option or argument:\n\n- `'-v[verbose output]'` an option with a description,\n- `'(-v --verbose)'{-v,--verbose}'[...]'` both spellings, excluding each other,\n- `'--config=[config file]:file:_files'` an option with a value and an action that completes it,\n- `'1:environment:->env'` the first positional argument, handled in a `case $state` block,\n- `'*:service:(api web worker)'` any further arguments from a fixed list.\n\n`_describe` offers values with descriptions (`'staging:test environment'`), and helpers like `_files`, `_hosts` and `_users` complete common things. For a tool whose `--help` lists its options, `compdef _gnu_generic mytool` gives decent completion for free.\n\nStyles use the context `:completion:function:completer:command:argument:tag`, for example `zstyle ':completion:*:*:deploy:*' ...`. Press Ctrl-X then `?` to run `_complete_debug`, which writes a trace of the completion to a file. After changing completion files, remove `~/.zcompdump` and start a new shell.",
+   "code": "#compdef deploy\n# file: ~/.zsh/completions/_deploy\nlocal state\nlocal -a envs=('staging:test environment' 'production:live site')\n_arguments -s \\\n  '(-v --verbose)'{-v,--verbose}'[print more output]' \\\n  '(-t --tag)'{-t+,--tag=}'[image tag to deploy]:tag:' \\\n  '--config=[config file]:file:_files -g \"*.(yml|yaml)\"' \\\n  '1:environment:->env' \\\n  '*:service:(api web worker)'\ncase $state in\n  env) _describe -t envs 'environment' envs ;;\nesac\n# In ~/.zshrc, BEFORE compinit:\n#   fpath=(~/.zsh/completions $fpath)\n#   autoload -Uz compinit && compinit\n#   compdef _gnu_generic mytool    # free completion from mytool --help\n# deploy <Tab>     ->  production -- live site / staging -- test environment\n# deploy -<Tab>    ->  --config --tag --verbose -t -v",
+   "code_lang": "zsh",
+   "takeaways": [
+    "A _cmd file with #compdef cmd on fpath, loaded by compinit",
+    "_arguments specs describe options, values and positional arguments",
+    "->state plus case $state for custom logic; _describe for described values"
+   ],
+   "pitfalls": [
+    "Adding the completions directory to fpath after compinit has already run."
+   ],
+   "quiz": [
+    {
+     "q": "What does the first line `#compdef deploy` in a completion file do?",
+     "options": [
+      "It is just a comment",
+      "Tells compinit this function completes the deploy command",
+      "Defines an alias",
+      "Makes the file executable"
+     ],
+     "answer": 1,
+     "explain": "compinit reads #compdef lines to map commands to completion functions."
+    },
+    {
+     "q": "In an _arguments spec, what does '*:file:_files' describe?",
+     "options": [
+      "Exactly one file argument",
+      "An option named *",
+      "Any number of further arguments completed as files",
+      "A glob qualifier"
+     ],
+     "answer": 2,
+     "explain": "A leading * means the spec applies to all remaining positional arguments."
+    }
+   ],
+   "docs": "https://zsh.sourceforge.io/Doc/Release/Completion-System.html",
+   "requires": [
+    "zsh.completion-basics",
+    "zsh.scripting-differences"
+   ]
+  },
+  {
+   "id": "zsh.autoload-performance",
+   "name": "Autoloaded functions and startup speed",
+   "module": "scripting",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Organise functions with fpath and autoload, profile startup with zprof and speed it up with caching and lazy loading.",
+   "why": "A shell that opens instantly is the result of knowing where your startup time goes.",
+   "body": "**Autoloading** keeps `.zshrc` small. Put each function in its own file named after it, in a directory on `fpath`, and declare it with `autoload -Uz name`. The file holds only the function body. Nothing is read until the first call. `-U` disables alias expansion while loading (so your aliases cannot break it) and `-z` selects zsh-style loading. Most of zsh's bundled features (compinit, vcs_info, zmv) are autoloaded functions.\n\n`typeset -U path` keeps the `path` array, which is **tied** to `PATH`, free of duplicates; edit `path=(dir $path)` like any array. The same works for `fpath`.\n\nTo find slow startup, put `zmodload zsh/zprof` at the very top of `.zshrc` and `zprof` at the bottom; it prints which functions took the most time. `time zsh -i -c exit` measures the total. Usual suspects:\n\n- `compinit` checking and rebuilding the dump every time: call `compinit -C` when the dump is recent,\n- version-manager init scripts (nvm, pyenv, conda): **lazy-load** them with a stub function that replaces itself on first use,\n- frameworks loading many plugins, and commands like `brew --prefix` run on each start.\n\n`zcompile` compiles scripts and function directories into `.zwc` wordcode files that load faster; zsh uses them automatically when they are newer than the source.",
+   "code": "# ~/.zshrc, first line:\nzmodload zsh/zprof                    # start profiling\ntypeset -U path fpath                 # no duplicate entries\npath=(~/.local/bin $path)             # tied to $PATH\nfpath=(~/.zsh/functions $fpath)\nautoload -Uz mkcd                     # body lives in ~/.zsh/functions/mkcd:\n#   mkdir -p -- \"$1\" && cd -- \"$1\"\nnvm() { unfunction nvm; source ~/.nvm/nvm.sh; nvm \"$@\"; }   # lazy-load\nautoload -Uz compinit\nsetopt EXTENDED_GLOB\nif [[ -n ~/.zcompdump(#qN.mh+24) ]]; then\n  compinit                            # dump older than 24 h: full check\nelse\n  compinit -C                         # recent dump: skip the check\nfi\nzcompile ~/.zshrc                     # writes ~/.zshrc.zwc\n# last line:\nzprof | head -n 15                    # functions sorted by time spent",
+   "code_lang": "zsh",
+   "takeaways": [
+    "autoload -Uz name loads ~/fpath/name on first call",
+    "zmodload zsh/zprof + zprof finds slow startup code",
+    "Lazy-load heavy tools and use compinit -C with a fresh dump"
+   ],
+   "pitfalls": [
+    "Running `eval \"$(slow-tool init)\"` for several tools on every startup instead of lazy-loading."
+   ],
+   "quiz": [
+    {
+     "q": "What does `autoload -Uz mkcd` do immediately?",
+     "options": [
+      "Reads and parses the mkcd file",
+      "Runs mkcd once",
+      "Marks mkcd to be loaded from fpath on first use",
+      "Compiles mkcd to wordcode"
+     ],
+     "answer": 2,
+     "explain": "Autoload only registers the name; the file is read when the function is first called."
+    },
+    {
+     "q": "How do you see which parts of .zshrc are slow?",
+     "options": [
+      "setopt TIMING",
+      "compaudit",
+      "zsh -n ~/.zshrc",
+      "zmodload zsh/zprof at the top, zprof at the bottom"
+     ],
+     "answer": 3,
+     "explain": "zprof reports time spent per function since the module was loaded."
+    }
+   ],
+   "docs": "https://zsh.sourceforge.io/Doc/Release/Functions.html#Autoloading-Functions",
+   "requires": [
+    "zsh.plugins",
+    "zsh.scripting-differences"
+   ]
+  }
+ ]
+}

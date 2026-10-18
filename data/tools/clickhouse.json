@@ -1,0 +1,765 @@
+{
+ "tool": {
+  "id": "clickhouse",
+  "name": "ClickHouse",
+  "category": "database",
+  "tagline": "Open-source column-oriented database for real-time analytics on huge tables",
+  "description": "ClickHouse is an open-source columnar OLAP database that scans and aggregates billions of rows per second on a single server and scales out to clusters. Teams use it for product analytics, observability (logs, metrics, traces) and any dashboard that must stay fast on raw event data. Learning it means learning how MergeTree tables, sort keys and batch inserts shape performance.",
+  "icon": "CH",
+  "color": "#A08A00",
+  "official_docs": "https://clickhouse.com/docs/",
+  "version": "25.8 LTS and newer",
+  "aliases": [
+   "clickhouse server",
+   "clickhouse-local",
+   "ch"
+  ],
+  "requires": [
+   {
+    "tool": "sql",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Basics and MergeTree"
+  },
+  {
+   "id": "querying",
+   "name": "Querying the ClickHouse way"
+  },
+  {
+   "id": "ingest",
+   "name": "Ingesting and changing data"
+  },
+  {
+   "id": "modeling",
+   "name": "Engines and pre-aggregation"
+  },
+  {
+   "id": "performance",
+   "name": "Indexes and query performance"
+  },
+  {
+   "id": "operations",
+   "name": "Clusters and operations"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "clickhouse.columnar-olap",
+   "name": "What ClickHouse is and how to run it",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "A columnar OLAP database built for scanning and aggregating huge tables fast, with server, client and clickhouse-local modes.",
+   "why": "Knowing what ClickHouse is designed for tells you when to pick it, and why its rules differ from PostgreSQL's.",
+   "body": "ClickHouse is an **OLAP** (analytical) database. A transactional database such as PostgreSQL stores each row together and is great at reading or updating one order by id. ClickHouse stores each **column** separately, compressed, so a query like \"revenue per day for the last year\" reads only the two columns it needs, decompresses them with vectorized code and uses every CPU core. That is how a single server aggregates billions of rows per second.\n\nThe trade-offs follow from the design:\n\n- Inserts should arrive in **batches** (thousands of rows), not one row at a time.\n- Updates and deletes exist but are heavier than in an OLTP database; data is mostly appended.\n- There are no enforced foreign keys and the primary key is not unique.\n\nYou can run it several ways. `clickhouse server` plus `clickhouse client` is the classic setup; ClickHouse Cloud is the managed service; **clickhouse-local** runs the full engine over local files with no server at all, which is handy for exploring CSV or Parquet. All of them are the same single `clickhouse` binary.\n\nThe SQL is familiar: `SELECT`, `WHERE`, `GROUP BY`, `JOIN`, CTEs and window functions all work. What changes is table design and a large library of extra functions, which the next lessons cover.",
+   "code": "-- clickhouse-local: query a file directly, no server needed\n-- $ clickhouse local\nSELECT version();                      -- e.g. 25.8.x\n\n-- Generate 10 million rows and aggregate them in well under a second\nSELECT number % 10 AS bucket,\n       count()     AS n,\n       avg(number) AS mean\nFROM numbers(10000000)\nGROUP BY bucket\nORDER BY bucket\nLIMIT 3;\n-- 0  1000000  4999995\n-- 1  1000000  4999996\n-- 2  1000000  4999997",
+   "code_lang": "sql",
+   "takeaways": [
+    "Columnar storage + vectorized execution = fast scans and aggregations",
+    "Batch your inserts; treat data as mostly append-only",
+    "clickhouse-local runs the engine on files without a server"
+   ],
+   "pitfalls": [
+    "Using ClickHouse as the primary database for an app that does many single-row updates."
+   ],
+   "quiz": [
+    {
+     "q": "Why does SELECT avg(price) FROM sales read so little data in ClickHouse?",
+     "options": [
+      "Because only the price column's files are read",
+      "Because the primary key is unique",
+      "Because results are cached by default",
+      "Because ClickHouse samples 1% of rows"
+     ],
+     "answer": 0,
+     "explain": "Columns are stored separately, so a query touches only the columns it references."
+    }
+   ],
+   "docs": "https://clickhouse.com/docs/intro",
+   "requires": []
+  },
+  {
+   "id": "clickhouse.mergetree",
+   "name": "Your first MergeTree table",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Create a MergeTree table with ORDER BY, and understand parts and background merges.",
+   "why": "MergeTree is the engine behind almost every real ClickHouse table, and its ORDER BY decides query speed.",
+   "body": "Every ClickHouse table has an **engine** that decides how data is stored. For real data you almost always use **MergeTree** or one of its relatives. Its required clause is `ORDER BY`: rows are stored sorted by these columns, and that sort key doubles as the (sparse) primary index.\n\nWhat happens on insert: each `INSERT` writes a new immutable **part**, a directory with one compressed file per column, sorted by the key. In the background ClickHouse **merges** small parts into bigger ones, like a log-structured merge tree. That is why the engine is called MergeTree, and why one insert of 100,000 rows is far better than 100,000 inserts of one row: each insert makes a part, and too many parts cause the \"Too many parts\" error.\n\nChoosing `ORDER BY`:\n\n- Put the columns you filter on most at the front, usually lower-cardinality ones first, e.g. `(tenant_id, event_type, timestamp)`.\n- It does **not** enforce uniqueness. Two rows with the same key are both kept.\n- `PRIMARY KEY` can be given separately as a prefix of `ORDER BY`; by default it equals it.\n\nOther engines exist for special cases: `Memory` (tests), `Log` (tiny tables), and integration engines such as `Kafka`, `S3` or `PostgreSQL` that read external systems.",
+   "code": "CREATE TABLE events\n(\n    ts         DateTime,\n    user_id    UInt64,\n    event_type LowCardinality(String),\n    duration   UInt32\n)\nENGINE = MergeTree\nORDER BY (event_type, ts);\n\nINSERT INTO events VALUES (now(), 1, 'click', 30), (now(), 2, 'view', 12);\nINSERT INTO events VALUES (now(), 1, 'click', 45);\n\n-- Each INSERT created one part (until a merge combines them)\nSELECT count() FROM system.parts WHERE table = 'events' AND active;   -- 2\nOPTIMIZE TABLE events FINAL;          -- force a merge (don't do this routinely)\nSELECT count() FROM system.parts WHERE table = 'events' AND active;   -- 1",
+   "code_lang": "sql",
+   "takeaways": [
+    "MergeTree + ORDER BY is the default table design",
+    "Each INSERT writes an immutable part; background merges combine parts",
+    "The sort key is not a uniqueness constraint"
+   ],
+   "pitfalls": [
+    "Inserting rows one at a time from an app loop, creating thousands of tiny parts."
+   ],
+   "quiz": [
+    {
+     "q": "Two rows are inserted with identical ORDER BY values into a MergeTree table. What happens?",
+     "options": [
+      "The second insert fails",
+      "The second row replaces the first",
+      "Both rows are stored",
+      "They are summed on merge"
+     ],
+     "answer": 2,
+     "explain": "Plain MergeTree never deduplicates by key; ReplacingMergeTree is the engine that does."
+    },
+    {
+     "q": "What is a part?",
+     "options": [
+      "A partition of the cluster",
+      "An immutable sorted chunk of rows written by an insert",
+      "A single column file",
+      "A row group of exactly 8192 rows"
+     ],
+     "answer": 1,
+     "explain": "Inserts create parts; background merges turn many small parts into fewer large ones."
+    }
+   ],
+   "docs": "https://clickhouse.com/docs/engines/table-engines/mergetree-family/mergetree",
+   "requires": [
+    "clickhouse.columnar-olap",
+    "sql.create-table"
+   ]
+  },
+  {
+   "id": "clickhouse.data-types",
+   "name": "Data types for analytics",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Pick compact, precise types: sized integers, LowCardinality strings, DateTime64, Decimal, and when Nullable is worth it.",
+   "why": "Smaller types compress better and scan faster, which is most of ClickHouse performance.",
+   "body": "ClickHouse types are strict and sized, and choosing them well directly shrinks disk and speeds scans.\n\n- Integers come sized and signed or unsigned: `UInt8`, `Int32`, `UInt64` and so on. Use the smallest that fits.\n- `Float32`/`Float64` for measurements, `Decimal(P, S)` for money.\n- `String` holds arbitrary bytes with no length limit; `FixedString(N)` for fixed codes. `UUID` is a native type.\n- `Date`, `Date32`, `DateTime` (seconds) and `DateTime64(3)` (milliseconds). A timezone can be attached: `DateTime('UTC')`.\n- `LowCardinality(String)` dictionary-encodes a column with few distinct values (country, status, event name). It is often the single biggest win.\n- `Enum8('a' = 1, 'b' = 2)` for a fixed set of values.\n- `Array(T)`, `Map(K, V)`, `Tuple(...)` and the `JSON` type for semi-structured data.\n\nColumns are **not nullable by default**: a missing value becomes the type's default (0, empty string, 1970-01-01). Wrapping a type in `Nullable(T)` adds a separate null-mask column and costs speed, so use it only when \"unknown\" truly differs from zero or empty.\n\nUse `toTypeName(x)` to see the type of any expression, and conversion functions such as `toUInt32`, `toDateTime` or `toDecimal64(x, 2)`. The `OrZero`/`OrNull` variants (`toUInt32OrNull('abc')`) convert without throwing.",
+   "code": "SELECT\n    toTypeName(1)                       AS small_int,    -- UInt8\n    toTypeName(-300)                    AS signed_int,   -- Int16\n    toTypeName(now64(3))                AS ts,           -- DateTime64(3)\n    toTypeName(toLowCardinality('EU'))  AS lc,           -- LowCardinality(String)\n    toUInt32OrNull('abc')               AS bad_number,   -- NULL\n    toDecimal64(19.999, 2)              AS money;        -- 19.99\n\nCREATE TABLE orders\n(\n    id       UInt64,\n    country  LowCardinality(String),\n    amount   Decimal(12, 2),\n    coupon   Nullable(String),          -- only because \"no coupon\" matters\n    created  DateTime64(3, 'UTC')\n)\nENGINE = MergeTree ORDER BY (country, created);",
+   "code_lang": "sql",
+   "takeaways": [
+    "Use the smallest integer and time type that fits",
+    "LowCardinality(String) for columns with up to ~10k distinct values",
+    "Columns are non-nullable by default; Nullable has a cost"
+   ],
+   "pitfalls": [
+    "Storing timestamps or numbers as String, which compresses worse and blocks date and math functions."
+   ],
+   "quiz": [
+    {
+     "q": "A column country has 200 distinct values across 1 billion rows. Best type?",
+     "options": [
+      "String",
+      "Nullable(String)",
+      "FixedString(64)",
+      "LowCardinality(String)"
+     ],
+     "answer": 3,
+     "explain": "LowCardinality dictionary-encodes repeated values, cutting size and speeding filters and GROUP BY."
+    },
+    {
+     "q": "You insert a row without a value for a UInt32 column (not Nullable). What is stored?",
+     "options": [
+      "NULL",
+      "The insert fails",
+      "0",
+      "The previous row's value"
+     ],
+     "answer": 2,
+     "explain": "Non-nullable columns get the type's default value, which is 0 for numbers."
+    }
+   ],
+   "docs": "https://clickhouse.com/docs/sql-reference/data-types",
+   "requires": [
+    "clickhouse.mergetree",
+    "sql.data-types"
+   ]
+  },
+  {
+   "id": "clickhouse.inserting",
+   "name": "Inserting and importing data",
+   "module": "ingest",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Load data with batched INSERTs, input formats like CSV, JSONEachRow and Parquet, and table functions such as file, url and s3.",
+   "why": "Ingestion is where most ClickHouse problems start; batching and the right format avoid them.",
+   "body": "`INSERT INTO t VALUES (...)` works, but real pipelines usually send data in a **format**: `INSERT INTO t FORMAT CSV`, `JSONEachRow` (one JSON object per line), `Parquet`, `TabSeparated` and dozens more. Clients stream the rows after the statement, and ClickHouse parses them in parallel.\n\n**Table functions** read external data as if it were a table, so loading is just `INSERT ... SELECT`:\n\n- `file('data/*.csv')` in clickhouse-local, `url('https://...', CSVWithNames)` over HTTP;\n- `s3('https://bucket.s3.amazonaws.com/logs/*.parquet')` for object storage;\n- `postgresql(...)`, `mysql(...)` to copy from operational databases.\n\nSchema inference usually works out the column types for you; `DESCRIBE file('x.csv')` shows what it guessed.\n\nThe golden rule is **batch size**. Aim for inserts of at least a few thousand rows, ideally 10k to 100k+, and no more than about one insert per second per table. If many clients send small inserts (log shippers, IoT), turn on **asynchronous inserts**: with `async_insert = 1` the server buffers small inserts and flushes them together as one part. With `wait_for_async_insert = 1` (the default) the client gets its acknowledgement only after the flush, so data isn't lost silently.\n\nInserts are atomic per block: a block either lands entirely or not at all, and identical blocks retried into a replicated table are deduplicated.",
+   "code": "CREATE TABLE page_views (ts DateTime, url String, ms UInt32)\nENGINE = MergeTree ORDER BY (url, ts);\n\n-- Many rows per INSERT, sent in a text format\nINSERT INTO page_views FORMAT JSONEachRow\n{\"ts\": \"2025-03-01 10:00:00\", \"url\": \"/home\", \"ms\": 120}\n{\"ts\": \"2025-03-01 10:00:05\", \"url\": \"/cart\", \"ms\": 340}\n\n-- INSERT ... SELECT from a table function (here: generated data)\nINSERT INTO page_views\nSELECT now() - number, concat('/p/', toString(number % 50)), rand() % 1000\nFROM numbers(100000);\n\n-- Many small inserts from many clients? Let the server batch them:\nINSERT INTO page_views SETTINGS async_insert = 1, wait_for_async_insert = 1\nVALUES (now(), '/home', 99);\n\nSELECT count() FROM page_views;   -- 100003",
+   "code_lang": "sql",
+   "takeaways": [
+    "Send big batches in a format such as JSONEachRow, CSV or Parquet",
+    "Table functions (file, url, s3, postgresql) turn loading into INSERT ... SELECT",
+    "Use async_insert when you can't batch on the client"
+   ],
+   "pitfalls": [
+    "Setting wait_for_async_insert = 0 and assuming every insert was written."
+   ],
+   "quiz": [
+    {
+     "q": "A fleet of 5,000 devices each sends one row per second. What is the recommended approach?",
+     "options": [
+      "Enable async_insert or buffer on the client into large batches",
+      "Insert each row directly with VALUES",
+      "Create one table per device",
+      "Use the Memory engine"
+     ],
+     "answer": 0,
+     "explain": "Direct single-row inserts create a part each; buffering (server or client side) produces few large parts."
+    }
+   ],
+   "docs": "https://clickhouse.com/docs/sql-reference/statements/insert-into",
+   "requires": [
+    "clickhouse.mergetree"
+   ]
+  },
+  {
+   "id": "clickhouse.querying",
+   "name": "Querying: the ClickHouse dialect",
+   "module": "querying",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Use ClickHouse's extra SQL: countIf, uniq, date bucketing functions, LIMIT BY, WITH TOTALS and handy aliases.",
+   "why": "The built-in functions turn multi-step SQL into one fast, readable query.",
+   "body": "Standard SQL works, but ClickHouse adds a lot that analytics queries lean on.\n\n- Conditional aggregates: `countIf(status = 'error')`, `sumIf(amount, country = 'DE')`, `avgIf`.\n- Approximate and exact distinct counts: `uniq(user_id)` is fast and approximate (error typically well under 1%); `uniqExact` is exact but uses more memory. `count(DISTINCT x)` maps to `uniqExact` by default.\n- Time bucketing: `toStartOfHour(ts)`, `toStartOfDay`, `toStartOfInterval(ts, INTERVAL 15 minute)`, `toYYYYMM(ts)`, `toDayOfWeek`.\n- `argMax(price, ts)`: the price at the latest ts, without a join or window.\n- `LIMIT n BY col`: top n rows per group, e.g. the 3 slowest pages per day.\n- `WITH TOTALS` adds a grand-total row to a `GROUP BY`.\n- `count()` needs no argument, and you can reuse an alias anywhere in the same `SELECT`, even in `WHERE`.\n\nFunctions are **case-sensitive** in their camelCase form (`toStartOfHour`), although common SQL ones like `COUNT` and `SUM` also accept any case. Also note that integer division `/` returns a `Float64`; use `intDiv(a, b)` for integer division.",
+   "code": "SELECT\n    toStartOfDay(ts)                 AS day,\n    count()                          AS hits,\n    countIf(ms > 500)                AS slow,\n    round(slow / hits * 100, 1)      AS slow_pct,   -- aliases are reusable\n    uniq(url)                        AS pages\nFROM page_views\nWHERE ts >= now() - INTERVAL 7 DAY\nGROUP BY day WITH TOTALS          -- extra grand-total row\nORDER BY day;\n\n-- 2 slowest pages per day (top-N per group without a window function)\nSELECT toDate(ts) AS day, url, max(ms) AS worst\nFROM page_views\nGROUP BY day, url\nORDER BY day, worst DESC\nLIMIT 2 BY day;",
+   "code_lang": "sql",
+   "takeaways": [
+    "countIf / sumIf replace CASE inside aggregates",
+    "uniq is fast approximate distinct; uniqExact is exact",
+    "toStartOf* functions bucket time; LIMIT n BY gives top-N per group"
+   ],
+   "pitfalls": [
+    "Expecting 7 / 2 to be 3: ClickHouse returns 3.5; use intDiv for integer division."
+   ],
+   "quiz": [
+    {
+     "q": "What does LIMIT 3 BY country return?",
+     "options": [
+      "The first 3 countries",
+      "3 random rows",
+      "Countries with at least 3 rows",
+      "Up to 3 rows for each distinct country"
+     ],
+     "answer": 3,
+     "explain": "LIMIT n BY keeps at most n rows per distinct value of the BY expression, in the current sort order."
+    },
+    {
+     "q": "Which is the cheapest way to estimate distinct users over billions of rows?",
+     "options": [
+      "count(DISTINCT user_id)",
+      "uniq(user_id)",
+      "uniqExact(user_id)",
+      "groupArray(user_id)"
+     ],
+     "answer": 1,
+     "explain": "uniq uses a bounded-memory approximate algorithm; the other options are exact or collect everything."
+    }
+   ],
+   "docs": "https://clickhouse.com/docs/sql-reference/aggregate-functions/reference",
+   "requires": [
+    "clickhouse.columnar-olap",
+    "sql.group-by"
+   ]
+  },
+  {
+   "id": "clickhouse.sparse-primary-index",
+   "name": "Sort keys and the sparse primary index",
+   "module": "performance",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Understand granules and the sparse index, and design ORDER BY so that common filters skip most of the table.",
+   "why": "The sort key is the single most important performance decision for a ClickHouse table.",
+   "body": "A MergeTree table's data is sorted by its `ORDER BY` key and cut into **granules** of 8,192 rows (`index_granularity`). The primary index stores the key values of only the **first row of each granule**. That makes it **sparse**: a billion-row table needs about 122,000 index entries, small enough to sit in memory.\n\nWhen a query filters on key columns, ClickHouse binary-searches this index to find which granules can contain matching rows and reads only those. Filtering on a column that is not a prefix of the key gives far less pruning, because those values are scattered across all granules.\n\nDesigning the key:\n\n- Lead with the columns that appear in most `WHERE` clauses, often a tenant or category, then time: `ORDER BY (tenant_id, event_type, ts)`.\n- Order the key columns roughly by **ascending cardinality**. Low-cardinality first gives long runs of equal values, which helps pruning on later columns and compresses much better.\n- Avoid leading with a near-unique column like a UUID unless point lookups on it are the main use.\n- A query can only use the key efficiently from the left: with `(a, b, c)`, filters on `a` or `a, b` prune well; a filter on `c` alone barely does.\n\n`EXPLAIN indexes = 1` shows how many granules each query selects, which is the quickest way to check a key design.",
+   "code": "CREATE TABLE logs (tenant UInt16, level LowCardinality(String), ts DateTime, msg String)\nENGINE = MergeTree ORDER BY (tenant, level, ts);\n\nINSERT INTO logs SELECT number % 100, ['info','warn','error'][number % 3 + 1],\n       now() - number, 'm' FROM numbers(2000000);\n\n-- Filter on the key prefix: only a few granules are read\nEXPLAIN indexes = 1 SELECT count() FROM logs WHERE tenant = 7 AND level = 'error';\n--   PrimaryKey  Keys: tenant, level ... Granules: 3/245\n\n-- Filter on ts alone (third key column): no pruning\nEXPLAIN indexes = 1 SELECT count() FROM logs WHERE ts > now() - 60;\n--   PrimaryKey  Keys: ts ... Granules: 245/245",
+   "code_lang": "sql",
+   "takeaways": [
+    "The primary index has one entry per 8,192-row granule",
+    "Filters prune well only on a left prefix of ORDER BY",
+    "Order key columns from low to high cardinality, frequent filters first"
+   ],
+   "pitfalls": [
+    "Putting a timestamp or UUID first in ORDER BY, which makes filters on the other key columns scan everything."
+   ],
+   "quiz": [
+    {
+     "q": "A table has ORDER BY (customer_id, ts). Which filter benefits least from the primary index?",
+     "options": [
+      "WHERE customer_id = 42",
+      "WHERE ts > '2025-01-01'",
+      "WHERE customer_id = 42 AND ts > '2025-01-01'",
+      "WHERE customer_id IN (1, 2, 3)"
+     ],
+     "answer": 1,
+     "explain": "ts is not a left prefix of the key, so its values are spread over all granules."
+    },
+    {
+     "q": "Why is ClickHouse's primary index called sparse?",
+     "options": [
+      "It stores only non-null keys",
+      "It is built lazily on first query",
+      "It skips columns with low cardinality",
+      "It stores one entry per granule, not per row"
+     ],
+     "answer": 3,
+     "explain": "One mark per 8,192-row granule keeps the index tiny and in memory."
+    }
+   ],
+   "docs": "https://clickhouse.com/docs/engines/table-engines/mergetree-family/mergetree",
+   "requires": [
+    "clickhouse.mergetree",
+    "sql.indexes"
+   ]
+  },
+  {
+   "id": "clickhouse.partitions-ttl",
+   "name": "Partitions and TTL",
+   "module": "ingest",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Use PARTITION BY for data lifecycle (drop or move whole months cheaply) and TTL to expire or tier old rows automatically.",
+   "why": "Retention and cold storage are routine for event data, and partitions make them nearly free.",
+   "body": "`PARTITION BY` splits a MergeTree table into independent groups of parts; parts from different partitions are never merged together. In ClickHouse partitioning is mainly a **data management** tool, not a speed trick; the sort key does the speed work.\n\nWhat partitions give you:\n\n- `ALTER TABLE t DROP PARTITION 202401` deletes a month instantly, without rewriting anything.\n- `DETACH`/`ATTACH PARTITION`, `MOVE PARTITION ... TO TABLE`, and `REPLACE PARTITION` for backfills and swaps.\n- Pruning: queries filtering on the partition expression skip whole partitions, as a bonus.\n\nKeep partitions **coarse**. `toYYYYMM(ts)` (monthly) is the usual choice; daily can be fine for very large tables. Partitioning by a high-cardinality column such as user id creates huge numbers of parts and triggers \"Too many parts\" errors, because every insert touching N partitions creates N parts.\n\n**TTL** expires data automatically during merges:\n\n- Table TTL: `TTL ts + INTERVAL 90 DAY` deletes rows older than 90 days.\n- Column TTL resets a column to its default after a time (drop raw payloads, keep counters).\n- `TTL ts + INTERVAL 30 DAY TO VOLUME 'cold'` moves data to cheaper disks in a tiered storage policy.\n\nWhen a TTL lines up with partitions, the setting `ttl_only_drop_parts = 1` lets ClickHouse drop whole expired parts instead of rewriting them, which is much cheaper.",
+   "code": "CREATE TABLE metrics\n(\n    ts     DateTime,\n    host   LowCardinality(String),\n    value  Float64,\n    raw    String TTL ts + INTERVAL 7 DAY        -- column TTL: clear after a week\n)\nENGINE = MergeTree\nPARTITION BY toYYYYMM(ts)\nORDER BY (host, ts)\nTTL ts + INTERVAL 90 DAY                         -- delete rows after 90 days\nSETTINGS ttl_only_drop_parts = 1;\n\nINSERT INTO metrics VALUES ('2026-08-15 10:00:00', 'a', 1, 'x'), ('2026-09-15 10:00:00', 'a', 2, 'y');\n\nSELECT partition, sum(rows) FROM system.parts\nWHERE table = 'metrics' AND active GROUP BY partition ORDER BY partition;\n-- 202608  1\n-- 202609  1      (until the 90-day TTL removes them)\n\nALTER TABLE metrics DROP PARTITION 202608;       -- instant month delete",
+   "code_lang": "sql",
+   "takeaways": [
+    "Partitions are for lifecycle: drop, move, replace whole chunks cheaply",
+    "Keep partitions coarse, typically monthly",
+    "TTL deletes or moves rows during merges; columns can have their own TTL"
+   ],
+   "pitfalls": [
+    "Partitioning by a high-cardinality column, which explodes the number of parts."
+   ],
+   "quiz": [
+    {
+     "q": "What is the main purpose of PARTITION BY in ClickHouse?",
+     "options": [
+      "Managing data in large chunks, such as dropping a month",
+      "Making every query faster",
+      "Enforcing uniqueness",
+      "Sharding across servers"
+     ],
+     "answer": 0,
+     "explain": "Partitions enable cheap drops, moves and replacements; the sort key is what drives query speed."
+    }
+   ],
+   "docs": "https://clickhouse.com/docs/engines/table-engines/mergetree-family/custom-partitioning-key",
+   "requires": [
+    "clickhouse.sparse-primary-index"
+   ]
+  },
+  {
+   "id": "clickhouse.updates-deletes",
+   "name": "Updates, deletes and mutations",
+   "module": "ingest",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Change existing rows with lightweight DELETE and ALTER TABLE ... UPDATE mutations, and know what they cost.",
+   "why": "Corrections and GDPR deletes happen, and doing them the OLTP way can bring a cluster to its knees.",
+   "body": "Parts are immutable, so changing rows means rewriting or masking data. ClickHouse offers a few tools.\n\n**Lightweight DELETE**: `DELETE FROM t WHERE ...` marks rows as deleted in a hidden mask column. They vanish from query results right away and are physically removed during later merges. It is the right default for deletes.\n\n**Mutations**: `ALTER TABLE t UPDATE col = expr WHERE ...` and `ALTER TABLE t DELETE WHERE ...` rewrite every part that contains matching rows, in the background. They are asynchronous by default: the statement returns at once and the work shows up in `system.mutations`. Add `SETTINGS mutations_sync = 1` to wait. A mutation that touches a few rows in each of many parts still rewrites those parts, so it can be very expensive on big tables. You cannot update columns that are part of the sort key.\n\nPatterns that avoid mutations altogether:\n\n- Model changes as **new rows** and read the latest version with `argMax` or a ReplacingMergeTree (next level).\n- Drop whole partitions for retention instead of deleting by date.\n- Batch corrections: one mutation for many rows, never one per row.\n\nThere is no multi-statement transactional `UPDATE` in the OLTP sense; treat ClickHouse data as append-mostly and design for it.",
+   "code": "CREATE TABLE users (id UInt64, email String, plan LowCardinality(String))\nENGINE = MergeTree ORDER BY id;\nINSERT INTO users VALUES (1, 'a@x.io', 'free'), (2, 'b@x.io', 'pro'), (3, 'c@x.io', 'free');\n\n-- Lightweight delete: rows disappear from results immediately\nDELETE FROM users WHERE id = 3;\n\n-- Mutation: rewrites affected parts in the background\nALTER TABLE users UPDATE plan = 'pro' WHERE id = 1 SETTINGS mutations_sync = 1;\n\nSELECT * FROM users ORDER BY id;\n-- 1  a@x.io  pro\n-- 2  b@x.io  pro\n\nSELECT command, is_done FROM system.mutations WHERE table = 'users';\n-- (UPDATE _row_exists = 0 WHERE id = 3)   1   <- the DELETE only wrote a mask\n-- (UPDATE plan = 'pro' WHERE id = 1)      1",
+   "code_lang": "sql",
+   "takeaways": [
+    "DELETE FROM is a lightweight delete: masked now, purged on merge",
+    "ALTER TABLE ... UPDATE/DELETE are async mutations that rewrite parts",
+    "Prefer appending new versions or dropping partitions over frequent mutations"
+   ],
+   "pitfalls": [
+    "Issuing one ALTER TABLE ... UPDATE per row from an application loop."
+   ],
+   "quiz": [
+    {
+     "q": "What does ALTER TABLE t UPDATE ... return by default?",
+     "options": [
+      "Only after all parts are rewritten",
+      "An error unless the table is ReplacingMergeTree",
+      "Immediately; the mutation runs in the background",
+      "The number of rows changed"
+     ],
+     "answer": 2,
+     "explain": "Mutations are asynchronous unless you set mutations_sync; track them in system.mutations."
+    }
+   ],
+   "docs": "https://clickhouse.com/docs/sql-reference/statements/delete",
+   "requires": [
+    "clickhouse.inserting",
+    "sql.insert-update-delete"
+   ]
+  },
+  {
+   "id": "clickhouse.aggregate-combinators",
+   "name": "Aggregate functions and combinators",
+   "module": "querying",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Go beyond sum and count: quantiles, argMax, topK, groupArray, and combinators like -If, -Array, -State and -Merge.",
+   "why": "Combinators are how ClickHouse expresses complex analytics in one pass, and -State/-Merge underpin pre-aggregation.",
+   "body": "ClickHouse has well over a hundred aggregate functions. A few you will use constantly:\n\n- `quantile(0.95)(latency)` (approximate, fast) and `quantileExact`; `quantiles(0.5, 0.9, 0.99)(x)` computes several at once. Note the two pairs of parentheses: parameters, then arguments.\n- `argMax(val, ts)` / `argMin`: the value of one column at the max or min of another.\n- `topK(5)(url)`: approximately most frequent values; `groupArray(x)` collects values into an array; `groupUniqArray` distinct ones.\n- `any(x)`: some value from the group, cheap when you know it's constant.\n\n**Combinators** are suffixes that change how any aggregate works:\n\n- `-If`: `sumIf(amount, paid)`, `uniqIf(user, country = 'FR')`.\n- `-Array`: aggregate the elements of array arguments, `sumArray(arr)`.\n- `-Distinct`: `sumDistinct(x)`.\n- `-OrNull` / `-OrDefault`: control the result for empty input.\n- `-State` returns the **intermediate** state instead of the final value (`uniqState(user_id)`), and `-Merge` finishes states (`uniqMerge(state)`). States can be stored in a table and merged later, which is how incremental rollups work.\n\nCombinators chain: `uniqStateIf(user_id, country = 'DE')` is a valid function.",
+   "code": "SELECT\n    quantiles(0.5, 0.99)(number)             AS p50_p99,\n    argMax(number % 7, number)               AS last_mod7,\n    topK(2)(if(number < 600, 'a', if(number < 900, 'b', 'c'))) AS common,\n    sumIf(number, number % 2 = 0)            AS even_sum,\n    sumArray([number, 1])                    AS arr_sum\nFROM numbers(1000);\n-- [499.5,989.01] | 5 | ['a','b'] | 249500 | 500500\n\n-- -State / -Merge: compute partial states, finish them later\nWITH parts AS (\n    SELECT number % 2 AS half, uniqState(number % 100) AS st\n    FROM numbers(1000) GROUP BY half\n)\nSELECT uniqMerge(st) FROM parts;    -- 100",
+   "code_lang": "sql",
+   "takeaways": [
+    "Parametric aggregates take parameters first: quantile(0.95)(x)",
+    "Combinator suffixes: -If, -Array, -Distinct, -OrNull, -State, -Merge",
+    "-State values can be stored and merged later for rollups"
+   ],
+   "pitfalls": [
+    "Summing pre-computed averages or distinct counts instead of merging -State values."
+   ],
+   "quiz": [
+    {
+     "q": "You stored uniqState(user_id) per hour. How do you get distinct users per day?",
+     "options": [
+      "uniqMerge(state) grouped by day",
+      "sum the hourly states",
+      "uniq(state)",
+      "max(state)"
+     ],
+     "answer": 0,
+     "explain": "-Merge combines intermediate states correctly; adding hourly distinct counts would double-count users."
+    },
+    {
+     "q": "What does argMax(status, updated_at) return per group?",
+     "options": [
+      "The largest status",
+      "The latest updated_at",
+      "The status from the row with the latest updated_at",
+      "The number of statuses"
+     ],
+     "answer": 2,
+     "explain": "argMax returns the first argument taken from the row where the second is greatest."
+    }
+   ],
+   "docs": "https://clickhouse.com/docs/sql-reference/aggregate-functions/combinators",
+   "requires": [
+    "clickhouse.querying"
+   ]
+  },
+  {
+   "id": "clickhouse.arrays-maps",
+   "name": "Arrays, maps and arrayJoin",
+   "module": "querying",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Work with Array and Map columns using arrayJoin, higher-order functions with lambdas, and array aggregates.",
+   "why": "Tags, event properties and funnels are naturally arrays, and ClickHouse processes them without exploding rows.",
+   "body": "Arrays are first-class in ClickHouse. Literals look like `[1, 2, 3]`, indexing is **1-based** (`arr[1]` is the first element), and out-of-range indexes return the type's default instead of erroring.\n\nTwo ways to use them:\n\n- **Keep them as arrays** and use array functions: `length`, `has(tags, 'sale')`, `hasAny`, `indexOf`, `arraySort`, `arrayDistinct`, `arraySlice`. Higher-order functions take a **lambda**: `arrayMap(x -> x * 2, arr)`, `arrayFilter(x -> x > 0, arr)`, `arrayExists`, `arrayCount`, `arraySum`.\n- **Unfold them into rows** with `arrayJoin(arr)` in the select list, or the `ARRAY JOIN` clause, the counterpart of `UNNEST`. `LEFT ARRAY JOIN` keeps rows whose array is empty.\n\n`groupArray` goes the other way, collecting a group's values into an array; combined with `arraySort` or `arrayCumSum` it covers many sequence and funnel questions.\n\n`Map(String, String)` stores key-value properties. Read a key with `props['utm_source']` (missing keys return an empty string), list keys with `mapKeys(props)`. Under the hood a Map is an array of key-value tuples, so it's ideal for a handful of sparse attributes. For deeply nested or evolving JSON documents, the newer `JSON` type stores each path as its own subcolumn and is usually faster to query.",
+   "code": "SELECT\n    [3, 1, 2]                         AS arr,\n    arr[1]                            AS first,        -- 3 (1-based)\n    arrayMap(x -> x * 10, arr)        AS times10,      -- [30,10,20]\n    arrayFilter(x -> x > 1, arr)      AS big,          -- [3,2]\n    has(arr, 2)                       AS has2,         -- 1\n    map('src', 'ads', 'cmp', 'q3')['src'] AS source;   -- ads\n\n-- One row per tag, then count\nSELECT arrayJoin(tags) AS tag, count() AS n\nFROM (SELECT ['sale', 'new'] AS tags UNION ALL SELECT ['sale'])\nGROUP BY tag ORDER BY n DESC;\n-- sale  2\n-- new   1",
+   "code_lang": "sql",
+   "takeaways": [
+    "Arrays are 1-based; use has/arrayMap/arrayFilter instead of exploding rows",
+    "arrayJoin / ARRAY JOIN unfold arrays into rows; groupArray folds them back",
+    "Map(K, V) for sparse properties, JSON type for evolving documents"
+   ],
+   "pitfalls": [
+    "Assuming arr[0] is the first element; in ClickHouse it is arr[1]."
+   ],
+   "quiz": [
+    {
+     "q": "What does arrayFilter(x -> x % 2 = 0, [1, 2, 3, 4]) return?",
+     "options": [
+      "[1, 3]",
+      "[2, 4]",
+      "2",
+      "[0, 1, 0, 1]"
+     ],
+     "answer": 1,
+     "explain": "arrayFilter keeps the elements for which the lambda returns true."
+    }
+   ],
+   "docs": "https://clickhouse.com/docs/sql-reference/functions/array-functions",
+   "requires": [
+    "clickhouse.data-types",
+    "clickhouse.querying"
+   ]
+  },
+  {
+   "id": "clickhouse.specialized-engines",
+   "name": "Replacing, Summing and Aggregating engines",
+   "module": "modeling",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Use ReplacingMergeTree for upserts by key, SummingMergeTree and AggregatingMergeTree for rollups, and FINAL or GROUP BY to read correctly.",
+   "why": "These engines replace UPDATE and pre-compute aggregates, which is how ClickHouse models mutable and summarized data.",
+   "body": "The MergeTree family adds logic to **merges**. When parts with equal sort keys merge, the engine combines those rows.\n\n- **ReplacingMergeTree(ver)** keeps only the row with the highest `ver` (or the last inserted) per `ORDER BY` key. To \"update\" a row you insert a new version. An optional `is_deleted` column lets a version act as a delete.\n- **SummingMergeTree** sums numeric columns of rows with the same key: a cheap counter table.\n- **AggregatingMergeTree** stores `AggregateFunction(uniq, UInt64)` state columns and merges them, for any aggregate (unique users, quantiles). `SimpleAggregateFunction(sum, UInt64)` is the lightweight form for functions like sum, min, max.\n- **CollapsingMergeTree** and **VersionedCollapsingMergeTree** cancel rows with a `sign` of +1 and -1.\n\nThe crucial gotcha: merges happen **eventually**, at unknown times, and only within a partition. Until then duplicates or unsummed rows are visible. Queries must therefore aggregate anyway:\n\n- `SELECT ... FROM t FINAL` merges on the fly at read time. It is much cheaper in modern versions but still costs extra work.\n- Or write the query to be correct regardless: `argMax(col, ver) ... GROUP BY key` for Replacing, `sum(...) GROUP BY key` for Summing, `uniqMerge(state)` for Aggregating.\n\n`OPTIMIZE TABLE ... FINAL` forces a merge but is heavy; never rely on it in production queries.",
+   "code": "CREATE TABLE user_profile (id UInt64, plan String, ver UInt64)\nENGINE = ReplacingMergeTree(ver) ORDER BY id;\n\nINSERT INTO user_profile VALUES (1, 'free', 1);\nINSERT INTO user_profile VALUES (1, 'pro', 2);       -- an \"update\" is a new version\n\nSELECT count() FROM user_profile;                    -- 2 (not merged yet)\nSELECT * FROM user_profile FINAL;                    -- 1  pro  2\nSELECT id, argMax(plan, ver) FROM user_profile GROUP BY id;   -- 1  pro\n\nCREATE TABLE daily_users\n(day Date, users AggregateFunction(uniq, UInt64))\nENGINE = AggregatingMergeTree ORDER BY day;\n\nINSERT INTO daily_users SELECT today(), uniqState(toUInt64(number % 10)) FROM numbers(100);\nINSERT INTO daily_users SELECT today(), uniqState(toUInt64(number % 20)) FROM numbers(100);\nSELECT day, uniqMerge(users) FROM daily_users GROUP BY day;   -- today  20",
+   "code_lang": "sql",
+   "takeaways": [
+    "Engines combine rows with equal sort keys during merges",
+    "Merges are eventual: always read with FINAL or an aggregating query",
+    "AggregatingMergeTree stores -State values; read them with -Merge"
+   ],
+   "pitfalls": [
+    "Assuming ReplacingMergeTree guarantees uniqueness at query time without FINAL or GROUP BY."
+   ],
+   "quiz": [
+    {
+     "q": "Right after inserting two versions of the same key into a ReplacingMergeTree, SELECT count() returns 2. Why?",
+     "options": [
+      "The engine is misconfigured",
+      "ver must be a DateTime",
+      "ReplacingMergeTree never deduplicates",
+      "Deduplication happens only during background merges"
+     ],
+     "answer": 3,
+     "explain": "Replacement happens when parts merge, at an unknown later time; use FINAL or argMax to read correctly."
+    },
+    {
+     "q": "Which engine fits storing distinct-user counts per hour that can be rolled up to days?",
+     "options": [
+      "SummingMergeTree",
+      "ReplacingMergeTree",
+      "AggregatingMergeTree with uniq states",
+      "Memory"
+     ],
+     "answer": 2,
+     "explain": "Distinct counts can't be summed; uniq states can be merged correctly at any granularity."
+    }
+   ],
+   "docs": "https://clickhouse.com/docs/engines/table-engines/mergetree-family/replacingmergetree",
+   "requires": [
+    "clickhouse.updates-deletes",
+    "clickhouse.aggregate-combinators"
+   ]
+  },
+  {
+   "id": "clickhouse.materialized-views",
+   "name": "Materialized views for real-time rollups",
+   "module": "modeling",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Build incremental materialized views that transform each inserted block into a target table, and refreshable ones for periodic rebuilds.",
+   "why": "MVs move work from query time to insert time, turning slow dashboards into millisecond lookups.",
+   "body": "A ClickHouse **materialized view** is an insert trigger. `CREATE MATERIALIZED VIEW mv TO target AS SELECT ... FROM source` runs the `SELECT` over **each block inserted into the source table** and writes the result into `target`. It never re-reads the whole source table.\n\nThe classic pattern is a rollup:\n\n- Raw events land in a MergeTree table.\n- The MV aggregates each insert block (`GROUP BY` minute, `uniqState`, `sumState` or plain `count()`).\n- The target is a SummingMergeTree or AggregatingMergeTree that keeps merging partial results; in an AggregatingMergeTree every non-key column must be an `AggregateFunction` or `SimpleAggregateFunction`.\n- Dashboards query the small target table with `sum` or `-Merge` functions.\n\nThings to know:\n\n- Always use the explicit `TO target` form so you control the target's engine, keys and TTL.\n- An MV only sees **new inserts**. Existing rows are not processed; backfill with an `INSERT INTO target SELECT ...` over the old data. Avoid the `POPULATE` option, which can miss rows inserted while it runs.\n- The MV's `GROUP BY` runs per insert block, so the target receives many partial rows per key. That is why its engine must merge, and why reads must aggregate again.\n- If the source has a JOIN, only inserts into the left-most table trigger the view.\n\n**Refreshable materialized views** (`REFRESH EVERY 1 HOUR`) instead re-run the whole query on a schedule and replace the target, which suits joins and small summary tables.",
+   "code": "CREATE TABLE clicks (ts DateTime, page String, user UInt64)\nENGINE = MergeTree ORDER BY (page, ts);\n\nCREATE TABLE clicks_per_min\n(minute DateTime, page String,\n hits SimpleAggregateFunction(sum, UInt64), users AggregateFunction(uniq, UInt64))\nENGINE = AggregatingMergeTree ORDER BY (page, minute);\n\nCREATE MATERIALIZED VIEW clicks_mv TO clicks_per_min AS\nSELECT toStartOfMinute(ts) AS minute, page,\n       count() AS hits, uniqState(user) AS users\nFROM clicks GROUP BY minute, page;\n\nINSERT INTO clicks VALUES ('2025-05-01 12:00:10', '/a', 1), ('2025-05-01 12:00:20', '/a', 2);\nINSERT INTO clicks VALUES ('2025-05-01 12:00:30', '/a', 1);\n\n-- Read with aggregation: the target holds partial rows until merged\nSELECT minute, page, sum(hits) AS hits, uniqMerge(users) AS users\nFROM clicks_per_min GROUP BY minute, page;\n-- 2025-05-01 12:00:00  /a  3  2",
+   "code_lang": "sql",
+   "takeaways": [
+    "An incremental MV transforms each inserted block into a target table",
+    "Use TO target with a Summing/AggregatingMergeTree and aggregate again on read",
+    "MVs don't backfill: insert historical data into the target yourself"
+   ],
+   "pitfalls": [
+    "Using a plain MergeTree target and reading hits without sum(), which double-counts partial rows."
+   ],
+   "quiz": [
+    {
+     "q": "A materialized view is created on a table that already holds 1 billion rows. What does the view contain right after creation (without POPULATE)?",
+     "options": [
+      "Nothing until new rows are inserted into the source",
+      "All 1 billion rows aggregated",
+      "A sample of the rows",
+      "An error: the source must be empty"
+     ],
+     "answer": 0,
+     "explain": "Incremental MVs only process blocks inserted after they exist; backfill manually."
+    },
+    {
+     "q": "Why must queries on the MV target still use sum(hits) with GROUP BY?",
+     "options": [
+      "Because counts are approximate",
+      "Because MVs store raw rows",
+      "They don't need to",
+      "Because each insert block adds its own partial row per key until merges combine them"
+     ],
+     "answer": 3,
+     "explain": "The view's GROUP BY applies per insert block, and background merges are eventual."
+    }
+   ],
+   "docs": "https://clickhouse.com/docs/sql-reference/statements/create/view",
+   "requires": [
+    "clickhouse.specialized-engines",
+    "sql.views"
+   ]
+  },
+  {
+   "id": "clickhouse.joins-dictionaries",
+   "name": "Joins and dictionaries",
+   "module": "querying",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Join tables efficiently in ClickHouse, pick join algorithms, and use dictionaries with dictGet for fast in-memory lookups.",
+   "why": "Joins are where ClickHouse queries most often run out of memory, and dictionaries are the idiomatic fix.",
+   "body": "ClickHouse supports all standard joins plus a few extras: `ANY JOIN` (take one match per row), `ASOF JOIN` (match the nearest earlier timestamp, perfect for prices or sessions), and `SEMI`/`ANTI` joins.\n\nBy default a join is a **hash join**: one side, the build side, is loaded into an in-memory hash table and the other side streams past it. Historically the **right** table was always the build side, so the rule was \"put the small table on the right\". Recent versions can swap the sides automatically when statistics show the right one is bigger, but writing big-left, small-right is still a good habit.\n\nWhen the build side is too large for memory, choose another algorithm with the `join_algorithm` setting: `grace_hash` and `partial_merge` spill to disk, `full_sorting_merge` sorts both sides and is efficient when they're already ordered by the join key. Filtering and pre-aggregating each side in subqueries before joining helps more than any setting.\n\n**Dictionaries** are the idiomatic alternative for enrichment lookups: a key-value structure loaded into memory from a table, file, HTTP endpoint or external database and refreshed every `LIFETIME` seconds. `dictGet('dict', 'attr', key)` is a function call, not a join, so it's cheap even on billions of rows. Layouts include `HASHED`, `FLAT` for small dense integer keys, and `RANGE_HASHED` for keys valid over date ranges. Join a dimension table only when you need many columns or non-key conditions.",
+   "code": "CREATE TABLE countries (code String, name String) ENGINE = MergeTree ORDER BY code;\nINSERT INTO countries VALUES ('DE', 'Germany'), ('FR', 'France');\n\nCREATE TABLE sales (country String, amount UInt32) ENGINE = MergeTree ORDER BY country;\nINSERT INTO sales VALUES ('DE', 10), ('DE', 5), ('FR', 7);\n\n-- Big table left, small table right\nSELECT c.name, sum(s.amount) AS total\nFROM sales AS s INNER JOIN countries AS c ON s.country = c.code\nGROUP BY c.name ORDER BY total DESC;            -- Germany 15 / France 7\n\n-- Same enrichment with a dictionary lookup\nCREATE DICTIONARY country_dict (code String, name String)\nPRIMARY KEY code\nSOURCE(CLICKHOUSE(TABLE 'countries'))\nLAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(MIN 300 MAX 600);\n\nSELECT dictGet('country_dict', 'name', tuple(country)) AS name, sum(amount)\nFROM sales GROUP BY name ORDER BY name;         -- France 7 / Germany 15",
+   "code_lang": "sql",
+   "takeaways": [
+    "Hash joins hold one side in memory: keep that side small",
+    "Switch join_algorithm (grace_hash, partial_merge, full_sorting_merge) for huge joins",
+    "Dictionaries + dictGet are the cheap way to enrich with dimension attributes"
+   ],
+   "pitfalls": [
+    "Joining two billion-row tables without filtering or pre-aggregating either side first."
+   ],
+   "quiz": [
+    {
+     "q": "Which join fits 'attach the most recent exchange rate at or before each trade's timestamp'?",
+     "options": [
+      "CROSS JOIN",
+      "ASOF JOIN",
+      "ANTI JOIN",
+      "FULL OUTER JOIN"
+     ],
+     "answer": 1,
+     "explain": "ASOF JOIN matches each row to the closest earlier (or equal) key value."
+    },
+    {
+     "q": "Why is dictGet usually cheaper than joining a dimension table?",
+     "options": [
+      "It reads the dimension table from disk every time",
+      "It looks keys up in a structure already held in memory, with no per-query hash table build",
+      "It only works with integer keys",
+      "It caches query results"
+     ],
+     "answer": 1,
+     "explain": "The dictionary is loaded once and refreshed by LIFETIME, so each query just does lookups."
+    }
+   ],
+   "docs": "https://clickhouse.com/docs/sql-reference/statements/select/join",
+   "requires": [
+    "clickhouse.querying",
+    "sql.joins"
+   ]
+  },
+  {
+   "id": "clickhouse.skip-indexes-projections",
+   "name": "Skipping indexes and projections",
+   "module": "performance",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Add data-skipping indexes (minmax, set, bloom_filter) and projections to speed up filters the primary key can't serve.",
+   "why": "A table has one sort order; these are the tools for the second and third most common query shapes.",
+   "body": "The primary index helps only filters on the sort key prefix. For other columns you have two tools.\n\n**Data-skipping indexes** store a small summary per block of granules (`GRANULARITY n` granules) and let ClickHouse skip blocks whose summary rules out a match:\n\n- `minmax`: min and max per block, good when values correlate with the sort order (e.g. a timestamp in a table sorted by tenant, ts).\n- `set(N)`: the distinct values per block, for low-cardinality columns.\n- `bloom_filter`, `tokenbf_v1`, `ngrambf_v1`: probabilistic membership, for equality on high-cardinality ids or token search in text.\n\nThey help only when matching values are **clustered** in a few blocks. If a value appears in every granule, the index costs time and skips nothing. Add one with `ALTER TABLE ... ADD INDEX`, then `MATERIALIZE INDEX` to build it for existing parts, and confirm with `EXPLAIN indexes = 1`.\n\n**Projections** store a second copy of the table's data, re-sorted (`SELECT * ORDER BY user_id`) or pre-aggregated (`SELECT day, sum(x) GROUP BY day`), inside the same parts. The optimizer picks a projection automatically when it can answer a query with fewer reads, and inserts keep it consistent. The cost is extra storage and slower inserts and merges. Compared with a materialized view, a projection needs no separate table and no query rewrite, but it's limited to one source table.",
+   "code": "CREATE TABLE requests\n(tenant UInt16, ts DateTime, trace_id String, user_id UInt64, ms UInt32,\n INDEX trace_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 4)\nENGINE = MergeTree ORDER BY (tenant, ts);\n\nINSERT INTO requests SELECT number % 10, now() - number, toString(cityHash64(number)),\n       number % 5000, rand() % 900 FROM numbers(1000000);\n\n-- Bloom filter skips blocks for a needle-in-haystack lookup\nEXPLAIN indexes = 1 SELECT * FROM requests WHERE trace_id = toString(cityHash64(42));\n\n-- Projection: a second sort order for per-user queries\nALTER TABLE requests ADD PROJECTION by_user (SELECT * ORDER BY user_id);\nALTER TABLE requests MATERIALIZE PROJECTION by_user SETTINGS mutations_sync = 1;\n\nSELECT count(), avg(ms) FROM requests WHERE user_id = 42;   -- 200  (uses by_user)",
+   "code_lang": "sql",
+   "takeaways": [
+    "Skipping indexes summarize blocks of granules: minmax, set, bloom_filter",
+    "They only pay off when matching values are clustered",
+    "Projections add a re-sorted or pre-aggregated copy chosen automatically"
+   ],
+   "pitfalls": [
+    "Adding a bloom_filter index on a column whose values occur in every granule, gaining nothing."
+   ],
+   "quiz": [
+    {
+     "q": "When does a minmax skipping index on column x help most?",
+     "options": [
+      "When x is random across the table",
+      "When x is the first ORDER BY column",
+      "When x is Nullable",
+      "When x correlates with the table's sort order"
+     ],
+     "answer": 3,
+     "explain": "If x's values are clustered, many blocks have min/max ranges that exclude the filter value."
+    },
+    {
+     "q": "What is a key advantage of a projection over a separate materialized-view table?",
+     "options": [
+      "Queries use it automatically without being rewritten",
+      "It uses no extra storage",
+      "It can join several tables",
+      "It speeds up inserts"
+     ],
+     "answer": 0,
+     "explain": "The optimizer picks a matching projection transparently; an MV target must be queried explicitly."
+    }
+   ],
+   "docs": "https://clickhouse.com/docs/sql-reference/statements/alter/skipping-index",
+   "requires": [
+    "clickhouse.sparse-primary-index",
+    "clickhouse.partitions-ttl"
+   ]
+  },
+  {
+   "id": "clickhouse.query-analysis",
+   "name": "Analyzing and tuning queries",
+   "module": "performance",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Use EXPLAIN, system.query_log and system.parts to see what a query read, then fix it with PREWHERE, settings and better keys.",
+   "why": "Tuning by measurement, not guesswork, is what separates fast clusters from expensive ones.",
+   "body": "Start with what a query actually did. `system.query_log` records every finished query with `read_rows`, `read_bytes`, `memory_usage`, `query_duration_ms` and the `ProfileEvents` map. Sorting it by `read_bytes` finds the expensive queries quickly.\n\nThen look at the plan:\n\n- `EXPLAIN indexes = 1` shows partition, primary key and skip-index pruning: granules selected out of total.\n- `EXPLAIN PIPELINE` shows the parallel processors and threads.\n- `clickhouse client` prints rows and bytes read per second after each query; `SET send_logs_level = 'trace'` streams detailed server logs, including which marks were read.\n\nCommon fixes, in order of impact:\n\n- **Read fewer granules**: better `ORDER BY`, partition pruning, skip indexes, projections.\n- **Read fewer columns**: avoid `SELECT *`; wide String columns dominate I/O.\n- **PREWHERE**: ClickHouse reads the filter columns first and the other columns only for matching granules. It moves selective conditions into PREWHERE automatically (`optimize_move_to_prewhere`), but you can write `PREWHERE` explicitly.\n- **Less memory**: `GROUP BY` on high-cardinality keys can spill with `max_bytes_before_external_group_by`; joins can switch algorithm.\n- **Parallelism**: `max_threads` defaults to the number of cores; lower it for many concurrent small queries.\n\nCheck `system.parts` too. Many small parts per partition, or a few huge partitions, point at ingestion or key problems rather than the query itself.",
+   "code": "-- Most expensive recent queries by bytes read\nSELECT query_duration_ms, read_rows, formatReadableSize(read_bytes) AS read,\n       formatReadableSize(memory_usage) AS mem, substring(query, 1, 60) AS q\nFROM system.query_log\nWHERE type = 'QueryFinish' AND event_time > now() - INTERVAL 1 HOUR\nORDER BY read_bytes DESC\nLIMIT 5;\n\n-- How was the table pruned?\nEXPLAIN indexes = 1\nSELECT count() FROM requests WHERE tenant = 3 AND ts > now() - INTERVAL 1 HOUR;\n\n-- Explicit PREWHERE: read ms only for granules where tenant matches\nSELECT avg(ms) FROM requests PREWHERE tenant = 3 WHERE ms > 100;\n\n-- Part health per table\nSELECT table, count() AS parts, sum(rows) AS rows\nFROM system.parts WHERE active GROUP BY table ORDER BY parts DESC;",
+   "code_lang": "sql",
+   "takeaways": [
+    "Measure first: system.query_log has rows, bytes, memory and duration per query",
+    "EXPLAIN indexes = 1 shows granule pruning",
+    "Cut granules, then columns; PREWHERE and memory settings come after"
+   ],
+   "pitfalls": [
+    "Tuning max_threads or memory settings before checking whether the query scans the whole table."
+   ],
+   "quiz": [
+    {
+     "q": "A query reads 98% of a table's granules although it filters on user_id. What's the most likely root cause?",
+     "options": [
+      "max_threads is too low",
+      "The query_log is disabled",
+      "user_id is not a prefix of ORDER BY and has no skip index or projection",
+      "PREWHERE is not supported"
+     ],
+     "answer": 2,
+     "explain": "Without key, skip-index or projection support, the filter can't prune granules."
+    }
+   ],
+   "docs": "https://clickhouse.com/docs/sql-reference/statements/explain",
+   "requires": [
+    "clickhouse.sparse-primary-index",
+    "clickhouse.joins-dictionaries",
+    "sql.explain"
+   ]
+  },
+  {
+   "id": "clickhouse.replication-sharding",
+   "name": "Replication, sharding and clusters",
+   "module": "operations",
+   "level": 4,
+   "minutes": 16,
+   "summary": "Scale out with ReplicatedMergeTree and ClickHouse Keeper for copies, Distributed tables for shards, and ON CLUSTER DDL.",
+   "why": "Production ClickHouse runs on clusters, and their design decides availability, cost and query fan-out.",
+   "body": "ClickHouse scales in two independent directions.\n\n**Replication** keeps identical copies of a table on several servers for availability and read capacity. Use a `Replicated*MergeTree` engine with a coordination path and replica name, usually via macros: `ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/{table}', '{replica}')`. **ClickHouse Keeper** (a Raft-based ZooKeeper replacement) stores the replication log. Each replica accepts inserts and fetches parts it's missing from the others; replication is asynchronous and multi-leader. Identical insert blocks are deduplicated, which makes retries safe.\n\n**Sharding** splits rows across servers for capacity. Each shard holds local tables; a **Distributed** table, `Distributed(cluster, db, local_table, sharding_key)`, holds no data itself. Queries fan out to one replica per shard, each shard aggregates its slice, and the initiator merges the partial results. Inserting through a Distributed table routes rows by the sharding key, but writing directly to local tables in big batches is often more reliable.\n\nDesign points:\n\n- Pick a sharding key that keeps related rows together (e.g. `tenant_id`) so many queries hit one shard, and so `GROUP BY` and `JOIN` stay local.\n- `GLOBAL IN` / `GLOBAL JOIN` send a subquery result to every shard once, instead of each shard re-running it.\n- `ON CLUSTER my_cluster` runs DDL on every node; the `Replicated` database engine replicates DDL automatically.\n\nClickHouse Cloud separates storage and compute: its SharedMergeTree engine keeps data in object storage, so you scale replicas without manual sharding.",
+   "code": "-- On every node (config defines cluster 'events_cluster' and macros {shard}, {replica})\nCREATE TABLE events_local ON CLUSTER events_cluster\n(\n    tenant UInt32,\n    ts     DateTime,\n    kind   LowCardinality(String)\n)\nENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/events_local', '{replica}')\nPARTITION BY toYYYYMM(ts)\nORDER BY (tenant, kind, ts);\n\n-- Query/insert entry point that fans out to all shards\nCREATE TABLE events ON CLUSTER events_cluster AS events_local\nENGINE = Distributed(events_cluster, currentDatabase(), events_local, tenant);\n\n-- Each shard aggregates its rows; the initiator merges partial results\nSELECT kind, count() FROM events WHERE ts > now() - INTERVAL 1 DAY GROUP BY kind;",
+   "code_lang": "sql",
+   "takeaways": [
+    "ReplicatedMergeTree + Keeper = copies; Distributed tables = shards",
+    "Shard by a key that keeps related rows together, such as tenant",
+    "Use ON CLUSTER or the Replicated database engine to keep DDL in sync"
+   ],
+   "pitfalls": [
+    "Sharding by rand() and then joining or counting distinct per tenant, forcing cross-shard data movement."
+   ],
+   "quiz": [
+    {
+     "q": "What does a Distributed table store?",
+     "options": [
+      "No data; it routes queries and inserts to local tables on the shards",
+      "A full copy of all shards' data",
+      "Only the primary index",
+      "The replication log"
+     ],
+     "answer": 0,
+     "explain": "Distributed is a routing layer over the per-shard local tables."
+    },
+    {
+     "q": "What role does ClickHouse Keeper play for ReplicatedMergeTree?",
+     "options": [
+      "It stores the table data",
+      "It balances query load",
+      "It coordinates replicas through a shared replication log",
+      "It compresses parts"
+     ],
+     "answer": 2,
+     "explain": "Replicas use Keeper to agree on which parts exist and to fetch missing ones."
+    }
+   ],
+   "docs": "https://clickhouse.com/docs/engines/table-engines/mergetree-family/replication",
+   "requires": [
+    "clickhouse.partitions-ttl",
+    "clickhouse.specialized-engines"
+   ]
+  }
+ ]
+}

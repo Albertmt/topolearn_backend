@@ -1,0 +1,646 @@
+{
+ "tool": {
+  "id": "ssh",
+  "name": "SSH",
+  "category": "tool",
+  "tagline": "Secure remote shells, file transfer and tunnels with OpenSSH",
+  "description": "SSH (Secure Shell) gives you an encrypted, authenticated connection to another machine for running commands, copying files and tunnelling network traffic. OpenSSH is the implementation on virtually every Linux server, Mac and modern Windows, and it is how developers reach servers, Git hosts and cloud VMs.",
+  "icon": "SSH",
+  "color": "#2D3748",
+  "official_docs": "https://www.openssh.com/manual.html",
+  "version": "OpenSSH 10.0",
+  "aliases": [
+   "openssh",
+   "secure shell",
+   "ssh keys",
+   "scp",
+   "sftp"
+  ],
+  "requires": [
+   {
+    "tool": "linux",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Connecting"
+  },
+  {
+   "id": "auth",
+   "name": "Keys and authentication"
+  },
+  {
+   "id": "config",
+   "name": "Client configuration"
+  },
+  {
+   "id": "files",
+   "name": "Copying files"
+  },
+  {
+   "id": "tunnels",
+   "name": "Tunnels and forwarding"
+  },
+  {
+   "id": "server",
+   "name": "Server, security and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "ssh.what-is-ssh",
+   "name": "Connecting with ssh",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "ssh user@host opens an encrypted shell on a remote machine; -p picks the port and exit or Ctrl-d closes it.",
+   "why": "Reaching servers, cloud VMs and containers' hosts over SSH is a basic skill for any developer or operator.",
+   "body": "SSH is a protocol for secure remote access. A **client** (`ssh`) connects to a **server** (`sshd`), normally on TCP port 22. Everything is encrypted, and both sides authenticate: the server proves its identity with a **host key**, and you prove yours with a password or, better, a key pair.\n\nThe basic command:\n\n- `ssh alice@server.example.com` logs in as `alice`. Without `user@`, your local username is used.\n- `-p 2222` connects to a non-standard port.\n- `-i ~/.ssh/work_key` picks a specific private key.\n- `-v` (up to `-vvv`) prints debugging output when a connection fails.\n\nOnce connected you get a normal shell on the remote machine. `exit` or `Ctrl-d` closes it. If the connection hangs (say, after a network change), the escape sequence `Enter ~ .` (Enter, then tilde, then dot) kills the session from the client side; `~?` lists other escapes.\n\nOn the very first connection to a host, ssh shows the server's key fingerprint and asks whether to trust it. That question matters; the next lesson explains why.\n\nOpenSSH ships with Linux, macOS and Windows 10/11, so `ssh` is usually already there. To accept connections, a machine needs the server package (`openssh-server` on Debian/Ubuntu) running.",
+   "code": "ssh alice@203.0.113.10             # log in as alice\nssh -p 2222 deploy@build.example.com\nssh -i ~/.ssh/work_ed25519 alice@server\nssh -v alice@server                # debug a failing connection\n# inside the session\nwhoami && hostname                 # alice / server\nexit                               # or Ctrl-d\n# frozen session? press:  Enter  ~  .",
+   "code_lang": "bash",
+   "takeaways": [
+    "ssh user@host, -p for port, -i for a key, -v to debug",
+    "exit or Ctrl-d closes; Enter ~ . kills a frozen session",
+    "Both server (host key) and user are authenticated"
+   ],
+   "pitfalls": [
+    "Pressing Ctrl-C on a frozen session; it is sent to the remote side, use Enter ~ . instead."
+   ],
+   "quiz": [
+    {
+     "q": "A session froze after your laptop changed networks. How do you terminate it from the client?",
+     "options": [
+      "Ctrl-C",
+      "Type exit",
+      "Press Enter, then ~ then .",
+      "Ctrl-Z"
+     ],
+     "answer": 2,
+     "explain": "The ~. escape sequence is handled locally by the ssh client, so it works even when the remote side is unreachable."
+    }
+   ],
+   "docs": "https://man.openbsd.org/ssh",
+   "requires": []
+  },
+  {
+   "id": "ssh.host-keys",
+   "name": "Host keys and known_hosts",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "The server's host key is recorded in ~/.ssh/known_hosts on first connect; a changed key triggers a loud warning.",
+   "why": "Host key checking is what stops a man-in-the-middle from impersonating your server.",
+   "body": "Each SSH server has a **host key pair**, generated at install time (`/etc/ssh/ssh_host_ed25519_key` and friends). When you connect, the server proves it holds the private host key.\n\nThe first time, your client has nothing to compare with, so it asks:\n\n`The authenticity of host 'server (203.0.113.10)' can't be established. ED25519 key fingerprint is SHA256:...`\n\nTyping `yes` stores the key in `~/.ssh/known_hosts`. Ideally you verify the fingerprint first, comparing it with the output of `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` run on the server (or with what your cloud console shows).\n\nOn later connections, ssh checks the presented key against known_hosts. If it differs you get `WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!` and the connection is refused. This is either a reinstalled server or an attack. Only after confirming the server really was rebuilt, remove the old entry with `ssh-keygen -R hostname` and connect again.\n\nUseful settings: `StrictHostKeyChecking accept-new` automatically accepts keys for **new** hosts but still refuses **changed** ones, a sensible choice for automation. Never use `StrictHostKeyChecking no` with `UserKnownHostsFile /dev/null` outside throwaway test environments; it disables the protection entirely.",
+   "code": "# on the server: show its host key fingerprint\nssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub\n# 256 SHA256:Xr3...9kQ root@server (ED25519)\n\n# on the client\nssh-keygen -F server.example.com     # is it in known_hosts?\nssh-keygen -R server.example.com     # forget a (legitimately) changed key\nssh -o StrictHostKeyChecking=accept-new ci@server.example.com",
+   "code_lang": "bash",
+   "takeaways": [
+    "known_hosts pins each server's host key",
+    "Verify the fingerprint on first connect when it matters",
+    "accept-new trusts new hosts but still rejects changed keys"
+   ],
+   "pitfalls": [
+    "Reflexively deleting the known_hosts entry on a host-key warning without checking why the key changed."
+   ],
+   "quiz": [
+    {
+     "q": "What does `StrictHostKeyChecking accept-new` do when a known host presents a different key?",
+     "options": [
+      "Accepts it and updates known_hosts",
+      "Refuses the connection",
+      "Asks the user",
+      "Ignores host keys entirely"
+     ],
+     "answer": 1,
+     "explain": "accept-new only auto-accepts unknown hosts; a changed key for a known host is still an error."
+    }
+   ],
+   "docs": "https://man.openbsd.org/sshd#SSH_KNOWN_HOSTS_FILE_FORMAT",
+   "requires": [
+    "ssh.what-is-ssh"
+   ]
+  },
+  {
+   "id": "ssh.key-pairs",
+   "name": "Generating SSH key pairs",
+   "module": "auth",
+   "level": 1,
+   "minutes": 8,
+   "summary": "ssh-keygen -t ed25519 creates a private key you keep secret and a .pub public key you hand out.",
+   "why": "Key-based login is more secure and more convenient than passwords, and it is required by Git hosts and most clouds.",
+   "body": "Public-key authentication uses a **key pair**: a **private key** that never leaves your machine, and a **public key** you can give to any server. The server checks that you can sign a challenge with the private key matching a public key it trusts.\n\nCreate one with `ssh-keygen`:\n\n- `ssh-keygen -t ed25519 -C \"alice@laptop\"` makes `~/.ssh/id_ed25519` (private) and `~/.ssh/id_ed25519.pub` (public). The `-C` comment helps you recognise the key later.\n- Ed25519 is the modern default: small, fast and secure. Use `-t rsa -b 4096` only for old systems that do not support it.\n- Set a **passphrase** when asked. It encrypts the private key on disk, so a stolen laptop or backup does not leak access. The ssh-agent lesson removes the cost of typing it.\n\nThe public key is one line like `ssh-ed25519 AAAAC3Nz... alice@laptop`; it is safe to paste into GitHub, a cloud console or a colleague's server.\n\nThe private key file must be readable only by you (`chmod 600`); ssh refuses to use a key with loose permissions. Hardware-backed keys (`-t ed25519-sk`) keep the secret on a FIDO2 security key such as a YubiKey and require a touch to use.\n\nOne key per device (not one shared key copied everywhere) makes revoking a lost laptop easy.",
+   "code": "ssh-keygen -t ed25519 -C \"alice@laptop\"\n# Enter file in which to save the key (~/.ssh/id_ed25519): <Enter>\n# Enter passphrase: ********\nls -l ~/.ssh\n# -rw------- 1 alice alice  464 id_ed25519        <- private, keep secret\n# -rw-r--r-- 1 alice alice  101 id_ed25519.pub    <- public, share freely\ncat ~/.ssh/id_ed25519.pub\n# ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... alice@laptop\nssh-keygen -lf ~/.ssh/id_ed25519.pub     # show its fingerprint",
+   "code_lang": "bash",
+   "takeaways": [
+    "Private key stays on your machine; the .pub file is safe to share",
+    "Prefer ed25519; protect the private key with a passphrase",
+    "One key per device makes revocation simple"
+   ],
+   "pitfalls": [
+    "Pasting the private key (no .pub) into a website or chat; if that happens, generate a new key."
+   ],
+   "quiz": [
+    {
+     "q": "Which file do you paste into GitHub's 'SSH keys' settings?",
+     "options": [
+      "~/.ssh/id_ed25519",
+      "~/.ssh/id_ed25519.pub",
+      "~/.ssh/known_hosts",
+      "~/.ssh/config"
+     ],
+     "answer": 1,
+     "explain": "Only the public key (.pub) is shared; the private key never leaves your machine."
+    }
+   ],
+   "docs": "https://man.openbsd.org/ssh-keygen",
+   "requires": [
+    "ssh.what-is-ssh"
+   ]
+  },
+  {
+   "id": "ssh.authorized-keys",
+   "name": "authorized_keys and ssh-copy-id",
+   "module": "auth",
+   "level": 1,
+   "minutes": 8,
+   "summary": "A server trusts your public key once it is listed in ~/.ssh/authorized_keys of the target account, with strict permissions.",
+   "why": "This is how key-based login is actually switched on for an account, and permission mistakes here are the top cause of failures.",
+   "body": "On the server, each account lists the public keys allowed to log in as it in `~/.ssh/authorized_keys`, one key per line.\n\nThe easy way to add yours is `ssh-copy-id`, which logs in (with your password, the last time you will need it) and appends the key:\n\n`ssh-copy-id -i ~/.ssh/id_ed25519.pub alice@server`\n\nDoing it by hand works too: append the contents of the `.pub` file to `~/.ssh/authorized_keys` on the server.\n\n**Permissions** matter because sshd (with the default `StrictModes yes`) ignores the file if others could have tampered with it:\n\n- `~/.ssh` must be `700`, `authorized_keys` should be `600`, and the home directory must not be group- or world-writable.\n- The files must be owned by the account.\n\nWhen key login fails and falls back to asking for a password, run `ssh -v` on the client (look for \"Offering public key\" and the server's reply) and check the server log (`journalctl -u ssh` or `/var/log/auth.log`), which says exactly why a key was refused.\n\nEach line can carry **options** before the key to limit it, for example `from=\"10.0.0.0/8\"` or `command=\"/usr/local/bin/backup\",restrict` for a key that may only run a backup.",
+   "code": "ssh-copy-id -i ~/.ssh/id_ed25519.pub alice@server   # asks for the password once\nssh alice@server                                     # now logs in with the key\n\n# manual alternative, on the server:\nmkdir -p ~/.ssh && chmod 700 ~/.ssh\necho 'ssh-ed25519 AAAAC3Nz... alice@laptop' >> ~/.ssh/authorized_keys\nchmod 600 ~/.ssh/authorized_keys\n\n# a restricted key: may only run the backup script, only from one network\n# from=\"10.0.0.0/8\",command=\"/usr/local/bin/backup\",restrict ssh-ed25519 AAAA... backup",
+   "code_lang": "bash",
+   "takeaways": [
+    "~/.ssh/authorized_keys lists keys allowed for that account",
+    "ssh-copy-id installs your key; ~/.ssh 700, authorized_keys 600",
+    "Server logs explain refused keys; ssh -v shows what was offered"
+   ],
+   "pitfalls": [
+    "A group-writable home or .ssh directory: sshd silently ignores the keys and asks for a password."
+   ],
+   "quiz": [
+    {
+     "q": "Key login keeps falling back to a password prompt. Which is a likely cause?",
+     "options": [
+      "~/.ssh on the server is group-writable",
+      "The public key is in known_hosts",
+      "The private key has a passphrase",
+      "The server uses port 22"
+     ],
+     "answer": 0,
+     "explain": "With StrictModes, sshd ignores authorized_keys when the directory or file permissions are too open."
+    }
+   ],
+   "docs": "https://man.openbsd.org/sshd#AUTHORIZED_KEYS_FILE_FORMAT",
+   "requires": [
+    "ssh.key-pairs"
+   ]
+  },
+  {
+   "id": "ssh.remote-commands",
+   "name": "Running remote commands and piping data",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "ssh host 'command' runs one command remotely and returns its output and exit status, and stdin/stdout flow through the connection.",
+   "why": "One-off remote commands and pipes over SSH are the backbone of scripts, backups and quick checks.",
+   "body": "Give ssh a command after the host and it runs that command instead of an interactive shell, then exits with the **command's exit status**:\n\n`ssh web1 'df -h /'` prints the disk usage and returns.\n\nQuoting matters. The command string is sent to the remote shell, so quote it to stop your **local** shell from expanding things: `ssh web1 'echo $HOME'` prints the remote home, while `ssh web1 \"echo $HOME\"` prints your local one.\n\nStandard input and output are connected through the tunnel, which makes ssh a pipe:\n\n- `ssh db 'pg_dump shop' > shop.sql` streams a dump to your machine.\n- `tar czf - project | ssh backup 'cat > project.tgz'` sends an archive the other way.\n- `ssh web1 'journalctl -u nginx -n 100' | grep 500` filters remote logs locally.\n\nWhen you pass a command, ssh does not allocate a terminal, which is right for pipes. Interactive programs (`top`, `sudo` asking for a password, `vim`, `tmux`) need one: add `-t`.\n\nExit status propagates, so scripts can use it: `ssh web1 'systemctl is-active nginx' || alert`. For running the same command on many hosts, a simple loop works; tools like Ansible build on exactly this.",
+   "code": "ssh web1 'uptime'                         # runs remotely, prints, exits\nssh web1 'echo $HOME'                     # /home/alice  (remote)\nssh web1 \"echo $HOME\"                     # expanded locally first!\nssh -t web1 'sudo systemctl restart nginx'   # needs a TTY for sudo prompt\nssh db 'pg_dump shop | gzip' > shop.sql.gz   # stream remote -> local\ntar czf - src | ssh backup 'cat > src.tgz'   # stream local -> remote\nfor h in web1 web2; do ssh \"$h\" 'hostname; uptime'; done\nssh web1 'test -f /etc/maintenance' && echo \"in maintenance\"",
+   "code_lang": "bash",
+   "takeaways": [
+    "ssh host 'cmd' returns the command's output and exit status",
+    "Single-quote the command so the remote shell expands it",
+    "Add -t for interactive programs; leave it off for pipes"
+   ],
+   "pitfalls": [
+    "Using double quotes and getting local variable expansion instead of remote."
+   ],
+   "quiz": [
+    {
+     "q": "Why does `ssh host \"echo $USER\"` print your local username?",
+     "options": [
+      "ssh always maps users",
+      "The remote USER is not set",
+      "The local shell expands $USER inside double quotes before ssh runs",
+      "echo is run locally"
+     ],
+     "answer": 2,
+     "explain": "Double quotes allow local expansion; single quotes pass $USER to the remote shell."
+    },
+    {
+     "q": "Which flag do you need for `ssh host 'htop'` to work?",
+     "options": [
+      "-N",
+      "-t",
+      "-q",
+      "-C"
+     ],
+     "answer": 1,
+     "explain": "htop is interactive and needs a pseudo-terminal, which -t forces."
+    }
+   ],
+   "docs": "https://man.openbsd.org/ssh",
+   "requires": [
+    "ssh.what-is-ssh"
+   ]
+  },
+  {
+   "id": "ssh.ssh-agent",
+   "name": "ssh-agent: unlock once, use all day",
+   "module": "auth",
+   "level": 2,
+   "minutes": 9,
+   "summary": "ssh-agent holds decrypted keys in memory so you type a passphrase once per session, not on every connection.",
+   "why": "Passphrase-protected keys are only practical with an agent, and Git over SSH depends on it.",
+   "body": "A passphrase-protected private key must be decrypted before use. **ssh-agent** is a small background process that keeps decrypted keys in memory and performs signatures on behalf of ssh, so the key material never has to be re-read and you type the passphrase once.\n\nMost desktops already run an agent (macOS launchd, GNOME Keyring, Windows' OpenSSH Authentication Agent service). Check with `ssh-add -l`: \"The agent has no identities\" means it is running but empty; \"Could not open a connection\" means none is running, so start one with `eval \"$(ssh-agent -s)\"`.\n\n- `ssh-add` adds default keys, `ssh-add ~/.ssh/work_ed25519` a specific one.\n- `ssh-add -t 8h key` keeps it only for eight hours; `ssh-add -D` removes all keys.\n- `AddKeysToAgent yes` in `~/.ssh/config` adds a key automatically the first time you use it.\n- On macOS, `UseKeychain yes` stores the passphrase in the Keychain.\n\nThe client finds the agent through the `SSH_AUTH_SOCK` environment variable, which points at a Unix socket. If ssh keeps asking for the passphrase, that variable is usually missing or stale (a common situation inside tmux or after `sudo`).\n\nAnyone who can access your agent socket can use your keys while they are loaded, which is why **agent forwarding** (`-A`) to untrusted servers is risky; the jump hosts lesson shows the safer alternative.",
+   "code": "ssh-add -l                     # list loaded keys (or: no identities)\neval \"$(ssh-agent -s)\"         # start an agent if none is running\nssh-add ~/.ssh/id_ed25519      # asks for the passphrase once\nssh-add -t 8h ~/.ssh/work_ed25519\necho \"$SSH_AUTH_SOCK\"          # /tmp/ssh-XXXX/agent.1234\nssh-add -D                     # forget all keys\n\n# ~/.ssh/config\n# Host *\n#   AddKeysToAgent yes\n#   UseKeychain yes            # macOS only",
+   "code_lang": "bash",
+   "takeaways": [
+    "The agent signs with decrypted keys so you enter the passphrase once",
+    "ssh-add -l / ssh-add key / ssh-add -D",
+    "SSH_AUTH_SOCK tells clients where the agent is"
+   ],
+   "pitfalls": [
+    "Running eval $(ssh-agent) in every shell, starting dozens of agents; reuse the desktop's agent."
+   ],
+   "quiz": [
+    {
+     "q": "ssh keeps asking for your key's passphrase even though you ran ssh-add earlier in another terminal. Most likely?",
+     "options": [
+      "The key expired",
+      "The server rejected the key",
+      "This shell's SSH_AUTH_SOCK points to a different or no agent",
+      "ssh-add only works once per boot"
+     ],
+     "answer": 2,
+     "explain": "Each shell finds the agent through SSH_AUTH_SOCK; if it is unset or points elsewhere, the loaded key is not visible."
+    }
+   ],
+   "docs": "https://man.openbsd.org/ssh-agent",
+   "requires": [
+    "ssh.key-pairs"
+   ]
+  },
+  {
+   "id": "ssh.config-file",
+   "name": "~/.ssh/config: hosts and aliases",
+   "module": "config",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Describe hosts once in ~/.ssh/config with Host blocks so ssh web just works with the right user, port and key.",
+   "why": "A good config file replaces long command lines and is used by every SSH-based tool, from scp to Git to VS Code.",
+   "body": "`~/.ssh/config` stores per-host settings. A **Host** line starts a block that applies to matching host names (patterns with `*` and `?` work):\n\n- `HostName` is the real address; the `Host` name becomes an alias.\n- `User`, `Port`, `IdentityFile` set the login name, port and key.\n- `IdentitiesOnly yes` offers only the listed key, avoiding \"Too many authentication failures\" when the agent holds many keys.\n- `ServerAliveInterval 60` sends keepalives so idle connections through NAT or firewalls do not drop.\n\nThe crucial rule: for each option, **the first value found wins**. ssh reads the file top to bottom and keeps the first match, so put specific `Host` blocks first and general defaults (`Host *`) at the end. Command-line `-o` options beat everything in the file.\n\nEvery tool that uses OpenSSH honours this file: `scp web:file .`, `rsync`, `git clone git@github-work:org/repo.git` and editors' remote features all use the alias.\n\nTo see what ssh will actually use for a host, run `ssh -G web`; it prints the fully resolved configuration. `Include ~/.ssh/config.d/*` lets you split a large config into files (put it near the top).",
+   "code": "# ~/.ssh/config\nHost web\n    HostName 203.0.113.10\n    User deploy\n    IdentityFile ~/.ssh/work_ed25519\n    IdentitiesOnly yes\n\nHost github-work\n    HostName github.com\n    User git\n    IdentityFile ~/.ssh/work_ed25519\n\nHost *\n    ServerAliveInterval 60\n    AddKeysToAgent yes\n\n# usage:  ssh web     scp app.tgz web:/tmp/     git clone git@github-work:acme/api.git\n# check:  ssh -G web | grep -E '^(user|hostname|port) '",
+   "code_lang": "ssh-config",
+   "takeaways": [
+    "Host blocks define aliases with HostName, User, Port, IdentityFile",
+    "First obtained value wins: specific blocks first, Host * last",
+    "ssh -G host prints the effective settings"
+   ],
+   "pitfalls": [
+    "Putting Host * with a User at the top; it then overrides every later block's User."
+   ],
+   "quiz": [
+    {
+     "q": "Your config has `Host *` with `User root` at the top and `Host web` with `User deploy` below. Which user does `ssh web` use?",
+     "options": [
+      "deploy",
+      "root",
+      "Your local username",
+      "ssh refuses the conflicting config"
+     ],
+     "answer": 1,
+     "explain": "For each option the first obtained value is used, and Host * matched first."
+    },
+    {
+     "q": "Which command shows the configuration ssh will really use for a host?",
+     "options": [
+      "ssh -v host",
+      "ssh -T host",
+      "cat ~/.ssh/config",
+      "ssh -G host"
+     ],
+     "answer": 3,
+     "explain": "-G prints the resolved configuration after applying all Host and Match blocks, then exits."
+    }
+   ],
+   "docs": "https://man.openbsd.org/ssh_config",
+   "requires": [
+    "ssh.authorized-keys"
+   ]
+  },
+  {
+   "id": "ssh.file-transfer",
+   "name": "scp, sftp and rsync over SSH",
+   "module": "files",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Copy files with scp, browse interactively with sftp, and sync directories efficiently with rsync over SSH.",
+   "why": "Moving builds, logs and backups between machines is a constant task, and the right tool saves time and bandwidth.",
+   "body": "Three tools copy files over SSH, and all of them use your `~/.ssh/config` aliases and keys.\n\n**scp** copies like `cp`, with `host:path` for remote locations: `scp app.tgz web:/tmp/`, `scp web:/var/log/app.log .`, `-r` for directories, `-P` (capital) for the port. Since OpenSSH 9.0, scp uses the SFTP protocol underneath, which fixed old quoting and security problems with remote paths.\n\n**sftp** is an interactive session (`ls`, `cd`, `get`, `put`, `lcd` for the local side) and can be scripted with `-b batchfile`. It is also what many GUI clients speak.\n\n**rsync** (a separate program, which must be installed on both ends) is the best choice for directories and repeated copies: it transfers only the differences, can resume, and preserves permissions and times with `-a`.\n\n- `rsync -avz src/ web:/srv/app/` syncs the **contents** of `src` into `/srv/app`.\n- Without the trailing slash, `src` itself is created inside the target. This trailing-slash rule is the classic rsync gotcha.\n- `--delete` removes files on the target that no longer exist in the source; preview with `-n` (dry run) first.\n- `-e 'ssh -p 2222'` passes ssh options.\n\nFor a quick one-off file, scp is fine; for anything recurring or large, use rsync.",
+   "code": "scp app.tgz web:/tmp/                  # local -> remote\nscp web:/var/log/app.log ./logs/       # remote -> local\nscp -r -P 2222 dist/ deploy@host:/srv/ # directory, custom port\n\nsftp web\n# sftp> get /var/log/app.log\n# sftp> put build.zip /tmp/\n\nrsync -avz --delete -n dist/ web:/srv/app/   # dry run: what would change\nrsync -avz --delete dist/ web:/srv/app/      # sync contents of dist/\nrsync -avz -e 'ssh -p 2222' data/ backup:/data/",
+   "code_lang": "bash",
+   "takeaways": [
+    "scp for quick copies, sftp for interactive sessions, rsync for directories",
+    "rsync src/ copies contents; rsync src copies the directory itself",
+    "Dry-run rsync --delete with -n before running it for real"
+   ],
+   "pitfalls": [
+    "Running rsync --delete with the wrong trailing slash or target; always dry-run first."
+   ],
+   "quiz": [
+    {
+     "q": "What is the difference between `rsync -a src web:/dst/` and `rsync -a src/ web:/dst/`?",
+     "options": [
+      "None",
+      "The first deletes /dst",
+      "The second only copies new files",
+      "The first creates /dst/src, the second copies src's contents into /dst"
+     ],
+     "answer": 3,
+     "explain": "A trailing slash on the source means 'the contents of', otherwise the directory itself is copied."
+    }
+   ],
+   "docs": "https://man.openbsd.org/scp",
+   "requires": [
+    "ssh.remote-commands",
+    "ssh.config-file"
+   ]
+  },
+  {
+   "id": "ssh.local-forwarding",
+   "name": "Local port forwarding (-L)",
+   "module": "tunnels",
+   "level": 2,
+   "minutes": 10,
+   "summary": "ssh -L 5433:localhost:5432 db makes a remote service, such as a database, appear on a port of your own machine.",
+   "why": "Tunnels let you reach databases and admin UIs that are deliberately not exposed to the internet.",
+   "body": "**Local forwarding** opens a listening port on your machine and forwards every connection on it, through the SSH connection, to a destination as seen **from the server**.\n\nThe syntax is `-L [bind_address:]local_port:destination:destination_port`.\n\n- `ssh -L 5433:localhost:5432 db` forwards your port 5433 to port 5432 on the `db` server itself (`localhost` is resolved on the server side). Now `psql -h localhost -p 5433` talks to the remote PostgreSQL.\n- `ssh -L 8080:internal-api:80 bastion` reaches a host that only the bastion can see.\n\nUseful companions:\n\n- `-N` runs no remote command (just the tunnel), `-f` goes to the background after authentication.\n- `ExitOnForwardFailure yes` makes ssh exit if the port cannot be bound, instead of connecting without a tunnel.\n- The listener binds to loopback by default, so only your machine can use it; binding to `0.0.0.0` would expose it to your network.\n\nForwards can live in `~/.ssh/config` as `LocalForward 5433 localhost:5432`. Traffic is encrypted between you and the SSH server; from there to the destination it travels in the clear, so a destination on the server itself (`localhost`) is the safest pattern.",
+   "code": "# expose the remote PostgreSQL on local port 5433\nssh -N -L 5433:localhost:5432 deploy@db.example.com\npsql -h localhost -p 5433 -U app shop      # in another terminal\n\n# reach a service only visible from the bastion, in the background\nssh -f -N -o ExitOnForwardFailure=yes -L 8080:grafana.internal:3000 bastion\ncurl -s localhost:8080/api/health\n\n# ~/.ssh/config\n# Host db-tunnel\n#     HostName db.example.com\n#     LocalForward 5433 localhost:5432",
+   "code_lang": "bash",
+   "takeaways": [
+    "-L local_port:dest:dest_port, with dest resolved on the server",
+    "-N for tunnel only, -f to background, ExitOnForwardFailure for safety",
+    "Listeners bind to localhost unless you say otherwise"
+   ],
+   "pitfalls": [
+    "Reading 'localhost' in -L as your own machine; it is relative to the SSH server."
+   ],
+   "quiz": [
+    {
+     "q": "In `ssh -L 9000:localhost:80 web`, which machine does `localhost` refer to?",
+     "options": [
+      "Your laptop",
+      "The server web",
+      "Any machine on your LAN",
+      "The DNS resolver"
+     ],
+     "answer": 1,
+     "explain": "The destination host is resolved and connected to from the SSH server's side."
+    }
+   ],
+   "docs": "https://man.openbsd.org/ssh#L",
+   "requires": [
+    "ssh.config-file"
+   ]
+  },
+  {
+   "id": "ssh.jump-hosts",
+   "name": "Bastions and ProxyJump",
+   "module": "tunnels",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Reach private machines through a bastion host with ssh -J or ProxyJump, without copying keys to the bastion or forwarding your agent.",
+   "why": "Production networks usually hide servers behind a bastion; ProxyJump is the safe, simple way through.",
+   "body": "Many networks expose only one hardened **bastion** (jump host). Internal servers accept SSH only from it.\n\n`ssh -J bastion app1` connects to the bastion, asks it to open a TCP connection to `app1:22`, and runs a second, end-to-end encrypted SSH session to `app1` **through** that connection. Authentication to `app1` happens from your machine, with your local keys and agent. The bastion only relays encrypted bytes; it never sees your private key or the inner session's contents.\n\nIn `~/.ssh/config`:\n\n`Host app* db*` / `ProxyJump bastion` makes `ssh app1` transparent, and every tool (scp, rsync, Git, IDE remotes) inherits it. Several hops chain with commas: `-J hop1,hop2`.\n\nCompare with the old approach: log in to the bastion with **agent forwarding** (`ssh -A`) and ssh onward from there. That lets anyone with root on the bastion use your agent to authenticate as you to other servers for as long as you are connected. Prefer ProxyJump; if you must forward an agent, do it only to hosts you trust, and consider `ssh-add -c` so each use requires confirmation.\n\nProxyJump needs TCP forwarding allowed on the bastion (`AllowTcpForwarding`); `ProxyCommand` remains for unusual transports (e.g. a cloud provider's tunnel CLI).",
+   "code": "ssh -J alice@bastion.example.com alice@10.0.3.21     # one-off\n\n# ~/.ssh/config\nHost bastion\n    HostName bastion.example.com\n    User alice\nHost app-* db-*\n    ProxyJump bastion\n    User alice\nHost app-1\n    HostName 10.0.3.21\n\n# then simply:\n#   ssh app-1\n#   rsync -av build/ app-1:/srv/app/",
+   "code_lang": "ssh-config",
+   "takeaways": [
+    "ssh -J / ProxyJump hops through a bastion end-to-end",
+    "The bastion relays encrypted traffic and never holds your keys",
+    "Prefer ProxyJump over agent forwarding (-A)"
+   ],
+   "pitfalls": [
+    "Using ssh -A to every bastion; a compromised bastion can then use your agent."
+   ],
+   "quiz": [
+    {
+     "q": "Why is ProxyJump safer than logging into the bastion with -A and then sshing onward?",
+     "options": [
+      "Your agent is never exposed to the bastion; authentication to the target happens from your machine",
+      "It uses a stronger cipher",
+      "It hides the target's IP",
+      "It disables passwords"
+     ],
+     "answer": 0,
+     "explain": "With -A, the bastion can ask your agent to sign; with ProxyJump it only forwards encrypted bytes."
+    }
+   ],
+   "docs": "https://man.openbsd.org/ssh_config#ProxyJump",
+   "requires": [
+    "ssh.config-file",
+    "ssh.ssh-agent"
+   ]
+  },
+  {
+   "id": "ssh.remote-dynamic-forwarding",
+   "name": "Remote (-R) and dynamic (-D) forwarding",
+   "module": "tunnels",
+   "level": 3,
+   "minutes": 10,
+   "summary": "-R exposes a port of your machine on the server, and -D turns ssh into a SOCKS proxy for any destination.",
+   "why": "Reverse tunnels and SOCKS proxies solve 'show my local app to a remote host' and 'browse as if I were inside that network'.",
+   "body": "**Remote forwarding** is the mirror of `-L`: the **server** listens and forwards connections back to a destination as seen from **your** machine.\n\n`ssh -R 8080:localhost:3000 demo` makes port 8080 on `demo` reach the dev server on your laptop's port 3000. By default the remote listener binds to the server's loopback only; making it reachable from other machines needs `GatewayPorts yes` (or `clientspecified`) in the server's sshd_config. Remote forwarding is also how a machine behind NAT can offer a \"phone home\" tunnel, often kept alive with `autossh` or a systemd unit.\n\n**Dynamic forwarding** `-D 1080` starts a local **SOCKS5 proxy**. Each connection an application makes through it is forwarded to whatever destination it asks for, resolved and connected from the server. Point a browser or `curl --socks5-hostname localhost:1080` at it to reach internal dashboards as if you were on the server's network. `--socks5-hostname` (rather than `--socks5`) makes DNS resolution happen remotely, which internal names need.\n\nBoth appear in `~/.ssh/config` as `RemoteForward` and `DynamicForward`. Server admins control these features with `AllowTcpForwarding` (and `PermitListen` / `PermitOpen` for fine-grained limits).",
+   "code": "# share local dev server (port 3000) as port 8080 on the server's loopback\nssh -N -R 8080:localhost:3000 demo.example.com\n#   on demo:  curl localhost:8080   -> served by your laptop\n\n# SOCKS proxy through the bastion\nssh -N -D 1080 bastion\ncurl --socks5-hostname localhost:1080 http://grafana.internal:3000/api/health\n\n# ~/.ssh/config\n# Host bastion-proxy\n#     HostName bastion.example.com\n#     DynamicForward 1080",
+   "code_lang": "bash",
+   "takeaways": [
+    "-R remote_port:dest:port listens on the server, forwards to your side",
+    "-D port runs a SOCKS5 proxy; use remote DNS resolution",
+    "GatewayPorts and AllowTcpForwarding control these on the server"
+   ],
+   "pitfalls": [
+    "Expecting -R ports to be reachable from outside the server without GatewayPorts."
+   ],
+   "quiz": [
+    {
+     "q": "You run `ssh -D 1080 bastion` and want curl to resolve internal hostnames on the bastion side. Which option?",
+     "options": [
+      "--proxy http://localhost:1080",
+      "--socks5 localhost:1080",
+      "--socks5-hostname localhost:1080",
+      "--resolve internal:1080"
+     ],
+     "answer": 2,
+     "explain": "--socks5-hostname sends the hostname to the proxy, so resolution happens remotely."
+    }
+   ],
+   "docs": "https://man.openbsd.org/ssh#R",
+   "requires": [
+    "ssh.local-forwarding"
+   ]
+  },
+  {
+   "id": "ssh.sshd-hardening",
+   "name": "Configuring and hardening sshd",
+   "module": "server",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Lock down an SSH server: keys only, no root password logins, limited users, and safe config testing before reload.",
+   "why": "Internet-facing SSH servers are attacked constantly; a few sshd_config lines remove most of the risk.",
+   "body": "The server reads `/etc/ssh/sshd_config`. Many distributions include `/etc/ssh/sshd_config.d/*.conf` at the top of it, and like the client, sshd uses **the first value obtained** for each keyword, so a drop-in file wins over later lines in the main file.\n\nA sensible baseline once your key login works:\n\n- `PasswordAuthentication no` and `KbdInteractiveAuthentication no`: keys only, which defeats password-guessing bots.\n- `PermitRootLogin no` (the default is `prohibit-password`, which still allows root with a key). Log in as a user and use sudo.\n- `AllowUsers deploy alice` or `AllowGroups ssh-users` to restrict who can log in at all.\n- `AuthenticationMethods publickey` to be explicit; `MaxAuthTries 3` to limit guesses per connection.\n- `X11Forwarding no`, and `AllowTcpForwarding no` on hosts that do not need tunnels.\n\n**Apply changes safely.** Run `sudo sshd -t` to check syntax, keep your current session open, reload (`systemctl reload ssh` on Debian/Ubuntu, `sshd` on RHEL/Fedora), and test a **new** login from another terminal before closing the old one. Locking yourself out of a remote server is the classic mistake.\n\n`Match` blocks apply settings conditionally: `Match User backup` followed by `ForceCommand /usr/local/bin/backup-receiver` restricts one account. `sshd -T` prints the effective configuration. Rate limiting tools (fail2ban, firewall rules) complement, but do not replace, key-only auth.",
+   "code": "# /etc/ssh/sshd_config.d/10-hardening.conf\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\nAllowGroups ssh-users\nMaxAuthTries 3\nX11Forwarding no\n\nMatch User backup\n    ForceCommand /usr/local/bin/backup-receiver\n    AllowTcpForwarding no\n\n# apply safely (keep your current session open!)\n# sudo sshd -t && sudo systemctl reload ssh\n# sudo sshd -T | grep -i passwordauthentication",
+   "code_lang": "ssh-config",
+   "takeaways": [
+    "Keys only: PasswordAuthentication no, KbdInteractiveAuthentication no",
+    "PermitRootLogin no and AllowUsers/AllowGroups limit who gets in",
+    "sshd -t, reload, test a new login before closing the old session"
+   ],
+   "pitfalls": [
+    "Disabling passwords before confirming key login works for your account, then losing access."
+   ],
+   "quiz": [
+    {
+     "q": "You disabled password authentication and reloaded sshd. What should you do before closing your current session?",
+     "options": [
+      "Reboot the server",
+      "Delete known_hosts",
+      "Run ssh-keygen -R",
+      "Open a new terminal and confirm you can still log in"
+     ],
+     "answer": 3,
+     "explain": "Existing sessions survive a reload; a fresh login proves the new config does not lock you out."
+    }
+   ],
+   "docs": "https://man.openbsd.org/sshd_config",
+   "requires": [
+    "ssh.authorized-keys",
+    "ssh.config-file"
+   ]
+  },
+  {
+   "id": "ssh.multiplexing",
+   "name": "Connection multiplexing (ControlMaster)",
+   "module": "config",
+   "level": 4,
+   "minutes": 10,
+   "summary": "Reuse one authenticated SSH connection for many sessions with ControlMaster, ControlPath and ControlPersist.",
+   "why": "Multiplexing makes repeated ssh, scp, rsync and Ansible calls near-instant and reduces load on bastions.",
+   "body": "Every new SSH connection pays for a TCP handshake, key exchange and authentication, often hundreds of milliseconds, more through a bastion, plus a hardware-key touch if you use one. **Multiplexing** lets later sessions ride on an existing connection as additional **channels**.\n\nThree options:\n\n- `ControlMaster auto`: the first connection becomes the master and creates a control socket; later ones use it if present.\n- `ControlPath ~/.ssh/cm-%C`: where the socket lives. `%C` is a hash of host, port, user and jump settings, keeping paths short and unique (Unix socket paths are limited to about 100 bytes).\n- `ControlPersist 10m`: keep the master open in the background for ten minutes after the last session closes.\n\nControl the master with `-O`: `ssh -O check web` shows whether it is running, `ssh -O exit web` closes it, `ssh -O forward -L 5433:localhost:5432 web` adds a port forward to an existing connection.\n\nTrade-offs to know: all sessions share one TCP connection, so a stalled network stalls them all; connection-level options given to later commands (ciphers, compression, keepalives) are ignored because the master's settings apply; and if the server revokes your key, an open master still works until it closes. Ansible enables multiplexing by default for exactly the speed reason.",
+   "code": "# ~/.ssh/config\nHost *\n    ControlMaster auto\n    ControlPath ~/.ssh/cm-%C\n    ControlPersist 10m\n\n# first connection authenticates and becomes the master\nssh web 'true'\ntime ssh web 'true'          # real 0m0.05s instead of ~0.5s\nssh -O check web             # Master running (pid=4242)\nssh -O forward -L 5433:localhost:5432 web   # add a tunnel to it\nssh -O exit web              # Exit request sent.",
+   "code_lang": "ssh-config",
+   "takeaways": [
+    "ControlMaster auto + ControlPath + ControlPersist = reuse connections",
+    "%C in ControlPath gives a short unique socket name",
+    "ssh -O check/exit/forward manages the master"
+   ],
+   "pitfalls": [
+    "Changing options for a host while a master is running and seeing no effect; ssh -O exit first."
+   ],
+   "quiz": [
+    {
+     "q": "Three sessions share one ControlMaster connection and the network path stalls. What happens?",
+     "options": [
+      "All three stall, because they share one TCP connection",
+      "Only the oldest session stalls",
+      "Each session reconnects separately",
+      "The master moves to another socket"
+     ],
+     "answer": 0,
+     "explain": "Multiplexed sessions are channels on a single TCP connection, so they share its fate."
+    }
+   ],
+   "docs": "https://man.openbsd.org/ssh_config#ControlMaster",
+   "requires": [
+    "ssh.config-file",
+    "ssh.jump-hosts"
+   ]
+  },
+  {
+   "id": "ssh.certificates",
+   "name": "SSH certificates and CAs",
+   "module": "server",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Sign user and host keys with an SSH certificate authority so servers trust a CA instead of individual keys, with expiry built in.",
+   "why": "At scale, certificates replace sprawling authorized_keys and known_hosts files with short-lived, centrally issued credentials.",
+   "body": "Managing `authorized_keys` on hundreds of servers, and `known_hosts` on every laptop, does not scale. OpenSSH supports its own **certificates** (not X.509): a CA key signs a public key together with metadata.\n\n**User certificates.** The CA signs a user's public key with an identity, a list of **principals** (allowed login names) and a validity period:\n\n`ssh-keygen -s user_ca -I alice@corp -n alice,deploy -V +8h id_ed25519.pub` produces `id_ed25519-cert.pub`, which ssh picks up automatically next to the key. Servers need just one line, `TrustedUserCAKeys /etc/ssh/user_ca.pub`, and accept any valid certificate whose principals include the target account. Short validity (hours) means you rarely need revocation; `RevokedKeys` handles the rest.\n\n**Host certificates.** Sign each server's host key with `-h`: `ssh-keygen -s host_ca -h -I web1 -n web1.example.com ssh_host_ed25519_key.pub`, configure `HostCertificate` in sshd, and clients trust all of them with one known_hosts line: `@cert-authority *.example.com ssh-ed25519 AAAA...`. No more first-connect prompts or changed-key warnings after rebuilds.\n\n`ssh-keygen -L -f id_ed25519-cert.pub` shows a certificate's contents. Tools like Vault, step-ca and Teleport automate issuing certificates after an SSO login.",
+   "code": "# CA side: create CAs once, keep them very safe\nssh-keygen -t ed25519 -f user_ca -C \"user CA\"\nssh-keygen -t ed25519 -f host_ca -C \"host CA\"\n\n# issue an 8-hour certificate for alice, valid for logins as alice or deploy\nssh-keygen -s user_ca -I alice@corp -n alice,deploy -V +8h ~/.ssh/id_ed25519.pub\nssh-keygen -L -f ~/.ssh/id_ed25519-cert.pub     # inspect principals and validity\n\n# server: /etc/ssh/sshd_config\n#   TrustedUserCAKeys /etc/ssh/user_ca.pub\n#   HostCertificate /etc/ssh/ssh_host_ed25519_key-cert.pub\n# sign the host key:\nssh-keygen -s host_ca -h -I web1 -n web1.example.com /etc/ssh/ssh_host_ed25519_key.pub\n# client: ~/.ssh/known_hosts\n#   @cert-authority *.example.com ssh-ed25519 AAAAC3Nz... host CA",
+   "code_lang": "bash",
+   "takeaways": [
+    "A CA signs user keys (principals + validity) and host keys (-h)",
+    "Servers: TrustedUserCAKeys; clients: @cert-authority in known_hosts",
+    "Short-lived certificates make revocation mostly unnecessary"
+   ],
+   "pitfalls": [
+    "Forgetting -n principals: a certificate with no principals is not accepted for any login by default on servers using TrustedUserCAKeys."
+   ],
+   "quiz": [
+    {
+     "q": "What does a server need in order to accept user certificates from your CA?",
+     "options": [
+      "TrustedUserCAKeys pointing at the CA's public key",
+      "Every user's public key in authorized_keys",
+      "The CA's private key",
+      "An X.509 certificate chain"
+     ],
+     "answer": 0,
+     "explain": "The server only needs the CA public key; it then trusts any valid certificate with a matching principal."
+    }
+   ],
+   "docs": "https://man.openbsd.org/ssh-keygen#CERTIFICATES",
+   "requires": [
+    "ssh.sshd-hardening",
+    "ssh.host-keys"
+   ]
+  },
+  {
+   "id": "ssh.protocol-internals",
+   "name": "How the SSH protocol works",
+   "module": "server",
+   "level": 4,
+   "minutes": 15,
+   "summary": "SSH-2 layers a transport (key exchange, encryption, host auth), user authentication and multiplexed channels on one TCP connection.",
+   "why": "Understanding the layers explains debug output, algorithm errors, forwarding and multiplexing behaviour.",
+   "body": "SSH version 2 (RFC 4251-4254) is built in three layers over one TCP connection.\n\n**Transport layer.** Both sides send a version string, then exchange lists of supported algorithms and pick the first client preference the server also supports: key exchange, host key type, cipher and MAC. The **key exchange** (Diffie-Hellman style) produces shared session keys; the server signs the exchange with its **host key**, which is what your known_hosts check verifies. OpenSSH 10.0 defaults to the hybrid post-quantum `mlkem768x25519-sha256` key exchange, combining ML-KEM with X25519 so a future quantum computer cannot decrypt recorded traffic. Ciphers are typically `chacha20-poly1305@openssh.com` or AES-GCM. Keys are periodically re-exchanged (`RekeyLimit`).\n\n**User authentication.** Inside the encrypted transport the client tries methods (`publickey`, `password`, `keyboard-interactive`...). For publickey, the client signs data bound to the session ID, so a signature cannot be replayed on another connection.\n\n**Connection layer.** Everything else is **channels** multiplexed over the connection: an interactive session, an exec request, an `sftp` subsystem, each forwarded TCP connection (`direct-tcpip` for `-L`, `forwarded-tcpip` for `-R`), agent forwarding. That is why ControlMaster can add sessions cheaply.\n\n`ssh -vvv` shows each step; `ssh -Q kex` (or `cipher`, `key`) lists supported algorithms. Errors like \"no matching host key type found\" mean the algorithm negotiation found no overlap, typically with very old servers using deprecated algorithms (ssh-rsa with SHA-1, DSA, which 10.0 removed entirely).",
+   "code": "ssh -vvv web 2>&1 | grep -E 'kex: algorithm|host key algorithm|cipher|Authenticat'\n# debug1: kex: algorithm: mlkem768x25519-sha256\n# debug1: kex: host key algorithm: ssh-ed25519\n# debug1: kex: server->client cipher: chacha20-poly1305@openssh.com ...\n# debug1: Authenticated to web ([203.0.113.10]:22) using \"publickey\".\nssh -Q kex | head -3          # key exchange algorithms this client supports\nssh -Q key                    # supported key types\n# talking to a legacy device that only offers ssh-rsa (SHA-1):\nssh -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa old-switch",
+   "code_lang": "bash",
+   "takeaways": [
+    "Transport (kex, cipher, host key) -> user auth -> channels",
+    "Hybrid post-quantum key exchange is the default in OpenSSH 10",
+    "Forwards, sessions and sftp are all channels on one connection"
+   ],
+   "pitfalls": [
+    "Permanently re-enabling deprecated algorithms globally (Host *) instead of only for the one legacy host."
+   ],
+   "quiz": [
+    {
+     "q": "What is the host key signature during key exchange used for?",
+     "options": [
+      "Encrypting the session data",
+      "Proving the server's identity so the client can check known_hosts",
+      "Authenticating the user",
+      "Compressing traffic"
+     ],
+     "answer": 1,
+     "explain": "The server signs the exchange hash with its host key, binding the session to the identity in known_hosts."
+    },
+    {
+     "q": "A port forward with -L appears in the protocol as what?",
+     "options": [
+      "A direct-tcpip channel on the existing connection",
+      "A separate TCP connection to port 22",
+      "A new user authentication",
+      "An sftp subsystem"
+     ],
+     "answer": 0,
+     "explain": "Each forwarded connection is opened as a direct-tcpip channel multiplexed over the same SSH connection."
+    }
+   ],
+   "docs": "https://www.openssh.com/specs.html",
+   "requires": [
+    "ssh.host-keys",
+    "ssh.multiplexing"
+   ]
+  }
+ ]
+}

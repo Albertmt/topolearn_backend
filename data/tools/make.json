@@ -1,0 +1,585 @@
+{
+ "tool": {
+  "id": "make",
+  "name": "Make",
+  "category": "tool",
+  "tagline": "Rebuild only what changed: the classic dependency-driven build tool",
+  "description": "Make reads a Makefile of rules saying how each file is built from others and reruns only the steps whose inputs changed. It builds C and C++ projects, and many teams also use it as a simple, universal task runner for tests, linting and deploys.",
+  "icon": "mk",
+  "color": "#A42E2B",
+  "official_docs": "https://www.gnu.org/software/make/manual/make.html",
+  "version": "GNU Make 4.4",
+  "aliases": [
+   "gnu make",
+   "makefile",
+   "gmake"
+  ],
+  "requires": [
+   {
+    "tool": "bash",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Rules and targets"
+  },
+  {
+   "id": "variables",
+   "name": "Variables and functions"
+  },
+  {
+   "id": "patterns",
+   "name": "Patterns and recipes"
+  },
+  {
+   "id": "projects",
+   "name": "Real projects"
+  },
+  {
+   "id": "internals",
+   "name": "How make thinks"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "make.rules",
+   "name": "Rules: targets, prerequisites, recipes",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "A Makefile is a list of rules: a target, the prerequisites it depends on, and a tab-indented recipe of shell commands that builds it.",
+   "why": "Every Makefile, from a two-line task runner to a large C build, is made of this one construct.",
+   "body": "A **rule** has three parts:\n\n```\ntarget: prerequisites\n\trecipe line\n\trecipe line\n```\n\n- The **target** is usually a file the rule produces, such as `app` or `main.o`.\n- The **prerequisites** are files (or other targets) it is built from.\n- The **recipe** is one or more shell commands. Each recipe line must start with a **tab character**, not spaces. That is the most famous make error: `*** missing separator.  Stop.`\n\nRun `make target` to build a target, or plain `make` to build the **default goal**, which is the first target in the file (by convention named `all`).\n\nTo build a target, make first makes sure each prerequisite is up to date, recursively applying their rules, then runs the target's recipe if needed. So rules form a dependency graph, and make walks it from the bottom up.\n\nBefore running each recipe line make prints it (the echo can be silenced, as shown later). If a command fails (non-zero exit status), make stops immediately with an error, so later steps never run on broken inputs.\n\nA Makefile is normally called `Makefile` in the project root; `make -f other.mk` uses another file.",
+   "code": "app: main.o util.o\n\tcc -o app main.o util.o\n\nmain.o: main.c util.h\n\tcc -c main.c\n\nutil.o: util.c util.h\n\tcc -c util.c\n\n# $ make\n# cc -c main.c\n# cc -c util.c\n# cc -o app main.o util.o\n# $ make\n# make: 'app' is up to date.",
+   "code_lang": "makefile",
+   "takeaways": [
+    "target: prerequisites, then tab-indented recipe lines",
+    "Plain make builds the first target in the file",
+    "make stops at the first failing command"
+   ],
+   "pitfalls": [
+    "Indenting recipes with spaces (often an editor setting), which gives 'missing separator'."
+   ],
+   "quiz": [
+    {
+     "q": "What does make build when run with no arguments?",
+     "options": [
+      "The first target in the Makefile",
+      "A target named build",
+      "Nothing; a target is required",
+      "Every target in the file"
+     ],
+     "answer": 0,
+     "explain": "The first target in the file is the default goal unless .DEFAULT_GOAL says otherwise."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/make/manual/make.html#Rule-Introduction",
+   "requires": []
+  },
+  {
+   "id": "make.timestamps",
+   "name": "How make decides what to rebuild",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "make compares modification times: a target is rebuilt when it doesn't exist or any prerequisite is newer than it.",
+   "why": "This rule is the whole point of make, and knowing it explains every 'why did/didn't it rebuild?' question.",
+   "body": "make's core rule is simple: a target is **out of date** if the file doesn't exist, or if any of its prerequisites has a **newer modification time** than it. Out-of-date targets have their recipe run; up-to-date ones are skipped.\n\nBecause the check is applied recursively, editing one source file rebuilds exactly the chain above it: `util.c` changes, so `util.o` is rebuilt, which makes it newer than `app`, so `app` is relinked, while `main.o` is left alone.\n\nConsequences you'll meet:\n\n- A recipe must actually **create or update** the target file. If it doesn't, make thinks the target is missing every time and reruns it.\n- Listing every real input as a prerequisite matters. If `main.c` includes `util.h` but the rule doesn't list it, editing the header won't trigger a rebuild, and you get stale, confusing builds.\n- `touch file` makes a file newer and forces dependents to rebuild; `make -B` rebuilds everything unconditionally.\n- `make -n` (dry run) prints what would be executed without running it: the best way to check your rules.\n- Timestamps can mislead: switching Git branches, copying files with preserved times, or clock skew across network filesystems can make make skip work it should do. When in doubt, `make clean` and rebuild.",
+   "code": "out.txt: in.txt\n\ttr a-z A-Z < in.txt > out.txt\n\n# $ echo hello > in.txt\n# $ make            -> tr a-z A-Z < in.txt > out.txt\n# $ make            -> make: 'out.txt' is up to date.\n# $ touch in.txt\n# $ make -n         -> tr a-z A-Z < in.txt > out.txt   (printed, not run)\n# $ make            -> runs the recipe again\n# $ make -B         -> rebuilds even if up to date",
+   "code_lang": "makefile",
+   "takeaways": [
+    "A target is rebuilt if it is missing or older than any prerequisite",
+    "List every input, including headers, as a prerequisite",
+    "make -n shows what would run; make -B forces a rebuild"
+   ],
+   "pitfalls": [
+    "A recipe that never creates its target file, so it runs on every make."
+   ],
+   "quiz": [
+    {
+     "q": "app depends on a.o and b.o. You edit only b.c. What does a correct Makefile rebuild?",
+     "options": [
+      "Only b.o",
+      "a.o and b.o",
+      "Everything",
+      "b.o and app"
+     ],
+     "answer": 3,
+     "explain": "b.o becomes older than b.c, and the new b.o is newer than app, so both are rebuilt while a.o is untouched."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/make/manual/make.html#How-Make-Works",
+   "requires": [
+    "make.rules"
+   ]
+  },
+  {
+   "id": "make.phony",
+   "name": "Phony targets and make as a task runner",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Declare targets that aren't files (all, clean, test) with .PHONY, and use a Makefile as a project's command menu.",
+   "why": "Most Makefiles in modern projects are task runners, and .PHONY is what makes them reliable.",
+   "body": "Targets such as `clean`, `test` or `run` don't produce a file named after themselves. That works by accident until someone creates a file or directory called `test`: make sees it exists with no prerequisites, decides it is up to date and silently does nothing.\n\nDeclare such targets **phony**:\n\n```make\n.PHONY: all clean test\n```\n\nA phony target is always considered out of date, so its recipe always runs, and make doesn't look for a file with that name.\n\nConventions worth following:\n\n- `all` is the first target and builds everything; `clean` removes generated files; `test`, `lint`, `install` do what they say.\n- A phony target can depend on other targets: `check: lint test` runs both.\n- Use `rm -f` in `clean` so it doesn't fail when files are already gone.\n\nAs a **task runner**, make gives every project the same entry points (`make test`, `make run`), handles dependencies between tasks, and is installed almost everywhere. A self-documenting `help` target is a common touch: put `## description` after each target and print them with a little grep and awk.\n\nSet `.DEFAULT_GOAL := help` if you'd rather show help than build when someone types just `make`.",
+   "code": ".PHONY: help test lint check clean\n.DEFAULT_GOAL := help\n\nhelp:  ## show this help\n\t@grep -E '^[a-z]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf \"%-8s %s\\n\", $$1, $$2}'\n\ntest:  ## run the tests\n\tpython3 -m pytest -q\n\nlint:  ## check style\n\truff check .\n\ncheck: lint test  ## lint, then test\n\nclean:  ## remove build output\n\trm -rf build dist .pytest_cache\n\n# $ make\n# help     show this help\n# test     run the tests\n# ...",
+   "code_lang": "makefile",
+   "takeaways": [
+    "Mark non-file targets with .PHONY so they always run",
+    "Conventional targets: all, clean, test, install",
+    "A phony target can just depend on others, like check: lint test"
+   ],
+   "pitfalls": [
+    "Forgetting .PHONY and a directory named test or build makes the target silently do nothing."
+   ],
+   "quiz": [
+    {
+     "q": "A project has a directory called docs and a rule docs: with no .PHONY. What does make docs do?",
+     "options": [
+      "Fails with an error",
+      "Always runs the recipe",
+      "Reports docs is up to date and runs nothing",
+      "Deletes the directory"
+     ],
+     "answer": 2,
+     "explain": "The file docs exists and has no prerequisites newer than it, so make considers the target up to date."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/make/manual/make.html#Phony-Targets",
+   "requires": [
+    "make.rules"
+   ]
+  },
+  {
+   "id": "make.variables",
+   "name": "Variables: =, :=, ?= and +=",
+   "module": "variables",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Define and use variables with $(NAME), and know the difference between recursive =, simple :=, conditional ?= and append +=.",
+   "why": "Variables keep compilers, flags and file lists in one place and let users override them from the command line.",
+   "body": "Variables hold text. Define them at the top of the Makefile and reference them as `$(NAME)` (or `${NAME}`). Conventional names: `CC` and `CXX` (compilers), `CFLAGS`, `CXXFLAGS`, `CPPFLAGS`, `LDFLAGS`, `LDLIBS`.\n\nThere are four assignment operators:\n\n- `=` **recursive**: the value is stored as written and expanded **every time** it's used. Later changes to variables it references are seen.\n- `:=` (or `::=`) **simple**: the right-hand side is expanded **once**, right now. Predictable and cheaper; prefer it for computed values.\n- `?=` assigns only if the variable isn't already set, a way to provide defaults that environment variables can override.\n- `+=` appends, with a space.\n\nValues can come from several places, in increasing priority: environment variables, the Makefile, and the **command line**. `make CFLAGS=-O0` overrides the Makefile's assignment entirely (unless it uses `override`).\n\nA dollar sign in a Makefile always starts a make variable, so `$HOME` means `$(H)` followed by `OME`. Write `$(HOME)` to use the environment variable through make, or `$$HOME` to pass a literal `$HOME` to the shell. Single-letter variables like `$@` don't need parentheses.\n\nWhitespace matters: trailing spaces after a value are kept, which can break paths.",
+   "code": "PREFIX  ?= /usr/local\nCFLAGS  := -Wall -O2\nCFLAGS  += -g\nSRC     := main.c util.c\n\nA = $(B)\nB = later\nX := $(Y)\nY = later\n\nshow:\n\t@echo \"PREFIX=$(PREFIX) CFLAGS=$(CFLAGS)\"\n\t@echo \"A=$(A) X=$(X)\"\n\t@echo \"home via make: $(HOME), via shell: $$HOME\"\n\n# $ make show\n# PREFIX=/usr/local CFLAGS=-Wall -O2 -g\n# A=later X=\n# $ make show CFLAGS=-O0\n# PREFIX=/usr/local CFLAGS=-O0\n# $ PREFIX=/opt make show\n# PREFIX=/opt CFLAGS=-Wall -O2 -g",
+   "code_lang": "makefile",
+   "takeaways": [
+    "= expands at use time, := expands once at definition",
+    "?= sets a default, += appends",
+    "Command-line assignments override the Makefile; use $$ for a literal shell $"
+   ],
+   "pitfalls": [
+    "Writing $HOME or $PATH in a recipe; make reads it as $(H)OME. Use $$HOME.",
+    "Writing CC ?= gcc: make predefines CC as cc, so the default never applies. Use CC := gcc or let users pass CC=."
+   ],
+   "quiz": [
+    {
+     "q": "Given X := $(Y) followed by Y = 1, what is $(X)?",
+     "options": [
+      "1",
+      "Empty",
+      "$(Y)",
+      "An error"
+     ],
+     "answer": 1,
+     "explain": ":= expands immediately, and Y was not yet defined at that point."
+    },
+    {
+     "q": "Which assignment lets an environment variable PREFIX take precedence?",
+     "options": [
+      "PREFIX ?= /usr",
+      "PREFIX += /usr",
+      "PREFIX = /usr",
+      "PREFIX := /usr"
+     ],
+     "answer": 0,
+     "explain": "?= only assigns when the variable has no value yet, including from the environment."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/make/manual/make.html#Flavors",
+   "requires": [
+    "make.rules",
+    "bash.variables"
+   ]
+  },
+  {
+   "id": "make.automatic-variables",
+   "name": "Automatic variables: $@, $<, $^",
+   "module": "patterns",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Write recipes once using automatic variables: $@ the target, $< the first prerequisite, $^ all prerequisites, $? the newer ones.",
+   "why": "They remove repetition from recipes and are essential for the pattern rules every real Makefile uses.",
+   "body": "Inside a recipe, make sets **automatic variables** describing the rule being run:\n\n- `$@` the target file name.\n- `$<` the first prerequisite.\n- `$^` all prerequisites, duplicates removed (`$+` keeps them, sometimes needed for link order).\n- `$?` the prerequisites that are newer than the target.\n- `$*` the stem matched by `%` in a pattern rule.\n- `$(@D)` and `$(@F)` the directory and file parts of `$@`.\n\nSo a link rule becomes `$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)`, the same text whatever the target is called.\n\nA common pattern is creating the output directory in the recipe: `@mkdir -p $(@D)` before writing into `build/obj/x.o`.\n\nAutomatic variables only have values **inside recipes**. Using `$@` in a prerequisite list or a variable definition outside a recipe doesn't work (GNU make's secondary expansion is the rare exception).\n\nThe order of prerequisites matters for `$<`: put the main source file first and headers after it, so `$<` is the `.c` file you want to compile.",
+   "code": "CC     := cc\nCFLAGS := -Wall -O2\n\nbuild/app: build/main.o build/util.o\n\t$(CC) -o $@ $^\n\nbuild/main.o: main.c util.h\n\t@mkdir -p $(@D)\n\t$(CC) $(CFLAGS) -c $< -o $@\n\nbuild/util.o: util.c util.h\n\t@mkdir -p $(@D)\n\t$(CC) $(CFLAGS) -c $< -o $@\n\n# $ make\n# cc -Wall -O2 -c main.c -o build/main.o\n# cc -Wall -O2 -c util.c -o build/util.o\n# cc -o build/app build/main.o build/util.o",
+   "code_lang": "makefile",
+   "takeaways": [
+    "$@ target, $< first prerequisite, $^ all prerequisites",
+    "$(@D) is the target's directory: mkdir -p $(@D) before writing",
+    "Automatic variables only exist inside recipes"
+   ],
+   "pitfalls": [
+    "Listing a header before the .c file, so $< passes the header to the compiler."
+   ],
+   "quiz": [
+    {
+     "q": "In the rule lib.a: x.o y.o z.o, after only y.o changed, what is $? in the recipe?",
+     "options": [
+      "lib.a",
+      "x.o",
+      "x.o y.o z.o",
+      "y.o"
+     ],
+     "answer": 3,
+     "explain": "$? lists only the prerequisites newer than the target."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/make/manual/make.html#Automatic-Variables",
+   "requires": [
+    "make.variables",
+    "make.timestamps"
+   ]
+  },
+  {
+   "id": "make.pattern-rules",
+   "name": "Pattern rules and built-in rules",
+   "module": "patterns",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Write one rule for many files with % patterns like %.o: %.c, and know make's built-in implicit rules and how to turn them off.",
+   "why": "Pattern rules are how a Makefile scales from two files to two hundred without growing.",
+   "body": "A **pattern rule** uses `%` to match any non-empty **stem**:\n\n```make\nbuild/%.o: src/%.c\n\t$(CC) $(CFLAGS) -c $< -o $@\n```\n\nTo build `build/net.o`, make matches the stem `net`, looks for `src/net.c` and runs the recipe with `$@` and `$<` filled in. One rule now covers every source file.\n\nCombine it with variables listing the objects, usually computed from the sources:\n\n```make\nSRC := $(wildcard src/*.c)\nOBJ := $(SRC:src/%.c=build/%.o)\n```\n\nmake also has **built-in implicit rules**. It already knows how to make `x.o` from `x.c` with `$(CC) $(CPPFLAGS) $(CFLAGS) -c`, and how to link `x` from `x.o`. That's why a Makefile containing only `app: app.o` can work. `make -p` prints all of them.\n\nBuilt-in rules are convenient for tiny projects but surprising in bigger ones, and they slow make down by trying many candidate rules. Many projects disable them with `MAKEFLAGS += --no-builtin-rules` and an empty `.SUFFIXES:` line, and write explicit pattern rules instead.\n\n**Static pattern rules** restrict a pattern to a list of targets: `$(OBJ): build/%.o: src/%.c`. They're more explicit and fail loudly when a source is missing.",
+   "code": "CC     := cc\nCFLAGS := -Wall -O2\nSRC    := $(wildcard src/*.c)\nOBJ    := $(SRC:src/%.c=build/%.o)\n\nMAKEFLAGS += --no-builtin-rules\n.SUFFIXES:\n\nbuild/app: $(OBJ)\n\t$(CC) -o $@ $^\n\nbuild/%.o: src/%.c\n\t@mkdir -p $(@D)\n\t$(CC) $(CFLAGS) -c $< -o $@\n\n.PHONY: clean\nclean:\n\trm -rf build\n\n# with src/main.c and src/util.c:\n# $ make\n# cc -Wall -O2 -c src/main.c -o build/main.o\n# cc -Wall -O2 -c src/util.c -o build/util.o\n# cc -o build/app build/main.o build/util.o",
+   "code_lang": "makefile",
+   "takeaways": [
+    "%.o: %.c matches any stem; $< and $@ fill in the names",
+    "Derive object lists from sources with $(SRC:src/%.c=build/%.o)",
+    "make has built-in rules; --no-builtin-rules makes builds explicit"
+   ],
+   "pitfalls": [
+    "A pattern rule silently not applying because the prerequisite path is wrong; make then reports 'No rule to make target'."
+   ],
+   "quiz": [
+    {
+     "q": "With the rule out/%.html: pages/%.md, what is the stem when building out/about.html?",
+     "options": [
+      "pages/about",
+      "out/about.html",
+      "about",
+      "about.md"
+     ],
+     "answer": 2,
+     "explain": "% matched the part between the fixed prefix out/ and suffix .html."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/make/manual/make.html#Pattern-Rules",
+   "requires": [
+    "make.automatic-variables"
+   ]
+  },
+  {
+   "id": "make.functions",
+   "name": "Text functions: wildcard, patsubst, foreach",
+   "module": "variables",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Compute file lists and flags with make's functions: wildcard, patsubst, subst, filter, addprefix, notdir, foreach and shell.",
+   "why": "Functions let a Makefile discover files and transform names instead of hard-coding every path.",
+   "body": "Function calls look like `$(name arg1,arg2)`. Note there is no space after commas unless you want it in the value. The most useful:\n\n- `$(wildcard src/*.c)` the files matching a glob (only ones that exist now).\n- `$(patsubst %.c,%.o,$(SRC))` replaces by pattern; the shorthand `$(SRC:.c=.o)` does the same for suffixes.\n- `$(subst from,to,text)` plain substring replacement.\n- `$(filter %.c,$(FILES))` keeps matching words; `filter-out` drops them.\n- `$(addprefix build/,$(OBJ))`, `$(addsuffix ...)`, `$(notdir ...)`, `$(dir ...)`, `$(basename ...)`.\n- `$(sort list)` sorts and **removes duplicates**; `$(words ...)`, `$(word n,...)`, `$(firstword ...)`.\n- `$(foreach v,list,text)` repeats text for each word.\n- `$(shell cmd)` runs a shell command and inserts its output (newlines become spaces).\n- `$(if cond,then,else)`, `$(error msg)`, `$(warning msg)`, `$(info msg)` for checks and debugging.\n\nmake thinks in **space-separated words**, so file names containing spaces are effectively unsupported. Keep build paths free of spaces.\n\nAssign function results with `:=` so they're evaluated once. With `=`, a `$(shell ...)` call would run again every time the variable is used.",
+   "code": "SRC   := $(wildcard src/*.c)\nOBJ   := $(patsubst src/%.c,build/%.o,$(SRC))\nNAMES := $(notdir $(basename $(SRC)))\nTESTS := $(filter test_%,$(NAMES))\nDIRS  := $(sort $(dir $(OBJ)) build/ build/)\nGIT   := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)\n\nifeq ($(SRC),)\n$(error no sources found in src/)\nendif\n\nshow:\n\t@echo SRC=$(SRC)\n\t@echo OBJ=$(OBJ)\n\t@echo NAMES=$(NAMES) TESTS=$(TESTS)\n\t@echo DIRS=$(DIRS) GIT=$(GIT)\n\t@echo $(foreach n,$(NAMES),bin/$(n))\n\n# with src/main.c, src/util.c, src/test_util.c:\n# SRC=src/main.c src/test_util.c src/util.c\n# OBJ=build/main.o build/test_util.o build/util.o\n# NAMES=main test_util util TESTS=test_util\n# DIRS=build/ GIT=none\n# bin/main bin/test_util bin/util",
+   "code_lang": "makefile",
+   "takeaways": [
+    "$(wildcard), $(patsubst) and $(SRC:.c=.o) build file lists",
+    "filter, addprefix, notdir, sort and foreach transform word lists",
+    "Assign $(shell ...) with := so it runs once"
+   ],
+   "pitfalls": [
+    "Adding a space after a comma, as in $(subst a, b,x), which puts the space into the result."
+   ],
+   "quiz": [
+    {
+     "q": "What does $(patsubst %.c,%.o,a.c b.h c.c) produce?",
+     "options": [
+      "a.o b.o c.o",
+      "a.o b.h c.o",
+      "a.o c.o",
+      "a.c b.h c.c"
+     ],
+     "answer": 1,
+     "explain": "Words that don't match the pattern are passed through unchanged."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/make/manual/make.html#Functions",
+   "requires": [
+    "make.variables"
+   ]
+  },
+  {
+   "id": "make.recipes-shell",
+   "name": "How recipes run in the shell",
+   "module": "patterns",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Each recipe line runs in its own shell; learn @, -, line continuations, $$, .ONESHELL, SHELL and .DELETE_ON_ERROR.",
+   "why": "Most confusing Makefile bugs are really about how recipe lines are handed to the shell.",
+   "body": "make passes each recipe line to a **separate** `/bin/sh -c` invocation. Shell state therefore doesn't carry over between lines: a `cd dir` on one line has no effect on the next, and neither does a shell variable assignment. Join dependent commands on one line with `&&`, or continue a line with a trailing backslash.\n\nLine prefixes:\n\n- `@` don't echo the command before running it.\n- `-` ignore a failure of this command and keep going.\n- `+` run even under `make -n` (used for recursive make calls).\n\nShell syntax and make syntax mix in recipes. make expands `$(VAR)` first, then the shell sees the result. So shell variables and command substitution need **doubled dollars**: `$$f`, `$$(date)`.\n\nUseful settings:\n\n- `SHELL := /bin/bash` and `.SHELLFLAGS := -eu -o pipefail -c` to use bash with strict mode.\n- `.ONESHELL:` runs the whole recipe in one shell, so `cd` and variables persist (only the first line's `@` and `-` apply).\n- `.DELETE_ON_ERROR:` deletes a target whose recipe failed. Without it, a half-written output file is newer than its inputs and the next `make` happily treats it as up to date.\n\nRecipes run sequentially within a rule and stop at the first non-zero exit status, unless the line has `-`.",
+   "code": "SHELL := /bin/bash\n.SHELLFLAGS := -eu -o pipefail -c\n.DELETE_ON_ERROR:\n\nwrong:\n\tcd /tmp\n\tpwd                       # still the project directory!\n\nright:\n\tcd /tmp && pwd            # /tmp\n\nloop:\n\t@for f in a b c; do \\\n\t  echo \"item $$f\"; \\\n\tdone                      # item a / item b / item c\n\ntolerant:\n\t-rm nonexistent-file      # error printed, but make continues\n\t@echo \"stamp: $$(date +%F)\"\n\nreport.txt: data.txt\n\tgrep -c ok data.txt | tee $@    # if grep fails, report.txt is deleted",
+   "code_lang": "makefile",
+   "takeaways": [
+    "Every recipe line runs in a new shell: use && or backslashes to join",
+    "@ silences, - ignores errors; $$ passes a literal $ to the shell",
+    ".DELETE_ON_ERROR removes half-written targets after a failure"
+   ],
+   "pitfalls": [
+    "Splitting cd build and make on two lines and running the second command in the wrong directory."
+   ],
+   "quiz": [
+    {
+     "q": "A recipe has two lines: export X=1, then echo $$X. What is printed?",
+     "options": [
+      "An empty line",
+      "$X",
+      "make: error",
+      "1"
+     ],
+     "answer": 0,
+     "explain": "Each line runs in a separate shell, so the export from the first line is gone in the second."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/make/manual/make.html#Execution",
+   "requires": [
+    "make.variables",
+    "bash.quoting",
+    "bash.exit-status"
+   ]
+  },
+  {
+   "id": "make.auto-dependencies",
+   "name": "Automatic header dependencies",
+   "module": "projects",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Let the compiler generate dependency files with -MMD -MP and include them, so editing a header rebuilds exactly the right objects.",
+   "why": "Hand-maintained header lists are always wrong eventually; generated dependencies keep incremental builds correct.",
+   "body": "An object file depends on its source **and every header it includes**, transitively. Listing headers by hand doesn't scale and quietly goes stale. Compilers can write the list for you while compiling:\n\n- `-MMD` writes a `.d` file next to the object (for example `build/main.d`) containing a make rule `build/main.o: src/main.c src/util.h ...`, excluding system headers.\n- `-MP` adds an empty phony rule for each header, so deleting or renaming a header doesn't break the build with \"No rule to make target\".\n\nThen include the generated files at the end of the Makefile:\n\n```make\n-include $(OBJ:.o=.d)\n```\n\nThe leading `-` ignores missing files: on the first build there are no `.d` files yet, and that's fine, because every object has to be compiled anyway. After that, each compile refreshes its `.d` file, so dependencies stay correct as includes change.\n\nThis works with GCC and Clang (`-MMD -MP`); MSVC has `/showIncludes` instead, one reason cross-platform C++ projects tend to use CMake. The same idea applies elsewhere: many tools can emit a dependency list (`sass --watch`, `go list -deps`) that a Makefile can include.\n\nAdd `CPPFLAGS += -MMD -MP` so the flags are part of the standard compile rule.",
+   "code": "CC       := cc\nCPPFLAGS := -MMD -MP -Isrc\nCFLAGS   := -Wall -O2\nSRC      := $(wildcard src/*.c)\nOBJ      := $(SRC:src/%.c=build/%.o)\n\nbuild/app: $(OBJ)\n\t$(CC) -o $@ $^\n\nbuild/%.o: src/%.c\n\t@mkdir -p $(@D)\n\t$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@\n\n-include $(OBJ:.o=.d)\n\n# build/main.d, written by the compiler:\n#   build/main.o: src/main.c src/util.h\n#   src/util.h:\n# $ touch src/util.h && make\n#   recompiles main.o and util.o (both include util.h), then relinks",
+   "code_lang": "makefile",
+   "takeaways": [
+    "-MMD -MP make the compiler write .d dependency files",
+    "-include $(OBJ:.o=.d) pulls them in and ignores missing ones",
+    "Headers are then tracked automatically and transitively"
+   ],
+   "pitfalls": [
+    "Omitting -MP, so deleting a header breaks the build until the .d files are removed."
+   ],
+   "quiz": [
+    {
+     "q": "Why is -include used instead of include for the .d files?",
+     "options": [
+      "include only works for Makefiles",
+      "-include runs the files as shell scripts",
+      "It is faster",
+      "The .d files don't exist before the first build, and that shouldn't be an error"
+     ],
+     "answer": 3,
+     "explain": "The dash makes missing files non-fatal; on a clean build every object is compiled anyway."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/make/manual/make.html#Automatic-Prerequisites",
+   "requires": [
+    "make.pattern-rules",
+    "make.functions"
+   ]
+  },
+  {
+   "id": "make.parallel",
+   "name": "Parallel builds with -j",
+   "module": "projects",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Run independent recipes concurrently with make -j, fix the missing dependencies that parallelism exposes, and use order-only prerequisites.",
+   "why": "Parallel builds cut build times by the number of cores, but only if the dependency graph is honest.",
+   "body": "`make -j8` runs up to eight recipes at once; `make -j$(nproc)` uses every core. make only starts a target once all its prerequisites are done, so a correct dependency graph is automatically parallel-safe.\n\nParallel builds **expose missing dependencies**. If `app` needs `gen/config.h` but the rule doesn't say so, a serial build may work by luck of ordering while `-j` builds fail randomly. Fix the graph rather than adding `.NOTPARALLEL`.\n\nTools for a precise graph:\n\n- **Order-only prerequisites**, after a `|`: `build/%.o: src/%.c | build` means \"build must exist first, but its timestamp doesn't matter\". Perfect for output directories, whose timestamps change whenever a file is added to them.\n- A **grouped target** `a.c a.h &: spec.y` (GNU make 4.3+) says one recipe produces several files together. A plain `a.c a.h: spec.y` means two independent rules, and under `-j` the generator may run twice at once.\n- `--output-sync=target` (`-O`) buffers each target's output so logs from parallel jobs don't interleave.\n\nWhen make calls itself recursively, use `$(MAKE)`, so the jobserver shares the job slots instead of each sub-make starting its own eight. `MAKEFLAGS += -j8` inside the Makefile is possible but surprises users; usually leave `-j` to the caller.",
+   "code": "SRC := $(wildcard src/*.c)\nOBJ := $(SRC:src/%.c=build/%.o)\n\nbuild/app: $(OBJ)\n\tcc -o $@ $^\n\n# order-only: the directory must exist, its timestamp is ignored\nbuild/%.o: src/%.c gen/version.h | build\n\tcc -Igen -c $< -o $@\n\nbuild:\n\tmkdir -p $@\n\n# grouped target: one run of the generator produces both files\ngen/version.h gen/version.c &: version.txt\n\t@mkdir -p gen\n\t./mkversion.sh version.txt gen/version.h gen/version.c\n\n# $ make -j\"$(nproc)\" -O",
+   "code_lang": "makefile",
+   "takeaways": [
+    "make -jN runs independent recipes in parallel",
+    "Random -j failures mean the dependency graph is missing an edge",
+    "Use | for order-only prerequisites (directories) and &: for grouped targets"
+   ],
+   "pitfalls": [
+    "Making object files depend normally on their output directory, so every new file in it triggers rebuilds."
+   ],
+   "quiz": [
+    {
+     "q": "Why put an output directory after | in a prerequisite list?",
+     "options": [
+      "Because directories can't be normal prerequisites",
+      "To build it in parallel",
+      "So it must exist first but its changing timestamp never forces rebuilds",
+      "To delete it after the build"
+     ],
+     "answer": 2,
+     "explain": "Order-only prerequisites impose ordering without participating in the out-of-date check."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/make/manual/make.html#Parallel",
+   "requires": [
+    "make.auto-dependencies",
+    "make.recipes-shell"
+   ]
+  },
+  {
+   "id": "make.conditionals-includes",
+   "name": "Conditionals, includes and configuration",
+   "module": "projects",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Adapt a Makefile with ifeq/ifdef, split it with include, and support build modes like DEBUG=1 and per-OS settings.",
+   "why": "Real builds need debug and release modes, platform differences and shared fragments without copy-paste.",
+   "body": "**Conditionals** are evaluated when make reads the Makefile, not when recipes run:\n\n```make\nifeq ($(DEBUG),1)\n  CFLAGS += -O0 -g\nelse\n  CFLAGS += -O2\nendif\n```\n\nAlso available: `ifneq`, `ifdef VAR` (true if the variable has a non-empty value), `ifndef`. Detect the platform with `UNAME_S := $(shell uname -s)` and `ifeq ($(UNAME_S),Darwin)`; on Windows `$(OS)` is `Windows_NT`.\n\nDon't indent conditional directives with a tab: lines beginning with a tab are treated as recipe lines.\n\n**include** reads other makefiles as if pasted in: `include config.mk` for shared settings, `-include local.mk` for optional per-developer overrides (not committed). make tries to **remake** included files: if there is a rule for `config.mk`, make builds it, then restarts reading. That powers generated configuration but can surprise you.\n\nFor build modes that should not mix, put outputs in separate directories (`build/debug`, `build/release`), so switching `DEBUG=1` doesn't leave you linking objects compiled with different flags. make doesn't track flag changes on its own; a common trick is a `build/flags.txt` file rewritten only when the flags change and listed as a prerequisite.\n\n`$(MAKECMDGOALS)` holds the targets given on the command line, handy to skip expensive includes when only `clean` was requested.",
+   "code": "UNAME_S := $(shell uname -s)\nMODE    := $(if $(filter 1,$(DEBUG)),debug,release)\nBUILD   := build/$(MODE)\n\nifeq ($(MODE),debug)\n  CFLAGS += -O0 -g -fsanitize=address\nelse\n  CFLAGS += -O2 -DNDEBUG\nendif\n\nifeq ($(UNAME_S),Darwin)\n  LDLIBS += -framework CoreFoundation\nendif\n\n-include local.mk          # optional, not in git\n\ninfo:\n\t@echo \"$(MODE) -> $(BUILD), CFLAGS=$(CFLAGS)\"\n\n# $ make info            -> release -> build/release, CFLAGS=-O2 -DNDEBUG\n# $ make info DEBUG=1    -> debug -> build/debug, CFLAGS=-O0 -g -fsanitize=address",
+   "code_lang": "makefile",
+   "takeaways": [
+    "ifeq/ifdef are evaluated while reading the Makefile",
+    "include shares fragments; -include makes them optional",
+    "Separate output directories per build mode"
+   ],
+   "pitfalls": [
+    "Indenting ifeq with a tab inside a rule area, so make treats it as a shell command."
+   ],
+   "quiz": [
+    {
+     "q": "When is ifeq ($(DEBUG),1) evaluated?",
+     "options": [
+      "Each time a recipe runs",
+      "When make reads the Makefile, before building anything",
+      "Only when the target named DEBUG is built",
+      "By the shell"
+     ],
+     "answer": 1,
+     "explain": "Conditionals are parse-time directives that decide which lines become part of the Makefile."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/make/manual/make.html#Conditionals",
+   "requires": [
+    "make.functions",
+    "make.phony"
+   ]
+  },
+  {
+   "id": "make.expansion-phases",
+   "name": "Two phases: reading and running",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Understand make's read phase and build phase, immediate versus deferred expansion, and how $(eval) and $(call) generate rules.",
+   "why": "This model explains every puzzling variable value and unlocks generating rules programmatically.",
+   "body": "GNU make works in **two phases**. In the **read phase** it parses all makefiles, expands what must be known now, and builds the dependency graph. In the **build phase** it decides what's out of date and runs recipes.\n\nEach construct is expanded either **immediately** (during reading) or **deferred** (when used later):\n\n- Immediate: the right side of `:=`, `::=` and `!=`, the targets and prerequisites of rules, and conditionals.\n- Deferred: the right side of `=` and `?=`, `define` blocks, and **recipes**, which are expanded only just before they run. `+=` keeps the flavour the variable already had.\n\nThat's why a recipe can use a variable defined further down the file, while a prerequisite list cannot.\n\n`$(call fn,a,b)` expands a variable with `$(1)`, `$(2)` bound to arguments: user-defined functions. `$(eval text)` takes text and parses it as **makefile syntax** during the read phase, so you can generate rules in a loop:\n\n```make\n$(foreach p,$(PROGRAMS),$(eval $(call PROGRAM_template,$(p))))\n```\n\nInside the template, anything that must survive until the `eval` parses it needs `$$`: one level of `$` is consumed by `call`, the second by `eval`. Debug templates by replacing `$(eval ...)` with `$(info ...)` to print the generated text.",
+   "code": "PROGRAMS := server client\nserver_SRC := server.c net.c\nclient_SRC := client.c net.c\n\ndefine PROGRAM_template\n$(1): $$($(1)_SRC:.c=.o)\n\t$$(CC) -o $$@ $$^\nALL += $(1)\nendef\n\n$(foreach p,$(PROGRAMS),$(eval $(call PROGRAM_template,$(p))))\n\nall: $(ALL)\n\nshow:\n\t@echo \"ALL=$(ALL)\"\n\t@echo \"late=$(LATE)\"\n\n# recipes are expanded later, so a variable defined below the rule works\nLATE = defined after the rule\n\n# $(info $(call PROGRAM_template,server)) would print:\n#   server: $(server_SRC:.c=.o)\n#   \t$(CC) -o $@ $^\n#   ALL += server",
+   "code_lang": "makefile",
+   "takeaways": [
+    "Read phase builds the graph; build phase runs recipes",
+    ":= is immediate, = and ?= are deferred, recipes expand just before running",
+    "$(eval $(call template,...)) generates rules; escape with $$"
+   ],
+   "pitfalls": [
+    "Using a variable in a prerequisite list before it is defined in the file; prerequisites are expanded immediately."
+   ],
+   "quiz": [
+    {
+     "q": "Why can a recipe use a variable that is only assigned near the end of the Makefile?",
+     "options": [
+      "Recipes are expanded only when they are about to run, after all makefiles are read",
+      "Variables are global",
+      "It can't; this is an error",
+      "make reads the file twice"
+     ],
+     "answer": 0,
+     "explain": "Recipe expansion is deferred to the build phase, by which time the whole file has been parsed."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/make/manual/make.html#Reading-Makefiles",
+   "requires": [
+    "make.conditionals-includes",
+    "make.functions"
+   ]
+  },
+  {
+   "id": "make.nonrecursive",
+   "name": "Recursive versus non-recursive make",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Why calling make in each subdirectory hides dependencies and slows builds, and how a single non-recursive Makefile with includes fixes it.",
+   "why": "Large Makefile-based projects live or die by this design choice.",
+   "body": "A common layout has a top-level Makefile that runs `$(MAKE) -C lib` and `$(MAKE) -C app`, each directory with its own Makefile. It's simple, but it has well-known problems, described in Peter Miller's paper \"Recursive Make Considered Harmful\":\n\n- Each sub-make sees only **part of the dependency graph**. If `app` depends on a header generated in `lib`, the top level must order the sub-makes by hand, and getting it wrong yields stale or broken builds.\n- Parallelism suffers: sub-makes are serialized at directory boundaries, and each one re-reads and re-stats files.\n- Even a no-op build runs every sub-make.\n\nThe **non-recursive** alternative: one make process, one complete graph. Each directory contributes a fragment (`lib/module.mk`) that adds to shared variables and defines rules with paths relative to the root, and the top-level Makefile includes them all. make then knows every edge, parallelises across directories and does nothing when nothing changed.\n\nIf you do recurse (for vendored projects with their own Makefiles, for instance), always call `$(MAKE)`, not `make`: it passes flags such as `-j` and `-n` and connects to the jobserver. Variables reach sub-makes only if exported (`export CFLAGS`) or passed on the command line.\n\nAt large scale, generators like CMake (producing Ninja files) or Meson usually replace hand-written Makefiles altogether.",
+   "code": "# top-level Makefile: one make, one complete graph\nCFLAGS  := -Wall -O2 -Iinclude\nOBJ     :=\nPROGS   :=\n# the fragments define targets first, so name the default goal\n.DEFAULT_GOAL := all\n\ninclude lib/module.mk\ninclude app/module.mk\n\nall: $(PROGS)\n\n%.o: %.c\n\t$(CC) $(CFLAGS) -c $< -o $@\n\n# ---- lib/module.mk ----\n# LIB_OBJ := lib/strings.o lib/hash.o\n# OBJ += $(LIB_OBJ)\n# lib/libcore.a: $(LIB_OBJ)\n# \t$(AR) rcs $@ $^\n\n# ---- app/module.mk ----\n# PROGS += app/app\n# app/app: app/main.o lib/libcore.a\n# \t$(CC) -o $@ $^",
+   "code_lang": "makefile",
+   "takeaways": [
+    "Recursive make splits the dependency graph into pieces that can't see each other",
+    "Non-recursive: include per-directory fragments into one Makefile",
+    "If you must recurse, call $(MAKE) so flags and the jobserver propagate"
+   ],
+   "pitfalls": [
+    "Calling plain make in a recipe, which ignores -j limits and -n dry runs."
+   ],
+   "quiz": [
+    {
+     "q": "What is the main correctness problem with recursive make?",
+     "options": [
+      "It can't build libraries",
+      "It always rebuilds everything",
+      "Sub-makes can't use variables",
+      "No single make process sees the whole dependency graph"
+     ],
+     "answer": 3,
+     "explain": "Cross-directory dependencies are invisible to each sub-make, so ordering must be hand-maintained."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/make/manual/make.html#Recursion",
+   "requires": [
+    "make.expansion-phases",
+    "make.parallel"
+   ]
+  },
+  {
+   "id": "make.debugging",
+   "name": "Debugging Makefiles",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Find out why make did or didn't rebuild something with -n, --trace, --debug, -p and $(info), and understand its common error messages.",
+   "why": "Make's terse errors are easy once you know how to ask it what it's thinking.",
+   "body": "When a build does something unexpected, ask make directly:\n\n- `make -n` prints the commands it would run, without running them.\n- `make --trace` (4.0+) prints each recipe with the reason it ran, for example \"target 'build/x.o' does not exist\" or \"prerequisite 'src/x.c' is newer than target\".\n- `make --debug=b` (basic) or `--debug=v` (verbose) explains its decisions; `--debug=i` adds implicit-rule search, the answer to \"why was that weird built-in rule used?\".\n- `make -p` dumps the whole database after reading: every variable with its origin, and every rule. Combine with `-q` or a fake target to avoid building: `make -pq | less`.\n- `$(info VAR=$(VAR))`, `$(warning ...)` print during the read phase; `$(error ...)` stops.\n- `make -B -n target` shows the complete recipe chain for a target.\n\nCommon messages decoded:\n\n- `missing separator`: a recipe line not indented with a tab, or a stray line of text.\n- `No rule to make target 'X', needed by 'Y'`: a prerequisite doesn't exist and no rule (explicit or pattern) can create it; often a typo, a deleted header still in a `.d` file, or a pattern rule whose source path doesn't match.\n- `Circular X <- Y dependency dropped`: the graph has a cycle.\n- `target 'X' given more than once in the same rule` or `overriding recipe`: two recipes for one target, usually a copy-paste mistake.\n\n`$(origin VAR)` and `$(flavor VAR)` tell you where a variable came from and whether it's recursive or simple.",
+   "code": "# Makefile with a mistake: header path is wrong\nbuild/app.o: src/app.c src/app.hh\n\tcc -c $< -o $@\n\n$(info CC is '$(CC)' from $(origin CC), flavor $(flavor CC))\n\n# $ make build/app.o\n# CC is 'cc' from default, flavor recursive\n# make: *** No rule to make target 'src/app.hh', needed by 'build/app.o'.  Stop.\n\n# after fixing it:\n# $ touch src/app.c && make --trace build/app.o\n# Makefile:3: update target 'build/app.o' due to: src/app.c\n# cc -c src/app.c -o build/app.o\n\n# $ make -p -f /dev/null | grep -A2 '^%.o: %.c'\n# %.o: %.c\n# #  recipe to execute (built-in):\n# \t$(COMPILE.c) $(OUTPUT_OPTION) $<",
+   "code_lang": "makefile",
+   "takeaways": [
+    "--trace says why each recipe ran; -n shows what would run",
+    "-p dumps all variables and rules, including built-ins",
+    "'No rule to make target' means a missing file with no rule to create it"
+   ],
+   "pitfalls": [
+    "Guessing at rebuild problems instead of running make --trace or --debug=b, which states the reason."
+   ],
+   "quiz": [
+    {
+     "q": "make reports: No rule to make target 'util.h', needed by 'main.o'. What is the most likely cause?",
+     "options": [
+      "make needs -j",
+      "util.h has a syntax error",
+      "util.h doesn't exist (renamed or deleted) but is still listed, perhaps in a stale .d file",
+      "The recipe for main.o uses spaces"
+     ],
+     "answer": 2,
+     "explain": "make can't find the file and has no rule to create it, so the prerequisite list is out of date."
+    }
+   ],
+   "docs": "https://www.gnu.org/software/make/manual/make.html#Options-Summary",
+   "requires": [
+    "make.expansion-phases"
+   ]
+  }
+ ]
+}

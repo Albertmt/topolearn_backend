@@ -1,0 +1,666 @@
+{
+ "tool": {
+  "id": "neo4j",
+  "name": "Neo4j",
+  "category": "database",
+  "tagline": "Native graph database queried with Cypher, for highly connected data",
+  "description": "Neo4j is the most widely used graph database: it stores data as nodes and relationships and queries them with Cypher, a pattern-matching language. It shines where relationships are the point, such as recommendations, fraud detection, knowledge graphs, networks and access control. Learning it teaches you to model and query connected data far more naturally than with joins.",
+  "icon": "N4j",
+  "color": "#0A6190",
+  "official_docs": "https://neo4j.com/docs/",
+  "version": "2025.x (Cypher 5)",
+  "aliases": [
+   "cypher",
+   "neo4j graph database",
+   "graph db"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "model",
+   "name": "The graph model"
+  },
+  {
+   "id": "cypher",
+   "name": "Cypher basics"
+  },
+  {
+   "id": "querying",
+   "name": "Querying patterns"
+  },
+  {
+   "id": "schema",
+   "name": "Schema and data loading"
+  },
+  {
+   "id": "apps",
+   "name": "Applications"
+  },
+  {
+   "id": "internals",
+   "name": "Performance and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "neo4j.property-graph",
+   "name": "The property graph model",
+   "module": "model",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Data as nodes with labels, relationships with types and direction, and properties on both; and how to start a Neo4j instance.",
+   "why": "Every Cypher query and data model is built from these four ingredients, so this is the mental model for everything else.",
+   "body": "Neo4j stores a **property graph**:\n\n- **Nodes** are the entities: a person, a product, an account. A node can have zero or more **labels** such as `:Person` or `:Customer` that group nodes into roles.\n- **Relationships** connect two nodes. Each has exactly one **type** (`:FOLLOWS`, `:BOUGHT`), a **direction** from a start node to an end node, and always has both ends; there are no dangling relationships.\n- **Properties** are key/value pairs on nodes and relationships: `name: 'Ann'`, `since: 2021`. Values are strings, numbers, booleans, temporal and spatial types, or lists of those. There are no nested maps as property values.\n\nCompared with a relational database, relationships are stored data, not computed at query time with joins. Following a relationship costs the same whether the database holds a thousand or a billion nodes, which is why multi-hop questions (\"friends of friends who bought this\") stay fast.\n\nNeo4j is schema-optional: you can add labels, properties and relationship types as you go, and add constraints later.\n\nTo try it, create a free **Neo4j Aura** instance in the cloud, install **Neo4j Desktop**, or run `docker run -p 7474:7474 -p 7687:7687 neo4j`. Open **Neo4j Browser** at `http://localhost:7474` to run Cypher and see results drawn as a graph; applications connect over the Bolt protocol on port 7687.",
+   "code": "// A tiny graph, written as Cypher patterns:\n//\n//   (:Person {name: 'Ann'})-[:FOLLOWS {since: 2021}]->(:Person {name: 'Bob'})\n//   (:Person {name: 'Bob'})-[:WORKS_AT]->(:Company {name: 'Acme'})\n//\n// nodes:          (variable:Label {property: value})\n// relationships:  -[variable:TYPE {property: value}]->\n//\n// Ann  --FOLLOWS-->  Bob  --WORKS_AT-->  Acme\nRETURN 'nodes, relationships, labels, types, properties' AS model;",
+   "code_lang": "cypher",
+   "takeaways": [
+    "Nodes have labels; relationships have exactly one type and a direction",
+    "Both nodes and relationships carry properties",
+    "Relationships are stored, so traversals do not need joins",
+    "Use Aura Free, Desktop or Docker plus Neo4j Browser to start"
+   ],
+   "pitfalls": [
+    "Storing a relationship as a foreign-key-like property (author_id) instead of a real relationship."
+   ],
+   "quiz": [
+    {
+     "q": "Which statement about Neo4j relationships is true?",
+     "options": [
+      "They can exist without an end node",
+      "Each has exactly one type and a direction",
+      "They cannot have properties",
+      "They are computed at query time with joins"
+     ],
+     "answer": 1,
+     "explain": "A relationship always connects a start and end node, has one type, and can carry properties."
+    }
+   ],
+   "docs": "https://neo4j.com/docs/getting-started/graph-database/",
+   "requires": []
+  },
+  {
+   "id": "neo4j.create",
+   "name": "Creating nodes and relationships",
+   "module": "cypher",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Write data with CREATE using ASCII-art patterns: (nodes) and -[relationships]->.",
+   "why": "Cypher's pattern syntax is used for both writing and reading, so learning CREATE teaches the shape of every query.",
+   "body": "Cypher describes graph data with **ASCII-art patterns**. A node is written in parentheses, `(p:Person {name: 'Ann'})`, where `p` is a variable you can refer to later in the query, `:Person` a label and the braces hold properties. A relationship is written as an arrow with brackets, `-[:FOLLOWS {since: 2021}]->`.\n\n`CREATE` writes exactly the pattern you give it:\n\n```cypher\nCREATE (a:Person {name: 'Ann'})-[:FOLLOWS]->(b:Person {name: 'Bob'})\n```\n\ncreates two nodes and one relationship. Within one statement you can reuse variables to connect things you just created. To connect existing nodes, first find them with `MATCH`, then `CREATE` only the relationship.\n\nRelationships must have a type and a direction when created; you cannot create an undirected relationship. You can still ignore direction when querying.\n\n`CREATE` always creates new data. Running the same CREATE twice gives you two Anns, which is the most common beginner mistake. For \"create if it does not exist\", use `MERGE` (next lessons).\n\nA node can carry several labels, `(:Person:Employee)`. Labels and relationship types are conventionally `PascalCase` and `UPPER_SNAKE_CASE`; property keys are `camelCase`.",
+   "code": "// three people, a company, and who follows whom\nCREATE (ann:Person {name: 'Ann', born: 1990}),\n       (bob:Person {name: 'Bob', born: 1985}),\n       (cy:Person  {name: 'Cy',  born: 2001}),\n       (acme:Company {name: 'Acme'}),\n       (ann)-[:FOLLOWS {since: 2021}]->(bob),\n       (cy)-[:FOLLOWS {since: 2023}]->(bob),\n       (bob)-[:WORKS_AT]->(acme);\n\n// connect existing nodes: MATCH them, then CREATE the relationship\nMATCH (a:Person {name: 'Ann'}), (c:Person {name: 'Cy'})\nCREATE (a)-[:FOLLOWS {since: 2024}]->(c);\n// Added 1 relationship, set 1 property",
+   "code_lang": "cypher",
+   "takeaways": [
+    "Nodes `(v:Label {k: v})`, relationships `-[:TYPE {k: v}]->`",
+    "Variables connect parts of a pattern within one statement",
+    "CREATE always adds new data, even if identical data exists",
+    "Relationships are created with a type and a direction"
+   ],
+   "pitfalls": [
+    "Re-running a CREATE script and ending up with duplicate nodes."
+   ],
+   "quiz": [
+    {
+     "q": "You run CREATE (:Person {name: 'Ann'}) twice. How many Ann nodes exist?",
+     "options": [
+      "Two",
+      "One, because CREATE checks for duplicates",
+      "Zero; the second run deletes the first",
+      "It fails with an error"
+     ],
+     "answer": 0,
+     "explain": "CREATE never checks for existing data; use MERGE or a uniqueness constraint to prevent duplicates."
+    }
+   ],
+   "docs": "https://neo4j.com/docs/cypher-manual/current/clauses/create/",
+   "requires": [
+    "neo4j.property-graph"
+   ]
+  },
+  {
+   "id": "neo4j.match-return",
+   "name": "MATCH, WHERE and RETURN",
+   "module": "cypher",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Read data by describing a pattern with MATCH, filter it with WHERE, and shape output with RETURN, ORDER BY and LIMIT.",
+   "why": "Pattern matching is the core of Cypher; nearly every query starts with MATCH.",
+   "body": "`MATCH` finds all places in the graph where a pattern fits, binding variables for each match. `RETURN` says what to output.\n\n```cypher\nMATCH (p:Person)-[:FOLLOWS]->(other:Person)\nWHERE p.born < 1995\nRETURN p.name, other.name\nORDER BY p.name\nLIMIT 10\n```\n\nThings to know:\n\n- Properties in the pattern, `(p:Person {name: 'Ann'})`, are shorthand for equality conditions in `WHERE`.\n- `WHERE` supports comparisons, `AND/OR/NOT`, `IN [...]`, `STARTS WITH`, `CONTAINS`, `=~` regex and `IS NULL`. Missing properties are `null`.\n- Leaving out the arrowhead, `-[:FOLLOWS]-`, matches either direction.\n- `RETURN` can output nodes, relationships, properties, expressions and maps; `AS` renames columns and `DISTINCT` removes duplicates.\n- `ORDER BY`, `SKIP` and `LIMIT` work like in SQL.\n\nIf a pattern matches nothing, the query returns no rows. Each MATCH row is one way the pattern fits, so a person following three people appears in three rows.\n\nAlways include labels in patterns: `MATCH (n {name: 'Ann'})` without a label has to check every node in the database.",
+   "code": "// who does each person follow, oldest followers first\nMATCH (p:Person)-[f:FOLLOWS]->(other:Person)\nWHERE f.since >= 2021\nRETURN p.name AS follower, other.name AS follows, f.since AS since\nORDER BY p.born, since;\n// follower | follows | since\n// \"Ann\"    | \"Bob\"   | 2021\n// \"Ann\"    | \"Cy\"    | 2024\n// \"Cy\"     | \"Bob\"   | 2023\n\n// either direction: everyone connected to Bob by FOLLOWS\nMATCH (:Person {name: 'Bob'})-[:FOLLOWS]-(x:Person)\nRETURN collect(x.name) AS connected;   // [\"Ann\", \"Cy\"] (order may vary)",
+   "code_lang": "cypher",
+   "takeaways": [
+    "MATCH binds variables for every place a pattern fits",
+    "WHERE filters; inline `{k: v}` is shorthand for equality",
+    "Omit the arrowhead to match both directions",
+    "Always use labels so the planner can avoid scanning all nodes"
+   ],
+   "pitfalls": [
+    "Omitting labels in MATCH, forcing a scan of every node."
+   ],
+   "quiz": [
+    {
+     "q": "Ann follows Bob and Cy. How many rows does MATCH (a:Person {name:'Ann'})-[:FOLLOWS]->(x) RETURN a.name return?",
+     "options": [
+      "1",
+      "0",
+      "3",
+      "2"
+     ],
+     "answer": 3,
+     "explain": "Each match of the pattern is a row, and there are two FOLLOWS relationships from Ann."
+    }
+   ],
+   "docs": "https://neo4j.com/docs/cypher-manual/current/clauses/match/",
+   "requires": [
+    "neo4j.create"
+   ]
+  },
+  {
+   "id": "neo4j.merge-set-delete",
+   "name": "MERGE, SET and DELETE",
+   "module": "cypher",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Create data only if missing with MERGE, change properties and labels with SET and REMOVE, and delete with DETACH DELETE.",
+   "why": "Idempotent writes and safe deletes are essential for any import script or application.",
+   "body": "`MERGE` is \"match or create\": it looks for the whole pattern and creates it only if it does not exist. Combine it with `ON CREATE SET` and `ON MATCH SET` to set properties depending on which happened.\n\nThe key rule: **MERGE matches the entire pattern**. `MERGE (a:Person {name:'Ann'})-[:FOLLOWS]->(b:Person {name:'Bob'})` will create both nodes again if that exact path is missing, even if Ann and Bob exist. The safe idiom is to MERGE nodes on their key first, then MERGE the relationship between the bound variables.\n\nMerge on the identifying property only, `MERGE (p:Person {email: $email})`, and set the rest with `SET`; merging on many properties creates a new node whenever any of them differs.\n\nChanging data:\n\n- `SET p.age = 35`, `SET p += {age: 35, city: 'Yerevan'}` (merge a map), `SET p:Admin` (add a label)\n- `REMOVE p.age`, `REMOVE p:Admin`; setting a property to `null` also removes it\n\nDeleting: `DELETE r` removes a relationship. A node can only be deleted once it has no relationships, so use `DETACH DELETE n` to remove a node together with its relationships. `MATCH (n) DETACH DELETE n` empties the database; for big graphs do it in batches.",
+   "code": "// idempotent: run it twice, the graph stays the same\nMERGE (a:Person {name: 'Ann'})\n  ON CREATE SET a.created = datetime()\n  ON MATCH  SET a.lastSeen = datetime()\nMERGE (d:Person {name: 'Dan'})\nMERGE (a)-[:FOLLOWS]->(d);            // relationship merged between bound nodes\n\nMATCH (p:Person {name: 'Dan'})\nSET p += {born: 1999, city: 'Yerevan'}, p:Employee\nREMOVE p.city;\n\nMATCH (p:Person {name: 'Dan'})\nDETACH DELETE p;                      // also deletes Ann-[:FOLLOWS]->Dan",
+   "code_lang": "cypher",
+   "takeaways": [
+    "MERGE matches the whole pattern or creates all of it",
+    "MERGE nodes by key first, then MERGE relationships between variables",
+    "SET/REMOVE change properties and labels; `+=` merges a map",
+    "DETACH DELETE removes a node with its relationships"
+   ],
+   "pitfalls": [
+    "MERGE on a full path with unbound nodes, creating duplicate Ann and Bob nodes when the relationship is new."
+   ],
+   "quiz": [
+    {
+     "q": "Why does DELETE n fail for a node that has relationships?",
+     "options": [
+      "Nodes can never be deleted",
+      "DELETE only works on relationships",
+      "Relationships would be left without an end node, so use DETACH DELETE",
+      "The node must be locked first"
+     ],
+     "answer": 2,
+     "explain": "Neo4j forbids dangling relationships; DETACH DELETE removes them together with the node."
+    }
+   ],
+   "docs": "https://neo4j.com/docs/cypher-manual/current/clauses/merge/",
+   "requires": [
+    "neo4j.match-return"
+   ]
+  },
+  {
+   "id": "neo4j.patterns",
+   "name": "Multi-hop patterns and OPTIONAL MATCH",
+   "module": "querying",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Match longer paths, several patterns at once and optional parts, and understand how variables tie patterns together.",
+   "why": "Real graph questions span several hops, and these patterns are what make Cypher more expressive than joins.",
+   "body": "Patterns can be chained to any length: `(a)-[:FOLLOWS]->(b)-[:WORKS_AT]->(c:Company)` reads \"a follows b who works at c\". Reusing a variable creates a join point: in `MATCH (a)-[:FOLLOWS]->(b), (b)-[:FOLLOWS]->(a)` the same `a` and `b` must satisfy both patterns, which finds mutual follows.\n\nWithin a single MATCH, Cypher never uses the **same relationship** twice in one match (relationship isomorphism), but the same node can appear more than once. That matters for \"friend of a friend\" queries, where the start person can show up as their own friend-of-friend; filter with `WHERE fof <> me`.\n\n**OPTIONAL MATCH** works like a left outer join: if the pattern is not found, the variables are `null` instead of the row disappearing.\n\n```cypher\nMATCH (p:Person)\nOPTIONAL MATCH (p)-[:WORKS_AT]->(c:Company)\nRETURN p.name, c.name\n```\n\nreturns every person, with `null` for those without a company.\n\nComma-separated patterns that share no variables produce a **cartesian product** of their matches, which is almost always a mistake and can be huge; Neo4j warns about it.",
+   "code": "// recommend people to Ann: followed by people she follows, not yet followed\nMATCH (me:Person {name: 'Ann'})-[:FOLLOWS]->(:Person)-[:FOLLOWS]->(fof:Person)\nWHERE fof <> me AND NOT (me)-[:FOLLOWS]->(fof)\nRETURN fof.name AS suggestion, count(*) AS via\nORDER BY via DESC;\n\n// everyone, with their employer if any\nMATCH (p:Person)\nOPTIONAL MATCH (p)-[:WORKS_AT]->(c:Company)\nRETURN p.name, c.name AS company;\n// \"Ann\" null | \"Bob\" \"Acme\" | \"Cy\" null",
+   "code_lang": "cypher",
+   "takeaways": [
+    "Chain hops in one pattern; shared variables join patterns",
+    "One match never reuses a relationship, but can revisit a node",
+    "OPTIONAL MATCH yields nulls instead of dropping rows",
+    "Unconnected comma patterns create cartesian products"
+   ],
+   "pitfalls": [
+    "Forgetting `WHERE fof <> me` and recommending people to themselves."
+   ],
+   "quiz": [
+    {
+     "q": "What does OPTIONAL MATCH return when its pattern is not found for a row?",
+     "options": [
+      "The row is removed",
+      "The row is kept with null for the optional variables",
+      "An error",
+      "All nodes in the database"
+     ],
+     "answer": 1,
+     "explain": "Like a left outer join, OPTIONAL MATCH keeps the row and binds missing variables to null."
+    }
+   ],
+   "docs": "https://neo4j.com/docs/cypher-manual/current/clauses/optional-match/",
+   "requires": [
+    "neo4j.match-return"
+   ]
+  },
+  {
+   "id": "neo4j.aggregation-with",
+   "name": "Aggregation and WITH",
+   "module": "querying",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Count, collect and sum with implicit grouping, and chain query parts with WITH to filter on aggregates.",
+   "why": "Most useful answers are aggregates (top N, counts per group), and WITH is how multi-step Cypher queries are built.",
+   "body": "Cypher has no `GROUP BY`. In a `RETURN` or `WITH`, any non-aggregated expressions become the **grouping keys** automatically:\n\n```cypher\nMATCH (p:Person)<-[:FOLLOWS]-(f)\nRETURN p.name, count(f) AS followers\n```\n\ngroups by `p.name`. Aggregating functions include `count`, `sum`, `avg`, `min`, `max`, `collect` (build a list), `percentileCont` and `stDev`. `count(*)` counts rows; `count(x)` skips nulls; `count(DISTINCT x)` dedupes.\n\n**WITH** ends one query part and passes chosen variables to the next, like a pipe. Use it to:\n\n- filter on an aggregate (Cypher's equivalent of HAVING): `WITH p, count(f) AS n WHERE n > 10`\n- order and limit before continuing: `WITH p ORDER BY p.score DESC LIMIT 5`\n- compute a value once and reuse it\n- drop variables you no longer need, which also limits memory use\n\nOnly variables listed in WITH survive into the next part. `collect` is the tool for returning one row per entity with a list of related things, which avoids the row explosion of several OPTIONAL MATCHes.\n\nRemember aggregation happens per row of the matched patterns, so an extra MATCH that multiplies rows also multiplies counts; aggregate before expanding further.",
+   "code": "// the most followed people, with up to 3 of their followers' names\nMATCH (p:Person)<-[:FOLLOWS]-(f:Person)\nWITH p, count(f) AS followers, collect(f.name)[..3] AS sample\nWHERE followers >= 2                       // filter on the aggregate\nRETURN p.name, followers, sample\nORDER BY followers DESC;\n// \"Bob\" | 2 | [\"Ann\", \"Cy\"]\n\n// average birth year per company (grouping key: c.name)\nMATCH (p:Person)-[:WORKS_AT]->(c:Company)\nRETURN c.name AS company, avg(p.born) AS avgBorn, count(*) AS staff;",
+   "code_lang": "cypher",
+   "takeaways": [
+    "Non-aggregated RETURN/WITH expressions are the grouping keys",
+    "`collect()` builds lists; `count(DISTINCT x)` dedupes",
+    "WITH pipes results between query parts and enables HAVING-style filters",
+    "Aggregate before further MATCHes multiply rows"
+   ],
+   "pitfalls": [
+    "Adding a second MATCH after counting nothing yet, then getting inflated counts from the multiplied rows."
+   ],
+   "quiz": [
+    {
+     "q": "How do you filter people having more than 10 followers?",
+     "options": [
+      "MATCH ... WITH p, count(f) AS n WHERE n > 10 RETURN p",
+      "MATCH ... WHERE count(f) > 10 RETURN p",
+      "MATCH ... RETURN p HAVING count(f) > 10",
+      "MATCH ... GROUP BY p WHERE count(f) > 10"
+     ],
+     "answer": 0,
+     "explain": "Aggregate in a WITH, then filter the aggregated value with WHERE."
+    }
+   ],
+   "docs": "https://neo4j.com/docs/cypher-manual/current/functions/aggregating/",
+   "requires": [
+    "neo4j.patterns"
+   ]
+  },
+  {
+   "id": "neo4j.constraints-indexes",
+   "name": "Constraints and indexes",
+   "module": "schema",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Add uniqueness and key constraints to keep data clean, and range, text and full-text indexes to find starting nodes fast.",
+   "why": "Without indexes every lookup scans a label; without constraints MERGE races create duplicates.",
+   "body": "A Cypher query usually starts by finding a few **anchor nodes** and then traverses from them. Indexes make finding those anchors fast; traversals themselves need no index.\n\n**Constraints**:\n\n- `CREATE CONSTRAINT person_email FOR (p:Person) REQUIRE p.email IS UNIQUE` (also creates a backing index)\n- `REQUIRE p.email IS NOT NULL` property existence and `REQUIRE p.age IS :: INTEGER` property type (Enterprise Edition)\n- `REQUIRE (p.firstName, p.lastName) IS NODE KEY`: unique and present (Enterprise)\n\nA uniqueness constraint is what makes concurrent `MERGE` safe: without it two transactions can both create the same person.\n\n**Indexes**:\n\n- **range** (default): `CREATE INDEX person_name FOR (p:Person) ON (p.name)` for equality, ranges, prefix and sorting\n- **text**: for `CONTAINS` / `ENDS WITH` on strings\n- **full-text**: `CREATE FULLTEXT INDEX ... ON EACH [p.bio]`, queried with `db.index.fulltext.queryNodes`, Lucene-powered with scoring\n- **point** for spatial, and **vector** indexes for embeddings (similarity search)\n- composite indexes over several properties, and indexes on relationship properties\n\nUse `SHOW CONSTRAINTS` and `SHOW INDEXES`; new indexes populate in the background (`state` becomes `ONLINE`). Add `IF NOT EXISTS` to make schema scripts rerunnable.",
+   "code": "CREATE CONSTRAINT person_email IF NOT EXISTS\nFOR (p:Person) REQUIRE p.email IS UNIQUE;\n\nCREATE INDEX person_name IF NOT EXISTS\nFOR (p:Person) ON (p.name);\n\nCREATE TEXT INDEX company_name_text IF NOT EXISTS\nFOR (c:Company) ON (c.name);\n\nSHOW INDEXES YIELD name, type, labelsOrTypes, properties, state;\n// \"person_email\"      RANGE [\"Person\"]  [\"email\"] \"ONLINE\"   (backs the constraint)\n// \"person_name\"       RANGE [\"Person\"]  [\"name\"]  \"ONLINE\"\n// \"company_name_text\" TEXT  [\"Company\"] [\"name\"]  \"ONLINE\"\n\nMERGE (p:Person {email: 'ann@example.com'})   // now safe under concurrency\nSET p.name = 'Ann';",
+   "code_lang": "cypher",
+   "takeaways": [
+    "Indexes find anchor nodes; traversals need no index",
+    "Uniqueness constraints prevent duplicates and make MERGE safe",
+    "Range for equality/ranges, text for CONTAINS, full-text for search, vector for embeddings",
+    "Use IF NOT EXISTS and check SHOW INDEXES state"
+   ],
+   "pitfalls": [
+    "Running MERGE on a property with no uniqueness constraint in parallel imports and getting duplicate nodes."
+   ],
+   "quiz": [
+    {
+     "q": "Which index type best serves WHERE c.name CONTAINS 'cme'?",
+     "options": [
+      "Range index",
+      "No index can help",
+      "Point index",
+      "Text index"
+     ],
+     "answer": 3,
+     "explain": "Text indexes are designed for CONTAINS and ENDS WITH string predicates."
+    }
+   ],
+   "docs": "https://neo4j.com/docs/cypher-manual/current/constraints/managing-constraints/",
+   "requires": [
+    "neo4j.merge-set-delete"
+   ]
+  },
+  {
+   "id": "neo4j.parameters-driver",
+   "name": "Parameters and the Python driver",
+   "module": "apps",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Run Cypher from Python with the official driver: execute_query, parameters, routing and result handling.",
+   "why": "Applications talk to Neo4j through drivers, and using parameters correctly is essential for safety and performance.",
+   "body": "Install the official driver with `pip install neo4j`. Create one **driver** per application (it manages a connection pool) and close it at shutdown:\n\n```python\ndriver = GraphDatabase.driver(\"neo4j://localhost:7687\", auth=(\"neo4j\", \"secret\"))\n```\n\nThe `neo4j://` scheme enables cluster routing; `neo4j+s://` adds TLS (used by Aura). The simplest API is `driver.execute_query(query, params..., database_=\"neo4j\")`, which runs a query in a retried transaction and returns `records, summary, keys`. Each `Record` behaves like a dict and a tuple.\n\n**Always use parameters**: write `$name` in Cypher and pass values separately. This prevents Cypher injection, handles quoting and types, and lets Neo4j cache the query plan; string-built queries are re-planned every time. Parameters can be scalars, lists or maps (`SET p += $props`, `UNWIND $rows AS row`).\n\nPass `routing_=RoutingControl.READ` for read-only queries so a cluster can serve them from secondaries. For multi-statement units of work, use a session with `session.execute_write(fn)` (managed transactions retried on transient errors), keeping the function free of side effects other than the queries.\n\nNode values come back as `neo4j.graph.Node` objects with `.labels`, `.element_id` and dict-style property access.",
+   "code": "from neo4j import GraphDatabase, RoutingControl\n\nURI, AUTH = \"neo4j://localhost:7687\", (\"neo4j\", \"password\")\n\nwith GraphDatabase.driver(URI, auth=AUTH) as driver:\n    driver.verify_connectivity()\n    driver.execute_query(\n        \"MERGE (p:Person {name: $name}) SET p.born = $born\",\n        name=\"Eve\", born=1994, database_=\"neo4j\")\n\n    records, summary, keys = driver.execute_query(\n        \"\"\"MATCH (p:Person) WHERE p.born >= $year\n           RETURN p.name AS name ORDER BY name\"\"\",\n        year=1990, database_=\"neo4j\", routing_=RoutingControl.READ)\n    print([r[\"name\"] for r in records])          # ['Ann', 'Cy', 'Eve']\n    print(summary.result_available_after, \"ms\")  # e.g. 2 ms",
+   "code_lang": "python",
+   "takeaways": [
+    "One driver per app; it pools connections",
+    "`execute_query` runs a retried transaction and returns records, summary, keys",
+    "Use `$params` for values, never string formatting",
+    "Route reads with RoutingControl.READ"
+   ],
+   "pitfalls": [
+    "Creating a new driver per request, which defeats connection pooling and is slow."
+   ],
+   "quiz": [
+    {
+     "q": "Why pass values as $parameters instead of formatting them into the query string?",
+     "options": [
+      "Parameters are required for MATCH to work",
+      "They make results sorted",
+      "They prevent injection and let Neo4j reuse the cached plan",
+      "Formatted strings cannot contain numbers"
+     ],
+     "answer": 2,
+     "explain": "Parameterized queries are safe and have identical text, so the plan cache is reused."
+    }
+   ],
+   "docs": "https://neo4j.com/docs/python-manual/current/",
+   "requires": [
+    "neo4j.merge-set-delete",
+    "python.functions",
+    "python.context-managers"
+   ]
+  },
+  {
+   "id": "neo4j.load-csv",
+   "name": "Importing data with LOAD CSV",
+   "module": "schema",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Load CSV files into the graph with LOAD CSV, MERGE on constrained keys, and batch large imports with CALL IN TRANSACTIONS.",
+   "why": "Most graphs start as tables somewhere, and a correct, batched import is the first real project task.",
+   "body": "`LOAD CSV` reads a CSV file row by row, from `file:///` (the server's import directory) or an `https://` URL. With `WITH HEADERS` each row is a map keyed by column name; without it, a list.\n\nEvery value arrives as a **string**. Convert explicitly: `toInteger(row.age)`, `toFloat`, `date(row.joined)`, `split(row.tags, ';')`. Empty fields become `null`; `coalesce` supplies defaults.\n\nA robust import follows a pattern:\n\n- create **constraints first**, so MERGE uses an index instead of scanning\n- load **nodes** in one pass with `MERGE` on the key, then **relationships** in a second pass that MATCHes both ends\n- for large files, batch with `CALL (row) { ... } IN TRANSACTIONS OF 10000 ROWS` so each batch commits separately instead of building one gigantic transaction\n\nBatched subqueries must run in an auto-commit (implicit) transaction; in Neo4j Browser prefix the query with `:auto`, and from drivers use `session.run`. Add `ON ERROR CONTINUE` or `REPORT STATUS` to control failures per batch.\n\nFor tens of millions of rows into a new database, the offline `neo4j-admin database import` tool is far faster. The older `CALL { WITH row ... }` importing-WITH form still works but is deprecated in favour of `CALL (row) { ... }`.",
+   "code": "// people.csv:  email,name,born\n// follows.csv: from,to,since\nCREATE CONSTRAINT person_email IF NOT EXISTS\nFOR (p:Person) REQUIRE p.email IS UNIQUE;\n\nLOAD CSV WITH HEADERS FROM 'file:///people.csv' AS row\nCALL (row) {\n  MERGE (p:Person {email: row.email})\n  SET p.name = row.name, p.born = toInteger(row.born)\n} IN TRANSACTIONS OF 10000 ROWS;\n\nLOAD CSV WITH HEADERS FROM 'file:///follows.csv' AS row\nCALL (row) {\n  MATCH (a:Person {email: row.from}), (b:Person {email: row.to})\n  MERGE (a)-[f:FOLLOWS]->(b)\n  SET f.since = toInteger(row.since)\n} IN TRANSACTIONS OF 10000 ROWS;",
+   "code_lang": "cypher",
+   "takeaways": [
+    "All CSV values are strings: convert with toInteger, date, split",
+    "Constraints first, then nodes, then relationships",
+    "CALL (row) { ... } IN TRANSACTIONS batches large imports",
+    "Use neo4j-admin import for huge initial loads"
+   ],
+   "pitfalls": [
+    "Importing without a constraint on the MERGE key, making each row scan every node of the label."
+   ],
+   "quiz": [
+    {
+     "q": "A CSV column age contains '42'. What is row.age in LOAD CSV?",
+     "options": [
+      "The integer 42",
+      "The string '42'",
+      "null",
+      "A float 42.0"
+     ],
+     "answer": 1,
+     "explain": "LOAD CSV yields strings, so you convert with toInteger(row.age)."
+    }
+   ],
+   "docs": "https://neo4j.com/docs/cypher-manual/current/clauses/load-csv/",
+   "requires": [
+    "neo4j.constraints-indexes",
+    "neo4j.aggregation-with"
+   ]
+  },
+  {
+   "id": "neo4j.variable-length-paths",
+   "name": "Variable-length and shortest paths",
+   "module": "querying",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Traverse an unknown number of hops with quantified path patterns, and find shortest paths with SHORTEST.",
+   "why": "Reachability, hierarchies and 'how are these connected' questions are where graph databases beat SQL most clearly.",
+   "body": "When the number of hops is not fixed, use a **quantified relationship**: `(a)-[:FOLLOWS]->{1,3}(b)` matches paths of one to three FOLLOWS hops. `+` means one or more and `*` zero or more. The older syntax `-[:FOLLOWS*1..3]->` still works but is not GQL-conformant.\n\n**Quantified path patterns** (Cypher 5.9+) repeat a whole sub-pattern and can filter inside it:\n\n```cypher\nMATCH (a:Stop)((x)-[r:NEXT]->(y) WHERE r.minutes < 10){1,5}(b:Stop)\n```\n\nInside the group, variables become **lists** across the repetitions.\n\nAssign a path to a variable with `p = ...` and use `length(p)`, `nodes(p)` and `relationships(p)`.\n\nFor shortest paths, Cypher 5.21+ supports `SHORTEST k`, `ALL SHORTEST` and `SHORTEST k GROUPS` in front of a path pattern; the older `shortestPath()` and `allShortestPaths()` functions remain. Shortest path here means fewest hops; weighted shortest paths (by distance or cost) come from Graph Data Science or APOC.\n\nAlways bound the length: an unbounded `*` or `+` over a dense graph can explore millions of paths. Use labels and relationship types, set an upper limit, and filter as early as possible.",
+   "code": "// everyone Ann can reach in 1 to 3 FOLLOWS hops, with the distance\nMATCH p = (:Person {name: 'Ann'})-[:FOLLOWS]->{1,3}(x:Person)\nRETURN x.name, min(length(p)) AS hops\nORDER BY hops;\n\n// the shortest connection between Ann and Dan, any direction\nMATCH p = SHORTEST 1 (a:Person {name: 'Ann'})-[:FOLLOWS]-+(d:Person {name: 'Dan'})\nRETURN [n IN nodes(p) | n.name] AS route, length(p) AS hops;\n\n// management chain upward, at most 10 levels\nMATCH (e:Employee {name: 'Cy'})-[:REPORTS_TO]->{1,10}(boss:Employee)\nRETURN collect(boss.name) AS chain;",
+   "code_lang": "cypher",
+   "takeaways": [
+    "`-[:T]->{1,3}`, `+` and `*` quantify hops; `*1..3` is the legacy form",
+    "Quantified path patterns repeat sub-patterns with inline WHERE",
+    "`SHORTEST k` / `shortestPath()` find fewest-hop paths",
+    "Bound path lengths to avoid exploding traversals"
+   ],
+   "pitfalls": [
+    "Running an unbounded variable-length match on a dense graph and timing out."
+   ],
+   "quiz": [
+    {
+     "q": "What does (a)-[:KNOWS]->{2,4}(b) match?",
+     "options": [
+      "Paths of 2, 3 or 4 KNOWS hops",
+      "Exactly 2 or 4 hops",
+      "Up to 2 KNOWS relationships per node",
+      "4 nodes connected to a"
+     ],
+     "answer": 0,
+     "explain": "The quantifier {2,4} allows between two and four repetitions of the relationship."
+    }
+   ],
+   "docs": "https://neo4j.com/docs/cypher-manual/current/patterns/variable-length-patterns/",
+   "requires": [
+    "neo4j.patterns",
+    "neo4j.aggregation-with"
+   ]
+  },
+  {
+   "id": "neo4j.lists-subqueries",
+   "name": "Lists, UNWIND and subqueries",
+   "module": "querying",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Work with lists via UNWIND and comprehensions, and use EXISTS, COUNT, COLLECT and CALL subqueries.",
+   "why": "These tools express complex questions in one query without row explosions or client-side loops.",
+   "body": "**Lists** are first-class. `UNWIND list AS x` turns a list into rows, which is the standard way to write many items from one parameter: `UNWIND $rows AS row MERGE ...`. In the other direction, `collect()` turns rows into a list.\n\nComprehensions transform lists inline:\n\n- **list comprehension**: `[x IN list WHERE x > 0 | x * 2]`\n- **pattern comprehension**: `[(p)-[:FOLLOWS]->(f) | f.name]` collects matches of a pattern per row, without an OPTIONAL MATCH\n- functions: `size`, `reduce`, `range`, `head`, `last`, slicing `list[1..3]`\n\n**Subquery expressions** evaluate a pattern or query per row:\n\n- `EXISTS { (p)-[:WORKS_AT]->(:Company {name: 'Acme'}) }` true or false\n- `COUNT { (p)<-[:FOLLOWS]-() }` a number, e.g. degree\n- `COLLECT { MATCH (p)-[:FOLLOWS]->(f) RETURN f.name ORDER BY f.name }` a list\n\n**CALL subqueries** run a full query per incoming row: `CALL (p) { ... RETURN ... }`. They allow per-row `ORDER BY`/`LIMIT` (top 3 per person), `UNION` post-processing, and batching writes with `IN TRANSACTIONS`. The variables in parentheses are imported into the subquery's scope.\n\nThese keep each part of the computation local, so you avoid the cartesian growth that multiple OPTIONAL MATCHes cause.",
+   "code": "// batch write from a parameter list (driver passes $rows)\nUNWIND $rows AS row\nMERGE (p:Person {email: row.email})\nSET p.name = row.name;\n\n// per person: follower count, whether at Acme, top 2 followees by name\nMATCH (p:Person)\nRETURN p.name,\n       COUNT { (p)<-[:FOLLOWS]-() } AS followers,\n       EXISTS { (p)-[:WORKS_AT]->(:Company {name: 'Acme'}) } AS atAcme,\n       COLLECT { MATCH (p)-[:FOLLOWS]->(f) RETURN f.name ORDER BY f.name LIMIT 2 } AS follows;\n\n// top follower per company with a CALL subquery\nMATCH (c:Company)\nCALL (c) {\n  MATCH (c)<-[:WORKS_AT]-(e)<-[:FOLLOWS]-(fan)\n  RETURN fan.name AS topFan, count(*) AS n ORDER BY n DESC LIMIT 1\n}\nRETURN c.name, topFan, n;",
+   "code_lang": "cypher",
+   "takeaways": [
+    "`UNWIND` turns lists into rows; ideal for batched writes from parameters",
+    "List and pattern comprehensions build lists inline",
+    "EXISTS, COUNT and COLLECT subqueries evaluate per row",
+    "`CALL (vars) { ... }` runs a full subquery per row, enabling top-N per group"
+   ],
+   "pitfalls": [
+    "Sending one query per item from the client instead of UNWINDing a list parameter in one query."
+   ],
+   "quiz": [
+    {
+     "q": "How do you insert 10,000 people from Python efficiently?",
+     "options": [
+      "Run 10,000 separate CREATE queries",
+      "Use LOAD CSV on a Python list",
+      "Format all values into one long CREATE string",
+      "Pass them as a list parameter and UNWIND $rows in one query"
+     ],
+     "answer": 3,
+     "explain": "UNWIND over a list parameter writes them all in one round trip with a cached plan."
+    }
+   ],
+   "docs": "https://neo4j.com/docs/cypher-manual/current/subqueries/",
+   "requires": [
+    "neo4j.aggregation-with",
+    "neo4j.parameters-driver"
+   ]
+  },
+  {
+   "id": "neo4j.graph-modeling",
+   "name": "Graph data modelling",
+   "module": "schema",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Design labels, relationship types and properties around your questions: when to use nodes, relationships or properties.",
+   "why": "Model choices decide whether queries are one fast traversal or a slow scan, and they are hard to change later.",
+   "body": "Graph modelling starts, like any design, from the **questions** the application asks. Sketch them as patterns, then choose structure:\n\n- **Nodes** for things you look up or connect to; **relationships** for verbs between them; **properties** for attributes you filter or return.\n- Make relationship types **specific**: `(:Person)-[:LIVES_IN]->(:City)` and `-[:BORN_IN]->` beat a generic `-[:RELATED {type:'lives'}]->`, because traversals filter by type for free.\n- If a value is shared and queried across entities (a country, a genre, a skill), promote it to a node: \"who else has this skill\" becomes a one-hop traversal instead of a property scan.\n- Use an **intermediate node** when a relationship needs to connect more than two things or be referenced itself: an `(:Employment)` node linking person, company and role, or an `(:Order)` between customer and products.\n- Use labels for roles and categories you query by; avoid hundreds of labels with a handful of nodes each.\n- Time-based data: link events in order (`:NEXT`) or hang them off a time tree when range queries dominate.\n\nWatch for **supernodes**, nodes with millions of relationships (a `:Country` node everyone lives in). Traversing through them is expensive; use more specific types, add direction, or remodel.\n\nRefactor freely: Cypher can restructure a model in place, for example turning a property into nodes with `MERGE`.",
+   "code": "// before: skills as a list property, \"who shares a skill\" needs a scan\n// (:Person {name: 'Ann', skills: ['cypher', 'python']})\n\n// refactor: promote each skill to a node\nMATCH (p:Person) WHERE p.skills IS NOT NULL\nUNWIND p.skills AS skill\nMERGE (s:Skill {name: skill})\nMERGE (p)-[:HAS_SKILL]->(s)\nREMOVE p.skills;\n\n// now a short traversal\nMATCH (:Person {name: 'Ann'})-[:HAS_SKILL]->(s)<-[:HAS_SKILL]-(peer)\nRETURN peer.name, collect(s.name) AS shared\nORDER BY size(shared) DESC;",
+   "code_lang": "cypher",
+   "takeaways": [
+    "Model from the questions: nodes for things, relationships for verbs",
+    "Specific relationship types make traversals cheap",
+    "Promote shared values to nodes; use intermediate nodes for n-ary facts",
+    "Watch out for supernodes with huge degrees"
+   ],
+   "pitfalls": [
+    "Using a single generic relationship type with a 'type' property, losing the free filtering by type."
+   ],
+   "quiz": [
+    {
+     "q": "Users often ask 'which people share a skill with me?'. How should skills be modelled?",
+     "options": [
+      "As a comma-separated string property",
+      "As labels on Person nodes",
+      "As :Skill nodes connected with HAS_SKILL relationships",
+      "In a separate relational database"
+     ],
+     "answer": 2,
+     "explain": "Skill nodes turn the question into a two-hop traversal instead of comparing lists on every person."
+    }
+   ],
+   "docs": "https://neo4j.com/docs/getting-started/data-modeling/",
+   "requires": [
+    "neo4j.constraints-indexes",
+    "neo4j.patterns"
+   ]
+  },
+  {
+   "id": "neo4j.query-tuning",
+   "name": "EXPLAIN, PROFILE and query tuning",
+   "module": "internals",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Read execution plans, compare db hits with PROFILE, and fix label scans, cartesian products and eager operators.",
+   "why": "A query that is fast on test data can be slow in production; plans show exactly why.",
+   "body": "Prefix a query with `EXPLAIN` to see the plan without running it, or `PROFILE` to run it and see actual **rows** and **db hits** (storage accesses) per operator. Read plans bottom-up: the leaves find starting points, the rest expands and filters.\n\nWhat to look for:\n\n- **Starting point**: `NodeIndexSeek` or `NodeUniqueIndexSeek` is good; `NodeByLabelScan` means scanning all nodes of a label; `AllNodesScan` (no label) is worst. Add the missing index or label.\n- **CartesianProduct**: two disconnected patterns multiplied together; connect them or split the query.\n- **Eager**: the planner must materialise all rows before continuing, usually because a query reads and writes the same data. In big imports this blows up memory; split into separate statements or use `CALL ... IN TRANSACTIONS`.\n- Row counts that explode mid-plan: aggregate or `DISTINCT` earlier, or filter before expanding.\n\nThe planner is cost-based and uses statistics (counts per label and relationship type, index selectivity). Help it by using parameters (plan cache reuse) and by anchoring patterns on the most selective node. Hints like `USING INDEX p:Person(name)` exist but are a last resort.\n\nAlso check `summary.notifications` in drivers: Neo4j warns about cartesian products, unbounded paths and deprecated syntax.",
+   "code": "PROFILE\nMATCH (p:Person {name: 'Ann'})-[:FOLLOWS]->(f)-[:WORKS_AT]->(c:Company)\nRETURN c.name, count(*) AS n;\n\n// Before an index exists (read bottom-up):\n//   NodeByLabelScan  p:Person          rows 1000000   db hits 1000001\n//   Filter           p.name = $autostring_0  rows 1\n//   Expand(All)      (p)-[:FOLLOWS]->(f)\n//   ...\nCREATE INDEX person_name IF NOT EXISTS FOR (p:Person) ON (p.name);\n// After:\n//   NodeIndexSeek    p:Person(name)    rows 1         db hits 2",
+   "code_lang": "cypher",
+   "takeaways": [
+    "EXPLAIN shows the plan; PROFILE runs it with rows and db hits",
+    "Aim for index seeks as starting points, not label or all-node scans",
+    "CartesianProduct and Eager operators are red flags",
+    "Filter and aggregate early to keep row counts small"
+   ],
+   "pitfalls": [
+    "Profiling only on a tiny dev dataset where every plan looks fast."
+   ],
+   "quiz": [
+    {
+     "q": "A PROFILE shows NodeByLabelScan on :Person followed by a Filter on p.email. Likely fix?",
+     "options": [
+      "Add more RAM",
+      "Create an index or uniqueness constraint on :Person(email)",
+      "Use OPTIONAL MATCH",
+      "Remove the label from the pattern"
+     ],
+     "answer": 1,
+     "explain": "An index on the filtered property lets the planner seek directly to the node."
+    }
+   ],
+   "docs": "https://neo4j.com/docs/cypher-manual/current/planning-and-tuning/",
+   "requires": [
+    "neo4j.constraints-indexes",
+    "neo4j.variable-length-paths"
+   ]
+  },
+  {
+   "id": "neo4j.transactions-clustering",
+   "name": "Transactions, locking and clusters",
+   "module": "apps",
+   "level": 4,
+   "minutes": 15,
+   "summary": "ACID transactions in Neo4j, read-committed isolation, write locks and deadlocks, and causal consistency in clusters.",
+   "why": "Correct concurrent applications depend on knowing exactly what Neo4j guarantees under parallel writes and replication.",
+   "body": "Every Cypher statement runs in a **transaction**, either auto-commit or explicit, and Neo4j transactions are ACID. Writes take **write locks** on the nodes and relationships they modify (creating a relationship locks both end nodes), held until commit. The default isolation level is **read committed**: you never see uncommitted data, but a value read early in a transaction may change before you write it.\n\nConsequences:\n\n- Read-modify-write races (`MATCH ... SET n.count = n.count + 1` is safe because SET takes a lock, but reading a value into the application and writing it back later is not). Take the lock early when needed, for example by setting a dummy property first.\n- **Deadlocks** happen when transactions lock the same nodes in different orders; Neo4j detects them and fails one with a transient `DeadlockDetected` error. Drivers' managed transactions (`execute_query`, `execute_write`) retry transient errors automatically, so keep transaction functions idempotent.\n- Dense nodes become lock hotspots when many transactions add relationships to them.\n\nIn a **cluster** (Enterprise / Aura), primary servers replicate writes with the Raft protocol, and secondary servers scale reads asynchronously. Drivers use **bookmarks** to provide **causal consistency**: a read after your own write waits until the serving replica has caught up. `execute_query` manages bookmarks for you; sessions chain them automatically.",
+   "code": "from neo4j import GraphDatabase\n\ndef transfer(tx, src, dst, amount):\n    # lock both accounts in a fixed order to avoid deadlocks\n    tx.run(\"\"\"MATCH (a:Account) WHERE a.id IN $ids\n              WITH a ORDER BY a.id SET a._lock = true\"\"\", ids=[src, dst])\n    res = tx.run(\"\"\"MATCH (s:Account {id: $src}), (d:Account {id: $dst})\n                    WHERE s.balance >= $amt\n                    SET s.balance = s.balance - $amt, d.balance = d.balance + $amt\n                    REMOVE s._lock, d._lock\n                    RETURN s.balance AS left\"\"\", src=src, dst=dst, amt=amount)\n    rec = res.single()\n    if rec is None:\n        raise ValueError(\"insufficient funds\")   # rolls the transaction back\n    return rec[\"left\"]\n\nwith GraphDatabase.driver(\"neo4j://localhost:7687\", auth=(\"neo4j\", \"pw\")) as drv:\n    with drv.session(database=\"neo4j\") as session:\n        print(session.execute_write(transfer, \"A1\", \"B2\", 30))  # retried on deadlock",
+   "code_lang": "python",
+   "takeaways": [
+    "ACID transactions with read-committed isolation by default",
+    "Writes lock touched entities until commit; deadlocks raise transient errors",
+    "Managed transactions retry transient errors, so keep them idempotent",
+    "Clusters: Raft primaries, async secondaries, bookmarks for causal consistency"
+   ],
+   "pitfalls": [
+    "Doing side effects like sending email inside a managed transaction function that may be retried."
+   ],
+   "quiz": [
+    {
+     "q": "Why does execute_write sometimes run your transaction function more than once?",
+     "options": [
+      "It retries after transient errors such as deadlocks or leader changes",
+      "It runs every function twice for safety",
+      "Read-committed isolation requires two passes",
+      "Bookmarks force a re-run"
+     ],
+     "answer": 0,
+     "explain": "Managed transactions automatically retry on transient failures, so the function must be safe to repeat."
+    }
+   ],
+   "docs": "https://neo4j.com/docs/operations-manual/current/database-internals/transaction-management/",
+   "requires": [
+    "neo4j.parameters-driver",
+    "neo4j.query-tuning"
+   ]
+  },
+  {
+   "id": "neo4j.storage-engine",
+   "name": "Native graph storage and memory",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "How Neo4j stores nodes and relationships for index-free adjacency, handles dense nodes, and uses the page cache and heap.",
+   "why": "Sizing memory and understanding traversal cost both depend on how the store is laid out on disk.",
+   "body": "Neo4j is a **native** graph database: relationships are physical records that point directly to their nodes and neighbouring relationships. Moving from a node to its neighbours follows those pointers instead of looking anything up in an index. This is **index-free adjacency**, and it is why a traversal's cost depends on the part of the graph it touches, not on total database size.\n\nIn the classic **record formats**, nodes, relationships and properties live in separate store files of fixed-size records. A node record points to its first relationship and first property; each relationship record sits in two doubly linked lists, one per end node. Nodes whose degree exceeds a threshold (about 50) become **dense nodes** whose relationships are grouped by type and direction, so `(n)-[:LIKES]->()` on a node with millions of other relationships only walks the LIKES group. Newer Enterprise databases default to the **block format**, which stores a node's properties and relationships together in larger blocks for better locality.\n\nMemory is split between the JVM **heap** (query execution, transaction state) and the **page cache**, an off-heap cache of store file pages. For predictable performance the page cache should hold the whole store, or at least the hot part; `neo4j-admin server memory-recommendation` suggests sizes. Large transactions and big `collect()` results consume heap, which is why batching writes matters.",
+   "takeaways": [
+    "Index-free adjacency: relationships point directly at nodes and neighbours",
+    "Dense nodes group relationships by type and direction",
+    "Block format co-locates a node's data for locality",
+    "Size the page cache for the store and the heap for queries and transactions"
+   ],
+   "pitfalls": [
+    "Giving most RAM to the heap and leaving the page cache too small to hold the graph."
+   ],
+   "quiz": [
+    {
+     "q": "Why does traversing two hops from a node stay fast as the database grows from millions to billions of nodes?",
+     "options": [
+      "Neo4j keeps every node in a hash index",
+      "Neo4j samples random nodes",
+      "Queries are cached forever",
+      "Relationships point directly to neighbours, so cost depends on the local neighbourhood"
+     ],
+     "answer": 3,
+     "explain": "Index-free adjacency makes traversal cost proportional to the relationships visited, not database size."
+    }
+   ],
+   "docs": "https://neo4j.com/docs/operations-manual/current/performance/memory-configuration/",
+   "requires": [
+    "neo4j.query-tuning",
+    "neo4j.graph-modeling"
+   ]
+  },
+  {
+   "id": "neo4j.graph-algorithms",
+   "name": "Graph Data Science algorithms",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Run graph algorithms such as PageRank, community detection, similarity and weighted shortest paths with the GDS library.",
+   "why": "Centrality, communities and similarity power recommendations and fraud detection, and plain Cypher cannot compute them efficiently.",
+   "body": "The **Graph Data Science (GDS)** library is a Neo4j plugin (included in Aura Graph Analytics and Desktop) providing parallel implementations of more than 60 algorithms. Its workflow differs from normal Cypher:\n\n- **project** a graph into memory: `gds.graph.project('name', nodeLabels, relTypes, config)` builds a compact in-memory copy of just the nodes and relationships you need, optionally with properties as weights\n- **run** an algorithm in one of four modes: `stream` (return results as rows), `stats` (summary only), `mutate` (write results into the in-memory graph for use by other algorithms), `write` (persist as properties back into the database)\n- use `estimate` first on large graphs to check memory, and `gds.graph.drop` afterwards\n\nPopular algorithm families:\n\n- **centrality**: PageRank, betweenness, degree, to find influential or bridging nodes\n- **community detection**: Louvain, Leiden, label propagation, weakly connected components for clusters and fraud rings\n- **similarity**: node similarity and k-nearest neighbours for \"people like you\" recommendations\n- **path finding**: Dijkstra, A* and Yen's k-shortest for weighted routes\n- **embeddings** (FastRP, GraphSAGE) and link prediction pipelines for machine learning\n\nResults are node ids; `gds.util.asNode(nodeId)` maps them back to database nodes. GDS has a Python client (`graphdatascience`) that wraps the same procedures.",
+   "code": "// 1. project Person nodes and FOLLOWS relationships into memory\nCALL gds.graph.project('social', 'Person', 'FOLLOWS');\n\n// 2. stream PageRank scores: most influential people first\nCALL gds.pageRank.stream('social')\nYIELD nodeId, score\nRETURN gds.util.asNode(nodeId).name AS name, round(score, 3) AS score\nORDER BY score DESC LIMIT 5;\n\n// 3. find communities and store them on the nodes\nCALL gds.louvain.write('social', {writeProperty: 'community'})\nYIELD communityCount, modularity;\n\n// 4. free the memory\nCALL gds.graph.drop('social');",
+   "code_lang": "cypher",
+   "takeaways": [
+    "GDS projects a graph into memory, then runs parallel algorithms on it",
+    "Modes: stream, stats, mutate, write; estimate memory first",
+    "Centrality, communities, similarity, weighted paths and embeddings",
+    "Map node ids back with gds.util.asNode"
+   ],
+   "pitfalls": [
+    "Forgetting to drop projected graphs, leaving gigabytes of heap occupied."
+   ],
+   "quiz": [
+    {
+     "q": "What does the 'write' execution mode of a GDS algorithm do?",
+     "options": [
+      "Prints results to the console",
+      "Writes the projection to a CSV file",
+      "Persists results as properties in the Neo4j database",
+      "Only updates the in-memory projection"
+     ],
+     "answer": 2,
+     "explain": "write mode stores the computed values back onto nodes or relationships in the database; mutate only changes the projection."
+    }
+   ],
+   "docs": "https://neo4j.com/docs/graph-data-science/current/",
+   "requires": [
+    "neo4j.lists-subqueries",
+    "neo4j.variable-length-paths"
+   ]
+  }
+ ]
+}

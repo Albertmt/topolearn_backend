@@ -1,0 +1,799 @@
+{
+ "tool": {
+  "id": "elasticsearch",
+  "name": "Elasticsearch",
+  "category": "database",
+  "tagline": "Distributed search and analytics engine for full-text, logs and vectors",
+  "description": "Elasticsearch is a distributed search and analytics engine built on Apache Lucene. You index JSON documents and query them over a REST API with relevance-ranked full-text search, filters, aggregations and vector search. It powers site search, log and metrics analytics (the Elastic Stack) and retrieval for AI applications.",
+  "icon": "ES",
+  "color": "#00788A",
+  "official_docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/index.html",
+  "version": "9.x",
+  "aliases": [
+   "elastic",
+   "es",
+   "elk",
+   "elastic stack",
+   "opensearch"
+  ],
+  "requires": [
+   {
+    "tool": "database-design",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Documents and indices"
+  },
+  {
+   "id": "search",
+   "name": "Searching"
+  },
+  {
+   "id": "mapping",
+   "name": "Mappings and text analysis"
+  },
+  {
+   "id": "analytics",
+   "name": "Aggregations and ES|QL"
+  },
+  {
+   "id": "data",
+   "name": "Managing data"
+  },
+  {
+   "id": "cluster",
+   "name": "Cluster and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "elasticsearch.what-is",
+   "name": "Indices, documents and the REST API",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Elasticsearch stores JSON documents in indices and exposes everything through a REST API.",
+   "why": "Knowing the core vocabulary and API style lets you read any Elasticsearch example or log query.",
+   "body": "Elasticsearch is a search engine you talk to over **HTTP with JSON**. Data lives in **indices** (roughly, a table), each holding **documents**: JSON objects identified by an `_id`. Every document's original JSON is kept in `_source` and its fields are indexed so they can be searched.\n\nUnder the hood each index is split into **shards**, each a Lucene index, spread across the **nodes** of a **cluster**. You don't address shards directly; any node can receive a request and coordinate it.\n\nThe API is resource-oriented:\n\n- `PUT /products` creates an index, `DELETE /products` removes it,\n- `PUT /products/_doc/1` stores a document, `GET /products/_doc/1` fetches it,\n- `GET /products/_search` searches, `GET /_cluster/health` checks the cluster.\n\nExamples in docs use the Kibana **Dev Tools console** format: a method and path on one line followed by a JSON body. The same requests work with `curl` or any client library (Python, JavaScript, Java, Go...).\n\nElasticsearch is **near real-time**: a newly indexed document becomes searchable after the next refresh, by default within about a second, though `GET` by id sees it immediately. It is not a primary transactional database: there are no multi-document transactions, so it usually holds a searchable copy of data whose source of truth lives elsewhere.",
+   "code": "GET /\n\nGET /_cluster/health\n# { \"cluster_name\": \"docker-cluster\", \"status\": \"green\", \"number_of_nodes\": 1, ... }\n\nPUT /products\n\nGET /_cat/indices?v&h=health,status,index,pri,rep,docs.count\n# health status index    pri rep docs.count\n# yellow open   products   1   1          0\n\n# curl equivalent of the health call\n# curl -u elastic:$ES_PASSWORD https://localhost:9200/_cluster/health?pretty",
+   "code_lang": "http",
+   "takeaways": [
+    "Index = collection of JSON documents; each has an _id and _source",
+    "Everything is a REST call with a JSON body",
+    "Indices are split into shards spread over nodes",
+    "Near real-time: searchable after a refresh (about 1 s)"
+   ],
+   "pitfalls": [
+    "Using Elasticsearch as the only copy of critical transactional data."
+   ],
+   "quiz": [
+    {
+     "q": "You index a document and immediately search for it, but it is not found; a second later it is. Why?",
+     "options": [
+      "Indexing failed and retried",
+      "Search sees documents only after a refresh, about every second",
+      "The cluster is red",
+      "Search requires an explicit commit call"
+     ],
+     "answer": 1,
+     "explain": "Elasticsearch is near real-time: new documents become searchable at the next refresh."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/documents-indices.html",
+   "requires": []
+  },
+  {
+   "id": "elasticsearch.index-documents",
+   "name": "Indexing, getting and updating documents",
+   "module": "basics",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Create, read, update and delete single documents and understand versions and auto-generated ids.",
+   "why": "Every search starts with getting documents in, and the document APIs are the building blocks of syncing data.",
+   "body": "`PUT /index/_doc/<id>` creates or **replaces** the document with that id; `POST /index/_doc` lets Elasticsearch generate an id. `PUT /index/_create/<id>` fails with a 409 if the id exists, which is useful for idempotent inserts. If the index doesn't exist, it is created with default settings and **dynamic mapping** guesses field types.\n\n`GET /index/_doc/<id>` returns the document's `_source` plus metadata: `_version`, `_seq_no` and `_primary_term`. Unlike search, get by id is real-time.\n\nDocuments are immutable in Lucene, so an \"update\" is a reindex: `POST /index/_update/<id>` with `{ \"doc\": { ... } }` merges fields into the stored source and writes a new version. Scripted updates (`\"script\": { \"source\": \"ctx._source.stock -= params.n\" }`) and `doc_as_upsert` are available too. `DELETE /index/_doc/<id>` removes one document.\n\nFor safe concurrent writes use **optimistic concurrency control**: read `_seq_no` and `_primary_term`, then write with `?if_seq_no=..&if_primary_term=..`; if someone changed the document meanwhile you get a 409 conflict and can retry.\n\nAdd `?refresh=wait_for` in tests when you need the change visible to search before the call returns, but avoid it in high-throughput code.",
+   "code": "PUT /products/_doc/1\n{ \"name\": \"Blue pen\", \"price\": 1.5, \"tags\": [\"office\"], \"stock\": 10 }\n# { \"_id\": \"1\", \"_version\": 1, \"result\": \"created\", \"_seq_no\": 0, \"_primary_term\": 1 }\n\nPOST /products/_update/1\n{ \"doc\": { \"price\": 1.2 } }\n# { \"_version\": 2, \"result\": \"updated\", ... }\n\nPOST /products/_update/1\n{ \"script\": { \"source\": \"ctx._source.stock -= params.n\", \"params\": { \"n\": 3 } } }\n\nGET /products/_doc/1\n# { \"_version\": 3, \"_seq_no\": 2, \"found\": true,\n#   \"_source\": { \"name\": \"Blue pen\", \"price\": 1.2, \"tags\": [\"office\"], \"stock\": 7 } }\n\nPUT /products/_doc/1?if_seq_no=1&if_primary_term=1\n{ \"name\": \"Stale write\" }\n# 409 version_conflict_engine_exception",
+   "code_lang": "http",
+   "takeaways": [
+    "PUT with an id creates or replaces; POST without id generates one",
+    "_update merges a partial doc or runs a script, creating a new version",
+    "GET by id is real-time; search waits for refresh",
+    "if_seq_no + if_primary_term give optimistic concurrency"
+   ],
+   "pitfalls": [
+    "Using PUT /index/_doc/id with partial fields and wiping the rest: PUT replaces the whole document."
+   ],
+   "quiz": [
+    {
+     "q": "What does PUT /products/_doc/1 with body { \"price\": 2 } do to an existing document with name and price?",
+     "options": [
+      "Replaces the document, so name is gone",
+      "Updates only price",
+      "Fails with a conflict",
+      "Appends a second document with id 1"
+     ],
+     "answer": 0,
+     "explain": "PUT replaces the whole source; use _update for partial changes."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-index_.html",
+   "requires": [
+    "elasticsearch.what-is"
+   ]
+  },
+  {
+   "id": "elasticsearch.search-basics",
+   "name": "Search basics and the match query",
+   "module": "search",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Run _search with a match query, read hits and scores, and control which fields are returned.",
+   "why": "Full-text search with relevance ranking is the reason Elasticsearch exists.",
+   "body": "`GET /index/_search` with a `query` returns ranked **hits**. The workhorse full-text query is **match**: `{ \"match\": { \"name\": \"blue pens\" } }` analyzes the query text into terms (`blue`, `pens`, lower-cased) and finds documents containing any of them, scoring documents with more and rarer matches higher.\n\nThe response contains:\n\n- `hits.total`: the number of matches (counted exactly up to 10,000 by default, then reported as a lower bound with `\"relation\": \"gte\"`),\n- `hits.hits`: the top results, each with `_id`, `_score` and `_source`,\n- `took` in milliseconds and `timed_out`.\n\nUseful options on `match`: `\"operator\": \"and\"` to require all terms, `\"fuzziness\": \"AUTO\"` to tolerate typos, `minimum_should_match` for \"at least 2 of 3 words\". `multi_match` searches several fields at once, e.g. `[\"name^3\", \"description\"]` where `^3` boosts name matches.\n\nControl the response with `size` (default 10), `_source` filtering (`\"_source\": [\"name\", \"price\"]`) or `fields`, and `highlight` to get matched fragments wrapped in tags.\n\nA search with no query, or `{ \"match_all\": {} }`, returns everything with score 1.0. `GET /index/_count` returns just the number of matches.",
+   "code": "GET /products/_search\n{\n  \"query\": {\n    \"match\": { \"name\": { \"query\": \"blue pens\", \"operator\": \"or\", \"fuzziness\": \"AUTO\" } }\n  },\n  \"_source\": [\"name\", \"price\"],\n  \"size\": 3,\n  \"highlight\": { \"fields\": { \"name\": {} } }\n}\n# \"hits\": {\n#   \"total\": { \"value\": 2, \"relation\": \"eq\" },\n#   \"hits\": [\n#     { \"_id\": \"1\", \"_score\": 1.38, \"_source\": { \"name\": \"Blue pen\", \"price\": 1.2 },\n#       \"highlight\": { \"name\": [\"<em>Blue</em> <em>pen</em>\"] } },\n#     { \"_id\": \"4\", \"_score\": 0.54, \"_source\": { \"name\": \"Blue notebook\", \"price\": 4 } } ] }",
+   "code_lang": "http",
+   "takeaways": [
+    "match analyzes the query text and ranks by relevance (_score)",
+    "operator: and, fuzziness and minimum_should_match tune matching",
+    "multi_match with ^boost searches several fields",
+    "size, _source filtering and highlight shape the response"
+   ],
+   "pitfalls": [
+    "Reading hits.total as exact for large result sets: beyond 10,000 it is a lower bound unless track_total_hits is true."
+   ],
+   "quiz": [
+    {
+     "q": "A match query for \"red shoes\" uses the default operator. Which documents match?",
+     "options": [
+      "Only those containing both words",
+      "Those containing red or shoes, ranked by relevance",
+      "Only the exact phrase",
+      "None, because match needs a single word"
+     ],
+     "answer": 1,
+     "explain": "The default operator is or; documents with more matching terms score higher."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-match-query.html",
+   "requires": [
+    "elasticsearch.index-documents"
+   ]
+  },
+  {
+   "id": "elasticsearch.mappings",
+   "name": "Mappings: text vs keyword",
+   "module": "mapping",
+   "level": 1,
+   "minutes": 11,
+   "summary": "Define field types explicitly, especially text for full-text search versus keyword for exact values, sorting and aggregations.",
+   "why": "Most Elasticsearch bugs and slow queries trace back to a field mapped as the wrong type.",
+   "body": "A **mapping** is the schema of an index: each field's type and how it is indexed. If you don't define one, **dynamic mapping** guesses on first sight: numbers become `long` or `float`, ISO date strings `date`, and every other string becomes a `text` field with a `.keyword` subfield.\n\nThe crucial distinction is between the two string types:\n\n- **text** is analyzed into terms for full-text search (\"Blue Pen\" becomes `blue`, `pen`); you can't sort or aggregate on it efficiently,\n- **keyword** stores the exact value as one term, for filters, sorting, aggregations and ids (\"SKU-001\", \"paid\", email addresses).\n\nOther common types: `integer`, `long`, `float`, `scaled_float`, `double`, `date`, `boolean`, `ip`, `geo_point`, `object`, `nested`, `dense_vector`. Multi-fields (`\"fields\": { \"raw\": { \"type\": \"keyword\" } }`) index one value both ways.\n\nDefine mappings explicitly for production indices: `PUT /index { \"mappings\": { \"properties\": {...} } }`. Set `\"dynamic\": \"strict\"` to reject unknown fields, or `false` to store but not index them; uncontrolled dynamic fields can lead to a **mapping explosion** (the default limit is 1,000 fields).\n\nYou can add new fields to an existing mapping, but you **cannot change** an existing field's type; that requires creating a new index and reindexing.",
+   "code": "PUT /orders\n{\n  \"mappings\": {\n    \"dynamic\": \"strict\",\n    \"properties\": {\n      \"order_id\":  { \"type\": \"keyword\" },\n      \"status\":    { \"type\": \"keyword\" },\n      \"customer\":  { \"type\": \"text\", \"fields\": { \"raw\": { \"type\": \"keyword\" } } },\n      \"total\":     { \"type\": \"scaled_float\", \"scaling_factor\": 100 },\n      \"placed_at\": { \"type\": \"date\" },\n      \"notes\":     { \"type\": \"text\" }\n    }\n  }\n}\n\nPUT /orders/_doc/1\n{ \"order_id\": \"A-1\", \"status\": \"paid\", \"customer\": \"Ana Petrosyan\", \"colour\": \"red\" }\n# 400 strict_dynamic_mapping_exception: [colour] not allowed\n\nGET /orders/_mapping",
+   "code_lang": "http",
+   "takeaways": [
+    "text = analyzed for full-text; keyword = exact value for filters, sorts, aggs",
+    "Dynamic mapping makes strings text + .keyword",
+    "Define production mappings explicitly; consider dynamic: strict",
+    "Existing field types can't change: reindex instead"
+   ],
+   "pitfalls": [
+    "Mapping ids, statuses or emails as text and then wondering why exact filters and aggregations misbehave."
+   ],
+   "quiz": [
+    {
+     "q": "You need to sort products by brand name and also search brand with typos. How should brand be mapped?",
+     "options": [
+      "text only",
+      "keyword only",
+      "a nested object",
+      "text with a keyword subfield"
+     ],
+     "answer": 3,
+     "explain": "A multi-field gives full-text search on text and sorting/aggregation on the keyword subfield."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping.html",
+   "requires": [
+    "elasticsearch.index-documents"
+   ]
+  },
+  {
+   "id": "elasticsearch.term-range",
+   "name": "Exact values: term, terms and range",
+   "module": "search",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Filter on exact keyword values, numbers and dates with term, terms, range and exists queries.",
+   "why": "Filters like status, price ranges and date windows are part of almost every real search request.",
+   "body": "**Term-level queries** look up exact values without analyzing the input:\n\n- `term`: one exact value, `{ \"term\": { \"status\": \"paid\" } }`,\n- `terms`: any of several values, `{ \"terms\": { \"status\": [\"paid\", \"shipped\"] } }`,\n- `range`: numbers, dates or strings with `gt`, `gte`, `lt`, `lte`,\n- `exists`: the field has an indexed value; `prefix`, `wildcard` and `ids` also exist.\n\nUse them on `keyword`, numeric, date and boolean fields. Using `term` on a **text** field is the classic mistake: the stored terms are analyzed (lower-cased, split), so `{ \"term\": { \"name\": \"Blue pen\" } }` matches nothing, while `match` would. If you need the exact original string, query the `.keyword` subfield.\n\nDate ranges accept **date math**: `\"gte\": \"now-7d/d\"` means seven days ago rounded down to the start of the day, and `\"lt\": \"now/d\"` is the start of today. Rounding makes requests cacheable. Add `\"format\"` or `\"time_zone\"` when inputs aren't ISO UTC.\n\nExact filters don't need scoring. Put them in the `filter` clause of a `bool` query (next lesson) so Elasticsearch skips scoring and can cache them, which is both faster and more correct than letting a filter affect relevance.",
+   "code": "GET /orders/_search\n{\n  \"query\": {\n    \"bool\": {\n      \"filter\": [\n        { \"terms\": { \"status\": [\"paid\", \"shipped\"] } },\n        { \"range\": { \"total\": { \"gte\": 20, \"lt\": 100 } } },\n        { \"range\": { \"placed_at\": { \"gte\": \"now-7d/d\", \"lt\": \"now/d\" } } },\n        { \"exists\": { \"field\": \"notes\" } }\n      ]\n    }\n  }\n}\n\n# Gotcha: term on an analyzed text field\nGET /orders/_search\n{ \"query\": { \"term\": { \"customer\": \"Ana Petrosyan\" } } }        # 0 hits\nGET /orders/_search\n{ \"query\": { \"term\": { \"customer.raw\": \"Ana Petrosyan\" } } }    # 1 hit",
+   "code_lang": "http",
+   "takeaways": [
+    "term/terms/range/exists match exact values without analysis",
+    "Use them on keyword, numeric, date and boolean fields",
+    "term on a text field usually finds nothing; use match or .keyword",
+    "Date math like now-7d/d with rounding is cache friendly"
+   ],
+   "pitfalls": [
+    "Querying a text field with term and getting zero results."
+   ],
+   "quiz": [
+    {
+     "q": "A status field is mapped as text. Why might { \"term\": { \"status\": \"Shipped\" } } return nothing?",
+     "options": [
+      "The indexed terms were lower-cased to shipped, and term doesn't analyze the input",
+      "term is not supported on text",
+      "Status values are stored in _source only",
+      "range is required"
+     ],
+     "answer": 0,
+     "explain": "Text fields store analyzed terms; term looks up the input exactly as given."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/term-level-queries.html",
+   "requires": [
+    "elasticsearch.search-basics",
+    "elasticsearch.mappings"
+   ]
+  },
+  {
+   "id": "elasticsearch.bool-queries",
+   "name": "Combining queries with bool",
+   "module": "search",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Combine full-text and exact conditions with must, should, filter and must_not, and know which affect scoring.",
+   "why": "Real search boxes mix text relevance with filters, boosts and exclusions, all expressed through bool.",
+   "body": "The **bool** query combines clauses:\n\n- `must`: must match and **contributes to the score**,\n- `filter`: must match, **no scoring**, cacheable,\n- `should`: optional matches that raise the score; if there is no `must` or `filter`, at least one `should` must match (`minimum_should_match` controls this),\n- `must_not`: excludes matches, runs in filter context.\n\nA typical product search puts the user's text in `must` (a `match` or `multi_match`), structured conditions like category, price range and in-stock in `filter`, preferences in `should` (boost items on sale or from a favourite brand), and exclusions such as discontinued items in `must_not`.\n\nThis split between **query context** (how well does it match?) and **filter context** (does it match?) is central. Filters are faster, cached in the node query cache when used repeatedly, and don't distort relevance.\n\nBool queries nest, so you can express `(A or B) and not C` by putting a bool with two `should` clauses inside a `filter`. Use `\"boost\"` on individual clauses to weigh them. To debug why a document scored as it did, add `\"explain\": true` to the request or use the `_explain` API.",
+   "code": "GET /products/_search\n{\n  \"query\": {\n    \"bool\": {\n      \"must\":     [ { \"multi_match\": { \"query\": \"gel pen\", \"fields\": [\"name^3\", \"description\"] } } ],\n      \"filter\":   [ { \"term\": { \"category\": \"office\" } },\n                    { \"range\": { \"price\": { \"lte\": 10 } } } ],\n      \"should\":   [ { \"term\": { \"on_sale\": { \"value\": true, \"boost\": 2 } } } ],\n      \"must_not\": [ { \"term\": { \"discontinued\": true } } ]\n    }\n  }\n}\n# matches need the text in must and pass every filter;\n# on_sale items rank higher; discontinued items never appear",
+   "code_lang": "http",
+   "takeaways": [
+    "must and should score; filter and must_not don't",
+    "Put exact conditions in filter for speed, caching and clean relevance",
+    "should boosts optional preferences",
+    "bool queries nest to build any logic"
+   ],
+   "pitfalls": [
+    "Putting exact filters in must, so they inflate scores and can't be cached as filters."
+   ],
+   "quiz": [
+    {
+     "q": "Which clause should hold a price range that must apply but shouldn't affect ranking?",
+     "options": [
+      "must",
+      "filter",
+      "should",
+      "must_not"
+     ],
+     "answer": 1,
+     "explain": "filter requires the match without contributing to the score."
+    },
+    {
+     "q": "A bool query has only should clauses and no must or filter. What is required to match?",
+     "options": [
+      "At least one should clause",
+      "Nothing; all documents match",
+      "All should clauses",
+      "It is an invalid query"
+     ],
+     "answer": 0,
+     "explain": "Without must or filter, minimum_should_match defaults to 1."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-bool-query.html",
+   "requires": [
+    "elasticsearch.search-basics",
+    "elasticsearch.term-range"
+   ]
+  },
+  {
+   "id": "elasticsearch.analyzers",
+   "name": "Text analysis and analyzers",
+   "module": "mapping",
+   "level": 2,
+   "minutes": 13,
+   "summary": "See how analyzers turn text into terms with character filters, tokenizers and token filters, and build custom ones.",
+   "why": "Whether a search finds 'running' for 'run' or 'café' for 'cafe' is decided by analysis.",
+   "body": "When a `text` field is indexed, an **analyzer** turns it into terms in three steps:\n\n- **character filters** clean the raw text (strip HTML, map characters),\n- a **tokenizer** splits it into tokens (`standard` splits on word boundaries following Unicode rules, `whitespace` on spaces, `keyword` keeps one token),\n- **token filters** transform tokens: `lowercase`, `asciifolding` (café to cafe), `stop` words, `stemmer` (running to run), `synonym_graph`, `edge_ngram` for autocomplete.\n\nThe default `standard` analyzer is the standard tokenizer plus lowercase. Language analyzers like `english` add stop words and stemming.\n\nThe same analysis normally runs on the **query** text too, which is why `match` works. You can set a different `search_analyzer`, for example index with `edge_ngram` for prefix autocomplete but search with `standard`, so query text isn't also n-grammed.\n\nThe `_analyze` API shows exactly which terms an analyzer produces, and it's the first tool to use when a search mysteriously doesn't match.\n\nAnalyzers are defined in index **settings** and referenced from the mapping. Changing an analyzer on existing data requires reindexing, since terms were computed at index time. For keyword fields, a **normalizer** (e.g. lowercase) applies a light single-token cleanup.",
+   "code": "PUT /articles\n{\n  \"settings\": { \"analysis\": { \"analyzer\": {\n    \"folded_english\": {\n      \"type\": \"custom\",\n      \"char_filter\": [\"html_strip\"],\n      \"tokenizer\": \"standard\",\n      \"filter\": [\"lowercase\", \"asciifolding\", \"stop\", \"porter_stem\"]\n    } } } },\n  \"mappings\": { \"properties\": {\n    \"body\": { \"type\": \"text\", \"analyzer\": \"folded_english\" } } }\n}\n\nPOST /articles/_analyze\n{ \"analyzer\": \"folded_english\", \"text\": \"<p>The Cafés are RUNNING late</p>\" }\n# tokens: \"cafe\", \"run\", \"late\"",
+   "code_lang": "http",
+   "takeaways": [
+    "Analyzer = char filters + tokenizer + token filters",
+    "Query text is analyzed with the same (or a search_) analyzer",
+    "_analyze shows the exact terms produced",
+    "Changing analysis means reindexing"
+   ],
+   "pitfalls": [
+    "Adding synonyms or stemming to the mapping of an existing index and expecting old documents to match differently without reindexing."
+   ],
+   "quiz": [
+    {
+     "q": "Documents contain \"running\" but a match query for \"run\" finds nothing. What is the likely fix?",
+     "options": [
+      "Use an analyzer with a stemmer, then reindex",
+      "Use a term query",
+      "Increase the number of shards",
+      "Map the field as keyword"
+     ],
+     "answer": 0,
+     "explain": "Stemming reduces both running and run to the same term, but existing data must be reindexed."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/analysis.html",
+   "requires": [
+    "elasticsearch.mappings",
+    "elasticsearch.search-basics"
+   ]
+  },
+  {
+   "id": "elasticsearch.relevance",
+   "name": "Relevance scoring and tuning",
+   "module": "search",
+   "level": 2,
+   "minutes": 13,
+   "summary": "Understand BM25 scoring and tune relevance with field boosts, phrase matching, function_score and explain.",
+   "why": "Users judge search by whether the best result is first, which takes deliberate relevance tuning.",
+   "body": "Elasticsearch scores full-text matches with **BM25** by default. For each query term in each field, the score grows with:\n\n- **term frequency**: how often the term occurs in the field (with diminishing returns, controlled by `k1`),\n- **inverse document frequency**: rarer terms across the index count more,\n- shorter fields: a match in a short title beats one in a long body (length normalization, controlled by `b`).\n\nScores are relative, only comparable within one query, so never apply fixed score thresholds across queries.\n\nTuning tools, roughly in the order to try them:\n\n- **field boosts** in `multi_match` (`\"title^3\"`), and `type: \"best_fields\"`, `\"most_fields\"` or `\"cross_fields\"` depending on how fields relate,\n- **phrase proximity**: add a `match_phrase` with `slop` in `should` to reward words appearing together,\n- **business signals** with `function_score` or `script_score`: blend popularity, recency (`gauss` decay on a date) or rating into the score; `rank_feature` fields are an efficient alternative,\n- **synonyms** at search time.\n\nUse `\"explain\": true` to see each document's score breakdown, and evaluate changes against a set of real queries with judged results (the `_rank_eval` API) rather than eyeballing one query.\n\nFor hybrid lexical and semantic search, scores from different methods aren't comparable; combine result lists with **reciprocal rank fusion** (RRF) instead.",
+   "code": "GET /articles/_search\n{\n  \"query\": {\n    \"function_score\": {\n      \"query\": { \"bool\": {\n        \"must\":   [ { \"multi_match\": { \"query\": \"solar battery storage\",\n                                       \"fields\": [\"title^3\", \"body\"], \"type\": \"best_fields\" } } ],\n        \"should\": [ { \"match_phrase\": { \"title\": { \"query\": \"battery storage\", \"slop\": 1 } } } ]\n      } },\n      \"functions\": [\n        { \"gauss\": { \"published\": { \"origin\": \"now\", \"scale\": \"30d\", \"decay\": 0.5 } } },\n        { \"field_value_factor\": { \"field\": \"likes\", \"modifier\": \"log1p\", \"missing\": 0 } }\n      ],\n      \"score_mode\": \"sum\",\n      \"boost_mode\": \"multiply\"\n    }\n  },\n  \"explain\": false\n}",
+   "code_lang": "http",
+   "takeaways": [
+    "BM25: term frequency, rarity (IDF) and field length drive scores",
+    "Scores are relative to a query; don't threshold them",
+    "Boost fields, reward phrases, then blend business signals",
+    "Measure changes with judged queries, not single examples"
+   ],
+   "pitfalls": [
+    "Tuning boosts based on one query and making ten others worse."
+   ],
+   "quiz": [
+    {
+     "q": "All else equal, which document scores higher for the term \"zephyr\" under BM25?",
+     "options": [
+      "Neither; BM25 ignores field length",
+      "One where zephyr appears once in a 5,000-word body",
+      "Both score the same",
+      "One where zephyr appears once in a 5-word title"
+     ],
+     "answer": 3,
+     "explain": "Length normalization gives a match in a short field more weight."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/index-modules-similarity.html",
+   "requires": [
+    "elasticsearch.bool-queries",
+    "elasticsearch.analyzers"
+   ]
+  },
+  {
+   "id": "elasticsearch.aggregations",
+   "name": "Aggregations",
+   "module": "analytics",
+   "level": 2,
+   "minutes": 13,
+   "summary": "Compute facets, statistics and histograms with terms, metric, date_histogram and nested sub-aggregations.",
+   "why": "Faceted navigation, dashboards and log analytics are all aggregations over search results.",
+   "body": "**Aggregations** summarise the documents matched by the query, in the same request. Set `\"size\": 0` when you only need the summary, not the hits.\n\n- **Metric** aggregations compute numbers: `avg`, `sum`, `min`, `max`, `stats`, `percentiles`, `cardinality` (approximate distinct count using HyperLogLog++).\n- **Bucket** aggregations group documents: `terms` (top values of a keyword field), `range`, `histogram`, `date_histogram` (`calendar_interval: \"day\"` or `fixed_interval: \"5m\"`), `filters`.\n- **Sub-aggregations** nest inside buckets: average price per category, errors per host per hour.\n- **Pipeline** aggregations work on other aggregations' output: `derivative`, `cumulative_sum`, `bucket_sort`.\n\nAggregations run on doc values, the columnar on-disk structure that `keyword`, numeric and date fields have by default. That's why you aggregate on `category` (keyword) or `category.keyword`, not on a `text` field, which errors by default.\n\nKnow the approximations: `terms` gathers the top terms from each shard and merges them, so counts can be slightly off with many shards (`doc_count_error_upper_bound` reports the bound, and `shard_size` trades work for accuracy). `cardinality` is approximate with a tunable `precision_threshold`. For paging through every combination of buckets, use the `composite` aggregation instead of a huge `terms` size.\n\nFacets on an e-commerce page are typically a `terms` aggregation per attribute, with the user's selections applied through `post_filter` so the facets still show other options.",
+   "code": "GET /orders/_search\n{\n  \"size\": 0,\n  \"query\": { \"range\": { \"placed_at\": { \"gte\": \"now-30d/d\" } } },\n  \"aggs\": {\n    \"per_day\": {\n      \"date_histogram\": { \"field\": \"placed_at\", \"calendar_interval\": \"day\" },\n      \"aggs\": { \"revenue\": { \"sum\": { \"field\": \"total\" } } }\n    },\n    \"by_status\": { \"terms\": { \"field\": \"status\", \"size\": 5 } },\n    \"customers\": { \"cardinality\": { \"field\": \"customer.raw\" } },\n    \"order_value\": { \"percentiles\": { \"field\": \"total\", \"percents\": [50, 95] } }\n  }\n}\n# \"aggregations\": {\n#   \"by_status\": { \"buckets\": [ { \"key\": \"paid\", \"doc_count\": 812 }, ... ] },\n#   \"customers\": { \"value\": 431 },\n#   \"order_value\": { \"values\": { \"50.0\": 38.5, \"95.0\": 212.0 } }, ... }",
+   "code_lang": "http",
+   "takeaways": [
+    "Metric aggs compute values; bucket aggs group; sub-aggs nest",
+    "size: 0 when you only want aggregations",
+    "Aggregate on keyword/numeric/date fields (doc values), not text",
+    "terms and cardinality are approximate across shards"
+   ],
+   "pitfalls": [
+    "Running a terms aggregation with size: 100000 to list everything; use composite and page through it."
+   ],
+   "quiz": [
+    {
+     "q": "Why does a terms aggregation on a text field like description fail by default?",
+     "options": [
+      "Text fields can't be stored",
+      "Text fields have no doc values; aggregating needs fielddata, which is disabled",
+      "terms only works on numbers",
+      "Aggregations need size > 0"
+     ],
+     "answer": 1,
+     "explain": "Aggregations read doc values; text fields don't have them, so use a keyword field."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations.html",
+   "requires": [
+    "elasticsearch.term-range"
+   ]
+  },
+  {
+   "id": "elasticsearch.pagination-sorting",
+   "name": "Sorting and deep pagination",
+   "module": "search",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Sort results by fields and page through them with from/size for shallow pages and search_after with a point in time for deep ones.",
+   "why": "Result lists need stable ordering and paging, and naive deep paging hits hard limits.",
+   "body": "By default hits are ordered by `_score`. `\"sort\": [{ \"price\": \"asc\" }, { \"_score\": \"desc\" }]` sorts by fields; sort on keyword, numeric or date fields, never on analyzed text.\n\n**from/size** paging (`\"from\": 20, \"size\": 10` for page 3) is fine for the first pages. Each shard must produce `from + size` hits and the coordinating node merges them all, so cost grows with depth, and requests beyond `index.max_result_window` (10,000 by default) are rejected.\n\nFor deep pagination or exporting results use **search_after**:\n\n- open a **point in time** (`POST /index/_pit?keep_alive=1m`) so pages see a consistent snapshot even while documents change,\n- sort by your fields plus the implicit `_shard_doc` tie-breaker that PIT searches add,\n- pass each last hit's `sort` values as `search_after` in the next request,\n- close the PIT when done.\n\n`search_after` can't jump to page 500 directly, which matches how infinite scroll and exports work anyway. The older **scroll** API still exists but is no longer recommended for deep pagination; prefer PIT with search_after.\n\n`track_total_hits` controls exact counting: `false` skips it entirely for speed, `true` counts exactly at a cost.",
+   "code": "POST /orders/_pit?keep_alive=1m\n# { \"id\": \"46ToAwMDaWR5BXV1...\" }\n\nGET /_search\n{\n  \"size\": 100,\n  \"query\": { \"term\": { \"status\": \"paid\" } },\n  \"pit\": { \"id\": \"46ToAwMDaWR5BXV1...\", \"keep_alive\": \"1m\" },\n  \"sort\": [ { \"placed_at\": \"desc\" } ]\n}\n# each hit ends with \"sort\": [1760700000000, 4294967298]\n\nGET /_search\n{\n  \"size\": 100,\n  \"query\": { \"term\": { \"status\": \"paid\" } },\n  \"pit\": { \"id\": \"46ToAwMDaWR5BXV1...\", \"keep_alive\": \"1m\" },\n  \"sort\": [ { \"placed_at\": \"desc\" } ],\n  \"search_after\": [1760700000000, 4294967298]\n}\n\nDELETE /_pit\n{ \"id\": \"46ToAwMDaWR5BXV1...\" }",
+   "code_lang": "http",
+   "takeaways": [
+    "Sort on keyword, numeric or date fields",
+    "from/size for shallow pages; limited to 10,000 by default",
+    "Deep paging: point in time + search_after",
+    "Close PITs when you're done"
+   ],
+   "pitfalls": [
+    "Raising max_result_window to millions to keep using from/size, which loads the cluster heavily."
+   ],
+   "quiz": [
+    {
+     "q": "An export job must read all 3 million matching documents consistently. What should it use?",
+     "options": [
+      "from/size with from up to 3,000,000",
+      "A single request with size 3,000,000",
+      "A point in time with search_after",
+      "Aggregations"
+     ],
+     "answer": 2,
+     "explain": "PIT gives a consistent snapshot and search_after pages efficiently at any depth."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/paginate-search-results.html",
+   "requires": [
+    "elasticsearch.search-basics",
+    "elasticsearch.mappings"
+   ]
+  },
+  {
+   "id": "elasticsearch.bulk-refresh",
+   "name": "Bulk indexing and refresh",
+   "module": "data",
+   "level": 2,
+   "minutes": 11,
+   "summary": "Load and change many documents efficiently with the _bulk API, update_by_query and refresh settings.",
+   "why": "Syncing data from a database or pipeline needs high-throughput indexing without overloading the cluster.",
+   "body": "Indexing documents one request at a time wastes round trips. The **_bulk** API takes newline-delimited JSON (NDJSON): an action line (`index`, `create`, `update`, `delete`) followed, except for delete, by a source line. The body must end with a newline.\n\nThe response has `\"errors\": true` if any item failed, and per-item statuses, so always inspect it: bulk requests partially succeed. Client libraries provide bulk helpers that chunk, send in parallel and report failures.\n\nTips for throughput:\n\n- batches of roughly 5 to 15 MB; measure rather than guess,\n- several parallel bulk workers, backing off on `429` (rejected because the write thread pool queue is full),\n- for big initial loads, set `\"refresh_interval\": \"-1\"` and `\"number_of_replicas\": 0`, then restore them afterwards,\n- let Elasticsearch generate ids when you don't need your own; it skips a lookup.\n\nEach **refresh** makes recent writes searchable by creating a new segment, so frequent refreshes cost CPU and I/O. The default `1s` (applied only while the index is being searched) is a good balance; `?refresh=wait_for` on a request waits for the next refresh.\n\nFor set-based changes on documents already in the index use `_update_by_query` and `_delete_by_query` with a query and, for updates, a script. They run as tasks, can be throttled, and report version conflicts.",
+   "code": "POST /_bulk\n{ \"index\": { \"_index\": \"products\", \"_id\": \"2\" } }\n{ \"name\": \"Red pen\", \"price\": 1.4, \"category\": \"office\" }\n{ \"create\": { \"_index\": \"products\", \"_id\": \"3\" } }\n{ \"name\": \"Ink\", \"price\": 3.0, \"category\": \"office\" }\n{ \"update\": { \"_index\": \"products\", \"_id\": \"1\" } }\n{ \"doc\": { \"stock\": 20 } }\n{ \"delete\": { \"_index\": \"products\", \"_id\": \"99\" } }\n\n# { \"errors\": false, \"items\": [ { \"index\": { \"status\": 201 } }, ...,\n#   { \"delete\": { \"status\": 404, \"result\": \"not_found\" } } ] }\n\nPOST /products/_update_by_query?conflicts=proceed\n{\n  \"query\": { \"term\": { \"category\": \"office\" } },\n  \"script\": { \"source\": \"ctx._source.price *= 1.1\" }\n}",
+   "code_lang": "http",
+   "takeaways": [
+    "_bulk sends many actions as NDJSON, ending with a newline",
+    "Check errors and per-item status: bulk partially succeeds",
+    "Disable refresh and replicas during big initial loads",
+    "update_by_query / delete_by_query change sets of documents"
+   ],
+   "pitfalls": [
+    "Ignoring the bulk response and silently losing documents that failed mapping validation."
+   ],
+   "quiz": [
+    {
+     "q": "A bulk request returns HTTP 200 with \"errors\": true. What does that mean?",
+     "options": [
+      "Everything was rolled back",
+      "Nothing was indexed",
+      "The cluster is red",
+      "Some items failed; check each item's status"
+     ],
+     "answer": 3,
+     "explain": "Bulk is not atomic: the HTTP call succeeded but individual items may have failed."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-bulk.html",
+   "requires": [
+    "elasticsearch.index-documents",
+    "elasticsearch.mappings"
+   ]
+  },
+  {
+   "id": "elasticsearch.esql",
+   "name": "ES|QL piped queries",
+   "module": "analytics",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Query, filter, transform and aggregate data with the piped ES|QL language via the _query API.",
+   "why": "ES|QL makes analytics and log exploration readable without deeply nested JSON.",
+   "body": "**ES|QL** (Elasticsearch Query Language) is a piped query language: a source command followed by processing commands separated by `|`, each transforming the table of results from the previous step.\n\n- `FROM logs-*` selects indices, data streams or aliases (wildcards allowed),\n- `WHERE status >= 500 AND host LIKE \"web-*\"` filters,\n- `EVAL ms = duration / 1000000` computes columns, `KEEP` and `DROP` choose them, `RENAME` renames,\n- `STATS errors = COUNT(*), p95 = PERCENTILE(latency, 95) BY host` aggregates,\n- `SORT errors DESC | LIMIT 10` orders and limits,\n- `DISSECT` and `GROK` parse strings into fields at query time, `ENRICH` adds data from enrich policies, and `LOOKUP JOIN` joins with a lookup index.\n\nSend it with `POST /_query` and a `\"query\"` string; add `?format=txt` or `csv` for tabular output. Kibana Discover supports ES|QL directly.\n\nUnlike the Query DSL, which is built for relevance-ranked search, ES|QL is designed for analytics and runs on a dedicated compute engine that processes data in blocks, in parallel across shards. Results without an explicit `LIMIT` are capped at 1,000 rows by default.\n\nPass values as parameters (`?` placeholders with a `\"params\"` array) instead of concatenating user input into the query string.",
+   "code": "POST /_query?format=txt\n{\n  \"query\": \"FROM orders | WHERE placed_at >= NOW() - 30 days AND status == ? | STATS revenue = SUM(total), orders = COUNT(*) BY customer.raw | SORT revenue DESC | LIMIT 3\",\n  \"params\": [\"paid\"]\n}\n#     revenue    |    orders     | customer.raw\n# ---------------+---------------+---------------\n# 1840.5         |12             |Ana Petrosyan\n# 1290.0         |9              |Ben Sargsyan\n# 977.25         |7              |Cy Hakobyan",
+   "code_lang": "http",
+   "takeaways": [
+    "FROM source | command | command ... builds a table step by step",
+    "WHERE, EVAL, STATS ... BY, SORT, LIMIT cover most analytics",
+    "POST /_query; use format=txt or csv for tables",
+    "Use params instead of string concatenation"
+   ],
+   "pitfalls": [
+    "Forgetting the implicit 1,000-row limit and assuming you got the full result."
+   ],
+   "quiz": [
+    {
+     "q": "Which ES|QL fragment counts requests per host?",
+     "options": [
+      "| WHERE COUNT(host)",
+      "| GROUP host COUNT",
+      "| STATS COUNT(*) BY host",
+      "| EVAL count = host"
+     ],
+     "answer": 2,
+     "explain": "STATS ... BY groups rows and computes aggregates per group."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/esql.html",
+   "requires": [
+    "elasticsearch.term-range",
+    "elasticsearch.search-basics"
+   ]
+  },
+  {
+   "id": "elasticsearch.shards-replicas",
+   "name": "Shards, replicas and cluster health",
+   "module": "cluster",
+   "level": 3,
+   "minutes": 13,
+   "summary": "Size primary shards and replicas, read green/yellow/red health, and understand how nodes share the work.",
+   "why": "Shard layout decides how an index scales, survives node failures and performs, and is hard to change later.",
+   "body": "An index is divided into **primary shards**; each document lives in exactly one, chosen by routing (by default a hash of `_id`). Each primary can have **replica** shards: full copies on other nodes that provide failover and serve searches too.\n\n- `number_of_shards` is fixed at creation (changing it means `_split`, `_shrink` or reindexing); the default is 1,\n- `number_of_replicas` can be changed any time; the default is 1,\n- a replica is never placed on the same node as its primary.\n\n**Cluster health** summarises allocation: **green** means all primaries and replicas are assigned; **yellow** means all primaries are assigned but some replicas aren't (a single-node cluster with replicas is always yellow); **red** means some primary is unassigned, so some data is unavailable. `GET _cluster/allocation/explain` tells you why a shard isn't assigned.\n\nSizing guidance: aim for shards of roughly 10 to 50 GB and avoid thousands of tiny shards, since every shard costs heap, file handles and coordination. More shards give more parallelism for writes; more replicas give more read throughput and resilience but multiply storage.\n\nNodes have roles: master-eligible nodes manage cluster state (use three for resilience), data nodes hold shards (possibly tiered hot/warm/cold), ingest nodes run pipelines, and any node can coordinate requests.",
+   "code": "PUT /logs-2026.10\n{ \"settings\": { \"number_of_shards\": 3, \"number_of_replicas\": 1 } }\n\nPUT /logs-2026.10/_settings\n{ \"number_of_replicas\": 2 }\n\nGET /_cat/shards/logs-2026.10?v&h=index,shard,prirep,state,docs,store,node\n# index        shard prirep state   docs  store node\n# logs-2026.10 0     p      STARTED 10231 4.1mb node-1\n# logs-2026.10 0     r      STARTED 10231 4.1mb node-2\n# ...\n\nGET /_cluster/health?filter_path=status,unassigned_shards\n# { \"status\": \"yellow\", \"unassigned_shards\": 3 }\nGET /_cluster/allocation/explain",
+   "code_lang": "http",
+   "takeaways": [
+    "Primary shard count is fixed at creation; replicas can change",
+    "Green: all assigned; yellow: replicas missing; red: a primary missing",
+    "Aim for roughly 10-50 GB shards; avoid many tiny ones",
+    "Use three master-eligible nodes for a resilient cluster"
+   ],
+   "pitfalls": [
+    "Creating many indices with many shards each (oversharding), exhausting heap with small shards."
+   ],
+   "quiz": [
+    {
+     "q": "A one-node cluster has an index with 1 replica. What health does it report?",
+     "options": [
+      "yellow",
+      "green",
+      "red",
+      "unknown"
+     ],
+     "answer": 0,
+     "explain": "Replicas can't be allocated on the node holding their primary, so they stay unassigned."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/scalability.html",
+   "requires": [
+    "elasticsearch.bulk-refresh"
+   ]
+  },
+  {
+   "id": "elasticsearch.nested",
+   "name": "Objects, arrays and nested fields",
+   "module": "mapping",
+   "level": 3,
+   "minutes": 11,
+   "summary": "Understand how arrays of objects are flattened and use the nested type and query to keep their fields together.",
+   "why": "Searching arrays of objects gives wrong matches unless you know about flattening.",
+   "body": "Elasticsearch has no special array type: any field can hold several values. But an array of **objects** is flattened into multi-valued fields. A document with `\"items\": [ { \"sku\": \"PEN\", \"qty\": 1 }, { \"sku\": \"PAD\", \"qty\": 9 } ]` is indexed like `items.sku: [PEN, PAD]` and `items.qty: [1, 9]`. The association between a sku and its qty is lost, so a query for `sku = PEN and qty > 5` matches this document, wrongly.\n\nThe **nested** type fixes this by indexing each object as a separate hidden document tied to its parent. You then query with a `nested` query whose inner conditions must hold within one object:\n\n```json\n{ \"nested\": { \"path\": \"items\", \"query\": { \"bool\": { \"filter\": [\n  { \"term\": { \"items.sku\": \"PEN\" } }, { \"range\": { \"items.qty\": { \"gt\": 5 } } } ] } } } }\n```\n\nMatching nested objects can be returned with `inner_hits`, and there are `nested` and `reverse_nested` aggregations.\n\nThe costs: each nested object is an extra Lucene document (an order with 100 items is 101 documents), updating any part reindexes the whole parent, and there are limits (`index.mapping.nested_objects.limit`, 10,000 per document). Use nested only where the cross-field association matters; otherwise plain objects, or denormalising into separate documents, are cheaper. `flattened` is another option for arbitrary key-value maps.",
+   "code": "PUT /carts\n{ \"mappings\": { \"properties\": {\n  \"items\": { \"type\": \"nested\", \"properties\": {\n    \"sku\": { \"type\": \"keyword\" }, \"qty\": { \"type\": \"integer\" } } } } } }\n\nPUT /carts/_doc/1?refresh=true\n{ \"items\": [ { \"sku\": \"PEN\", \"qty\": 1 }, { \"sku\": \"PAD\", \"qty\": 9 } ] }\n\nGET /carts/_search\n{ \"query\": { \"nested\": { \"path\": \"items\", \"query\": { \"bool\": { \"filter\": [\n    { \"term\": { \"items.sku\": \"PEN\" } },\n    { \"range\": { \"items.qty\": { \"gt\": 5 } } } ] } } } } }\n# 0 hits: no single item is PEN with qty > 5\n# (with a plain object mapping this would wrongly return the cart)",
+   "code_lang": "http",
+   "takeaways": [
+    "Arrays of objects are flattened; per-object associations are lost",
+    "nested indexes each object as a hidden document",
+    "Query nested fields with the nested query; inner_hits shows which matched",
+    "Nested adds documents and reindexing cost: use it deliberately"
+   ],
+   "pitfalls": [
+    "Querying nested fields with a normal query: it finds nothing, since nested fields need the nested query."
+   ],
+   "quiz": [
+    {
+     "q": "Why can a cart with items [{sku: PEN, qty: 1}, {sku: PAD, qty: 9}] match 'sku PEN and qty > 5' under default mapping?",
+     "options": [
+      "A bug in range queries",
+      "qty is stored as text",
+      "Object arrays are flattened, so sku and qty values are no longer paired",
+      "PEN matches PAD fuzzily"
+     ],
+     "answer": 2,
+     "explain": "Flattening turns the array into independent multi-valued fields."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/nested.html",
+   "requires": [
+    "elasticsearch.mappings",
+    "elasticsearch.bool-queries"
+   ]
+  },
+  {
+   "id": "elasticsearch.aliases-reindex",
+   "name": "Aliases and zero-downtime reindexing",
+   "module": "data",
+   "level": 3,
+   "minutes": 11,
+   "summary": "Point applications at aliases and swap them atomically after reindexing into a new index with a changed mapping.",
+   "why": "Mappings and analyzers can't change in place, so every long-lived index eventually needs a reindex without downtime.",
+   "body": "An **alias** is a secondary name pointing at one or more indices. Applications should read and write through an alias (`products`) rather than the concrete index (`products-v3`), because then you can switch the underlying index without touching code.\n\nThe zero-downtime workflow when a mapping must change:\n\n- create `products-v4` with the new mappings and settings,\n- copy data with `POST _reindex` from `products-v3` to `products-v4` (it runs as a task; use `slices` for parallelism and `wait_for_completion=false` for long jobs),\n- catch up writes that happened during the copy (dual-write from the app, or reindex documents changed since the start),\n- swap the alias in one atomic `POST _aliases` request with a `remove` and an `add` action,\n- delete the old index when you're confident.\n\nAliases can also carry a `filter` (a per-tenant view) and `routing`. When an alias points at several indices, one can be marked `is_write_index` to receive writes; this is how rollover works for time-based indices.\n\n`_reindex` can also transform documents with a script or ingest pipeline, and pull from a remote cluster for migrations. Remember it reads `_source`, so indices with `_source` disabled can't be reindexed.\n\nIndex **templates** (`PUT _index_template/...`) apply settings and mappings automatically to new indices matching a pattern, keeping versions consistent.",
+   "code": "PUT /products-v4\n{ \"mappings\": { \"properties\": {\n  \"name\":  { \"type\": \"text\", \"analyzer\": \"english\" },\n  \"price\": { \"type\": \"scaled_float\", \"scaling_factor\": 100 } } } }\n\nPOST /_reindex?wait_for_completion=false&slices=auto\n{ \"source\": { \"index\": \"products-v3\" }, \"dest\": { \"index\": \"products-v4\" } }\n# { \"task\": \"oTUltX4IQMOUUVeiohTt8A:12345\" }\nGET /_tasks/oTUltX4IQMOUUVeiohTt8A:12345\n\nPOST /_aliases\n{ \"actions\": [\n  { \"remove\": { \"index\": \"products-v3\", \"alias\": \"products\" } },\n  { \"add\":    { \"index\": \"products-v4\", \"alias\": \"products\" } } ] }\n# both actions apply atomically: clients never see a gap\n\nGET /_alias/products",
+   "code_lang": "http",
+   "takeaways": [
+    "Applications use aliases, never concrete index names",
+    "Change mappings by creating a new index and _reindex",
+    "Swap aliases with one atomic _aliases request",
+    "Index templates apply mappings to new indices automatically"
+   ],
+   "pitfalls": [
+    "Hard-coding index names in the application, which makes every reindex a deployment."
+   ],
+   "quiz": [
+    {
+     "q": "Why put remove and add in one _aliases request instead of two calls?",
+     "options": [
+      "It is faster to type",
+      "Two calls are not allowed",
+      "The swap is atomic, so the alias never points to zero or two indices",
+      "It triggers a refresh"
+     ],
+     "answer": 2,
+     "explain": "All actions in one _aliases request are applied atomically."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/aliases.html",
+   "requires": [
+    "elasticsearch.bulk-refresh",
+    "elasticsearch.analyzers"
+   ]
+  },
+  {
+   "id": "elasticsearch.vector-search",
+   "name": "Vector and hybrid search",
+   "module": "search",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Store embeddings in dense_vector fields, run approximate kNN search, and combine it with keyword search.",
+   "why": "Semantic search and retrieval for AI applications rely on vector similarity, often blended with classic text relevance.",
+   "body": "**Vector search** finds documents whose embedding vectors are close to the query's vector, so \"cheap flights\" can match \"low-cost airfare\" without shared words. Embeddings come from a model, either computed by your app or by Elasticsearch through an inference endpoint.\n\nMap a field as `dense_vector` with `dims` and `similarity` (`cosine`, `dot_product`, `l2_norm`, `max_inner_product`). Indexed vectors use an **HNSW** graph for approximate nearest-neighbour search, quantized by default to save memory (int8, or BBQ binary quantization for higher dimensions in recent versions).\n\nQuery with the `knn` option or query: `k` is how many neighbours to return, `num_candidates` how many to examine per shard; more candidates means better recall but slower queries. You can add a `filter` inside `knn` so filtering happens during the graph search rather than after.\n\nThe `semantic_text` field type automates the pipeline: it chunks text, generates embeddings through an inference endpoint at index time, and is queried with a simple `semantic` or `match` query.\n\n**Hybrid search** combines lexical BM25 and vector results. Because their scores live on different scales, use a **retriever** with reciprocal rank fusion (`rrf`), which merges by rank position. Hybrid usually beats either method alone: lexical catches exact names and codes, vectors catch meaning.\n\nVectors need memory: keep the HNSW graph and quantized vectors in RAM for fast queries.",
+   "code": "PUT /docs\n{ \"mappings\": { \"properties\": {\n  \"text\":      { \"type\": \"text\" },\n  \"embedding\": { \"type\": \"dense_vector\", \"dims\": 3, \"similarity\": \"cosine\" } } } }\n\nPUT /docs/_doc/1?refresh=true\n{ \"text\": \"low-cost airfare deals\", \"embedding\": [0.9, 0.1, 0.2] }\n\nGET /docs/_search\n{\n  \"retriever\": { \"rrf\": { \"retrievers\": [\n    { \"standard\": { \"query\": { \"match\": { \"text\": \"cheap flights\" } } } },\n    { \"knn\": { \"field\": \"embedding\", \"query_vector\": [0.88, 0.15, 0.2],\n               \"k\": 10, \"num_candidates\": 100 } }\n  ] } }\n}\n# doc 1 is returned via the kNN retriever even though no words match\n# (real embeddings have hundreds of dimensions)",
+   "code_lang": "http",
+   "takeaways": [
+    "dense_vector + HNSW gives approximate kNN search",
+    "k results, num_candidates per shard trades recall for speed",
+    "semantic_text automates chunking and embedding",
+    "Combine lexical and vector results with RRF"
+   ],
+   "pitfalls": [
+    "Comparing raw BM25 and vector scores directly; use rank fusion instead."
+   ],
+   "quiz": [
+    {
+     "q": "Raising num_candidates in a kNN query mostly affects what?",
+     "options": [
+      "The number of results returned",
+      "The similarity metric",
+      "The vector dimensions",
+      "Recall versus latency of the approximate search"
+     ],
+     "answer": 3,
+     "explain": "More candidates explored per shard improves accuracy at the cost of speed; k sets result count."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/knn-search.html",
+   "requires": [
+    "elasticsearch.relevance",
+    "elasticsearch.mappings"
+   ]
+  },
+  {
+   "id": "elasticsearch.lucene-segments",
+   "name": "Lucene segments, refresh, flush and merges",
+   "module": "cluster",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Learn how each shard stores an inverted index in immutable segments and how refresh, translog, flush and merging work.",
+   "why": "Indexing throughput, disk usage, deletes and near real-time behaviour all follow from Lucene's segment model.",
+   "body": "Each shard is a Lucene index made of **segments**. A segment is an immutable set of files containing an **inverted index** (term to list of documents and positions) for text, **doc values** (columnar data) for sorting and aggregations, **points** (BKD trees) for numbers, dates and geo, stored fields for `_source`, and vector graphs.\n\nWrite path:\n\n- a new document is added to an in-memory buffer and appended to the shard's **translog**, which is fsynced before the request is acknowledged (by default, `index.translog.durability: request`),\n- a **refresh** turns the buffer into a new searchable segment in the filesystem cache, without an fsync; this is why search is near real-time,\n- a **flush** performs a Lucene commit (fsyncing segments to disk) and trims the translog; after a crash, Elasticsearch replays the translog since the last commit.\n\nBecause segments are immutable, an update is a delete plus a new document, and a delete only marks the document in a live-docs bitmap. Space is reclaimed when background **merges** combine small segments into bigger ones and drop deleted documents. Many tiny segments (from very frequent refreshes) slow searches; merges cost I/O.\n\n`POST /index/_forcemerge?max_num_segments=1` is useful only for indices that will no longer be written to, such as yesterday's logs.\n\nImmutability is also a strength: segments cache well in the OS page cache and need no locking for reads.",
+   "code": "GET /_cat/segments/products?v&h=shard,segment,docs.count,docs.deleted,size,committed,searchable\n# shard segment docs.count docs.deleted size  committed searchable\n# 0     _0      1000       12           310kb true      true\n# 0     _1      40         0            22kb  false     true   <- refreshed, not yet flushed\n\nPOST /products/_refresh        # make recent writes searchable now\nPOST /products/_flush          # Lucene commit + translog trim\n\n# read-only index: merge down to one segment, purge deleted docs\nPOST /logs-2026.09/_forcemerge?max_num_segments=1\n\nGET /products/_stats/refresh,flush,merge?filter_path=**.total",
+   "code_lang": "http",
+   "takeaways": [
+    "Shards are Lucene indices made of immutable segments",
+    "Refresh makes segments searchable; flush commits them and trims the translog",
+    "The translog provides durability between commits",
+    "Updates/deletes mark old docs; merges reclaim the space"
+   ],
+   "pitfalls": [
+    "Force-merging an index that still receives writes, creating huge segments that are expensive to merge again."
+   ],
+   "quiz": [
+    {
+     "q": "Why does deleting documents not immediately reduce disk usage?",
+     "options": [
+      "Segments are immutable; deleted docs are only marked until a merge rewrites the segment",
+      "Deletes are queued for a nightly job",
+      "Elasticsearch never frees disk",
+      "The translog keeps copies forever"
+     ],
+     "answer": 0,
+     "explain": "Space is reclaimed when merges drop the marked documents."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/near-real-time.html",
+   "requires": [
+    "elasticsearch.shards-replicas",
+    "elasticsearch.analyzers"
+   ]
+  },
+  {
+   "id": "elasticsearch.distributed-search",
+   "name": "Distributed search: query then fetch",
+   "module": "cluster",
+   "level": 4,
+   "minutes": 13,
+   "summary": "Follow a search through the coordinating node, the query and fetch phases, routing, and per-shard scoring effects.",
+   "why": "Explaining slow queries, odd scores and hot shards requires knowing how a search executes across shards.",
+   "body": "Any node receiving a search acts as the **coordinating node**. Execution happens in two phases by default (`query_then_fetch`):\n\n- **query phase**: the request goes to one copy (primary or replica) of every relevant shard. Each shard runs the query locally and returns only the ids, sort values and scores of its top `from + size` hits,\n- the coordinator merges these into the global top hits,\n- **fetch phase**: it asks only the shards holding the winners for their documents (`_source`, highlights).\n\nSo a request with `from: 9990, size: 10` makes every shard return 10,000 hits to merge, which is why deep paging is costly. Aggregations are computed per shard and reduced on the coordinator.\n\n**Scoring is per shard**: IDF uses statistics from the shard, not the whole index. With few documents or skewed data, the same document can score differently depending on its shard. `search_type=dfs_query_then_fetch` gathers global term statistics first, at extra cost; with enough data the difference fades.\n\n**Routing** decides a document's shard: `shard = hash(_routing) % number_of_primary_shards` (internally through routing shards), with `_routing` defaulting to `_id`. Custom routing (such as tenant id) lets a search target a single shard, but big tenants can create hot shards.\n\nAdaptive replica selection sends each shard request to the copy expected to respond fastest. The `profile` API shows per-shard timings of query components.",
+   "code": "# all docs of tenant acme go to one shard; searches with the same routing hit only it\nPUT /tickets/_doc/42?routing=acme\n{ \"tenant\": \"acme\", \"title\": \"Printer on fire\" }\n\nGET /tickets/_search?routing=acme\n{ \"query\": { \"match\": { \"title\": \"printer\" } } }\n\n# global IDF for small or skewed indices\nGET /tickets/_search?search_type=dfs_query_then_fetch\n{ \"query\": { \"match\": { \"title\": \"printer\" } } }\n\n# where does the time go, per shard?\nGET /tickets/_search\n{ \"profile\": true, \"query\": { \"match\": { \"title\": \"printer\" } } }\n# \"profile\": { \"shards\": [ { \"id\": \"[node-1][tickets][0]\", \"searches\": [ ... ] } ] }",
+   "code_lang": "http",
+   "takeaways": [
+    "The coordinating node fans out, merges, then fetches only the winners",
+    "Each shard returns from + size candidates: deep paging is expensive",
+    "IDF is per shard; dfs_query_then_fetch uses global stats",
+    "Custom routing targets one shard but risks hot spots"
+   ],
+   "pitfalls": [
+    "Diagnosing 'wrong' scores on a tiny test index with several shards: per-shard IDF differs."
+   ],
+   "quiz": [
+    {
+     "q": "In the query phase, what does each shard send back to the coordinator?",
+     "options": [
+      "Full documents of every match",
+      "Only a count",
+      "Ids, scores and sort values of its top from + size hits",
+      "The query plan"
+     ],
+     "answer": 2,
+     "explain": "Full documents are fetched later, only for the global winners."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/search-search.html",
+   "requires": [
+    "elasticsearch.shards-replicas",
+    "elasticsearch.pagination-sorting",
+    "elasticsearch.relevance"
+   ]
+  },
+  {
+   "id": "elasticsearch.data-streams-ilm",
+   "name": "Data streams and lifecycle management",
+   "module": "data",
+   "level": 4,
+   "minutes": 13,
+   "summary": "Store time-series data in data streams with rollover and manage retention and tiers with lifecycle policies.",
+   "why": "Logs and metrics grow forever; data streams and lifecycle policies keep shards sized and storage under control.",
+   "body": "A **data stream** is the recommended way to store append-only time-series data such as logs, metrics and events. You write to one name (`logs-app-default`); behind it Elasticsearch keeps hidden **backing indices** (`.ds-logs-app-default-2026.10.17-000001`...). Every document needs an `@timestamp`. Writes go to the newest backing index; searches cover all of them. Data streams accept only `create` operations, while updates and deletes go through `_update_by_query` and `_delete_by_query` or by targeting a backing index.\n\nA data stream is created automatically on first write when a matching **index template** has `\"data_stream\": {}`.\n\n**Rollover** starts a new backing index when the current one reaches a size, age or document count, keeping shards near the ideal size (for example `max_primary_shard_size: 50gb`).\n\nRetention and tiering:\n\n- **ILM** (index lifecycle management) policies move indices through phases: hot (rollover), warm (shrink, forcemerge, move to cheaper nodes), cold, frozen (searchable snapshots) and delete after a minimum age,\n- the simpler **data stream lifecycle** sets just retention (`data_retention: \"30d\"`) and handles rollover automatically, a good default when you don't need tiers.\n\nDeleting whole old backing indices is vastly cheaper than deleting documents by query, which is the core reason to organise time data this way.",
+   "code": "PUT /_ilm/policy/logs-30d\n{ \"policy\": { \"phases\": {\n  \"hot\":    { \"actions\": { \"rollover\": { \"max_primary_shard_size\": \"50gb\", \"max_age\": \"1d\" } } },\n  \"warm\":   { \"min_age\": \"7d\",  \"actions\": { \"forcemerge\": { \"max_num_segments\": 1 } } },\n  \"delete\": { \"min_age\": \"30d\", \"actions\": { \"delete\": {} } } } } }\n\nPUT /_index_template/logs-app\n{ \"index_patterns\": [\"logs-app-*\"], \"data_stream\": {},\n  \"template\": { \"settings\": { \"index.lifecycle.name\": \"logs-30d\" },\n    \"mappings\": { \"properties\": { \"@timestamp\": { \"type\": \"date\" },\n                                  \"message\": { \"type\": \"text\" } } } } }\n\nPOST /logs-app-default/_doc\n{ \"@timestamp\": \"2026-10-17T09:00:00Z\", \"message\": \"user login\" }\nGET /_data_stream/logs-app-default\n# backing index \".ds-logs-app-default-2026.10.17-000001\"",
+   "code_lang": "http",
+   "takeaways": [
+    "Data streams = one write name over rolling hidden backing indices",
+    "Index templates with data_stream: {} create them on first write",
+    "Rollover keeps shards sized; ILM or data stream lifecycle handles retention",
+    "Dropping old indices beats delete_by_query for time data"
+   ],
+   "pitfalls": [
+    "Storing years of logs in a single index and purging with delete_by_query."
+   ],
+   "quiz": [
+    {
+     "q": "Why is retention in data streams much cheaper than deleting old documents from one big index?",
+     "options": [
+      "Deleted documents are compressed",
+      "ILM disables replicas",
+      "Data streams don't store _source",
+      "Whole backing indices are dropped instead of marking and merging away millions of documents"
+     ],
+     "answer": 3,
+     "explain": "Deleting an index removes its files at once, with no per-document deletes or merges."
+    }
+   ],
+   "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/data-streams.html",
+   "requires": [
+    "elasticsearch.aliases-reindex",
+    "elasticsearch.shards-replicas"
+   ]
+  }
+ ]
+}

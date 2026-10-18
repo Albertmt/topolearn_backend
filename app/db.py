@@ -253,6 +253,6 @@ def reset_connections() -> None:
 
 def graph_loaded(conn: Conn) -> bool:
     row = conn.execute(
-        "SELECT 1 FROM information_schema.tables WHERE table_schema = ? AND table_name = 'concepts'", (GRAPH,)
+        "SELECT 1 FROM information_schema.tables WHERE table_schema = ? AND table_name = 'tools'", (GRAPH,)
     ).fetchone()
     return row is not None

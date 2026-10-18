@@ -1,5 +1,5 @@
 """The database layer: transactions, constraints, placeholders, reconnects,
-and loading/reloading the concept graph."""
+and loading/reloading the catalog."""
 import threading
 import time
 
@@ -7,7 +7,7 @@ import psycopg
 import pytest
 
 from app import config, db, userdb
-from conftest import TEST_URL, concepts, drop_graph, edges, load_graph, new_user, run_loader
+from conftest import TEST_URL, drop_graph, load_graph, new_user, run_loader, tool_doc
 
 
 def _add_user(conn, uid, email=None):
@@ -89,8 +89,8 @@ def test_duplicates_and_bad_values_raise_integrity_error():
     with pytest.raises(userdb.IntegrityError):
         with userdb.session() as conn:
             conn.execute(
-                "INSERT INTO user_goals (user_id, concept_id, created_at) VALUES (?,?,?)",
-                ("nobody", "algebra", time.time()),  # unknown user
+                "INSERT INTO saved_lessons (user_id, concept_id, created_at) VALUES (?,?,?)",
+                ("nobody", "python.lists", time.time()),  # unknown user
             )
 
 
@@ -102,7 +102,10 @@ def test_deleting_a_user_cascades_to_their_data():
             "INSERT INTO concept_progress (user_id, concept_id, understanding, updated_at) VALUES (?,?,?,?)",
             ("alan", "algebra", 50, now),
         )
-        conn.execute("INSERT INTO user_goals (user_id, concept_id, created_at) VALUES (?,?,?)", ("alan", "algebra", now))
+        conn.execute("INSERT INTO user_tools (user_id, tool_id, depth, created_at, last_opened_at) VALUES (?,?,?,?,?)",
+                     ("alan", "python", 2, now, now))
+        conn.execute("INSERT INTO saved_lessons (user_id, concept_id, created_at) VALUES (?,?,?)",
+                     ("alan", "python.lists", now))
         conn.execute(
             "INSERT INTO progress_events (user_id, concept_id, understanding, at) VALUES (?,?,?,?)",
             ("alan", "algebra", 50, now),
@@ -110,7 +113,7 @@ def test_deleting_a_user_cascades_to_their_data():
     with userdb.session() as conn:
         conn.execute("DELETE FROM users WHERE id = ?", ("alan",))
     with userdb.session() as conn:
-        for table in ("concept_progress", "user_goals", "progress_events"):
+        for table in ("concept_progress", "user_tools", "saved_lessons", "progress_events"):
             assert conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
 
 
@@ -119,15 +122,16 @@ def test_placeholders_lists_and_literal_percent_signs():
         _add_user(conn, "u1")
         _add_user(conn, "u2")
         conn.executemany(
-            "INSERT INTO user_goals (user_id, concept_id, created_at) VALUES (?,?,?)",
+            "INSERT INTO saved_lessons (user_id, concept_id, created_at) VALUES (?,?,?)",
             [("u1", "a", 1.0), ("u1", "b", 2.0), ("u2", "a", 3.0)],
         )
     with userdb.session() as conn:
         rows = conn.execute(
-            "SELECT concept_id FROM user_goals WHERE user_id = :uid ORDER BY created_at", {"uid": "u1"}
+            "SELECT concept_id FROM saved_lessons WHERE user_id = :uid ORDER BY created_at", {"uid": "u1"}
         ).fetchall()
         assert [r[0] for r in rows] == ["a", "b"]
-        assert conn.execute("SELECT count(*) FROM user_goals WHERE concept_id = ANY(?)", (["a", "zz"],)).fetchone()[0] == 2
+        assert conn.execute("SELECT count(*) FROM saved_lessons WHERE concept_id = ANY(?)",
+                            (["a", "zz"],)).fetchone()[0] == 2
         # '%' and '?' inside string literals are text, not placeholders.
         row = conn.execute("SELECT '100%' AS pct, 'why?' AS q, ? AS p", ("x",)).fetchone()
         assert (row["pct"], row["q"], row["p"]) == ("100%", "why?", "x")
@@ -147,8 +151,8 @@ def test_unicode_and_large_text_round_trip():
 
 
 def test_a_dropped_connection_is_replaced_transparently(make_client):
-    c = make_client({"concepts": concepts("a", "b"), "prerequisites": edges("a>b")})
-    assert c.get("/api/v1/concepts/a").status_code == 200
+    c = make_client(tool_doc("t", ["a", "b"], edges=["a>b"]))
+    assert c.get("/api/v1/lessons/t.a").status_code == 200
     # Kill every server connection (what happens when Neon suspends the database).
     with psycopg.connect(TEST_URL, autocommit=True) as admin:
         admin.execute(
@@ -156,15 +160,15 @@ def test_a_dropped_connection_is_replaced_transparently(make_client):
             "WHERE application_name = 'topolearn-api' AND pid <> pg_backend_pid()"
         )
     # Reads outside a transaction reconnect and retry by themselves.
-    assert c.get("/api/v1/concepts/a").status_code == 200
+    assert c.get("/api/v1/lessons/t.a").status_code == 200
     assert c.get("/api/v1/search", params={"q": "a"}).status_code == 200
     uid = new_user(c)
     assert c.get(f"/api/v1/users/{uid}").status_code == 200
 
 
 def test_stale_idle_connection_is_checked_before_use(make_client, monkeypatch):
-    c = make_client({"concepts": concepts("a"), "prerequisites": []})
-    assert c.get("/api/v1/concepts/a").status_code == 200
+    c = make_client(tool_doc("t", ["a"]))
+    assert c.get("/api/v1/lessons/t.a").status_code == 200
     with psycopg.connect(TEST_URL, autocommit=True) as admin:
         admin.execute(
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
@@ -173,20 +177,20 @@ def test_stale_idle_connection_is_checked_before_use(make_client, monkeypatch):
     # Pretend every connection has been idle for a long time: it gets pinged,
     # found dead, and replaced before the request's query runs.
     monkeypatch.setattr(db, "_PING_AFTER", -1.0)
-    assert c.get("/api/v1/concepts/a").status_code == 200
+    assert c.get("/api/v1/lessons/t.a").status_code == 200
 
 
 # ------------------------------------------------------------ concept graph
 
 
 def test_reloading_the_graph_swaps_it_in_whole(make_client):
-    c = make_client({"concepts": concepts("a", "b", "c"), "prerequisites": edges("a>b", "b>c")})
+    c = make_client(tool_doc("t", ["a", "b", "c"], edges=["a>b", "b>c"]))
     uid = new_user(c)
-    c.put(f"/api/v1/users/{uid}/progress/b", json={"understanding": 50})
-    load_graph({"concepts": concepts("a", "b", "d"), "prerequisites": edges("a>b", "b>d")})
-    g = c.get("/api/v1/concepts/a/graph").json()
-    assert {n["id"] for n in g["nodes"]} == {"a", "b", "d"}
-    assert c.get("/api/v1/concepts/c").status_code == 404
+    c.put(f"/api/v1/users/{uid}/progress/t.b", json={"understanding": 50})
+    load_graph(tool_doc("t", ["a", "b", "d"], edges=["a>b", "b>d"]))
+    g = c.get("/api/v1/tools/t/map").json()
+    assert {n["id"] for n in g["nodes"]} == {"t.a", "t.b", "t.d"}
+    assert c.get("/api/v1/lessons/t.c").status_code == 404
     # User data survives a reload.
     assert c.get(f"/api/v1/users/{uid}/progress").json()[0]["understanding"] == 50
     with psycopg.connect(TEST_URL, autocommit=True) as conn:
@@ -195,17 +199,16 @@ def test_reloading_the_graph_swaps_it_in_whole(make_client):
 
 
 def test_a_failed_load_leaves_the_live_graph_alone(make_client, tmp_path):
-    c = make_client({"concepts": concepts("a", "b"), "prerequisites": edges("a>b")})
-    res = run_loader({"concepts": concepts("x", "y"), "prerequisites": edges("x>y", "y>x")}, tmp_path)
-    assert res.returncode != 0 and "cycle" in res.stderr.lower()
-    assert c.get("/api/v1/concepts/a").status_code == 200
-    assert c.get("/api/v1/concepts/x").status_code == 404
+    c = make_client(tool_doc("t", ["a", "b"], edges=["a>b"]))
+    res = run_loader(tool_doc("t", ["x", "y"], edges=["x>y", "y>x"]), tmp_path)
+    assert res.returncode != 0 and "loop" in (res.stderr + res.stdout).lower()
+    assert c.get("/api/v1/lessons/t.a").status_code == 200
+    assert c.get("/api/v1/lessons/t.x").status_code == 404
 
 
 def test_reads_keep_working_while_a_reload_runs(make_client):
-    big = {"concepts": concepts(*[f"n{i}" for i in range(3000)]),
-           "prerequisites": [{"concept": f"n{i}", "requires": f"n{i + 1}"} for i in range(2999)]}
-    c = make_client({"concepts": concepts("a", "b"), "prerequisites": edges("a>b")})
+    big = tool_doc("t", [f"n{i}" for i in range(3000)], edges=[f"n{i}>n{i + 1}" for i in range(2999)])
+    c = make_client(tool_doc("t", ["a", "b"], edges=["a>b"]))
     failures = []
     stop = threading.Event()
 
@@ -224,15 +227,15 @@ def test_reads_keep_working_while_a_reload_runs(make_client):
         stop.set()
         t.join()
     assert failures == []
-    assert c.get("/api/v1/concepts/n2999").status_code == 200
+    assert c.get("/api/v1/lessons/t.n2999").status_code == 200
 
 
 def test_graph_tables_have_their_indexes(make_client):
-    make_client({"concepts": concepts("a", "b"), "prerequisites": edges("a>b")})
+    make_client(tool_doc("t", ["a", "b"], edges=["a>b"]))
     with psycopg.connect(TEST_URL, autocommit=True) as conn:
         idx = {r[0] for r in conn.execute("SELECT indexdef FROM pg_indexes WHERE schemaname = 'graph'")}
     joined = "\n".join(idx)
-    for needle in ("(slug)", "gin (to_tsvector('simple'::regconfig, search_doc))", "name_key text_pattern_ops", "(prereq_pk, concept_pk)", "(name_norm)"):
+    for needle in ("(slug)", "gin (to_tsvector('simple'::regconfig, search_doc))", "name_key text_pattern_ops", "(prereq_pk, concept_pk)", "(name_norm)", "(tool_pk, level, "):
         assert needle in joined, needle
 
 
@@ -241,8 +244,8 @@ def test_tests_use_the_test_database():
 
 
 def test_health_reports_postgres(make_client):
-    c = make_client({"concepts": concepts("a", "b"), "prerequisites": edges("a>b")})
-    assert c.get("/health").json() == {"status": "ok", "concepts": 2, "search": "postgres"}
+    c = make_client(tool_doc("t", ["a", "b"], edges=["a>b"]))
+    assert c.get("/health").json() == {"status": "ok", "tools": 1, "lessons": 2}
     drop_graph()
     assert c.get("/health").status_code == 503
 
@@ -286,7 +289,7 @@ def _api_connections() -> int:
 def test_connections_close_when_their_thread_ends(make_client):
     import gc
 
-    make_client({"concepts": concepts("a", "b"), "prerequisites": edges("a>b")})
+    make_client(tool_doc("t", ["a", "b"], edges=["a>b"]))
     before = _api_connections()
 
     def worker():
@@ -310,54 +313,55 @@ def test_connections_close_when_their_thread_ends(make_client):
         gc.enable()
 
 
-def test_concurrent_goal_pins_respect_the_limit_and_never_fail(make_client):
+def test_concurrent_writes_to_the_same_rows_never_fail(make_client):
+    """A double tap fires two requests at once: both must succeed, one row each."""
     from app import learning
 
-    ids = [f"g{i}" for i in range(8)]
-    c = make_client({"concepts": concepts(*ids), "prerequisites": []})
+    c = make_client(tool_doc("t", [f"g{i}" for i in range(4)]))
     uid = new_user(c)
     results = []
 
-    def pin(cid):
+    def work(i):
         try:
-            learning.add_goal(uid, cid)
+            learning.set_progress(uid, f"t.g{i % 2}", learning.ProgressUpdate(understanding=100))
+            learning.enroll(uid, "t", learning.Enrollment(depth=1 + i % 2))
             results.append("ok")
-        except Exception as exc:  # HTTPException(409) is expected past the limit
-            results.append(getattr(exc, "status_code", repr(exc)))
+        except Exception as exc:  # noqa: BLE001
+            results.append(repr(exc))
         finally:
             db.reset_connections()
 
-    threads = [threading.Thread(target=pin, args=(cid,)) for cid in ids + ["g0", "g0", "g1"]]
+    threads = [threading.Thread(target=work, args=(i,)) for i in range(8)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    assert set(results) <= {"ok", 409}, results
-    goals = c.get(f"/api/v1/users/{uid}/goals").json()
-    assert len(goals) == learning.MAX_GOALS
-    assert len({g["concept"]["id"] for g in goals}) == learning.MAX_GOALS
+    assert results == ["ok"] * 8, results
+    with userdb.session() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM concept_progress").fetchone()[0] == 2
+        assert conn.execute("SELECT COUNT(*) FROM user_tools").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM reviews").fetchone()[0] == 2
 
 
 def test_text_postgres_cannot_store_gives_422_not_500(make_client):
-    c = make_client({"concepts": concepts("a", "b"), "prerequisites": edges("a>b")})
+    c = make_client(tool_doc("t", ["a", "b"], edges=["a>b"]))
     uid = new_user(c)
     assert c.get("/api/v1/search", params={"q": "a\x00b"}).status_code == 422
-    assert c.get("/api/v1/disciplines", params={"q": "\x00"}).status_code == 422
-    assert c.get("/api/v1/concepts/a%00b").status_code == 422
-    assert c.get("/api/v1/concepts/a/graph", params={"user_id": "x\x00"}).status_code == 422
-    assert c.post("/api/v1/users", json={"name": "a\u0000b"}).status_code == 422
-    r = c.post("/api/v1/reports", json={"user_id": uid, "kind": "other", "concept_id": "a", "message": "x\u0000"})
+    assert c.get("/api/v1/lessons/t.a%00b").status_code == 422
+    assert c.get("/api/v1/tools/t/map", params={"user_id": "x\x00"}).status_code == 401
+    assert c.patch(f"/api/v1/users/{uid}", json={"name": "a\u0000b"}).status_code == 422
+    r = c.post("/api/v1/reports", json={"user_id": uid, "kind": "other", "lesson_id": "t.a", "message": "x\u0000"})
     assert r.status_code == 422
     # The connection is still fine afterwards.
-    assert c.get("/api/v1/concepts/a").status_code == 200
+    assert c.get("/api/v1/lessons/t.a").status_code == 200
 
 
 def test_schema_check_does_not_wait_behind_open_writes(make_client):
-    c = make_client({"concepts": concepts("a"), "prerequisites": []})
+    c = make_client(tool_doc("t", ["a"]))
     uid = new_user(c)
     with psycopg.connect(TEST_URL) as writer:  # an uncommitted write, holding locks
         writer.execute(
-            "INSERT INTO concept_progress (user_id, concept_id, understanding, updated_at) VALUES (%s, 'a', 10, 0)",
+            "INSERT INTO concept_progress (user_id, concept_id, understanding, updated_at) VALUES (%s, 't.a', 10, 0)",
             (uid,),
         )
         userdb.forget_schema()  # like a brand-new server process
@@ -372,32 +376,16 @@ def test_schema_check_does_not_wait_behind_open_writes(make_client):
 def test_failed_load_leaves_no_trace(make_client, monkeypatch):
     from scripts import build_db
 
-    c = make_client({"concepts": concepts("a", "b"), "prerequisites": edges("a>b")})
+    c = make_client(tool_doc("t", ["a", "b"], edges=["a>b"]))
     real = build_db._schema_parts
     monkeypatch.setattr(build_db, "_schema_parts", lambda s: (real(s)[0], real(s)[1] + "\nSELECT 1/0;"))
     with pytest.raises(psycopg.Error):
-        load_graph({"concepts": concepts("x", "y"), "prerequisites": edges("x>y")})
+        load_graph(tool_doc("t", ["x", "y"], edges=["x>y"]))
     with psycopg.connect(TEST_URL, autocommit=True) as conn:
         schemas = {r[0] for r in conn.execute("SELECT schema_name FROM information_schema.schemata")}
     assert "graph_build" not in schemas and "graph_old" not in schemas
-    assert c.get("/api/v1/concepts/a").status_code == 200
-    assert c.get("/api/v1/concepts/x").status_code == 404
-
-
-def test_graph_request_survives_a_reload_between_its_queries(make_client, monkeypatch):
-    from app import repository
-
-    make_client({"concepts": concepts("a", "b", "c"), "prerequisites": edges("a>b", "b>c")})
-    real = repository._rows_by_pk
-    # Simulate a reload landing mid-request: one concept's row is gone by the last query.
-    monkeypatch.setattr(repository, "_rows_by_pk",
-                        lambda conn, pks: {k: v for k, v in real(conn, pks).items() if v["slug"] != "c"})
-    conn = db.get_conn()
-    g = repository.prerequisite_graph(conn, "a", 10, 100)
-    assert {n["id"] for n in g["nodes"]} == {"a", "b"}
-    assert all(e["requires"] != "c" for e in g["edges"])
-    p = repository.learning_path(conn, "a")
-    assert [s["id"] for s in p["steps"]] == ["b", "a"]
+    assert c.get("/api/v1/lessons/t.a").status_code == 200
+    assert c.get("/api/v1/lessons/t.x").status_code == 404
 
 
 @pytest.mark.parametrize("query,expected", [
@@ -407,25 +395,28 @@ def test_graph_request_survives_a_reload_between_its_queries(make_client, monkey
 ])
 def test_search_finds_punctuated_and_accented_names(make_client, query, expected):
     names = ["t-SNE", "Gödel's Theorem", "Straße Map", "Œuvre Index", "Naïve Bayes", "Other"]
-    c = make_client({"concepts": [{"id": f"c{i}", "name": n} for i, n in enumerate(names)], "prerequisites": []})
-    results = [r["name"] for r in c.get("/api/v1/search", params={"q": query}).json()["results"]]
+    doc = tool_doc("t", [f"c{i}" for i in range(len(names))])
+    for les, n in zip(doc["concepts"], names):
+        les["name"] = n
+    c = make_client(doc)
+    results = [r["name"] for r in c.get("/api/v1/search", params={"q": query}).json()["lessons"]]
     assert expected in results, (query, results)
 
 
 def test_a_read_retries_once_on_a_connection_that_died(make_client):
-    make_client({"concepts": concepts("a"), "prerequisites": []})
+    make_client(tool_doc("t", ["a"]))
     conn = db.get_conn()
     pid = conn.execute("SELECT pg_backend_pid()").fetchone()[0]
     with psycopg.connect(TEST_URL, autocommit=True) as admin:  # the server goes away under us
         admin.execute("SELECT pg_terminate_backend(%s)", (pid,))
     again = db.get_conn()  # same thread: same (now dead) connection
     assert again.raw is conn.raw
-    assert again.execute("SELECT slug FROM graph.concepts").fetchone()[0] == "a"
+    assert again.execute("SELECT slug FROM graph.concepts").fetchone()[0] == "t.a"
     assert again.execute("SELECT pg_backend_pid()").fetchone()[0] != pid
 
 
 def test_transactions_survive_a_dead_connection_at_the_start(make_client):
-    make_client({"concepts": concepts("a"), "prerequisites": []})
+    make_client(tool_doc("t", ["a"]))
     userdb.ensure_schema()
     conn = db.get_conn()
     pid = conn.execute("SELECT pg_backend_pid()").fetchone()[0]
@@ -438,7 +429,7 @@ def test_transactions_survive_a_dead_connection_at_the_start(make_client):
 
 
 def test_a_connection_lost_mid_transaction_is_never_replayed(make_client):
-    make_client({"concepts": concepts("a"), "prerequisites": []})
+    make_client(tool_doc("t", ["a"]))
     userdb.ensure_schema()
     with pytest.raises(psycopg.OperationalError):
         with userdb.session() as tx:

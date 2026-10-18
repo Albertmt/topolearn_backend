@@ -1,0 +1,569 @@
+{
+ "tool": {
+  "id": "tmux",
+  "name": "tmux",
+  "category": "tool",
+  "tagline": "Terminal multiplexer: persistent sessions, windows and split panes",
+  "description": "tmux runs many shells inside one terminal, split into windows and panes, inside sessions that keep running after you disconnect. It is the standard way to keep long jobs alive on remote servers and to build a keyboard-driven terminal workspace.",
+  "icon": "tm",
+  "color": "#1BB91F",
+  "official_docs": "https://github.com/tmux/tmux/wiki",
+  "version": "3.5",
+  "aliases": [
+   "terminal multiplexer",
+   "tmux.conf"
+  ],
+  "requires": [
+   {
+    "tool": "linux",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Getting started"
+  },
+  {
+   "id": "layout",
+   "name": "Windows and panes"
+  },
+  {
+   "id": "copy",
+   "name": "Copy mode and clipboard"
+  },
+  {
+   "id": "config",
+   "name": "Configuration"
+  },
+  {
+   "id": "scripting",
+   "name": "Scripting and automation"
+  },
+  {
+   "id": "internals",
+   "name": "Internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "tmux.prefix-keys",
+   "name": "The prefix key and command prompt",
+   "module": "basics",
+   "level": 1,
+   "minutes": 6,
+   "summary": "Every tmux shortcut starts with the prefix Ctrl-b; Ctrl-b ? lists all keys and Ctrl-b : opens the command prompt.",
+   "why": "All interaction with tmux goes through the prefix, so this is the first thing to get into your fingers.",
+   "body": "tmux sits between your terminal and the programs running in it. To tell tmux that a keystroke is meant for it, not for the shell or editor inside, you first press the **prefix**: `Ctrl-b` by default. Release it, then press the command key. In docs this is written `C-b d`, meaning \"press Ctrl-b, then d\".\n\nThree keys to learn first:\n\n- `C-b ?` lists every key binding (press `q` to leave the list).\n- `C-b :` opens the **command prompt** at the bottom, where you can type any tmux command, such as `new-window` or `kill-session`. Tab completes command names.\n- `C-b d` **detaches** from tmux, leaving everything running.\n\nEverything you can do with a key binding is really a tmux **command**; the keys are just shortcuts. The same commands can be run from the shell, `tmux new-window`, or from the config file. That uniformity is what makes tmux scriptable later.\n\nIf you need to send a literal `Ctrl-b` to the program inside (for example to page up in `less` or vim), press `C-b C-b`. Many people move the prefix to `Ctrl-a` or `Ctrl-Space` in their config; the configuration lesson shows how.",
+   "code": "tmux              # start tmux (creates a session and attaches)\n# inside tmux:\n#   C-b ?         list key bindings (q to quit the list)\n#   C-b :         command prompt, e.g. type:  new-window -n logs\n#   C-b d         detach; programs keep running\ntmux list-keys | head -5      # same bindings, from the shell\ntmux list-commands | wc -l    # every command tmux understands",
+   "code_lang": "bash",
+   "takeaways": [
+    "Prefix (C-b) first, then the command key",
+    "C-b ? lists bindings, C-b : opens the command prompt",
+    "Every key binding is just a tmux command"
+   ],
+   "pitfalls": [
+    "Holding Ctrl while pressing the second key (C-b C-d) instead of releasing it; that is a different binding."
+   ],
+   "quiz": [
+    {
+     "q": "What does the notation `C-b %` mean?",
+     "options": [
+      "Press Ctrl, b and % all at once",
+      "Type the literal text C-b %",
+      "Run the command % in the prompt",
+      "Press Ctrl-b, release, then press %"
+     ],
+     "answer": 3,
+     "explain": "tmux keys are two steps: the prefix, then the command key."
+    }
+   ],
+   "docs": "https://github.com/tmux/tmux/wiki/Getting-Started",
+   "requires": []
+  },
+  {
+   "id": "tmux.sessions-attach",
+   "name": "Sessions: create, detach, attach",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "A session is a set of windows owned by the tmux server; you can detach from it and reattach later, even from another login.",
+   "why": "Detach/attach is tmux's killer feature: work survives closed laptops and dropped SSH connections.",
+   "body": "When you run `tmux`, it starts a background **server** (if none is running) and creates a **session** inside it, then attaches your terminal as a **client**. Programs run inside the server, not inside your terminal window.\n\nThat means you can **detach** (`C-b d`, or close the terminal, or lose your SSH connection) and every program in the session keeps running. Later you **attach** again and find everything exactly as you left it, scrollback included.\n\nThe shell commands to know:\n\n- `tmux new -s work` creates a session named `work` (names beat the default numbers).\n- `tmux ls` lists sessions.\n- `tmux attach -t work` (or `tmux a -t work`) reattaches.\n- `tmux new -A -s work` attaches to `work` if it exists, otherwise creates it: ideal for scripts and shell aliases.\n- `tmux kill-session -t work` ends a session and everything in it.\n\nA session ends when its last shell exits; the server exits when it has no sessions left. The typical remote workflow: `ssh server`, `tmux new -A -s main`, start a long build or migration, detach, log out, come back tomorrow and attach.",
+   "code": "tmux new -s build        # new session named 'build'\n#   ... start a long job, then C-b d to detach\ntmux ls                  # build: 1 windows (created ...)\ntmux attach -t build     # back where you left off\ntmux new -A -s main      # attach to 'main' or create it\ntmux kill-session -t build",
+   "code_lang": "bash",
+   "takeaways": [
+    "Programs run in the tmux server, so they survive detaching",
+    "tmux new -s name, tmux ls, tmux attach -t name",
+    "tmux new -A -s name = attach or create"
+   ],
+   "pitfalls": [
+    "Starting tmux inside tmux by accident (e.g. an alias in .bashrc), which nests sessions; check $TMUX first."
+   ],
+   "quiz": [
+    {
+     "q": "Your SSH connection drops while a job runs inside tmux on the server. What happens to the job?",
+     "options": [
+      "It keeps running; you can reattach after reconnecting",
+      "It is killed with the connection",
+      "It is paused until you reattach",
+      "It moves to the background of your local shell"
+     ],
+     "answer": 0,
+     "explain": "The tmux server owns the processes; losing the client only detaches it."
+    }
+   ],
+   "docs": "https://github.com/tmux/tmux/wiki/Getting-Started",
+   "requires": [
+    "tmux.prefix-keys"
+   ]
+  },
+  {
+   "id": "tmux.windows",
+   "name": "Windows: tabs inside a session",
+   "module": "layout",
+   "level": 1,
+   "minutes": 7,
+   "summary": "Each session holds numbered windows, like terminal tabs: create with C-b c, switch with C-b n, p or a number.",
+   "why": "Windows let one session hold your editor, server, logs and shell side by side without extra terminal tabs.",
+   "body": "A session contains one or more **windows**, each filling the whole screen, like tabs. The status bar at the bottom lists them as `0:bash* 1:logs-`, where `*` marks the current window and `-` the previous one.\n\nDefault key bindings:\n\n- `C-b c` creates a new window.\n- `C-b n` / `C-b p` go to the next / previous window, `C-b 0`...`C-b 9` jump by number, `C-b l` toggles to the last used window.\n- `C-b ,` renames the current window. Good names (`editor`, `server`, `db`) make the status bar useful.\n- `C-b w` opens an interactive tree of all sessions and windows with previews; arrows and Enter pick one.\n- `C-b &` kills the current window (after confirmation).\n\nBy default tmux renames windows automatically after the running program (`vim`, `ssh`); renaming one by hand switches that off for that window.\n\nFrom the shell or the command prompt the same operations are commands: `new-window -n logs`, `select-window -t 2`, `rename-window db`, `kill-window`. Windows are numbered from 0; many people set `base-index 1` so numbering matches the keyboard (see configuration).",
+   "code": "# inside tmux:\n#   C-b c     new window\n#   C-b ,     rename it (e.g. 'server')\n#   C-b 0     jump to window 0\n#   C-b l     back to the last window\n#   C-b w     pick from a tree of sessions/windows\ntmux new-window -n logs 'tail -f /var/log/syslog'   # from a shell\ntmux select-window -t logs",
+   "code_lang": "bash",
+   "takeaways": [
+    "C-b c new, C-b n/p next/previous, C-b <number> jump",
+    "C-b , renames; C-b w shows everything as a tree",
+    "Status bar: * = current window, - = previous"
+   ],
+   "pitfalls": [],
+   "quiz": [
+    {
+     "q": "Which key opens an interactive chooser of all sessions and windows?",
+     "options": [
+      "C-b s only",
+      "C-b ?",
+      "C-b w",
+      "C-b &"
+     ],
+     "answer": 2,
+     "explain": "C-b w runs choose-tree with windows expanded (C-b s starts it with sessions collapsed)."
+    }
+   ],
+   "docs": "https://github.com/tmux/tmux/wiki/Getting-Started",
+   "requires": [
+    "tmux.sessions-attach"
+   ]
+  },
+  {
+   "id": "tmux.panes",
+   "name": "Panes: splitting the screen",
+   "module": "layout",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Split a window into panes with C-b % and C-b \", move between them, zoom one with C-b z and cycle layouts.",
+   "why": "Panes put an editor, a test runner and a log tail on one screen, all driven from the keyboard.",
+   "body": "A window can be split into **panes**, each running its own shell.\n\n- `C-b %` splits left/right, `C-b \"` splits top/bottom.\n- `C-b` + arrow key moves to the pane in that direction; `C-b o` cycles through panes; `C-b ;` goes to the previously active pane.\n- `C-b z` **zooms** the current pane to fill the window and back again. A `Z` appears in the status bar while zoomed.\n- `C-b x` kills the current pane, `C-b q` briefly shows pane numbers (press a number to jump).\n- `C-b Space` cycles through the preset **layouts** (even-horizontal, even-vertical, main-horizontal, main-vertical, tiled).\n- `C-b {` and `C-b }` swap the current pane with the previous or next one.\n- `C-b !` breaks the pane out into its own window; `join-pane` does the opposite.\n\nResize with `C-b` + `Ctrl`-arrow (one cell at a time, repeatable) or `C-b` + `Alt`-arrow (five cells), or drag borders with the mouse once mouse support is on.\n\nThe defaults are famously unmemorable, and new panes start in the directory tmux was started in rather than the current one; the configuration lesson rebinds both. Zoom is the most underrated key: work in a split layout, zoom to focus, unzoom to see everything.",
+   "code": "# inside tmux:\n#   C-b %          split left/right\n#   C-b \"          split top/bottom\n#   C-b <arrow>    move between panes\n#   C-b z          zoom / unzoom the current pane\n#   C-b Space      cycle layouts\n#   C-b !          move this pane into its own window\ntmux split-window -h -c \"$PWD\"          # left/right split, same directory\ntmux select-layout main-vertical        # big pane left, others stacked right",
+   "code_lang": "bash",
+   "takeaways": [
+    "% splits left/right, \" splits top/bottom",
+    "C-b z zooms a pane; C-b Space cycles layouts",
+    "Every pane is an independent shell"
+   ],
+   "pitfalls": [
+    "Closing a pane with C-b x when you only wanted to hide it; zoom (C-b z) instead."
+   ],
+   "quiz": [
+    {
+     "q": "You have four panes and want one of them to fill the whole window temporarily. What do you press?",
+     "options": [
+      "C-b z",
+      "C-b !",
+      "C-b Space",
+      "C-b x"
+     ],
+     "answer": 0,
+     "explain": "Zoom toggles the pane to full size and restores the layout when pressed again."
+    }
+   ],
+   "docs": "https://github.com/tmux/tmux/wiki/Getting-Started",
+   "requires": [
+    "tmux.windows"
+   ]
+  },
+  {
+   "id": "tmux.copy-mode",
+   "name": "Copy mode: scrollback, search and copy",
+   "module": "copy",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Enter copy mode to scroll back through output, search it, select text and paste it into another pane.",
+   "why": "Inside tmux the terminal's own scrollback does not work as usual, so copy mode is how you read and grab old output.",
+   "body": "tmux keeps each pane's history itself (2000 lines by default, see `history-limit`). To look at it, enter **copy mode** with `C-b [` (or `C-b PgUp`, which also scrolls up one page). A position indicator appears in the top-right corner.\n\nCopy mode has two key tables: emacs (default) and vi, chosen with the `mode-keys` option (tmux picks vi if `$VISUAL` or `$EDITOR` contains \"vi\"). In vi mode:\n\n- `h j k l`, `w b`, `Ctrl-u`/`Ctrl-d`, `g`/`G` move around.\n- `/` and `?` search forward and backward, `n`/`N` repeat.\n- `Space` starts a selection, `Enter` copies it and leaves copy mode; `v` toggles rectangle selection.\n- `q` exits.\n\nCopied text goes into a tmux **paste buffer**. `C-b ]` pastes the most recent buffer into the current pane, `C-b =` lets you choose from all buffers, and `tmux show-buffer` prints it in a shell.\n\nWith `set -g mouse on`, scrolling the wheel enters copy mode and dragging selects text, copying on release. Holding Shift while dragging bypasses tmux and uses the terminal's native selection.\n\nPaste buffers are separate from the system clipboard; the clipboard lesson connects them.",
+   "code": "# inside tmux, vi mode-keys:\n#   C-b [          enter copy mode\n#   ?error<Enter>  search backward for 'error'\n#   Space          start selection, move with j / w ...\n#   Enter          copy selection, leave copy mode\n#   C-b ]          paste into the current pane\ntmux show-buffer              # print the latest paste buffer\ntmux list-buffers             # buffer0: 23 bytes: \"...\"\ntmux set -g history-limit 50000   # more scrollback for new panes",
+   "code_lang": "bash",
+   "takeaways": [
+    "C-b [ enters copy mode, q leaves it",
+    "Space selects, Enter copies, C-b ] pastes (vi keys)",
+    "history-limit controls how much scrollback each pane keeps"
+   ],
+   "pitfalls": [
+    "Raising history-limit and expecting existing panes to grow; it applies to panes created afterwards."
+   ],
+   "quiz": [
+    {
+     "q": "Where does text copied in copy mode go by default?",
+     "options": [
+      "Straight to the system clipboard in every terminal",
+      "Into the shell's history",
+      "Into a tmux paste buffer",
+      "Into a file in /tmp"
+     ],
+     "answer": 2,
+     "explain": "tmux stores copies in its own paste buffers; reaching the system clipboard needs set-clipboard or copy-pipe."
+    }
+   ],
+   "docs": "https://man.openbsd.org/tmux.1#WINDOWS_AND_PANES",
+   "requires": [
+    "tmux.panes"
+   ]
+  },
+  {
+   "id": "tmux.config-basics",
+   "name": "~/.tmux.conf: options and bindings",
+   "module": "config",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Customise tmux with set and bind in ~/.tmux.conf: change the prefix, enable the mouse, number from 1 and split in the current directory.",
+   "why": "A few lines of config fix tmux's awkward defaults and make it pleasant to use every day.",
+   "body": "tmux reads `~/.tmux.conf` at server start (or `~/.config/tmux/tmux.conf`, supported since 3.1). The file is just a list of tmux commands, one per line.\n\n**Options** are set with `set`: `-g` sets the global (default) value, `-s` server options, `-w` window options (`setw` is shorthand). Examples: `set -g mouse on`, `set -g base-index 1`, `setw -g pane-base-index 1`, `set -g history-limit 50000`, `setw -g mode-keys vi`.\n\n**Key bindings** are made with `bind key command` (into the prefix table) and removed with `unbind`. `bind -n` binds a key in the root table, without the prefix, so use it sparingly. `bind -r` makes a binding repeatable: after the prefix you can press it several times.\n\nTwo edits nearly everyone makes:\n\n- Split in the current directory: `bind '\"' split-window -c \"#{pane_current_path}\"`, and the same for `%` with `-h`.\n- A reload binding: `bind r source-file ~/.tmux.conf \\; display \"reloaded\"`. The `\\;` separates two commands.\n\nChanging the prefix to Ctrl-a: `unbind C-b`, `set -g prefix C-a`, `bind C-a send-prefix` (so `C-a C-a` sends a real Ctrl-a to the shell).\n\nThe config only runs when the server starts. After editing, run `tmux source-file ~/.tmux.conf`, or kill the server; detaching and reattaching is not enough.",
+   "code": "# ~/.tmux.conf\nunbind C-b\nset -g prefix C-a\nbind C-a send-prefix\nset -g mouse on\nset -g base-index 1\nsetw -g pane-base-index 1\nsetw -g mode-keys vi\nset -g history-limit 50000\nbind | split-window -h -c \"#{pane_current_path}\"\nbind - split-window -v -c \"#{pane_current_path}\"\nbind -r H resize-pane -L 5\nbind r source-file ~/.tmux.conf \\; display \"config reloaded\"",
+   "code_lang": "bash",
+   "takeaways": [
+    "The config is a list of tmux commands, run at server start",
+    "set -g for options, bind/unbind for keys, bind -r for repeatable keys",
+    "Reload with source-file; reattaching does not re-read it"
+   ],
+   "pitfalls": [
+    "Editing the config and reattaching, then wondering why nothing changed; the running server must source it."
+   ],
+   "quiz": [
+    {
+     "q": "You edited ~/.tmux.conf. How do you apply it to the running server?",
+     "options": [
+      "Detach and reattach",
+      "Open a new window",
+      "tmux source-file ~/.tmux.conf",
+      "Nothing; tmux watches the file"
+     ],
+     "answer": 2,
+     "explain": "The config is only read at server start or when explicitly sourced."
+    },
+    {
+     "q": "What does `bind -r H resize-pane -L 5` add?",
+     "options": [
+      "After the prefix, H can be pressed repeatedly to keep resizing",
+      "H resizes without the prefix",
+      "H resizes and then reloads the config",
+      "A binding that only works in copy mode"
+     ],
+     "answer": 0,
+     "explain": "-r marks the binding repeatable within the repeat-time window after the prefix."
+    }
+   ],
+   "docs": "https://man.openbsd.org/tmux.1#KEY_BINDINGS",
+   "requires": [
+    "tmux.prefix-keys",
+    "tmux.panes"
+   ]
+  },
+  {
+   "id": "tmux.session-management",
+   "name": "Working with many sessions",
+   "module": "basics",
+   "level": 2,
+   "minutes": 9,
+   "summary": "Run one session per project, switch between them from inside tmux, and use tmux on remote machines over SSH.",
+   "why": "Once tmux is your workspace, quick switching between projects and servers is what keeps it organised.",
+   "body": "One session per project or task keeps windows manageable. From inside tmux:\n\n- `C-b s` shows a tree of sessions; pick one to switch the current client to it.\n- `C-b (` and `C-b )` switch to the previous / next session, `C-b L` to the last one used.\n- `C-b $` renames the current session.\n- `C-b :new -s api` creates a new session without leaving tmux (you are switched to it).\n\nFrom the shell, `tmux switch-client -t api` does the same, and `tmux kill-server` ends every session at once.\n\n**Remote work.** Run tmux on the server, not on your laptop, when the point is to survive disconnects: `ssh host -t 'tmux new -A -s main'` connects and attaches in one go (`-t` forces a terminal, which tmux needs). If you also run tmux locally, you now have **nested** tmux: the outer one catches `C-b`. Press `C-b C-b` to send the prefix to the inner tmux, or use a different prefix on servers.\n\nInside tmux the environment variable `$TMUX` is set. Shell startup files can check it, for example to auto-attach only when not already inside tmux: `[ -z \"$TMUX\" ] && tmux new -A -s main`.\n\nSeveral clients can attach to the same session at once (say, for pair programming); they all see and control the same windows.",
+   "code": "tmux new -d -s api -c ~/code/api     # create detached, in a directory\ntmux new -d -s web -c ~/code/web\ntmux ls                              # api: 1 windows ... / web: 1 windows ...\ntmux attach -t api\n#   C-b s      choose a session from a tree\n#   C-b )      next session\n#   C-b $      rename session\nssh prod-1 -t 'tmux new -A -s main'  # attach on a server in one step\n[ -z \"$TMUX\" ] && echo \"not inside tmux\"",
+   "code_lang": "bash",
+   "takeaways": [
+    "C-b s picks a session, C-b ( and ) cycle, C-b $ renames",
+    "ssh host -t 'tmux new -A -s main' for remote persistence",
+    "Nested tmux: C-b C-b sends the prefix to the inner one"
+   ],
+   "pitfalls": [
+    "Running long remote jobs in a local tmux pane: a dropped connection still kills them. Run tmux on the server."
+   ],
+   "quiz": [
+    {
+     "q": "Why is `-t` needed in `ssh host -t 'tmux new -A -s main'`?",
+     "options": [
+      "It selects the tmux target",
+      "It sets a timeout",
+      "It forces SSH to allocate a terminal, which tmux requires",
+      "It enables trusted X11 forwarding"
+     ],
+     "answer": 2,
+     "explain": "When ssh runs a command it does not allocate a TTY by default; tmux needs one."
+    }
+   ],
+   "docs": "https://github.com/tmux/tmux/wiki/Getting-Started",
+   "requires": [
+    "tmux.sessions-attach",
+    "tmux.windows"
+   ]
+  },
+  {
+   "id": "tmux.scripting",
+   "name": "Scripting layouts with send-keys",
+   "module": "scripting",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Drive tmux from shell scripts: create detached sessions, split panes, start programs with send-keys, then attach.",
+   "why": "A script that rebuilds your project workspace in one command saves minutes every day and documents how to run the project.",
+   "body": "Every tmux command can be run from a shell script, which lets you build a whole workspace reproducibly.\n\nThe pattern:\n\n- Create the session **detached** with `new-session -d -s name -n firstwindow -c dir`.\n- Add windows with `new-window -t name -n other -c dir` and panes with `split-window -t target`.\n- Start programs by typing into panes with `send-keys -t target 'command' Enter`. `Enter` (or `C-m`) is a key name; send `-l` for literal text.\n- Finish with `select-window` and `attach`.\n\n**Targets** (`-t`) name what a command acts on: `session`, `session:window` (window by index or name), `session:window.pane`. After `split-window`, the new pane is the active one, so the next `send-keys -t session:window` goes to it without needing pane numbers.\n\nMake the script idempotent: if the session already exists, just attach. `tmux has-session -t name` returns a non-zero exit status when it does not exist.\n\nAlternatives to `send-keys`: pass the command directly, `new-window 'htop'`, but then the window closes when the program exits (unless `remain-on-exit` is on). `send-keys` instead types into a shell, so the shell survives and you can rerun the command. Tools such as tmuxinator and tmuxp generate the same commands from YAML.",
+   "code": "#!/usr/bin/env bash\nS=dev; DIR=~/code/shop\nif tmux has-session -t \"$S\" 2>/dev/null; then\n  exec tmux attach -t \"$S\"\nfi\ntmux new-session -d -s \"$S\" -n editor -c \"$DIR\"\ntmux send-keys   -t \"$S:editor\" 'vim .' Enter\ntmux new-window  -t \"$S\" -n run -c \"$DIR\"\ntmux send-keys   -t \"$S:run\" 'npm run dev' Enter\ntmux split-window -v -t \"$S:run\" -c \"$DIR\"        # new pane becomes active\ntmux send-keys   -t \"$S:run\" 'npm test -- --watch' Enter\ntmux select-window -t \"$S:editor\"\nexec tmux attach -t \"$S\"",
+   "code_lang": "bash",
+   "takeaways": [
+    "new-session -d builds a session without attaching",
+    "Targets: session:window.pane; windows can be named",
+    "send-keys 'cmd' Enter types into a pane's shell"
+   ],
+   "pitfalls": [
+    "Forgetting Enter at the end of send-keys, so the command is typed but never run."
+   ],
+   "quiz": [
+    {
+     "q": "Why use `send-keys 'npm run dev' Enter` instead of `new-window 'npm run dev'`?",
+     "options": [
+      "send-keys is faster",
+      "new-window cannot run npm",
+      "send-keys works without a tmux server",
+      "The command runs inside a shell, so the pane survives when it exits and can be rerun"
+     ],
+     "answer": 3,
+     "explain": "A window created with a command closes when that command exits; typing into a shell keeps the shell."
+    }
+   ],
+   "docs": "https://man.openbsd.org/tmux.1#COMMANDS",
+   "requires": [
+    "tmux.session-management",
+    "tmux.config-basics"
+   ]
+  },
+  {
+   "id": "tmux.targets-formats",
+   "name": "Formats: #{...} variables and conditionals",
+   "module": "scripting",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Query and display tmux state with formats like #{session_name} and #{pane_current_path}, in scripts and in the status line.",
+   "why": "Formats are how scripts ask tmux questions and how you build an informative status bar.",
+   "body": "A **format** is a string with `#{variable}` placeholders that tmux expands. Hundreds of variables exist: `session_name`, `window_index`, `window_name`, `pane_index`, `pane_id` (stable ids like `%3`), `pane_current_path`, `pane_current_command`, `pane_pid`, `client_prefix`, `window_zoomed_flag`...\n\nWhere formats are used:\n\n- `display-message -p '#{...}'` prints a format for the current pane: the standard way for a script to ask \"where am I?\".\n- `list-sessions`, `list-windows`, `list-panes` take `-F format`; `-a` lists across all sessions. Combine with `-f filter` to select.\n- Options such as `status-left`, `status-right`, `window-status-format` and the `-c` of `split-window` are expanded as formats.\n\nFormats have operators:\n\n- Conditionals: `#{?client_prefix,PREFIX,}` shows text only while the prefix is pressed; `#{?window_zoomed_flag,[Z],}`.\n- Comparisons: `#{==:#{pane_current_command},vim}`, `#{m:*.log,#{pane_title}}` (glob match).\n- Modifiers: `#{=10:pane_title}` truncates, `#{b:pane_current_path}` is the basename, `#{t:...}` formats a timestamp.\n\nIn status options, `%H:%M` style strftime codes are also expanded, and `#[fg=yellow]` sets styles. Use stable ids (`%3`, `@2`, `$1`) rather than indexes in scripts: indexes change as windows are moved or renumbered.",
+   "code": "tmux display -p '#{session_name}:#{window_index}.#{pane_index}'   # dev:1.0\ntmux display -p '#{pane_current_path}'                           # /home/me/code\ntmux list-panes -a -F '#{pane_id} #{session_name} #{pane_current_command}'\n# %0 dev vim\n# %1 dev node\ntmux list-panes -a -f '#{==:#{pane_current_command},node}' -F '#{pane_id}'\n# ~/.tmux.conf\nset -g status-right '#{?client_prefix,#[reverse]PREFIX#[noreverse] ,}#{b:pane_current_path} %H:%M'\nsetw -g window-status-current-format '#I:#W#{?window_zoomed_flag, [Z],}'",
+   "code_lang": "bash",
+   "takeaways": [
+    "display -p and list-* -F print formats for scripts",
+    "#{?cond,yes,no}, #{==:a,b}, #{b:path} and other operators",
+    "Prefer stable ids (%pane, @window, $session) over indexes in scripts"
+   ],
+   "pitfalls": [
+    "Using single-character aliases like #W without knowing them; the long #{window_name} form is clearer."
+   ],
+   "quiz": [
+    {
+     "q": "How does a script print the current pane's working directory?",
+     "options": [
+      "tmux display -p '#{pane_current_path}'",
+      "tmux pwd",
+      "tmux show -g pane_current_path",
+      "echo $TMUX_PANE_PATH"
+     ],
+     "answer": 0,
+     "explain": "display-message -p expands a format against the current pane and prints it."
+    },
+    {
+     "q": "What does `#{?window_zoomed_flag,[Z],}` render for an unzoomed window?",
+     "options": [
+      "[Z]",
+      "An empty string",
+      "0",
+      "window_zoomed_flag"
+     ],
+     "answer": 1,
+     "explain": "The conditional takes the second branch, which is empty, when the flag is 0."
+    }
+   ],
+   "docs": "https://man.openbsd.org/tmux.1#FORMATS",
+   "requires": [
+    "tmux.config-basics",
+    "tmux.session-management"
+   ]
+  },
+  {
+   "id": "tmux.clipboard-integration",
+   "name": "System clipboard integration",
+   "module": "copy",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Send tmux copies to the system clipboard with set-clipboard (OSC 52) or copy-pipe, locally and over SSH.",
+   "why": "Copying from a remote tmux pane to your laptop's clipboard is a daily need that tmux does not do out of the box everywhere.",
+   "body": "tmux copies into its own paste buffers. There are two ways to also reach the system clipboard.\n\n**OSC 52.** Terminals that support the OSC 52 escape sequence (iTerm2, kitty, WezTerm, Alacritty, Windows Terminal, recent GNOME terminals...) let a program set the clipboard by printing a sequence. tmux's `set-clipboard` option controls this: the default `external` forwards copies to the terminal, `on` additionally lets programs inside tmux set the clipboard. The great property is that it works **over SSH**: a tmux on a server can put text on your laptop's clipboard, because the sequence travels through the terminal. Some terminals require enabling it, and tmux must know the terminal supports it (the `clipboard` terminal feature, usually detected automatically).\n\n**copy-pipe.** Alternatively, bind copy keys to pipe the selection to a command: `copy-pipe-and-cancel 'pbcopy'` on macOS, `'xclip -selection clipboard'` on X11 or `'wl-copy'` on Wayland. This only works where tmux runs on the same machine as your desktop. The `copy-command` option sets a default command for all copy-pipe actions.\n\nTypical vi-style bindings: `v` to begin selection, `y` to copy. Test OSC 52 with `printf '\\033]52;c;%s\\a' \"$(printf hi | base64)\"` in a pane; if \"hi\" is on your clipboard, your terminal supports it.",
+   "code": "# ~/.tmux.conf\nsetw -g mode-keys vi\nset -g set-clipboard on            # use OSC 52 (works over SSH)\nbind -T copy-mode-vi v send -X begin-selection\nbind -T copy-mode-vi y send -X copy-selection-and-cancel\n# local alternative: pipe to a clipboard tool\n# set -s copy-command 'wl-copy'    # or 'pbcopy', 'xclip -selection clipboard'\n# bind -T copy-mode-vi y send -X copy-pipe-and-cancel\n\n# shell test for OSC 52 support:\nprintf '\\033]52;c;%s\\a' \"$(printf hi | base64)\"",
+   "code_lang": "bash",
+   "takeaways": [
+    "set-clipboard + OSC 52 lets the terminal own the clipboard, even over SSH",
+    "copy-pipe sends the selection to pbcopy/xclip/wl-copy on the same machine",
+    "bind -T copy-mode-vi ... send -X customises copy keys"
+   ],
+   "pitfalls": [
+    "Using xclip in a tmux on a remote server and expecting your laptop clipboard to change; use OSC 52 instead."
+   ],
+   "quiz": [
+    {
+     "q": "You copy text in tmux running on a remote server. Which mechanism can put it on your local clipboard?",
+     "options": [
+      "copy-pipe to xclip on the server",
+      "OSC 52 via set-clipboard",
+      "tmux save-buffer",
+      "C-b ]"
+     ],
+     "answer": 1,
+     "explain": "OSC 52 is an escape sequence your local terminal interprets, so it crosses the SSH connection."
+    }
+   ],
+   "docs": "https://github.com/tmux/tmux/wiki/Clipboard",
+   "requires": [
+    "tmux.copy-mode",
+    "tmux.config-basics"
+   ]
+  },
+  {
+   "id": "tmux.client-server",
+   "name": "Server, sockets, clients and groups",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Understand the tmux server process, its Unix socket, multiple clients, grouped sessions and the environment it captures.",
+   "why": "Most 'weird tmux' problems, like stale SSH agents or a config that will not apply, come from the client-server model.",
+   "body": "tmux is a **client-server** program. The first `tmux` command starts a server daemon that owns all sessions, windows and pane processes. Each `tmux` invocation, including your attached terminal, is a **client** talking to it over a **Unix socket**, by default `/tmp/tmux-<uid>/default` (directory from `$TMUX_TMPDIR`).\n\n- `tmux -L name` uses a different socket name, giving a completely separate server with its own config load; `-S /path` gives a full socket path (useful for sharing a session between users via file permissions).\n- `$TMUX` inside a pane holds the socket path, server pid and session index.\n- `kill-server` stops everything; the server also exits when its last session closes (option `exit-empty`).\n\nSeveral clients can attach to one session; window size follows the `window-size` option (`latest` by default since 3.1). A **grouped session**, `tmux new -t main -s side`, shares the same windows but keeps its own current window, so two people (or two monitors) can look at different windows of one workspace.\n\n**Environment capture**: panes inherit the server's environment from when it started. When you reattach from a new SSH login, `SSH_AUTH_SOCK` and `DISPLAY` in old panes are stale. tmux copies the variables listed in `update-environment` into the session environment on attach, but existing shells do not see that; new panes do, and `tmux show-environment` lets a shell refresh them.",
+   "code": "echo \"$TMUX\"                       # /tmp/tmux-1000/default,12345,0\ntmux -L work new -d -s a           # separate server on socket 'work'\ntmux -L work ls                    # a: 1 windows ...\ntmux ls                            # default server: unaffected\ntmux new -d -s main\ntmux new -t main -s side           # grouped: same windows, own current window\ntmux show-options -g update-environment\n# refresh a stale agent socket in an old pane:\neval \"$(tmux show-environment -s SSH_AUTH_SOCK)\"",
+   "code_lang": "bash",
+   "takeaways": [
+    "One server per socket; -L name or -S path selects another",
+    "Grouped sessions share windows but not the current window",
+    "Old panes keep the environment from when they started; use show-environment -s"
+   ],
+   "pitfalls": [
+    "Assuming panes pick up a new SSH_AUTH_SOCK after reattaching; only new panes get the updated value."
+   ],
+   "quiz": [
+    {
+     "q": "After reattaching from a new SSH connection, `git push` in an old pane cannot reach your SSH agent. Why?",
+     "options": [
+      "tmux blocks agent forwarding",
+      "The pane's shell still has the SSH_AUTH_SOCK from the old connection",
+      "The tmux socket expired",
+      "SSH agents cannot work inside tmux"
+     ],
+     "answer": 1,
+     "explain": "Environment is inherited at process start; update-environment only affects the session environment for new processes."
+    },
+    {
+     "q": "What does `tmux -L test` do?",
+     "options": [
+      "Lists sessions named test",
+      "Logs to a file called test",
+      "Locks the session test",
+      "Talks to (or starts) a separate server on the socket named test"
+     ],
+     "answer": 3,
+     "explain": "-L picks the socket name, which is effectively a separate tmux server."
+    }
+   ],
+   "docs": "https://man.openbsd.org/tmux.1#CLIENTS_AND_SESSIONS",
+   "requires": [
+    "tmux.session-management",
+    "tmux.targets-formats"
+   ]
+  },
+  {
+   "id": "tmux.hooks-control-mode",
+   "name": "Hooks, pipe-pane, wait-for and control mode",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "React to tmux events with hooks, log pane output with pipe-pane, synchronise scripts with wait-for and integrate via control mode.",
+   "why": "These features turn tmux into an automation platform and explain how terminals like iTerm2 integrate with it.",
+   "body": "**Hooks** run a command when an event happens: `set-hook -g after-split-window 'select-layout even-horizontal'`, or `set-hook -g client-attached 'display \"welcome back\"'`. Hooks exist for most commands (`after-<command>`) and for events such as `session-created`, `pane-exited`, `client-detached`. `show-hooks -g` lists them; hooks are arrays, so `set-hook -ga` appends.\n\n**pipe-pane** sends everything a pane outputs to a shell command: `pipe-pane -o 'cat >> ~/pane.log'` starts logging (the `-o` makes the same binding toggle it off again). Output includes raw escape sequences.\n\n**wait-for** gives scripts a simple channel-based synchronisation: `tmux wait-for build-done` blocks until some other command runs `tmux wait-for -S build-done`. Combined with `send-keys`, a script can start a command in a pane and wait for it to finish.\n\n**Control mode** (`tmux -C`, or `-CC` which also disables echo for terminals) replaces the drawn screen with a text protocol: commands go in, output comes back wrapped in `%begin` / `%end` blocks, and asynchronous notifications such as `%output %1 ...`, `%window-add @3` stream out. iTerm2's tmux integration uses it to show tmux windows as native tabs, and it is a robust way to build tools that watch tmux without screen scraping.",
+   "code": "# keep splits even automatically\ntmux set-hook -g after-split-window 'select-layout even-horizontal'\n# toggle logging the current pane to a file\ntmux bind P pipe-pane -o 'cat >> ~/tmux-#{pane_id}.log' \\; display 'logging toggled'\n# run a build in another pane and wait for it\ntmux send-keys -t dev:run 'make; tmux wait-for -S built' Enter\ntmux wait-for built && echo \"build finished\"\n# control mode: talk to tmux as a protocol\nprintf 'list-windows\\n' | tmux -C attach -t dev\n# %session-changed $0 dev\n# %begin 1792223274 292 1\n# 0: editor (1 panes) [80x24] ...\n# %end 1792223274 292 1",
+   "code_lang": "bash",
+   "takeaways": [
+    "set-hook runs commands on events like after-new-window or pane-exited",
+    "pipe-pane -o toggles logging a pane's output",
+    "wait-for -S / wait-for synchronise scripts; -C is a machine-readable protocol"
+   ],
+   "pitfalls": [
+    "Forgetting pipe-pane output contains escape sequences; strip them before grepping the log."
+   ],
+   "quiz": [
+    {
+     "q": "How can a shell script block until a command typed into another pane has finished?",
+     "options": [
+      "tmux wait <pane>",
+      "Append '; tmux wait-for -S name' to the command and run 'tmux wait-for name'",
+      "Use set-hook pane-exited",
+      "Poll tmux ls"
+     ],
+     "answer": 1,
+     "explain": "wait-for blocks on a named channel until another command signals it with -S."
+    }
+   ],
+   "docs": "https://man.openbsd.org/tmux.1#HOOKS",
+   "requires": [
+    "tmux.scripting",
+    "tmux.targets-formats"
+   ]
+  },
+  {
+   "id": "tmux.terminal-internals",
+   "name": "TERM, colours, keys and escape-time",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "tmux is itself a terminal emulator: set TERM correctly, enable true colour and extended keys, and tune escape-time.",
+   "why": "Broken colours, odd keys in vim and laggy Esc inside tmux all come from the terminal layer, and fixing them needs this model.",
+   "body": "tmux is a terminal emulator running inside another terminal. Programs in panes talk to tmux, and tmux redraws to your real terminal. So there are two terminal descriptions:\n\n- Inside panes, `TERM` comes from `default-terminal`. Use `tmux-256color` (or `screen-256color` if the host lacks that terminfo entry), never `xterm-256color` inside tmux: tmux does not implement everything xterm does.\n- For the outer terminal, tmux reads its terminfo entry and adds **terminal features**. If your terminal supports 24-bit colour but its terminfo does not say so, add `set -as terminal-features ',xterm-256color:RGB'` (3.2+; older configs used `terminal-overrides ...:Tc`). Check what tmux detected with `tmux info`.\n\n**escape-time** is how long tmux waits after Esc to see if it starts an Alt/escape sequence. The old default of 500 ms made Esc in vim feel sluggish; tmux 3.5 lowered the default to 10 ms, and many configs set `escape-time 0` or 10 explicitly.\n\n**Keys**: by default, combinations like Ctrl-Shift-x or Ctrl-Enter cannot be distinguished. With `set -s extended-keys on` and a terminal that supports the CSI u or modifyOtherKeys protocols, tmux passes them through to applications that request them. `focus-events on` forwards focus in/out so editors can autoreload files.\n\nWhen something looks wrong, compare `echo $TERM` inside and outside tmux and run `tmux info | grep -i rgb`.",
+   "code": "# ~/.tmux.conf\nset -g default-terminal \"tmux-256color\"\nset -as terminal-features \",xterm-256color:RGB\"   # true colour in outer terminal\nset -s escape-time 10\nset -s extended-keys on\nset -g focus-events on\n\n# checks from a shell\necho $TERM                          # inside tmux: tmux-256color\ntmux info | grep -i -e rgb -e Tc    # what tmux thinks the outer terminal supports\ninfocmp tmux-256color >/dev/null && echo \"terminfo present\"",
+   "code_lang": "bash",
+   "takeaways": [
+    "default-terminal sets TERM inside panes: use tmux-256color",
+    "terminal-features RGB enables true colour on the outer terminal",
+    "Low escape-time keeps Esc snappy in editors"
+   ],
+   "pitfalls": [
+    "Setting default-terminal to xterm-256color, which makes programs use features tmux does not support."
+   ],
+   "quiz": [
+    {
+     "q": "Why is Esc slow in vim inside some tmux setups?",
+     "options": [
+      "vim disables Esc inside tmux",
+      "TERM is wrong",
+      "The pane is in copy mode",
+      "tmux waits escape-time ms to see whether Esc starts a key sequence"
+     ],
+     "answer": 3,
+     "explain": "With a high escape-time (500 ms in older defaults) tmux delays a lone Esc before passing it on."
+    }
+   ],
+   "docs": "https://github.com/tmux/tmux/wiki/FAQ",
+   "requires": [
+    "tmux.config-basics",
+    "tmux.clipboard-integration"
+   ]
+  }
+ ]
+}

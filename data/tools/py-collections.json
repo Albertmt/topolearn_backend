@@ -1,0 +1,537 @@
+{
+ "tool": {
+  "id": "py-collections",
+  "name": "collections",
+  "category": "library",
+  "tagline": "Specialised containers: Counter, defaultdict, deque, namedtuple and more",
+  "description": "The collections module adds high-performance container types to Python's built-in list, dict, set and tuple: Counter for tallies, defaultdict for grouping, deque for queues, namedtuple for lightweight records, OrderedDict and ChainMap for ordering and layering. Its companion collections.abc defines the abstract interfaces of all containers. Using the right container makes code shorter and often much faster.",
+  "icon": "co",
+  "color": "#2E7D5B",
+  "official_docs": "https://docs.python.org/3/library/collections.html",
+  "version": "Python 3.13",
+  "aliases": [
+   "python collections",
+   "Counter",
+   "defaultdict",
+   "deque",
+   "namedtuple"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "counting",
+   "name": "Counting and grouping"
+  },
+  {
+   "id": "sequences",
+   "name": "Queues and records"
+  },
+  {
+   "id": "mappings",
+   "name": "Mapping variants"
+  },
+  {
+   "id": "abstractions",
+   "name": "Abstract base classes"
+  },
+  {
+   "id": "internals",
+   "name": "Internals and concurrency"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "py-collections.counter",
+   "name": "Counting with Counter",
+   "module": "counting",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Tally hashable items with Counter and get the most common ones.",
+   "why": "Counting words, events, errors or votes is one of the most common data tasks.",
+   "body": "A **Counter** is a dict subclass that maps items to counts. Build one from any iterable of hashable items:\n\n```python\nfrom collections import Counter\nwords = Counter(text.split())\n```\n\nIt behaves like a dict, with conveniences:\n\n- Missing items count as **0** instead of raising `KeyError`: `words[\"zebra\"]` is `0`. Reading doesn't insert the key.\n- `c.most_common(3)` returns the three highest `(item, count)` pairs, sorted by count; ties keep first-seen order. Without an argument it returns all items.\n- `c.update(iterable)` adds more counts; `c[item] += 1` works directly too.\n- `c.total()` (3.10+) sums all counts.\n\nYou can also build a Counter from a mapping or keyword arguments: `Counter({\"a\": 2})`, `Counter(a=2, b=1)`.\n\nCounting a string counts its **characters**, a common surprise: `Counter(\"hello\")` has `l: 2`. Split first if you want words.\n\nA Counter replaces the classic pattern of `if key not in d: d[key] = 0` followed by `d[key] += 1`, and it's implemented with a C helper, so counting a large iterable is fast.",
+   "code": "from collections import Counter\n\ntext = \"the cat and the hat and the bat\"\nwords = Counter(text.split())\nprint(words[\"the\"], words[\"dog\"])   # 3 0\nprint(words.most_common(2))         # [('the', 3), ('and', 2)]\nprint(words.total())                # 8\n\nwords.update([\"cat\", \"cat\"])\nwords[\"hat\"] += 1\nprint(words[\"cat\"], words[\"hat\"])   # 3 2\n\nprint(Counter(\"hello\"))             # Counter({'l': 2, 'h': 1, 'e': 1, 'o': 1})\nstatus = Counter(code for code in [200, 404, 200, 500, 200])\nprint(status.most_common(1)[0])     # (200, 3)",
+   "code_lang": "python",
+   "takeaways": [
+    "`Counter(iterable)` tallies items; missing keys count as 0",
+    "`most_common(n)` returns the top items with counts",
+    "Counting a string counts characters, not words"
+   ],
+   "pitfalls": [
+    "Passing a sentence string directly to Counter when you meant to count words."
+   ],
+   "quiz": [
+    {
+     "q": "c = Counter(['a', 'b', 'a']). What does c['z'] return, and does 'z' get added?",
+     "options": [
+      "KeyError",
+      "0, and 'z' is added with count 0",
+      "0, and 'z' is not added",
+      "None"
+     ],
+     "answer": 2,
+     "explain": "Counter returns 0 for missing items without inserting them."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/collections.html#collections.Counter",
+   "requires": [
+    "python.dicts"
+   ]
+  },
+  {
+   "id": "py-collections.defaultdict",
+   "name": "Grouping with defaultdict",
+   "module": "counting",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Let missing keys get an automatic default value, the idiomatic way to group items into lists or sets.",
+   "why": "Grouping records by a key is everywhere: orders by customer, files by extension, edges by node.",
+   "body": "A **defaultdict** is a dict that calls a **factory function** to create a value for a missing key on first access:\n\n```python\nfrom collections import defaultdict\nby_ext = defaultdict(list)\nby_ext[\".py\"].append(\"app.py\")   # list created automatically\n```\n\nThe argument is the factory itself, not a value: pass `list`, `set`, `int` or a lambda, without calling it. Common choices:\n\n- `defaultdict(list)` groups items into lists.\n- `defaultdict(set)` groups unique items.\n- `defaultdict(int)` counts (though `Counter` is usually nicer).\n- `defaultdict(lambda: \"n/a\")` for any other default.\n\nAny access with `d[key]` inserts the default, even if you're only reading. That can silently grow the dict; use `key in d` or `d.get(key)` for lookups that shouldn't create entries. `get` never calls the factory.\n\nCompared with `dict.setdefault(key, []).append(x)`, defaultdict is clearer and doesn't build an unused empty list on every call.\n\nA defaultdict prints as `defaultdict(<class 'list'>, {...})`. Convert with `dict(d)` before returning it from an API or serialising, so callers don't get the auto-insert behaviour unexpectedly.",
+   "code": "from collections import defaultdict\n\nfiles = [\"app.py\", \"README.md\", \"test_app.py\", \"setup.cfg\", \"notes.md\"]\nby_ext = defaultdict(list)\nfor name in files:\n    by_ext[name.rsplit(\".\", 1)[-1]].append(name)\nprint(dict(by_ext))\n# {'py': ['app.py', 'test_app.py'], 'md': ['README.md', 'notes.md'], 'cfg': ['setup.cfg']}\n\ngraph = defaultdict(set)\nfor a, b in [(\"A\", \"B\"), (\"A\", \"C\"), (\"B\", \"C\")]:\n    graph[a].add(b)\n    graph[b].add(a)\nprint(sorted(graph[\"C\"]))           # ['A', 'B']\n\nprint(graph.get(\"Z\"))               # None: get doesn't insert\nprint(graph[\"Z\"], \"Z\" in graph)     # set() True: [] does insert",
+   "code_lang": "python",
+   "takeaways": [
+    "`defaultdict(factory)` creates missing values by calling the factory",
+    "Pass the factory uncalled: `list`, not `list()`",
+    "`d[key]` inserts on read; use `in` or `get` to check without inserting"
+   ],
+   "pitfalls": [
+    "Writing `defaultdict([])`; the argument must be a callable such as `list`."
+   ],
+   "quiz": [
+    {
+     "q": "d = defaultdict(int); d['a'] += 1; x = d['b']. What is len(d)?",
+     "options": [
+      "2",
+      "1",
+      "0",
+      "It raises KeyError"
+     ],
+     "answer": 0,
+     "explain": "Reading d['b'] also inserts the default 0, so both keys exist."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/collections.html#collections.defaultdict",
+   "requires": [
+    "python.dicts"
+   ]
+  },
+  {
+   "id": "py-collections.namedtuple",
+   "name": "Records with namedtuple",
+   "module": "sequences",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Create lightweight, immutable record types whose fields are accessible by name and by position.",
+   "why": "Named fields make tuples returned from functions or read from CSV files self-documenting.",
+   "body": "`namedtuple` creates a **tuple subclass** with named fields:\n\n```python\nfrom collections import namedtuple\nPoint = namedtuple(\"Point\", [\"x\", \"y\"])\np = Point(3, 4)\np.x, p[1]        # 3, 4\n```\n\nBecause it is a tuple, a namedtuple is immutable, hashable (if its contents are), unpackable (`x, y = p`), comparable, and as memory-efficient as a plain tuple: there's no per-instance `__dict__`. Its `repr` shows the field names, which makes debugging output readable.\n\nUseful extras (names start with an underscore to avoid clashing with fields):\n\n- `p._replace(x=10)` returns a copy with some fields changed.\n- `p._asdict()` returns a dict of fields.\n- `Point._fields` lists the field names; `Point._make(iterable)` builds from a sequence, handy for CSV rows.\n- `namedtuple(\"P\", \"x y\", defaults=[0])` gives defaults to the rightmost fields.\n\nField names can be given as a list or a space/comma separated string. `rename=True` replaces invalid names (like keywords) with positional names.\n\nThe typed equivalent is `typing.NamedTuple` with class syntax and annotations. For mutable records or records with methods and validation, `dataclasses` is usually a better fit.",
+   "code": "import csv\nimport io\nfrom collections import namedtuple\n\nPoint = namedtuple(\"Point\", \"x y\")\np = Point(3, 4)\nprint(p)                     # Point(x=3, y=4)\nprint(p.x + p[1])            # 7\nx, y = p\nprint(p._replace(y=0))       # Point(x=3, y=0)\nprint(p._asdict())           # {'x': 3, 'y': 4}\n\nrows = io.StringIO(\"name,qty\\napple,3\\npear,5\\n\")\nreader = csv.reader(rows)\nItem = namedtuple(\"Item\", next(reader))\nitems = [Item._make(r) for r in reader]\nprint(items[1].name, items[1].qty)   # pear 5\n\nConfig = namedtuple(\"Config\", \"host port debug\", defaults=[8000, False])\nprint(Config(\"localhost\"))   # Config(host='localhost', port=8000, debug=False)",
+   "code_lang": "python",
+   "takeaways": [
+    "namedtuple adds field names to an immutable, lightweight tuple",
+    "`_replace`, `_asdict`, `_fields` and `_make` cover common needs",
+    "Use typing.NamedTuple for type hints, dataclasses for mutable records"
+   ],
+   "pitfalls": [
+    "Trying `p.x = 5`; namedtuples are immutable, so use `_replace`."
+   ],
+   "quiz": [
+    {
+     "q": "Point = namedtuple('Point', 'x y'). What does Point(1, 2) == (1, 2) return?",
+     "options": [
+      "False, different types",
+      "It depends on the field names",
+      "TypeError",
+      "True, because a namedtuple is a tuple"
+     ],
+     "answer": 3,
+     "explain": "namedtuple instances are tuples and compare equal to plain tuples with the same values."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/collections.html#collections.namedtuple",
+   "requires": [
+    "python.tuples"
+   ]
+  },
+  {
+   "id": "py-collections.deque",
+   "name": "Fast queues with deque",
+   "module": "sequences",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Use deque for O(1) appends and pops at both ends, and maxlen for bounded history.",
+   "why": "Queues, BFS, undo history and 'last N items' buffers all need cheap operations at both ends.",
+   "body": "A list is fast at its end but slow at its start: `lst.pop(0)` and `lst.insert(0, x)` shift every element, which is O(n). A **deque** (\"deck\", double-ended queue) supports fast operations at **both** ends:\n\n- `append(x)` and `appendleft(x)`\n- `pop()` and `popleft()`\n- `extend(iterable)` and `extendleft(iterable)` (which reverses the order)\n\nThat makes it the right structure for a **FIFO queue**: `append` to enqueue, `popleft` to dequeue.\n\nWith **maxlen**, a deque is a bounded buffer: `deque(maxlen=3)` keeps only the last three items, automatically discarding from the opposite end when you append. It's ideal for \"the last N log lines\" or a moving window.\n\nA deque supports `len`, iteration, `in`, indexing (`d[0]`, `d[-1]`) and `clear`. Indexing near the ends is fast, but access in the middle is O(n), and slicing isn't supported. If you need random access more than end operations, stay with a list.\n\nPopping from an empty deque raises `IndexError`; check `if d:` first.\n\nFor queues shared between **threads**, use `queue.Queue`, which adds blocking `get` and `put` with timeouts; for asyncio, `asyncio.Queue`.",
+   "code": "from collections import deque\n\ntasks = deque([\"a\", \"b\"])\ntasks.append(\"c\")              # enqueue at the right\ntasks.appendleft(\"urgent\")     # jump the queue\nprint(tasks.popleft())         # urgent\nprint(list(tasks))             # ['a', 'b', 'c']\n\nrecent = deque(maxlen=3)\nfor line in [\"l1\", \"l2\", \"l3\", \"l4\", \"l5\"]:\n    recent.append(line)\nprint(list(recent))            # ['l3', 'l4', 'l5']\nprint(recent[0], recent[-1])   # l3 l5\n\nd = deque()\nd.extendleft([1, 2, 3])\nprint(d)                       # deque([3, 2, 1])",
+   "code_lang": "python",
+   "takeaways": [
+    "deque appends and pops at both ends in O(1)",
+    "`maxlen` keeps only the most recent N items",
+    "Use `queue.Queue` for producer/consumer queues between threads"
+   ],
+   "pitfalls": [
+    "Using `list.pop(0)` as a queue on large lists, which is O(n) per pop."
+   ],
+   "quiz": [
+    {
+     "q": "d = deque([1, 2, 3], maxlen=3); d.appendleft(0). What is d?",
+     "options": [
+      "deque([0, 1, 2, 3])",
+      "deque([0, 1, 2])",
+      "deque([1, 2, 3])",
+      "It raises IndexError"
+     ],
+     "answer": 1,
+     "explain": "Appending on the left of a full bounded deque discards an item from the right end."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/collections.html#collections.deque",
+   "requires": [
+    "python.lists"
+   ]
+  },
+  {
+   "id": "py-collections.counter-math",
+   "name": "Counter arithmetic and multisets",
+   "module": "counting",
+   "level": 2,
+   "minutes": 9,
+   "summary": "Combine and compare Counters with +, -, &, |, subtract and comparison operators, treating them as multisets.",
+   "why": "Comparing inventories, finding differences between word frequencies or checking anagrams all become one-liners.",
+   "body": "A Counter doubles as a **multiset**: a set where elements can appear several times. It supports arithmetic between Counters:\n\n- `a + b` adds counts.\n- `a - b` subtracts counts and **drops zero and negative results**.\n- `a & b` intersection: the minimum of each count.\n- `a | b` union: the maximum of each count.\n- Unary `+a` removes zero and negative entries; `-a` keeps negatives flipped to positive.\n\nThe in-place method `a.subtract(b)` is different from `-`: it **keeps** negative and zero counts, which is what you want for balances like inventory minus orders.\n\nSince 3.10, Counters support **comparisons** as multisets: `a <= b` is true if every count in `a` is at most the count in `b`, with missing items treated as zero. That gives a neat \"can I build this word from these letters?\" check: `Counter(word) <= Counter(letters)`. Equality also treats missing and zero counts as equal.\n\n`c.elements()` expands back into an iterator repeating each item by its count (ignoring counts below one).\n\nThese operations are linear in the number of distinct keys. They don't consider order, so use them for questions about \"how many\", not \"in what order\".",
+   "code": "from collections import Counter\n\nstock = Counter(apple=5, pear=2, kiwi=1)\norder = Counter(apple=3, pear=4)\n\nprint(stock - order)            # Counter({'apple': 2, 'kiwi': 1})\nbalance = stock.copy()\nbalance.subtract(order)\nprint(balance)                  # Counter({'apple': 2, 'kiwi': 1, 'pear': -2})\nprint(+balance)                 # Counter({'apple': 2, 'kiwi': 1})\nprint(stock & order)            # Counter({'apple': 3, 'pear': 2})\nprint(stock | order)            # Counter({'apple': 5, 'pear': 4, 'kiwi': 1})\n\ndef can_spell(word, tiles):\n    return Counter(word) <= Counter(tiles)\nprint(can_spell(\"tea\", \"eatx\"), can_spell(\"teat\", \"eatx\"))  # True False\nprint(Counter(\"listen\") == Counter(\"silent\"))               # True\nprint(sorted(Counter(a=2, b=1).elements()))                 # ['a', 'a', 'b']",
+   "code_lang": "python",
+   "takeaways": [
+    "`+ - & |` treat Counters as multisets; `-` drops non-positive counts",
+    "`subtract()` keeps negative counts for balances",
+    "Comparisons like `<=` (3.10+) test multiset inclusion"
+   ],
+   "pitfalls": [
+    "Using `a - b` to compute a balance and losing the items that went negative."
+   ],
+   "quiz": [
+    {
+     "q": "Counter(a=1) - Counter(a=3) gives what?",
+     "options": [
+      "Counter({'a': -2})",
+      "Counter()",
+      "Counter({'a': 0})",
+      "ValueError"
+     ],
+     "answer": 1,
+     "explain": "The - operator discards results that are zero or negative."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/collections.html#collections.Counter",
+   "requires": [
+    "py-collections.counter"
+   ]
+  },
+  {
+   "id": "py-collections.deque-patterns",
+   "name": "deque patterns: windows, BFS, rotation",
+   "module": "sequences",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Apply deque to breadth-first search, sliding windows, round-robin scheduling with rotate, and tail -n.",
+   "why": "These patterns show up constantly in interviews and in real code that processes streams or graphs.",
+   "body": "Four patterns cover most uses of deque beyond a plain queue.\n\n**Breadth-first search.** Put the start node in a deque; repeatedly `popleft` a node and `append` its unvisited neighbours. Because the queue is FIFO, nodes are visited in order of distance, so BFS finds shortest paths in unweighted graphs.\n\n**Sliding windows.** A `deque(maxlen=k)` holds the last k values of a stream for moving averages or rolling checks. For the classic \"maximum of every window\" problem, a deque of indices kept in decreasing value order gives O(n) overall.\n\n**Round robin.** `d.rotate(n)` rotates right by n steps (negative rotates left). Or pop an item from the left, process it, and append it back at the right, which cycles fairly between tasks or iterators until each is exhausted.\n\n**Tail of a file.** `deque(open(path), maxlen=10)` reads through the file once and keeps only the last ten lines, using constant memory.\n\nSince deque iteration over a changing deque raises `RuntimeError`, collect changes separately or loop with `while d:` and `popleft`.",
+   "code": "from collections import deque\n\ngraph = {\"A\": [\"B\", \"C\"], \"B\": [\"D\"], \"C\": [\"D\", \"E\"], \"D\": [\"F\"], \"E\": [\"F\"], \"F\": []}\ndef shortest_path(start, goal):\n    queue, came_from = deque([start]), {start: None}\n    while queue:\n        node = queue.popleft()\n        if node == goal:\n            path = []\n            while node:\n                path.append(node)\n                node = came_from[node]\n            return path[::-1]\n        for nxt in graph[node]:\n            if nxt not in came_from:\n                came_from[nxt] = node\n                queue.append(nxt)\nprint(shortest_path(\"A\", \"F\"))   # ['A', 'B', 'D', 'F']\n\nwindow = deque(maxlen=3)         # moving average of the last 3 values\nfor x in [3, 6, 9, 12]:\n    window.append(x)\nprint(list(window), sum(window) / len(window))   # [6, 9, 12] 9.0\nd = deque([1, 2, 3, 4]); d.rotate(1)\nprint(d)                         # deque([4, 1, 2, 3])",
+   "code_lang": "python",
+   "takeaways": [
+    "BFS uses a deque as a FIFO queue to visit nodes in distance order",
+    "`deque(maxlen=k)` gives a sliding window or a tail of a stream",
+    "`rotate(n)` shifts elements cyclically for round-robin scheduling"
+   ],
+   "pitfalls": [
+    "Implementing BFS with `list.pop(0)`, turning an O(V+E) algorithm into a quadratic one."
+   ],
+   "quiz": [
+    {
+     "q": "Why does BFS with a deque find shortest paths in an unweighted graph?",
+     "options": [
+      "deque sorts nodes by distance",
+      "It visits each edge twice",
+      "popleft is faster",
+      "FIFO order processes all nodes at distance k before any at distance k+1"
+     ],
+     "answer": 3,
+     "explain": "First-in-first-out order expands the search frontier level by level."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/collections.html#deque-recipes",
+   "requires": [
+    "py-collections.deque"
+   ]
+  },
+  {
+   "id": "py-collections.ordereddict",
+   "name": "OrderedDict and LRU caches",
+   "module": "mappings",
+   "level": 2,
+   "minutes": 9,
+   "summary": "Know what OrderedDict still adds over insertion-ordered dicts: move_to_end, popitem(last=False) and order-sensitive equality.",
+   "why": "Building LRU caches and order-sensitive structures is simplest with OrderedDict's extra operations.",
+   "body": "Since Python 3.7, plain `dict` keeps **insertion order**, so OrderedDict is no longer needed just for ordering. It remains useful for its extra operations:\n\n- `od.move_to_end(key)` moves a key to the end (or the front with `last=False`) in O(1).\n- `od.popitem(last=False)` removes the **first** item (FIFO); plain `dict.popitem()` only removes the last.\n- Equality between two OrderedDicts is **order-sensitive**: `OrderedDict(a=1, b=2) != OrderedDict(b=2, a=1)`. Compared with a plain dict, order is ignored.\n\nThese make it the classic building block for an **LRU cache** (least recently used): on every access, `move_to_end(key)`; when the cache is full, `popitem(last=False)` evicts the oldest entry.\n\nIn everyday code, prefer plain dicts: they're faster and use less memory. For caching function results, `functools.lru_cache` is ready-made; reach for OrderedDict when you need custom eviction policies or caches keyed by something other than function arguments.\n\nYou can reorder a plain dict only by rebuilding it, for example `dict(sorted(d.items()))`.",
+   "code": "from collections import OrderedDict\n\nclass LRU:\n    def __init__(self, capacity):\n        self.data, self.capacity = OrderedDict(), capacity\n    def get(self, key):\n        if key not in self.data:\n            return None\n        self.data.move_to_end(key)          # mark as recently used\n        return self.data[key]\n    def put(self, key, value):\n        self.data[key] = value\n        self.data.move_to_end(key)\n        if len(self.data) > self.capacity:\n            self.data.popitem(last=False)   # evict least recently used\n\ncache = LRU(2)\ncache.put(\"a\", 1); cache.put(\"b\", 2)\ncache.get(\"a\")\ncache.put(\"c\", 3)                           # evicts \"b\"\nprint(list(cache.data))                     # ['a', 'c']\n\nprint(OrderedDict(a=1, b=2) == OrderedDict(b=2, a=1))   # False\nprint(OrderedDict(a=1, b=2) == dict(b=2, a=1))          # True",
+   "code_lang": "python",
+   "takeaways": [
+    "Plain dicts are insertion-ordered; OrderedDict adds `move_to_end` and `popitem(last=False)`",
+    "OrderedDict equality is order-sensitive with other OrderedDicts",
+    "It's the classic structure for custom LRU caches"
+   ],
+   "pitfalls": [
+    "Using OrderedDict everywhere just for ordering, which plain dicts already provide."
+   ],
+   "quiz": [
+    {
+     "q": "Which operation does OrderedDict support efficiently that a plain dict does not?",
+     "options": [
+      "Removing the oldest inserted item with popitem(last=False)",
+      "Iterating in insertion order",
+      "Getting the length",
+      "Looking up a key"
+     ],
+     "answer": 0,
+     "explain": "Plain dict.popitem removes only the last item; OrderedDict can pop from either end."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/collections.html#collections.OrderedDict",
+   "requires": [
+    "py-collections.defaultdict"
+   ]
+  },
+  {
+   "id": "py-collections.chainmap",
+   "name": "Layered lookups with ChainMap",
+   "module": "mappings",
+   "level": 3,
+   "minutes": 9,
+   "summary": "Search several dicts as one with ChainMap, for configuration layers and nested scopes.",
+   "why": "Settings from defaults, files, environment and command line are naturally layered.",
+   "body": "A **ChainMap** groups several mappings into one view. Lookups search the maps in order and return the first hit:\n\n```python\nconfig = ChainMap(cli_args, env_vars, file_settings, defaults)\nconfig[\"port\"]   # first map that has \"port\"\n```\n\nNothing is copied: the ChainMap holds references, so changes to the underlying dicts show through immediately. That makes it cheaper and more live than merging dicts with `{**defaults, **file, **env}`.\n\nWrites, updates and deletes affect only the **first** mapping (`maps[0]`). That's useful for scopes: `child = config.new_child()` adds a new empty dict at the front, so assignments in the child don't touch the parents, and `child.parents` gives the chain without the first map. This mirrors how variable scopes in interpreters work.\n\n`cm.maps` is the list of mappings, which you can inspect or modify.\n\nGotchas:\n\n- Deleting a key that exists only in a later map raises `KeyError`, since deletes only touch the first map.\n- `len()` and iteration compute the union of keys across all maps, which costs time for big maps.\n- For a one-off merge, `d1 | d2` (3.9+) is simpler and produces an ordinary dict.",
+   "code": "import os\nfrom collections import ChainMap\n\ndefaults = {\"host\": \"localhost\", \"port\": 8000, \"debug\": False}\nfile_cfg = {\"port\": 9000}\nenv_cfg = {k[4:].lower(): v for k, v in os.environ.items() if k.startswith(\"APP_\")}\ncli = {\"debug\": True}\n\nconfig = ChainMap(cli, env_cfg, file_cfg, defaults)\nprint(config[\"port\"], config[\"debug\"], config[\"host\"])   # 9000 True localhost\n\nfile_cfg[\"host\"] = \"db.internal\"                         # changes show through\nprint(config[\"host\"])                                    # db.internal\n\nscope = config.new_child()\nscope[\"port\"] = 1234                                     # written to the new layer\nprint(scope[\"port\"], config[\"port\"])                     # 1234 9000\nprint(dict(scope.parents) == dict(config))               # True\nprint(sorted(config))      # ['debug', 'host', 'port']",
+   "code_lang": "python",
+   "takeaways": [
+    "ChainMap searches several mappings in order without copying them",
+    "Writes and deletes affect only the first mapping",
+    "`new_child()` adds a scope layer; `parents` drops it"
+   ],
+   "pitfalls": [
+    "Expecting `del chain[key]` to remove a key that lives in a later mapping."
+   ],
+   "quiz": [
+    {
+     "q": "cm = ChainMap({}, {'a': 1}); cm['a'] = 2. What does the second dict contain afterwards?",
+     "options": [
+      "{'a': 2}",
+      "{}",
+      "{'a': 1}",
+      "It raises TypeError"
+     ],
+     "answer": 2,
+     "explain": "Assignments go to maps[0], so the first dict gets 'a': 2 and the second is untouched."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/collections.html#collections.ChainMap",
+   "requires": [
+    "py-collections.ordereddict"
+   ]
+  },
+  {
+   "id": "py-collections.records",
+   "name": "namedtuple vs NamedTuple vs dataclass",
+   "module": "sequences",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Choose between collections.namedtuple, typing.NamedTuple and dataclasses for record types, knowing the trade-offs.",
+   "why": "Picking the right record type affects mutability, memory, typing and API stability.",
+   "body": "Three ways to define a record:\n\n- `collections.namedtuple(\"P\", \"x y\")`: dynamic, untyped, a tuple subclass.\n- `typing.NamedTuple` with class syntax: the same runtime type, plus annotations, defaults and methods:\n\n```python\nclass P(NamedTuple):\n    x: int\n    y: int = 0\n```\n\n- `@dataclass` classes: regular classes with generated `__init__`, `__repr__` and `__eq__`; mutable unless `frozen=True`; optional `slots=True`, `order=True`, `kw_only=True`.\n\nTrade-offs:\n\n- **Tuple behaviour** is a feature and a risk. NamedTuples unpack, index and compare equal to plain tuples: `P(1, 2) == (1, 2)`. A dataclass compares only to the same class. Adding a field to a NamedTuple breaks callers that unpack it positionally.\n- **Mutability**: NamedTuple is always immutable; dataclasses choose.\n- **Memory**: NamedTuples are as compact as tuples; dataclasses with `slots=True` come close.\n- **Validation and computed fields**: dataclasses have `__post_init__`; NamedTuples can't override `__init__`, only `__new__`.\n\nRule of thumb: use NamedTuple when the record genuinely is a tuple (return values that callers unpack, rows, coordinates), and dataclasses for domain objects that may grow.",
+   "code": "from collections import namedtuple\nfrom dataclasses import dataclass\nfrom typing import NamedTuple\n\nPointA = namedtuple(\"PointA\", \"x y\")\n\nclass PointB(NamedTuple):\n    x: int\n    y: int = 0\n    def norm2(self):\n        return self.x ** 2 + self.y ** 2\n\n@dataclass(frozen=True, slots=True)\nclass PointC:\n    x: int\n    y: int = 0\n\nprint(PointA(1, 2) == (1, 2), PointB(1, 2) == (1, 2))   # True True\nprint(PointC(1, 2) == (1, 2))                          # False\nprint(PointB(3, 4).norm2(), PointB(5))                 # 25 PointB(x=5, y=0)\nx, y = PointB(7, 8)                                    # unpacking works\nprint(PointB.__annotations__)          # {'x': <class 'int'>, 'y': <class 'int'>}\nprint(isinstance(PointB(1), tuple), isinstance(PointC(1), tuple))  # True False",
+   "code_lang": "python",
+   "takeaways": [
+    "namedtuple and typing.NamedTuple create tuple subclasses; NamedTuple adds types and methods",
+    "Tuple equality and unpacking make NamedTuple APIs hard to extend",
+    "Use dataclasses for domain objects; NamedTuple for genuinely tuple-like data"
+   ],
+   "pitfalls": [
+    "Returning a NamedTuple from a public API and later being unable to add a field without breaking unpacking callers."
+   ],
+   "quiz": [
+    {
+     "q": "Which record type compares equal to a plain tuple with the same values?",
+     "options": [
+      "@dataclass",
+      "@dataclass(frozen=True)",
+      "typing.NamedTuple",
+      "A class with __slots__"
+     ],
+     "answer": 2,
+     "explain": "NamedTuple instances are tuples, so tuple equality applies."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/typing.html#typing.NamedTuple",
+   "requires": [
+    "py-collections.namedtuple",
+    "python.dataclasses"
+   ]
+  },
+  {
+   "id": "py-collections.abc",
+   "name": "collections.abc: container interfaces",
+   "module": "abstractions",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Use the abstract base classes in collections.abc to check capabilities and to build full containers from a few methods.",
+   "why": "Writing code against interfaces like Mapping or Iterable makes it accept many types, and the mixins save you dozens of methods.",
+   "body": "`collections.abc` defines the interfaces behind Python's containers: `Iterable`, `Iterator`, `Sized`, `Container`, `Collection`, `Sequence`, `MutableSequence`, `Set`, `Mapping`, `MutableMapping`, plus `Callable`, `Hashable`, `Awaitable` and others.\n\nTwo uses:\n\n**Capability checks and annotations.** `isinstance(x, Mapping)` is true for dicts, OrderedDicts, ChainMaps and any registered mapping, which is better than `isinstance(x, dict)`. Simple ABCs like `Iterable` and `Sized` recognise classes **structurally**: any class with `__iter__` counts as `Iterable` without inheriting. In type hints, annotate parameters with the most general ABC you need, such as `Iterable[str]` or `Mapping[str, int]` (these are subscriptable at runtime since 3.9).\n\n**Mixins.** Inherit from an ABC, implement the few **abstract methods**, and get the rest for free. For `Mapping` you write `__getitem__`, `__iter__` and `__len__`, and receive `get`, `keys`, `items`, `values`, `__contains__` and `__eq__`. `MutableMapping` additionally needs `__setitem__` and `__delitem__` and provides `pop`, `update`, `setdefault` and more. Forgetting an abstract method makes instantiation fail with `TypeError`, listing what's missing.\n\nThe docs' table of ABCs lists abstract and mixin methods for each, worth bookmarking.",
+   "code": "from collections import ChainMap, OrderedDict\nfrom collections.abc import Iterable, Mapping, MutableMapping\n\nclass CaseInsensitive(MutableMapping):\n    def __init__(self, data=()):\n        self._d = {}\n        self.update(data)                     # mixin method\n    def __getitem__(self, key): return self._d[key.lower()][1]\n    def __setitem__(self, key, value): self._d[key.lower()] = (key, value)\n    def __delitem__(self, key): del self._d[key.lower()]\n    def __iter__(self): return (orig for orig, _ in self._d.values())\n    def __len__(self): return len(self._d)\n\nh = CaseInsensitive({\"Content-Type\": \"json\"})\nprint(h[\"content-type\"], \"CONTENT-TYPE\" in h)   # json True\nprint(h.get(\"Accept\", \"*/*\"), list(h))          # */* ['Content-Type']\n\nfor obj in [{}, OrderedDict(), ChainMap(), h, [(\"a\", 1)]]:\n    print(type(obj).__name__, isinstance(obj, Mapping))\n\nclass Countdown:\n    def __iter__(self): return iter([3, 2, 1])\nprint(isinstance(Countdown(), Iterable))        # True (structural check)",
+   "code_lang": "python",
+   "takeaways": [
+    "Check `isinstance(x, Mapping)` rather than `dict` to accept all mappings",
+    "Inherit an ABC and implement its abstract methods to get mixin methods free",
+    "Annotate parameters with the most general ABC you need"
+   ],
+   "pitfalls": [
+    "Subclassing an ABC but missing one abstract method; instantiation then raises TypeError."
+   ],
+   "quiz": [
+    {
+     "q": "To build a read-only mapping by inheriting collections.abc.Mapping, which methods must you implement?",
+     "options": [
+      "__getitem__, __iter__, __len__",
+      "keys, values, items",
+      "__getitem__ and get",
+      "__contains__ and __eq__"
+     ],
+     "answer": 0,
+     "explain": "Mapping's abstract methods are __getitem__, __iter__ and __len__; the rest are mixins."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/collections.abc.html",
+   "requires": [
+    "py-collections.ordereddict",
+    "python.classes"
+   ]
+  },
+  {
+   "id": "py-collections.userdict",
+   "name": "Subclassing dict vs UserDict",
+   "module": "abstractions",
+   "level": 4,
+   "minutes": 11,
+   "summary": "Understand why overriding methods on a dict subclass is unreliable, and when to use UserDict, MutableMapping or __missing__ instead.",
+   "why": "Custom dictionaries that silently skip your validation are a common, hard-to-spot bug.",
+   "body": "Subclassing `dict` directly looks natural, but the built-in methods are implemented in C and **don't call your overrides**. If you override `__setitem__` to normalise keys, then `dict.update()`, the constructor `dict(...)`, `setdefault()` and `|=` all bypass it. Likewise, overriding `__getitem__` doesn't affect `get()`.\n\nOptions:\n\n- **collections.UserDict** wraps a real dict in `self.data`, and its methods are written in Python on top of your `__getitem__`, `__setitem__` and `__delitem__`. Override those three and everything (`update`, constructor, `setdefault`) stays consistent. The cost is some speed.\n- **collections.abc.MutableMapping** gives the same consistency with your own storage, as in the abc lesson.\n- **dict subclass with `__missing__`**: dict's `__getitem__` calls `self.__missing__(key)` when the key is absent. That hook *is* honoured, and it's how `defaultdict` and `Counter` work. Note `get()` doesn't call `__missing__`.\n\n`UserList` and `UserString` play the same role for lists and strings.\n\nSubclassing `dict` is still fine when you only add new methods or `__missing__`, and when speed matters. When you change how existing operations behave, use UserDict or MutableMapping.",
+   "code": "from collections import UserDict\n\nclass LowerDict(dict):\n    def __setitem__(self, key, value):\n        super().__setitem__(key.lower(), value)\n\nclass LowerUserDict(UserDict):\n    def __setitem__(self, key, value):\n        super().__setitem__(key.lower(), value)\n\na = LowerDict(Name=\"x\")               # constructor bypasses __setitem__\na.update({\"Age\": 1})                  # so does update\na[\"City\"] = \"Oslo\"\nprint(sorted(a))                      # ['Age', 'Name', 'city']\n\nb = LowerUserDict(Name=\"x\")\nb.update({\"Age\": 1})\nb[\"City\"] = \"Oslo\"\nprint(sorted(b))                      # ['age', 'city', 'name']\n\nclass Fallback(dict):\n    def __missing__(self, key):\n        return f\"<{key}>\"\nf = Fallback(a=1)\nprint(f[\"a\"], f[\"zzz\"], f.get(\"zzz\"))  # 1 <zzz> None",
+   "code_lang": "python",
+   "takeaways": [
+    "Built-in dict methods don't call your overridden `__setitem__`/`__getitem__`",
+    "UserDict and MutableMapping route every operation through your methods",
+    "`__missing__` is honoured by `d[key]` but not by `get`"
+   ],
+   "pitfalls": [
+    "Overriding `__setitem__` on a dict subclass for validation and assuming `update()` uses it."
+   ],
+   "quiz": [
+    {
+     "q": "class D(dict): def __setitem__(self, k, v): super().__setitem__(k, v * 2). What is D(a=1)['a']?",
+     "options": [
+      "2",
+      "None",
+      "TypeError",
+      "1"
+     ],
+     "answer": 3,
+     "explain": "The C-level dict constructor stores items directly without calling the overridden __setitem__."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/collections.html#collections.UserDict",
+   "requires": [
+    "py-collections.abc",
+    "python.inheritance"
+   ]
+  },
+  {
+   "id": "py-collections.internals",
+   "name": "How deque, Counter and dicts are implemented",
+   "module": "internals",
+   "level": 4,
+   "minutes": 11,
+   "summary": "Know the data structures and complexity behind deque, Counter, defaultdict and OrderedDict, to predict performance.",
+   "why": "Choosing the right container for millions of operations depends on its real complexity, not its interface.",
+   "body": "**deque** is a doubly linked list of fixed-size **blocks** (64 slots each in CPython). Appends and pops at either end are O(1) and rarely allocate. Indexing walks block by block from the nearer end, so `d[i]` is O(n) in the middle, and `insert`/`del` in the middle are O(n). It has no slicing. Memory per item is close to a list's.\n\n**dict** (and so Counter and defaultdict) is a hash table with a compact array of entries in insertion order plus a sparse index table. Lookups, inserts and deletes are O(1) on average. Deleting leaves dummy entries until the table is resized, which is why ordering survives deletes cheaply.\n\n**Counter** is a pure-Python dict subclass, but counting an iterable uses a C helper (`_count_elements`), so `Counter(iterable)` is much faster than a Python loop. `most_common(n)` uses `heapq.nlargest`, O(N log n); without `n` it sorts everything.\n\n**defaultdict** is a C dict subclass implementing `__missing__`; overhead beyond a dict lookup appears only for missing keys.\n\n**OrderedDict** is implemented in C with an extra linked list over the dict, so `move_to_end` and `popitem(last=False)` are O(1), at the cost of noticeably more memory than a plain dict.\n\n**namedtuple** field access goes through properties (`_tuplegetter` in C), slightly slower than plain tuple indexing but much faster than a dict lookup.",
+   "code": "import sys\nimport timeit\nfrom collections import Counter, OrderedDict, deque\n\nn = 100_000\nlst, dq = list(range(n)), deque(range(n))\nt_list = timeit.timeit(lambda: lst.insert(0, lst.pop()), number=2000)\nt_deque = timeit.timeit(lambda: dq.appendleft(dq.pop()), number=2000)\nprint(t_deque < t_list)          # True: O(1) vs O(n) at the left end\n\nt_mid_list = timeit.timeit(lambda: lst[n // 2], number=20000)\nt_mid_deque = timeit.timeit(lambda: dq[n // 2], number=20000)\nprint(t_mid_list < t_mid_deque)  # True: deque indexing walks blocks\n\nwords = [\"a\", \"b\", \"c\"] * 50_000\ndef manual():\n    c = {}\n    for w in words:\n        c[w] = c.get(w, 0) + 1\n    return c\nprint(timeit.timeit(lambda: Counter(words), number=5) < timeit.timeit(manual, number=5))  # True\n\nd, od = dict.fromkeys(range(1000)), OrderedDict.fromkeys(range(1000))\nprint(sys.getsizeof(od) > sys.getsizeof(d))   # True",
+   "code_lang": "python",
+   "takeaways": [
+    "deque is a linked list of blocks: O(1) at the ends, O(n) in the middle",
+    "Counter counts via a C helper; `most_common(n)` uses a heap",
+    "OrderedDict trades extra memory for O(1) reordering"
+   ],
+   "pitfalls": [
+    "Using a deque for random access by index in a hot loop."
+   ],
+   "quiz": [
+    {
+     "q": "Which operation is O(n) on a deque of n items?",
+     "options": [
+      "appendleft",
+      "d[n // 2]",
+      "popleft",
+      "append"
+     ],
+     "answer": 1,
+     "explain": "Indexing in the middle has to walk through the linked blocks from the nearer end."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/collections.html#collections.deque",
+   "requires": [
+    "py-collections.deque-patterns",
+    "py-collections.counter-math",
+    "py-collections.ordereddict"
+   ]
+  },
+  {
+   "id": "py-collections.thread-safety",
+   "name": "Containers and thread safety",
+   "module": "internals",
+   "level": 4,
+   "minutes": 10,
+   "summary": "Which deque and dict operations are atomic, why Counter increments race, and how this changes on free-threaded Python 3.13.",
+   "why": "Sharing containers between threads without understanding atomicity leads to rare, data-corrupting races.",
+   "body": "Thread safety in CPython has two layers.\n\n**Individual operations.** `deque.append`, `appendleft`, `pop` and `popleft` are documented as **thread-safe**, which is why a deque can serve as a simple lock-free queue between threads. Single dict operations such as `d[k] = v`, `d.get(k)` and `d.pop(k, None)` are effectively atomic as well. In the default build the GIL provides this; the free-threaded 3.13 build (`python3.13t`) keeps these guarantees by using per-object locks (critical sections) internally.\n\n**Compound operations** are never atomic. `counter[key] += 1` is a read, an add and a write; two threads can read the same old value and one increment is lost. The same applies to `if key not in d: d[key] = ...`, `defaultdict` factories that do work, and iterating a dict while another thread modifies it (`RuntimeError: dictionary changed size during iteration`).\n\nApproaches:\n\n- Protect compound updates with a `threading.Lock`.\n- Use `queue.Queue` for producer/consumer handoff; it adds blocking and `task_done`.\n- Give each thread its own Counter and merge at the end with `+=` or `update`, which avoids locking entirely.\n- `d.setdefault(k, v)` is a single operation, useful for \"insert if absent\".\n\nFree-threading makes races that were rare under the GIL much more frequent, so code that relied on luck surfaces quickly.",
+   "code": "import threading\nfrom collections import Counter, deque\n\ndef worker(counts, lock, n):\n    for _ in range(n):\n        with lock:\n            counts[\"hits\"] += 1          # compound op: needs the lock\n\ncounts, lock = Counter(), threading.Lock()\nthreads = [threading.Thread(target=worker, args=(counts, lock, 20_000)) for _ in range(4)]\nfor t in threads: t.start()\nfor t in threads: t.join()\nprint(counts[\"hits\"])                    # 80000\n\ndef local_count(chunk, results):        # lock-free: count locally, merge later\n    results.append(Counter(chunk))\nresults = deque()                        # deque.append is thread-safe\ndata = [\"x\", \"y\", \"x\"] * 10_000\nchunks = [data[i::4] for i in range(4)]\nts = [threading.Thread(target=local_count, args=(c, results)) for c in chunks]\nfor t in ts: t.start()\nfor t in ts: t.join()\nprint(sum(results, Counter()))           # Counter({'x': 20000, 'y': 10000})",
+   "code_lang": "python",
+   "takeaways": [
+    "deque append/pop operations are thread-safe; single dict operations are atomic",
+    "`counter[k] += 1` is read-modify-write and can lose updates without a lock",
+    "Count per thread and merge, or use locks and `queue.Queue`"
+   ],
+   "pitfalls": [
+    "Assuming the GIL makes `+=` on shared counters safe; increments can be lost, especially on free-threaded builds."
+   ],
+   "quiz": [
+    {
+     "q": "Four threads each run counts['k'] += 1 one million times on a shared Counter without a lock. What final value is guaranteed?",
+     "options": [
+      "Exactly 4,000,000",
+      "At most 4,000,000, possibly less",
+      "Exactly 1,000,000",
+      "A RuntimeError is raised"
+     ],
+     "answer": 1,
+     "explain": "The increment is a non-atomic read-modify-write, so concurrent updates can be lost."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/collections.html#collections.deque",
+   "requires": [
+    "py-collections.deque-patterns",
+    "python.threads-processes"
+   ]
+  }
+ ]
+}

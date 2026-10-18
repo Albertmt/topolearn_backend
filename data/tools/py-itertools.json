@@ -1,0 +1,537 @@
+{
+ "tool": {
+  "id": "py-itertools",
+  "name": "itertools",
+  "category": "library",
+  "tagline": "Fast, memory-efficient building blocks for working with iterators",
+  "description": "itertools provides lazy iterator functions implemented in C: infinite counters, chaining, slicing, grouping, running totals, batching and combinatorics. Combined, they express data-processing pipelines that handle huge or endless streams in constant memory. Knowing them replaces many hand-written loops with short, fast and correct code.",
+  "icon": "it",
+  "color": "#8A5A00",
+  "official_docs": "https://docs.python.org/3/library/itertools.html",
+  "version": "Python 3.13",
+  "aliases": [
+   "python itertools",
+   "iterator tools"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 2
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Lazy iteration"
+  },
+  {
+   "id": "combining",
+   "name": "Combining and slicing"
+  },
+  {
+   "id": "grouping",
+   "name": "Grouping and aggregating"
+  },
+  {
+   "id": "combinatorics",
+   "name": "Combinatorics"
+  },
+  {
+   "id": "pipelines",
+   "name": "Pipelines and recipes"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "py-itertools.lazy",
+   "name": "Lazy iterators and itertools",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Understand what itertools functions return, why they are lazy, and why an iterator can be consumed only once.",
+   "why": "Every itertools function builds on these two ideas; misunderstanding them causes empty-result bugs.",
+   "body": "Every function in itertools takes iterables and returns an **iterator**: an object that produces values one at a time when you ask for them with `next()` or a `for` loop. Nothing is computed up front. That's **laziness**, and it's why itertools can handle files larger than memory or infinite sequences.\n\nTwo consequences:\n\n- **Nothing happens until you consume.** `itertools.chain(a, b)` returns immediately; the work happens as you iterate. To see the values, loop over them, or wrap with `list()` (only for finite, reasonably small results).\n- **Iterators are single-use.** After you've looped over an iterator once, it's exhausted. A second loop produces nothing, silently. Lists, tuples and ranges are *iterables* you can loop over again; the iterators made from them are not.\n\nPass the result of an itertools function directly into the next function, `sum()`, `max()`, `\"\".join()` or a `for` loop. If you need to iterate twice, build a list once, or call the itertools function again.\n\n`next(it, default)` takes one item, returning `default` instead of raising `StopIteration` when the iterator is exhausted.\n\nitertools is implemented in C, so these functions are fast; the pipeline overhead is usually lower than an equivalent hand-written generator.",
+   "code": "from itertools import chain\n\nevens = chain([0, 2], [4, 6])\nprint(evens)                 # <itertools.chain object at 0x...>\nprint(next(evens))           # 0\nprint(list(evens))           # [2, 4, 6]\nprint(list(evens))           # []  -- exhausted\n\nnums = [3, 1, 2]\nit = iter(nums)\nprint(sum(it), sum(it))      # 6 0\nprint(sum(nums), sum(nums))  # 6 6  (a list is re-iterable)\nprint(next(iter([]), \"none\"))  # none",
+   "code_lang": "python",
+   "takeaways": [
+    "itertools functions return lazy, single-use iterators",
+    "Consume with a loop, sum/max/join, or list() for small finite results",
+    "Lists can be iterated repeatedly; iterators cannot"
+   ],
+   "pitfalls": [
+    "Iterating an itertools result twice and getting nothing the second time."
+   ],
+   "quiz": [
+    {
+     "q": "it = map(str.upper, ['a', 'b']); x = list(it); y = list(it). What is y?",
+     "options": [
+      "['A', 'B']",
+      "['a', 'b']",
+      "[]",
+      "It raises StopIteration"
+     ],
+     "answer": 2,
+     "explain": "The first list() consumed the iterator, so the second sees no items."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/itertools.html",
+   "requires": [
+    "python.iterators-generators"
+   ]
+  },
+  {
+   "id": "py-itertools.infinite",
+   "name": "count, cycle and repeat",
+   "module": "basics",
+   "level": 1,
+   "minutes": 7,
+   "summary": "Generate endless sequences with count, cycle and repeat, and stop them safely.",
+   "why": "Numbering, round-robin assignment and constant streams are common, and they combine cleanly with zip and map.",
+   "body": "Three iterators never stop on their own:\n\n- `count(start=0, step=1)` yields `start, start+step, ...` forever. Steps can be floats or negative. It's like `range` without an end.\n- `cycle(iterable)` repeats the items of an iterable forever. It saves a copy of the items on the first pass, so it uses memory proportional to the input.\n- `repeat(obj, times=None)` yields the same object forever, or `times` times.\n\nBecause they're infinite, always pair them with something that stops: `zip` (stops at the shortest input), `islice`, `takewhile`, or a `break`. `list(count())` never returns.\n\nTypical uses:\n\n- `zip(count(1), lines)` numbers items (though `enumerate(lines, 1)` is clearer for that exact case).\n- `zip(tasks, cycle(workers))` assigns tasks round-robin.\n- `map(pow, range(5), repeat(2))` feeds a constant argument to a function.\n\n`repeat` yields the **same object** every time. `list(repeat([], 3))` gives three references to one list, just like `[[]] * 3`, so mutating one mutates all.\n\nFloating-point steps in `count` accumulate error; for exact decimal steps, count integers and scale: `(i / 10 for i in count())`.",
+   "code": "from itertools import count, cycle, islice, repeat\n\nfor n, line in zip(count(1), [\"alpha\", \"beta\"]):\n    print(n, line)\n# 1 alpha\n# 2 beta\n\nworkers = cycle([\"w1\", \"w2\"])\nprint([(t, next(workers)) for t in \"abc\"])   # [('a', 'w1'), ('b', 'w2'), ('c', 'w1')]\nprint(list(islice(count(10, 5), 3)))        # [10, 15, 20]\nprint(list(map(pow, range(4), repeat(2))))  # [0, 1, 4, 9]\n\ngrid = list(repeat([], 2))\ngrid[0].append(\"x\")\nprint(grid)                                  # [['x'], ['x']]  -- same list",
+   "code_lang": "python",
+   "takeaways": [
+    "`count`, `cycle` and `repeat` are infinite unless limited",
+    "Stop them with zip, islice, takewhile or a break",
+    "`repeat` yields the same object each time"
+   ],
+   "pitfalls": [
+    "Calling `list()` or `sorted()` on an infinite iterator, which never returns."
+   ],
+   "quiz": [
+    {
+     "q": "What does list(zip('ab', count(100))) return?",
+     "options": [
+      "[('a', 100), ('b', 101)]",
+      "It never terminates",
+      "[('a', 0), ('b', 1)]",
+      "[('a', 100), ('b', 100)]"
+     ],
+     "answer": 0,
+     "explain": "zip stops when the shorter input 'ab' runs out."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/itertools.html#itertools.count",
+   "requires": [
+    "py-itertools.lazy"
+   ]
+  },
+  {
+   "id": "py-itertools.chain",
+   "name": "Chaining iterables with chain",
+   "module": "combining",
+   "level": 1,
+   "minutes": 7,
+   "summary": "Iterate over several iterables as one with chain and flatten one level of nesting with chain.from_iterable.",
+   "why": "Processing several files, lists or pages as one stream without copying is a frequent need.",
+   "body": "`chain(a, b, c)` yields every item of `a`, then of `b`, then of `c`. Unlike `a + b + c`, it doesn't build a new list, works with any iterables (sets, generators, files, ranges), and can mix types.\n\n`chain.from_iterable(iterables)` takes a **single** iterable of iterables. It's the standard way to **flatten one level** of nesting:\n\n```python\nlist(chain.from_iterable([[1, 2], [3], []]))   # [1, 2, 3]\n```\n\nBecause `from_iterable` reads the outer iterable lazily, it also works when the sub-iterables are produced on demand, such as pages fetched from an API or lines from many files:\n\n```python\nlines = chain.from_iterable(open(p) for p in paths)\n```\n\nDifferences worth knowing:\n\n- `chain(*lists)` unpacks the outer list eagerly; `chain.from_iterable(lists)` doesn't, so prefer it for generators or huge outer collections.\n- Strings are iterables of characters, so `chain(\"ab\", \"cd\")` yields characters.\n- It flattens exactly one level; deeper nesting needs recursion.\n\n`sum(list_of_lists, [])` also flattens but is quadratic, since each `+` copies the accumulated list. Use `chain.from_iterable` or a comprehension with two `for` clauses instead.",
+   "code": "from itertools import chain\n\na, b = [1, 2], (3, 4)\nprint(list(chain(a, b, range(5, 7))))          # [1, 2, 3, 4, 5, 6]\n\nnested = [[1, 2], [3], [], [4, 5]]\nprint(list(chain.from_iterable(nested)))       # [1, 2, 3, 4, 5]\nprint([x for sub in nested for x in sub])      # [1, 2, 3, 4, 5]\n\ndef pages():                                   # e.g. a paginated API\n    for page in range(3):\n        yield [f\"item{page}{i}\" for i in range(2)]\nitems = chain.from_iterable(pages())\nprint(next(items), next(items), next(items))   # item00 item01 item10\n\nprint(list(chain(\"ab\", \"cd\")))                 # ['a', 'b', 'c', 'd']",
+   "code_lang": "python",
+   "takeaways": [
+    "`chain(a, b)` concatenates iterables lazily without copying",
+    "`chain.from_iterable` flattens one level, lazily, even over generators",
+    "Avoid `sum(lists, [])`; it's quadratic"
+   ],
+   "pitfalls": [
+    "Expecting chain.from_iterable to flatten deeply nested lists; it removes only one level."
+   ],
+   "quiz": [
+    {
+     "q": "What does list(chain.from_iterable(['ab', ['c', 'd']])) return?",
+     "options": [
+      "['ab', 'c', 'd']",
+      "TypeError",
+      "['ab', ['c', 'd']]",
+      "['a', 'b', 'c', 'd']"
+     ],
+     "answer": 3,
+     "explain": "Each inner iterable is iterated: the string yields its characters and the list its items."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/itertools.html#itertools.chain",
+   "requires": [
+    "py-itertools.lazy"
+   ]
+  },
+  {
+   "id": "py-itertools.islice",
+   "name": "Slicing iterators with islice",
+   "module": "combining",
+   "level": 1,
+   "minutes": 7,
+   "summary": "Take, skip and step through any iterator with islice, the lazy equivalent of slicing.",
+   "why": "Generators, files and infinite iterators don't support [a:b], but you still need 'the first 10' or 'skip the header'.",
+   "body": "Iterators can't be indexed or sliced with `[start:stop]`. `islice` provides the same semantics lazily:\n\n- `islice(it, stop)` the first `stop` items\n- `islice(it, start, stop)` items from index `start` up to `stop`\n- `islice(it, start, stop, step)` with a step\n- `stop=None` means \"to the end\": `islice(it, 1, None)` skips the first item\n\nNegative values are not allowed, because an iterator doesn't know its length.\n\n`islice` consumes the underlying iterator as it goes. Skipping 1,000 items means producing and discarding them, so it's O(start), not O(1) like a list slice. And the original iterator is advanced: after `list(islice(it, 3))`, the next item of `it` is the fourth.\n\nThat last property is useful. Reading a file, `next(f)` or `islice(f, 1, None)` skips a header line. Taking repeated `islice(it, n)` chunks from one iterator is how batching worked before `itertools.batched`.\n\nCommon combos:\n\n- `islice(count(), 5)` the first five numbers\n- `next(islice(it, n, None), default)` the n-th item (the `nth` recipe)\n- `list(islice(sorted_generator, 10))` a top-10 preview without consuming everything",
+   "code": "from itertools import count, islice\n\ndef squares():\n    for n in count():\n        yield n * n\n\nprint(list(islice(squares(), 5)))           # [0, 1, 4, 9, 16]\nprint(list(islice(squares(), 2, 8, 2)))     # [4, 16, 36]\n\nit = iter(range(10))\nprint(list(islice(it, 3)))                  # [0, 1, 2]\nprint(next(it))                             # 3  -- original advanced\n\nlines = iter([\"id,name\", \"1,ann\", \"2,bob\"])\nfor row in islice(lines, 1, None):          # skip header\n    print(row)\n# 1,ann\n# 2,bob\nprint(next(islice(squares(), 10, None)))    # 100",
+   "code_lang": "python",
+   "takeaways": [
+    "`islice(it, start, stop, step)` slices any iterator lazily",
+    "Skipping costs O(start) and advances the original iterator",
+    "No negative indices: iterators have no known length"
+   ],
+   "pitfalls": [
+    "Calling `islice(it, -5, None)` to get the last items; use `collections.deque(it, maxlen=5)` instead."
+   ],
+   "quiz": [
+    {
+     "q": "it = iter('abcdef'); list(islice(it, 2)); what is next(it)?",
+     "options": [
+      "'a'",
+      "'c'",
+      "'b'",
+      "StopIteration"
+     ],
+     "answer": 1,
+     "explain": "islice consumed 'a' and 'b' from the shared iterator, so 'c' comes next."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/itertools.html#itertools.islice",
+   "requires": [
+    "py-itertools.lazy"
+   ]
+  },
+  {
+   "id": "py-itertools.combinatorics",
+   "name": "product, permutations and combinations",
+   "module": "combinatorics",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Generate Cartesian products, orderings and subsets lazily with product, permutations, combinations and combinations_with_replacement.",
+   "why": "Grid searches, test matrices, brute-force search and probability counting all enumerate combinations.",
+   "body": "Four combinatoric iterators:\n\n- `product(a, b)` every pair `(x, y)` with `x` from `a` and `y` from `b`, like nested for-loops (the rightmost varies fastest). `product(range(2), repeat=3)` gives all 3-bit tuples.\n- `permutations(items, r)` every **ordering** of `r` items without repetition; `r` defaults to all.\n- `combinations(items, r)` every **subset** of size `r`, order ignored, in lexicographic order of positions.\n- `combinations_with_replacement(items, r)` subsets where items may repeat.\n\nThey treat input elements by **position**, not value: `permutations(\"aab\")` yields duplicates. Deduplicate with a set if needed.\n\nSizes grow explosively: `permutations(range(10))` yields 3,628,800 tuples; `product(range(10), repeat=8)` yields 100 million. Since they're lazy, iterating is fine if you stop early or filter; `list()` of them may exhaust memory. Compute counts without generating, using `math.perm`, `math.comb` and `math.prod`.\n\n`product` reads all its inputs into memory first (it needs to loop over them repeatedly), so pass finite iterables.\n\nTypical uses: hyperparameter grids (`product(lrs, batch_sizes)`), test parameter matrices, pairs of items to compare (`combinations(items, 2)`), and small brute-force searches.",
+   "code": "import math\nfrom itertools import combinations, combinations_with_replacement, permutations, product\n\nprint(list(product(\"ab\", [1, 2])))     # [('a', 1), ('a', 2), ('b', 1), ('b', 2)]\nprint(len(list(product([0, 1], repeat=3))))     # 8\nprint(list(permutations(\"abc\", 2))[:3])          # [('a', 'b'), ('a', 'c'), ('b', 'a')]\nprint(list(combinations(\"abcd\", 2)))\n# [('a', 'b'), ('a', 'c'), ('a', 'd'), ('b', 'c'), ('b', 'd'), ('c', 'd')]\nprint(list(combinations_with_replacement(\"ab\", 2)))  # [('a', 'a'), ('a', 'b'), ('b', 'b')]\nprint(math.comb(52, 5), math.perm(10))         # 2598960 3628800\n\ngrid = {\"lr\": [0.1, 0.01], \"depth\": [3, 5]}\nconfigs = [dict(zip(grid, values)) for values in product(*grid.values())]\nprint(configs[1])                              # {'lr': 0.1, 'depth': 5}\nprint(len(set(permutations(\"aab\"))))           # 3",
+   "code_lang": "python",
+   "takeaways": [
+    "product = nested loops; permutations = orderings; combinations = subsets",
+    "Elements are distinguished by position, so duplicate values give duplicate results",
+    "Counts explode; use `math.comb`/`math.perm` to size them first"
+   ],
+   "pitfalls": [
+    "Calling `list(permutations(...))` on more than about 10 items and running out of memory."
+   ],
+   "quiz": [
+    {
+     "q": "How many tuples does combinations('abcde', 3) yield?",
+     "options": [
+      "60",
+      "10",
+      "125",
+      "15"
+     ],
+     "answer": 1,
+     "explain": "Choosing 3 of 5 with order ignored gives C(5, 3) = 10."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/itertools.html#itertools.combinations",
+   "requires": [
+    "py-itertools.lazy",
+    "python.tuples"
+   ]
+  },
+  {
+   "id": "py-itertools.groupby",
+   "name": "Grouping consecutive items with groupby",
+   "module": "grouping",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Group consecutive items that share a key with groupby, and know why you usually sort first.",
+   "why": "Run-length encoding, splitting logs by session and summarising sorted data all use groupby.",
+   "body": "`groupby(iterable, key=None)` yields `(key_value, group_iterator)` pairs, where each group contains **consecutive** items with the same key. It does not look ahead or collect: when the key changes, a new group starts.\n\nSo to group all items by a key, **sort by the same key first**:\n\n```python\nfor dept, people in groupby(sorted(staff, key=by_dept), key=by_dept):\n    ...\n```\n\nWithout sorting, `groupby` on `a a b a` yields three groups: `a`, `b`, `a`. Sometimes that's exactly what you want (run-length encoding, consecutive events in a log).\n\nThe groups are **lazy views** that share the underlying iterator. Advancing `groupby` to the next key makes the previous group iterator empty. If you need the groups later, materialise each one immediately, e.g. `{k: list(g) for k, g in groupby(...)}`.\n\n`key` is any function; `operator.itemgetter(\"dept\")` and `operator.attrgetter(\"dept\")` are fast choices.\n\nWhen you just want a dict of lists and the input isn't sorted, a `defaultdict(list)` is simpler and O(n) instead of O(n log n). Use `groupby` for runs, for streaming already-sorted data (such as database results ordered by the key), or to avoid holding all groups in memory.",
+   "code": "from itertools import groupby\nfrom operator import itemgetter\n\nprint([(k, len(list(g))) for k, g in groupby(\"aaabccaa\")])\n# [('a', 3), ('b', 1), ('c', 2), ('a', 2)]\n\nstaff = [{\"name\": \"ann\", \"dept\": \"ops\"}, {\"name\": \"bob\", \"dept\": \"dev\"},\n         {\"name\": \"cy\", \"dept\": \"ops\"}]\nby_dept = itemgetter(\"dept\")\ngroups = {k: [p[\"name\"] for p in g]\n          for k, g in groupby(sorted(staff, key=by_dept), key=by_dept)}\nprint(groups)                   # {'dev': ['bob'], 'ops': ['ann', 'cy']}\n\nsaved = [(k, g) for k, g in groupby(\"aabb\")]   # groups not consumed in time\nprint([(k, list(g)) for k, g in saved])        # [('a', []), ('b', [])]",
+   "code_lang": "python",
+   "takeaways": [
+    "groupby groups only consecutive equal keys; sort by the key first to group globally",
+    "Group iterators are invalidated when groupby advances; materialise them immediately",
+    "Use defaultdict(list) for unsorted input when you just need a dict of lists"
+   ],
+   "pitfalls": [
+    "Calling groupby on unsorted data and getting the same key in several groups."
+   ],
+   "quiz": [
+    {
+     "q": "What does [k for k, _ in groupby([1, 1, 2, 1])] return?",
+     "options": [
+      "[1, 2]",
+      "[2, 1]",
+      "[1, 1, 2, 1]",
+      "[1, 2, 1]"
+     ],
+     "answer": 3,
+     "explain": "groupby starts a new group whenever the key changes, so 1 appears twice."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/itertools.html#itertools.groupby",
+   "requires": [
+    "py-itertools.islice",
+    "python.functions"
+   ]
+  },
+  {
+   "id": "py-itertools.accumulate-batched",
+   "name": "accumulate, pairwise and batched",
+   "module": "grouping",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Compute running totals with accumulate, look at neighbouring pairs with pairwise, and chunk streams with batched.",
+   "why": "Cumulative sums, deltas between readings and processing records in batches are everyday stream operations.",
+   "body": "Three iterators for sequences of related values:\n\n**accumulate(iterable, func=operator.add, initial=None)** yields running results: `accumulate([1, 2, 3])` gives `1, 3, 6`. Pass another binary function for running maximum (`max`), product (`operator.mul`) or any fold where you want every intermediate state. `initial` prepends a starting value, so the output is one item longer.\n\n**pairwise(iterable)** (3.10+) yields overlapping pairs of neighbours: `pairwise(\"abcd\")` gives `ab, bc, cd`. It's ideal for differences between consecutive readings, checking whether a sequence is sorted, or building edges from a path. An input with fewer than two items yields nothing.\n\n**batched(iterable, n)** (3.12+) yields tuples of up to `n` items: the last batch may be shorter. Python 3.13 adds `strict=True`, which raises `ValueError` if the final batch is incomplete. Use it to send records to an API or database in chunks of 500, or to process a big file in blocks. It reads lazily, so only one batch is in memory at a time.\n\nBefore 3.12, people used the \"grouper\" recipe with `zip_longest`, which pads the last batch with a fill value; `batched` is clearer.",
+   "code": "import operator\nfrom itertools import accumulate, batched, pairwise\n\nsales = [5, 3, 8, 2]\nprint(list(accumulate(sales)))                    # [5, 8, 16, 18]\nprint(list(accumulate(sales, max)))               # [5, 5, 8, 8]\nprint(list(accumulate(sales, operator.mul, initial=1)))  # [1, 5, 15, 120, 240]\n\ntemps = [20.5, 21.0, 19.5, 22.0]\nprint([round(b - a, 1) for a, b in pairwise(temps)])  # [0.5, -1.5, 2.5]\nprint(all(a <= b for a, b in pairwise([1, 2, 2, 5])))  # True\n\nids = range(1, 8)\nfor batch in batched(ids, 3):\n    print(batch)\n# (1, 2, 3)\n# (4, 5, 6)\n# (7,)\ntry:\n    list(batched(\"abcde\", 2, strict=True))        # 3.13+\nexcept ValueError as e:\n    print(e)                                      # batched(): incomplete batch",
+   "code_lang": "python",
+   "takeaways": [
+    "`accumulate` yields running totals or any running fold",
+    "`pairwise` gives overlapping neighbour pairs (3.10+)",
+    "`batched(it, n)` chunks lazily; `strict=True` (3.13) rejects a short last batch"
+   ],
+   "pitfalls": [
+    "Expecting batched to pad the last chunk; it simply yields a shorter tuple."
+   ],
+   "quiz": [
+    {
+     "q": "What does list(pairwise([1, 2, 3, 4])) return?",
+     "options": [
+      "[(1, 2), (2, 3), (3, 4)]",
+      "[(1, 2), (3, 4)]",
+      "[(1, 2, 3, 4)]",
+      "[(1,), (2,), (3,), (4,)]"
+     ],
+     "answer": 0,
+     "explain": "pairwise yields overlapping pairs of consecutive items."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/itertools.html#itertools.batched",
+   "requires": [
+    "py-itertools.islice"
+   ]
+  },
+  {
+   "id": "py-itertools.filtering",
+   "name": "takewhile, dropwhile, compress and starmap",
+   "module": "pipelines",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Use takewhile, dropwhile, filterfalse, compress, starmap and zip_longest to filter and transform streams declaratively.",
+   "why": "These cover the remaining loop shapes, so most stream logic can be expressed without manual state.",
+   "body": "Filtering by condition:\n\n- `takewhile(pred, it)` yields items while `pred` is true, then stops for good (it consumes the first failing item).\n- `dropwhile(pred, it)` skips items while `pred` is true, then yields everything after, without testing again.\n- `filterfalse(pred, it)` is the complement of the built-in `filter`.\n- `compress(data, selectors)` keeps items whose matching selector is truthy, handy with a precomputed mask.\n\nTransforming:\n\n- `starmap(func, it)` calls `func(*args)` for each tuple: `starmap(pow, [(2, 5), (3, 2)])` gives `32, 9`. It's `map` for pre-zipped arguments.\n- `zip_longest(a, b, fillvalue=None)` pairs items like `zip` but continues to the longest input, filling gaps.\n\nThese differ from comprehensions in two ways: they're lazy, and `takewhile` and `dropwhile` express \"until\" logic that a comprehension can't, since a comprehension always scans everything.\n\nA frequent gotcha: `takewhile` silently swallows the first element that fails the predicate. If you need that element, use a manual loop or the `before_and_after` recipe from the docs.\n\nAlso note the built-in `zip(..., strict=True)` (3.10+) raises if lengths differ, the opposite of `zip_longest`.",
+   "code": "from itertools import compress, dropwhile, filterfalse, starmap, takewhile, zip_longest\n\nreadings = [3, 5, 9, 12, 4, 2]\nprint(list(takewhile(lambda x: x < 10, readings)))   # [3, 5, 9]\nprint(list(dropwhile(lambda x: x < 10, readings)))   # [12, 4, 2]\nprint(list(filterfalse(lambda x: x % 2, readings)))  # [12, 4, 2]\n\nlog = [\"# header\", \"# more\", \"data1\", \"# note\", \"data2\"]\nprint(list(dropwhile(lambda l: l.startswith(\"#\"), log)))\n# ['data1', '# note', 'data2']\n\nprint(list(compress(\"abcdef\", [1, 0, 1, 0, 0, 1])))  # ['a', 'c', 'f']\nprint(list(starmap(pow, [(2, 5), (3, 2)])))          # [32, 9]\nprint(list(zip_longest(\"ab\", [1, 2, 3], fillvalue=\"-\")))\n# [('a', 1), ('b', 2), ('-', 3)]\n\nit = iter([1, 2, 30, 4])\nprint(list(takewhile(lambda x: x < 10, it)), list(it))   # [1, 2] [4]",
+   "code_lang": "python",
+   "takeaways": [
+    "`takewhile`/`dropwhile` express 'until' logic lazily",
+    "`compress` filters by a selector mask; `starmap` applies functions to argument tuples",
+    "`takewhile` consumes and discards the first failing item"
+   ],
+   "pitfalls": [
+    "Losing the first non-matching item from a shared iterator after `takewhile`."
+   ],
+   "quiz": [
+    {
+     "q": "What does list(dropwhile(lambda x: x < 3, [1, 4, 2, 5])) return?",
+     "options": [
+      "[4, 5]",
+      "[1, 2]",
+      "[4, 2, 5]",
+      "[2, 5]"
+     ],
+     "answer": 2,
+     "explain": "After the first item fails the predicate, dropwhile yields everything, including 2."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/itertools.html#itertools.takewhile",
+   "requires": [
+    "py-itertools.accumulate-batched",
+    "py-itertools.chain"
+   ]
+  },
+  {
+   "id": "py-itertools.tee",
+   "name": "tee and sharing one iterator",
+   "module": "pipelines",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Split one iterator into several independent ones with tee, and understand its memory cost and pitfalls.",
+   "why": "Sometimes a single pass must feed two consumers, such as computing pairs or peeking ahead.",
+   "body": "`tee(iterable, n=2)` returns `n` independent iterators over the same data. Internally it buffers items that one copy has produced but another hasn't consumed yet.\n\nRules that follow from that design:\n\n- **Don't use the original iterator** after teeing. Advancing it directly skips items for all copies without them knowing.\n- **Memory grows with the gap** between the fastest and slowest copy. If one copy is fully consumed before the other starts, tee stores everything, and a plain `list()` would be simpler and faster.\n- tee iterators are **not thread-safe**; don't consume copies from different threads without a lock.\n\nGood uses keep the copies close together: `pairwise` used to be implemented as `a, b = tee(it); next(b, None); zip(a, b)`. Another is lookahead: tee off a copy, peek at the next item, and keep the rest.\n\nWhen you need to iterate a dataset twice and it fits in memory, convert it to a list or tuple. When it doesn't fit, re-create the iterator from its source (re-open the file, re-run the query) rather than teeing.",
+   "code": "from itertools import islice, tee\n\ndef readings():\n    for x in [10, 12, 9, 15, 15, 11]:\n        yield x\n\na, b = tee(readings())\nnext(b)                                      # shift the second copy by one\nchanges = [y - x for x, y in zip(a, b)]\nprint(changes)                               # [2, -3, 6, 0, -4]\n\ndef peek(it):\n    it, look = tee(it)\n    return next(look, None), it\nfirst, rest = peek(iter(\"xyz\"))\nprint(first, list(rest))                     # x ['x', 'y', 'z']\n\nsrc = iter(range(5))\nc1, c2 = tee(src)\nnext(src)                                    # advancing the original...\nprint(list(c1), list(islice(c2, 2)))         # [1, 2, 3, 4] [1, 2]  -- 0 lost",
+   "code_lang": "python",
+   "takeaways": [
+    "`tee` makes n iterators that share a buffer of unconsumed items",
+    "Never advance the original after teeing",
+    "If one copy runs far ahead, just use a list or re-create the iterator"
+   ],
+   "pitfalls": [
+    "Teeing an iterator, consuming one copy completely, then the other, and holding the whole dataset in memory anyway."
+   ],
+   "quiz": [
+    {
+     "q": "When does tee use the most memory?",
+     "options": [
+      "When both copies are consumed in lockstep",
+      "When n=2",
+      "When one copy is fully consumed before the other starts",
+      "When the iterable is a list"
+     ],
+     "answer": 2,
+     "explain": "tee must buffer every item that one copy has read and the other hasn't."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/itertools.html#itertools.tee",
+   "requires": [
+    "py-itertools.chain",
+    "py-itertools.groupby"
+   ]
+  },
+  {
+   "id": "py-itertools.pipelines",
+   "name": "Lazy data pipelines",
+   "module": "pipelines",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Chain generators and itertools into streaming pipelines that process large files in constant memory.",
+   "why": "Log analysis, ETL and data cleaning over huge inputs stay fast and memory-light when each stage is lazy.",
+   "body": "A **pipeline** is a series of lazy stages, each taking an iterator and returning another. Data flows through one item at a time, so memory stays constant no matter how large the input:\n\n```python\nlines   = open(path)\nrecords = (parse(l) for l in lines if l.strip())\nerrors  = (r for r in records if r.level == \"ERROR\")\nfirst20 = islice(errors, 20)\n```\n\nNothing runs until the last stage is consumed. If you stop early (here, after 20 errors), the earlier stages stop too, so most of the file is never read.\n\nDesign tips:\n\n- Make each stage a small generator function or generator expression with one job: read, parse, filter, transform, batch.\n- Use itertools for structural steps: `chain.from_iterable` to merge sources, `islice` to limit, `groupby` for sorted runs, `batched` to write in chunks.\n- Keep side effects (writing output, network calls) at the end of the pipeline.\n- Close resources: wrap file opening in a generator using `with`, so the file closes when the generator finishes or is garbage-collected, or consume within a `with` block.\n\nLaziness makes errors appear late: a parse error surfaces when the record is reached, not when the pipeline is built. Include line numbers (via `enumerate`) in records to make errors traceable.",
+   "code": "from itertools import batched, chain, islice\n\nlogs = {\"a.log\": \"INFO start\\nERROR disk\\n\\nINFO ok\\n\",\n        \"b.log\": \"ERROR net\\nERROR disk\\nINFO bye\\n\"}\nfor name, text in logs.items():\n    open(name, \"w\").write(text)\n\ndef read_lines(path):\n    with open(path) as f:             # closed when the generator finishes\n        for n, line in enumerate(f, 1):\n            yield path, n, line.rstrip(\"\\n\")\n\nlines = chain.from_iterable(read_lines(p) for p in logs)\nrecords = ((p, n, *l.split(\" \", 1)) for p, n, l in lines if l)\nerrors = (r for r in records if r[2] == \"ERROR\")\nfor batch in batched(islice(errors, 3), 2):\n    print(batch)\n# (('a.log', 2, 'ERROR', 'disk'), ('b.log', 1, 'ERROR', 'net'))\n# (('b.log', 2, 'ERROR', 'disk'),)",
+   "code_lang": "python",
+   "takeaways": [
+    "Each pipeline stage is a lazy iterator; memory stays constant",
+    "Stopping the last stage early stops all earlier stages",
+    "Keep stages small and carry positions for traceable errors"
+   ],
+   "pitfalls": [
+    "Inserting a `list()` in the middle of a pipeline, which loads everything into memory and defeats laziness."
+   ],
+   "quiz": [
+    {
+     "q": "A pipeline reads a 50 GB log lazily and ends with islice(errors, 10). Roughly how much of the file is read?",
+     "options": [
+      "Only up to the line containing the 10th error",
+      "All 50 GB",
+      "Exactly 10 lines",
+      "None until list() is called on the file"
+     ],
+     "answer": 0,
+     "explain": "Lazy stages pull data only as the final consumer asks for items."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/itertools.html",
+   "requires": [
+    "py-itertools.filtering",
+    "py-itertools.accumulate-batched",
+    "python.generators-advanced"
+   ]
+  },
+  {
+   "id": "py-itertools.recipes",
+   "name": "itertools recipes and more-itertools",
+   "module": "pipelines",
+   "level": 4,
+   "minutes": 11,
+   "summary": "Learn the standard recipes from the docs (sliding_window, roundrobin, unique_everseen, partition) and how they compose the primitives.",
+   "why": "The recipes show expert-level composition, and the more-itertools package ships them ready to use.",
+   "body": "The itertools documentation ends with a section of **recipes**: short functions built from the primitives. Reading them is the fastest way to learn idiomatic, efficient iterator code. A few favourites:\n\n- **sliding_window(it, n)**: overlapping windows of size n, implemented with a `deque(maxlen=n)` that yields a tuple after each append.\n- **roundrobin(*iterables)**: take one item from each iterable in turn, dropping exhausted ones; uses `cycle` over bound `__next__` methods and `islice` to shrink the cycle.\n- **unique_everseen(it, key=None)**: remove duplicates while preserving order, remembering seen keys in a set.\n- **partition(pred, it)**: split into false and true items with `tee` and `filterfalse`/`filter`.\n- **consume(it, n=None)**: advance an iterator by n steps, or exhaust it, at C speed using `deque(it, maxlen=0)` or `next(islice(...))`.\n- **flatten**, **nth**, **all_equal**, **first_true**, **before_and_after**, **iter_index**...\n\nRecipes evolve with Python versions; 3.12 and 3.13 docs updated several to use `batched` and newer features.\n\nThe third-party **more-itertools** package implements all the recipes plus many more (`chunked`, `peekable`, `spy`, `windowed`, `bucket`), tested and documented. In application code, depending on it is usually better than copying recipes around.",
+   "code": "from collections import deque\nfrom itertools import cycle, filterfalse, islice, tee\n\ndef sliding_window(iterable, n):\n    it = iter(iterable)\n    window = deque(islice(it, n - 1), maxlen=n)\n    for x in it:\n        window.append(x)\n        yield tuple(window)\n\ndef roundrobin(*iterables):\n    iterators = map(iter, iterables)\n    for num_active in range(len(iterables), 0, -1):\n        iterators = cycle(islice(iterators, num_active))\n        yield from map(next, iterators)    # stops at the first exhausted one\ndef partition(pred, iterable):\n    t1, t2 = tee(iterable)\n    return filterfalse(pred, t1), filter(pred, t2)\n\nprint(list(sliding_window(\"abcd\", 3)))   # [('a', 'b', 'c'), ('b', 'c', 'd')]\nprint(list(roundrobin(\"ABC\", \"D\", \"EF\")))  # ['A', 'D', 'E', 'B', 'F', 'C']\nodd, even = partition(lambda x: x % 2 == 0, range(6))\nprint(list(odd), list(even))             # [1, 3, 5] [0, 2, 4]\nit = iter(range(10)); deque(islice(it, 4), maxlen=0)   # consume 4 items\nprint(next(it))                          # 4",
+   "code_lang": "python",
+   "takeaways": [
+    "The docs' recipes show idiomatic compositions of the primitives",
+    "`deque(it, maxlen=0)` consumes an iterator at C speed",
+    "Use the more-itertools package instead of copying recipes"
+   ],
+   "pitfalls": [
+    "Copying an old recipe from a blog that differs from the current docs' tested version."
+   ],
+   "quiz": [
+    {
+     "q": "Why does the consume recipe use deque(iterator, maxlen=0)?",
+     "options": [
+      "To store the consumed items",
+      "It makes the iterator reusable",
+      "deque sorts the items",
+      "It iterates in C and keeps nothing, so exhausting the iterator is fast and memory-free"
+     ],
+     "answer": 3,
+     "explain": "A zero-length deque discards every item while the loop runs in C."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/itertools.html#itertools-recipes",
+   "requires": [
+    "py-itertools.pipelines",
+    "py-itertools.tee"
+   ]
+  },
+  {
+   "id": "py-itertools.performance",
+   "name": "Iterator performance in practice",
+   "module": "pipelines",
+   "level": 4,
+   "minutes": 10,
+   "summary": "Know when itertools and map beat comprehensions, how to measure iterator pipelines, and which overheads dominate.",
+   "why": "Hot loops over millions of items benefit from pushing work into C-implemented iterators.",
+   "body": "itertools functions, `map`, `filter`, `zip`, `sum` and friends are implemented in C. When a pipeline uses **only** C-level callables, the whole loop runs without executing Python bytecode per item, which can be several times faster than a generator expression.\n\nConsequences:\n\n- `map(int, strings)` or `map(operator.mul, xs, ys)` is fast: both the loop and the function are in C. `map(lambda x: x * 2, xs)` loses most of the advantage, since the lambda runs as Python code; a comprehension is then just as fast and more readable.\n- The `operator` module (`itemgetter`, `attrgetter`, `mul`) provides C-level callables for common lambdas.\n- `sum(map(operator.mul, xs, ys))` computes a dot product without a Python-level loop; `math.sumprod` (3.12+) is faster still.\n- Consuming with `deque(it, maxlen=0)`, `sum`, `max` or `\"\".join` keeps the consumer in C too.\n\nLaziness itself has a cost: each stage adds a little per-item overhead. For small data, a list comprehension that materialises results is often fastest. For large data, laziness wins on memory and often on cache behaviour.\n\nMeasure with `timeit` on realistic sizes, and remember that for numeric arrays, NumPy's vectorised operations beat any iterator pipeline by an order of magnitude.\n\nNote: copying, deep-copying and pickling itertools objects was deprecated in 3.12 and removed in 3.14; don't rely on it.",
+   "code": "import math\nimport operator\nimport timeit\n\nxs = list(range(1, 200_001))\nys = list(range(200_000, 0, -1))\n\nt_genexp = timeit.timeit(lambda: sum(x * y for x, y in zip(xs, ys)), number=10)\nt_map_op = timeit.timeit(lambda: sum(map(operator.mul, xs, ys)), number=10)\nt_sumprod = timeit.timeit(lambda: math.sumprod(xs, ys), number=10)\nprint(t_map_op < t_genexp, t_sumprod < t_map_op)   # True True\n\nwords = [str(i) for i in range(100_000)]\nt_lambda = timeit.timeit(lambda: list(map(lambda s: int(s), words)), number=10)\nt_builtin = timeit.timeit(lambda: list(map(int, words)), number=10)\nprint(t_builtin < t_lambda)                         # True\nprint(sum(map(operator.mul, [1, 2, 3], [4, 5, 6])), math.sumprod([1, 2, 3], [4, 5, 6]))  # 32 32",
+   "code_lang": "python",
+   "takeaways": [
+    "Pipelines made only of C callables avoid per-item Python bytecode",
+    "`map` with a lambda is no faster than a comprehension; use `operator` functions",
+    "Measure; for numeric arrays, NumPy beats iterator pipelines"
+   ],
+   "pitfalls": [
+    "Rewriting comprehensions as `map(lambda ...)` expecting a speedup."
+   ],
+   "quiz": [
+    {
+     "q": "Which is typically fastest for a dot product of two large Python lists in 3.13?",
+     "options": [
+      "sum(x * y for x, y in zip(a, b))",
+      "math.sumprod(a, b)",
+      "sum(map(lambda x, y: x * y, a, b))",
+      "A for loop with +="
+     ],
+     "answer": 1,
+     "explain": "math.sumprod runs the whole computation in C (and with extended precision for floats)."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/itertools.html",
+   "requires": [
+    "py-itertools.pipelines",
+    "py-itertools.combinatorics"
+   ]
+  },
+  {
+   "id": "py-itertools.exhaustion-pitfalls",
+   "name": "Exhaustion, StopIteration and laziness traps",
+   "module": "basics",
+   "level": 4,
+   "minutes": 11,
+   "summary": "Diagnose the subtle bugs of iterator code: silent exhaustion, StopIteration inside generators, late binding and stale views.",
+   "why": "These bugs produce wrong results without errors, so experts learn to recognise them on sight.",
+   "body": "Iterator bugs rarely crash; they quietly produce less data.\n\n**Silent exhaustion.** A function that iterates its argument twice (`if any(...)` then `for x in ...`) works with lists and silently fails with iterators. Either document \"needs a reusable iterable\" (annotate as `Collection` or `Sequence`), or convert at the start with `items = list(items)`. Checking `iter(x) is x` detects one-shot iterators.\n\n**StopIteration inside generators.** Since PEP 479 (Python 3.7), a `StopIteration` escaping a generator body is converted to `RuntimeError`. A bare `next(it)` inside a generator on an empty iterator therefore crashes instead of ending the generator. Use `next(it, default)` or catch `StopIteration` and `return`.\n\n**Late binding.** Generator expressions evaluate their first iterable immediately but everything else lazily. Variables referenced in the body are looked up when items are produced, so changing them before consumption changes the results.\n\n**Stale views.** Lazy results built on mutable data reflect the data at consumption time. Mutating a list while an iterator walks it skips or repeats items; mutating a dict raises `RuntimeError`.\n\n**Partially consumed sources.** `zip` may pull one extra item from an earlier argument before noticing a later one is exhausted; that item is lost.",
+   "code": "def total_and_max(items):\n    return sum(items), max(items, default=None)\nprint(total_and_max([3, 1, 4]))           # (8, 4)\nprint(total_and_max(iter([3, 1, 4])))     # (8, None)  -- exhausted by sum\n\ndef firsts(iterables):\n    for it in iterables:\n        yield next(iter(it))              # StopIteration on an empty one\ntry:\n    list(firsts([[1], [], [3]]))\nexcept RuntimeError as e:\n    print(e)                              # generator raised StopIteration\n\nfactor = 2\ndoubled = (x * factor for x in [1, 2, 3])\nfactor = 10                               # changed before consumption\nprint(list(doubled))                      # [10, 20, 30]\n\na, b = iter([1, 2, 3]), iter([\"x\"])\nprint(list(zip(a, b)), list(a))           # [(1, 'x')] [3]  -- 2 was lost",
+   "code_lang": "python",
+   "takeaways": [
+    "Functions that iterate twice need re-iterable inputs; convert or document",
+    "StopIteration leaking from a generator becomes RuntimeError (PEP 479)",
+    "Lazy expressions read variables and data at consumption time"
+   ],
+   "pitfalls": [
+    "Calling bare `next()` inside a generator without a default."
+   ],
+   "quiz": [
+    {
+     "q": "Why did list(zip(a, b)) followed by list(a) lose an item in the example?",
+     "options": [
+      "zip sorts its inputs",
+      "zip pulled the next item from a before discovering b was exhausted",
+      "list(a) skips the first item",
+      "Iterators drop items randomly"
+     ],
+     "answer": 1,
+     "explain": "zip advances its arguments left to right, so a's item is consumed before b raises StopIteration."
+    }
+   ],
+   "docs": "https://peps.python.org/pep-0479/",
+   "requires": [
+    "py-itertools.lazy",
+    "python.generators-advanced"
+   ]
+  }
+ ]
+}

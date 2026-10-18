@@ -1,0 +1,846 @@
+{
+ "tool": {
+  "id": "redis",
+  "name": "Redis",
+  "category": "database",
+  "tagline": "In-memory data structure store for caching, queues, counters and real-time data",
+  "description": "Redis keeps data structures such as strings, hashes, lists, sets, sorted sets and streams in memory and serves them with sub-millisecond latency. It is the standard choice for caching, sessions, rate limiting, leaderboards, queues and pub/sub, and can persist to disk and replicate for availability.",
+  "icon": "R",
+  "color": "#D82C20",
+  "official_docs": "https://redis.io/docs/latest/",
+  "version": "8.2",
+  "aliases": [
+   "redis-cli",
+   "redis cache",
+   "valkey",
+   "key-value store"
+  ],
+  "requires": [
+   {
+    "tool": "database-design",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Getting started"
+  },
+  {
+   "id": "types",
+   "name": "Core data types"
+  },
+  {
+   "id": "patterns",
+   "name": "Application patterns"
+  },
+  {
+   "id": "messaging",
+   "name": "Messaging and streams"
+  },
+  {
+   "id": "atomicity",
+   "name": "Pipelines, transactions and scripts"
+  },
+  {
+   "id": "operations",
+   "name": "Persistence and memory"
+  },
+  {
+   "id": "scaling",
+   "name": "Replication, cluster and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "redis.what-is-redis",
+   "name": "What Redis is and redis-cli",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Redis is an in-memory key-value server whose values are data structures, driven by simple commands.",
+   "why": "Knowing Redis's model (in-memory, single-threaded commands, typed values) explains every design choice that follows.",
+   "body": "Redis is a server that stores **keys** mapped to **values**, all in RAM. Unlike a plain cache, the values are typed data structures: strings, hashes, lists, sets, sorted sets, streams, and more. You manipulate them with commands such as `SET`, `HSET`, `LPUSH` or `ZADD`, sent over TCP with a simple protocol (RESP).\n\nBecause everything lives in memory and commands are executed one at a time by a single main thread, operations take microseconds and every individual command is **atomic**: no other client's command runs halfway through yours. Redis can still persist data to disk and replicate it, but it is designed around the assumption that the dataset fits in memory.\n\n`redis-cli` is the command-line client. Run it with no arguments for an interactive prompt, or pass a command directly: `redis-cli SET greeting hello`. Useful basics:\n\n- `PING` replies `PONG`, `SELECT 1` switches among numbered logical databases (default 0),\n- `KEYS *` lists keys but blocks the server on big datasets; use `SCAN` instead,\n- `TYPE key` tells you the data type, `FLUSHDB` deletes everything in the current database.\n\nKey names are binary-safe strings; the convention is colon-separated namespaces like `user:42:profile`. Redis is commonly used beside a primary database, not instead of one.",
+   "code": "redis-cli PING                          # PONG\nredis-cli SET user:42:name \"Ana\"        # OK\nredis-cli GET user:42:name              # \"Ana\"\nredis-cli TYPE user:42:name             # string\nredis-cli EXISTS user:42:name user:7    # (integer) 1\nredis-cli DBSIZE                        # (integer) 1\nredis-cli GET missing                   # (nil)",
+   "code_lang": "bash",
+   "takeaways": [
+    "Keys map to typed data structures, all held in RAM",
+    "Each command is atomic; commands run one at a time",
+    "Use namespaced keys like user:42:profile",
+    "Avoid KEYS * in production; it blocks the server"
+   ],
+   "pitfalls": [
+    "Running KEYS * on a production instance with millions of keys and stalling every client."
+   ],
+   "quiz": [
+    {
+     "q": "Two clients run INCR counter at the same moment. Why is the final value always correct?",
+     "options": [
+      "Redis locks the key with a mutex",
+      "It isn't; one increment can be lost",
+      "Clients retry on conflict",
+      "Commands execute one at a time, so each INCR is atomic"
+     ],
+     "answer": 3,
+     "explain": "The main thread executes commands sequentially, so a single command never interleaves with another."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/develop/tools/cli/",
+   "requires": []
+  },
+  {
+   "id": "redis.strings",
+   "name": "Strings and counters",
+   "module": "types",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Store text, numbers or binary blobs in string keys with SET and GET, and count atomically with INCR.",
+   "why": "Strings are the most used type: cached values, flags, tokens and counters.",
+   "body": "A Redis **string** is a binary-safe value up to 512 MB: text, a serialized JSON document, an image, or a number. `SET key value` writes it, `GET key` reads it, and `MGET`/`MSET` handle several keys in one round trip.\n\n`SET` has options that make it far more than an assignment:\n\n- `EX 60` or `PX 60000` sets an expiry in seconds or milliseconds,\n- `NX` only sets if the key does not exist, `XX` only if it does,\n- `GET` returns the old value while setting the new one.\n\n`SET lock:report token NX EX 30` is the building block of simple locks and idempotency keys: exactly one client succeeds.\n\nIf a string holds an integer, `INCR`, `INCRBY`, `DECR` and `INCRBYFLOAT` change it atomically and return the new value; a missing key counts as 0. This makes counters (page views, rate limits, id generators) trivial and race-free. `APPEND`, `STRLEN`, `GETRANGE` and `SETRANGE` work on raw bytes.\n\nStoring objects as serialized JSON strings is fine when you always read and write the whole object. When you need to update individual fields, a hash (next lesson) or the JSON data type is a better fit.",
+   "code": "redis-cli SET page:home:views 0          # OK\nredis-cli INCR page:home:views           # (integer) 1\nredis-cli INCRBY page:home:views 10      # (integer) 11\nredis-cli SET session:abc '{\"user\":42}' EX 3600   # OK\nredis-cli TTL session:abc                # (integer) 3600\nredis-cli SET lock:job1 worker-a NX EX 30   # OK\nredis-cli SET lock:job1 worker-b NX EX 30   # (nil)  already held\nredis-cli MGET page:home:views lock:job1    # 1) \"11\"  2) \"worker-a\"\nredis-cli INCR session:abc\n# (error) ERR value is not an integer or out of range",
+   "code_lang": "bash",
+   "takeaways": [
+    "Strings hold any bytes up to 512 MB",
+    "SET supports EX/PX expiry and NX/XX conditions",
+    "INCR and friends are atomic counters; missing keys start at 0",
+    "MGET/MSET batch several keys in one round trip"
+   ],
+   "pitfalls": [
+    "Doing GET, adding 1 in the app and SET-ing back instead of INCR, which loses updates under concurrency."
+   ],
+   "quiz": [
+    {
+     "q": "What does SET k v NX return when k already exists?",
+     "options": [
+      "nil, leaving the value unchanged",
+      "OK, overwriting the value",
+      "An error",
+      "The old value"
+     ],
+     "answer": 0,
+     "explain": "NX only sets a missing key; otherwise the reply is nil and nothing changes."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/develop/data-types/strings/",
+   "requires": [
+    "redis.what-is-redis"
+   ]
+  },
+  {
+   "id": "redis.keys-expiry",
+   "name": "Keys, expiry and SCAN",
+   "module": "basics",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Manage keys with DEL, EXPIRE and TTL, understand how expiry works, and iterate the keyspace safely with SCAN.",
+   "why": "Expiring data correctly is what makes Redis a cache, and safe iteration keeps production responsive.",
+   "body": "Any key can have a **time to live**. `EXPIRE key 60` sets it in seconds (`PEXPIRE` for milliseconds, `EXPIREAT` for a Unix timestamp), `TTL key` reports the remaining seconds, and `PERSIST key` removes it. `TTL` returns -1 for a key without expiry and -2 for a missing key.\n\nExpiry details that bite:\n\n- overwriting a key with `SET` (without `KEEPTTL`) clears its TTL,\n- commands that modify a value in place, such as `INCR`, `LPUSH` or `HSET`, keep it,\n- expired keys are removed lazily when accessed and by a background sampler, so memory is reclaimed gradually, but an expired key is never returned.\n\nDeleting: `DEL key ...` frees immediately (blocking for huge values), `UNLINK` frees in a background thread, and `RENAME` moves a key.\n\nTo find keys, never use `KEYS pattern` in production: it walks the whole keyspace in one blocking call. `SCAN cursor MATCH pattern COUNT n` returns a small batch plus the next cursor; you keep calling until the cursor is 0. It may return a key more than once and only guarantees keys present for the whole scan, so make your processing idempotent. `HSCAN`, `SSCAN` and `ZSCAN` iterate inside big collections the same way.\n\nGood key design (`app:entity:id:field`) makes `SCAN MATCH` and debugging much easier.",
+   "code": "redis-cli SET otp:ana 123456 EX 300     # OK\nredis-cli TTL otp:ana                   # (integer) 300\nredis-cli SET otp:ana 654321            # OK  (plain SET clears the TTL)\nredis-cli TTL otp:ana                   # (integer) -1\nredis-cli EXPIRE otp:ana 120            # (integer) 1\nredis-cli TTL nothing-here              # (integer) -2\n\nredis-cli MSET user:1 a user:2 b order:1 c   # OK\nredis-cli SCAN 0 MATCH 'user:*' COUNT 100\n# 1) \"0\"            next cursor (0 = finished)\n# 2) 1) \"user:1\"\n#    2) \"user:2\"\nredis-cli --scan --pattern 'user:*'     # redis-cli loops over SCAN for you\nredis-cli UNLINK user:1 user:2          # (integer) 2",
+   "code_lang": "bash",
+   "takeaways": [
+    "EXPIRE/TTL manage time to live; -1 = no TTL, -2 = no key",
+    "A plain SET resets the TTL; in-place updates keep it",
+    "Use SCAN (or redis-cli --scan), never KEYS, on live servers",
+    "UNLINK frees big values without blocking"
+   ],
+   "pitfalls": [
+    "Refreshing a cached value with SET and forgetting to pass EX again, so it never expires."
+   ],
+   "quiz": [
+    {
+     "q": "A key has TTL 100. You run SET on it without options. What is its TTL now?",
+     "options": [
+      "Still about 100",
+      "0",
+      "-2: deleted",
+      "-1: no expiry"
+     ],
+     "answer": 3,
+     "explain": "SET replaces the value and discards the old TTL unless KEEPTTL is given."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/develop/using-commands/keyspace/",
+   "requires": [
+    "redis.strings"
+   ]
+  },
+  {
+   "id": "redis.hashes",
+   "name": "Hashes",
+   "module": "types",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Store objects as hashes of field-value pairs and read or update single fields with HSET, HGET and HINCRBY.",
+   "why": "Hashes are the natural way to keep records like users or sessions while updating fields independently.",
+   "body": "A **hash** is a map of field names to string values stored under one key, like a small row or object: `HSET user:42 name Ana plan pro logins 0`.\n\n- `HGET key field` and `HMGET key f1 f2` read fields, `HGETALL key` reads all of them,\n- `HSET` creates or updates one or more fields and returns how many were new,\n- `HINCRBY key field n` increments one numeric field atomically,\n- `HDEL`, `HEXISTS`, `HLEN`, `HKEYS`, `HVALS` do what they say, and `HSETNX` sets a field only if absent.\n\nCompared with a JSON string, a hash lets you change one field without reading and rewriting the whole object, and concurrent updates to different fields don't overwrite each other. Values are flat strings, though; nested structures need either several keys, a serialized field, or the JSON data type built into Redis 8.\n\nSmall hashes are stored in a compact **listpack** encoding, which makes many small hashes very memory efficient compared with many separate string keys.\n\nExpiry normally applies to the whole key. Since Redis 7.4 you can also expire individual fields with `HEXPIRE`, handy for per-field caches.\n\n`HGETALL` on a hash with hundreds of thousands of fields is a slow, blocking call; iterate big hashes with `HSCAN` or keep them bounded.",
+   "code": "redis-cli HSET user:42 name Ana plan pro logins 0   # (integer) 3\nredis-cli HGET user:42 plan                        # \"pro\"\nredis-cli HINCRBY user:42 logins 1                 # (integer) 1\nredis-cli HSET user:42 plan team                   # (integer) 0  (updated, not new)\nredis-cli HMGET user:42 name plan email\n# 1) \"Ana\"\n# 2) \"team\"\n# 3) (nil)\nredis-cli HGETALL user:42\n# 1) \"name\"  2) \"Ana\"  3) \"plan\"  4) \"team\"  5) \"logins\"  6) \"1\"\nredis-cli HDEL user:42 logins                      # (integer) 1\nredis-cli HLEN user:42                             # (integer) 2",
+   "code_lang": "bash",
+   "takeaways": [
+    "A hash is a flat field -> string map under one key",
+    "Update one field with HSET or HINCRBY without touching the others",
+    "Small hashes use a compact encoding and save memory",
+    "Expiry is per key; HEXPIRE (7.4+) expires single fields"
+   ],
+   "pitfalls": [
+    "Calling HGETALL on huge hashes in hot paths."
+   ],
+   "quiz": [
+    {
+     "q": "Why prefer a hash over a JSON string when two services update different fields of the same user concurrently?",
+     "options": [
+      "Hashes are encrypted",
+      "Each HSET touches only its field, so updates don't overwrite each other",
+      "JSON strings can't be stored in Redis",
+      "Hashes never expire"
+     ],
+     "answer": 1,
+     "explain": "Read-modify-write of a whole JSON string loses concurrent changes; per-field updates don't."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/develop/data-types/hashes/",
+   "requires": [
+    "redis.strings"
+   ]
+  },
+  {
+   "id": "redis.lists",
+   "name": "Lists and simple queues",
+   "module": "types",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Use lists as stacks, queues and capped logs with LPUSH, RPOP, LRANGE, LTRIM and blocking pops.",
+   "why": "Lists power job queues, recent-activity feeds and capped logs with O(1) pushes and pops at both ends.",
+   "body": "A **list** is an ordered sequence of strings, fast to change at both ends. `LPUSH`/`RPUSH` add to the left/right, `LPOP`/`RPOP` remove (optionally several with a count), `LLEN` gives the length and `LRANGE key 0 -1` reads a range by index (negative indexes count from the end).\n\nPick the ends to get the behaviour you want:\n\n- **queue (FIFO)**: `LPUSH` to add, `RPOP` to take,\n- **stack (LIFO)**: `LPUSH` and `LPOP`,\n- **capped list**: `LPUSH` then `LTRIM key 0 99` keeps the newest 100 items, perfect for \"recent activity\".\n\nWorkers shouldn't poll in a loop. `BRPOP queue 5` blocks until an item arrives or 5 seconds pass (0 = wait forever) and can watch several lists at once, giving priority by order.\n\nPopping removes the item, so a worker that crashes after `BRPOP` loses the job. `LMOVE source processing RIGHT LEFT` (and its blocking form `BLMOVE`) atomically moves the item to a processing list, so you can remove it after success and requeue stragglers. For real at-least-once delivery with acknowledgements and consumer groups, Redis streams are the better tool.\n\nAccess by index (`LINDEX`, `LSET`) and `LREM` are O(N), so lists are for ends and ranges near the ends, not random access.",
+   "code": "redis-cli RPUSH jobs email:1 email:2 email:3    # (integer) 3\nredis-cli LPOP jobs                             # \"email:1\"  (FIFO with RPUSH + LPOP)\nredis-cli LMOVE jobs jobs:processing LEFT RIGHT # \"email:2\"  safe hand-off\nredis-cli LRANGE jobs:processing 0 -1           # 1) \"email:2\"\nredis-cli LREM jobs:processing 1 email:2        # (integer) 1  done, remove it\n\n# capped feed of the 3 newest events\nfor e in a b c d e; do redis-cli LPUSH feed:42 \"$e\" > /dev/null; done\nredis-cli LTRIM feed:42 0 2                     # OK\nredis-cli LRANGE feed:42 0 -1                   # 1) \"e\"  2) \"d\"  3) \"c\"\n\nredis-cli BRPOP empty-queue 1                   # (nil) after waiting 1 second",
+   "code_lang": "bash",
+   "takeaways": [
+    "LPUSH/RPUSH and LPOP/RPOP are O(1) at either end",
+    "LPUSH + LTRIM keeps a capped list of the newest items",
+    "BRPOP/BLMOVE let workers block instead of polling",
+    "LMOVE to a processing list avoids losing jobs on crashes"
+   ],
+   "pitfalls": [
+    "Using LINDEX or LREM on long lists in hot paths: they are O(N)."
+   ],
+   "quiz": [
+    {
+     "q": "You LPUSH events and want only the newest 50. Which command keeps them?",
+     "options": [
+      "LSET key 50 nil",
+      "LTRIM key -50 -1",
+      "LREM key 50",
+      "LTRIM key 0 49"
+     ],
+     "answer": 3,
+     "explain": "LPUSH puts the newest at index 0, so keep indexes 0 to 49."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/develop/data-types/lists/",
+   "requires": [
+    "redis.strings"
+   ]
+  },
+  {
+   "id": "redis.sets",
+   "name": "Sets",
+   "module": "types",
+   "level": 1,
+   "minutes": 7,
+   "summary": "Store unique unordered members with SADD and test membership, intersect and union sets on the server.",
+   "why": "Sets answer 'have we seen this?', 'who is online?' and 'what do these groups share?' in one command.",
+   "body": "A **set** is an unordered collection of unique strings. `SADD key m1 m2` adds members and returns how many were new, so adding a duplicate is a no-op. `SISMEMBER key m` (or `SMISMEMBER` for several) tests membership in O(1), `SREM` removes, `SCARD` counts and `SMEMBERS` returns everything.\n\nServer-side set algebra is the standout feature:\n\n- `SINTER a b` members in both, `SUNION a b` in either, `SDIFF a b` in a but not b,\n- `SINTERSTORE dest a b` saves the result as a new set, and `SINTERCARD` just counts it.\n\nThat makes queries like \"tags shared by two articles\" or \"friends of Ana who are online\" one round trip with no data shipped to the app.\n\n`SRANDMEMBER key n` samples members without removing them; `SPOP` removes and returns random ones, handy for lotteries or distributing work.\n\nTypical uses: unique visitors per day (`SADD visitors:2026-10-17 user42`), tags, permissions, de-duplication of jobs, and online-user tracking.\n\n`SMEMBERS` and large `SINTER` calls are O(N); on sets with millions of members iterate with `SSCAN`. When you only need an approximate count of unique items, a HyperLogLog uses a few kilobytes instead of memory proportional to the members.",
+   "code": "redis-cli SADD online ana ben cy            # (integer) 3\nredis-cli SADD online ana                   # (integer) 0  already a member\nredis-cli SISMEMBER online ben              # (integer) 1\nredis-cli SADD friends:ana ben di cy        # (integer) 3\nredis-cli SINTER online friends:ana         # 1) \"ben\" 2) \"cy\"  (order not guaranteed)\nredis-cli SDIFF friends:ana online          # 1) \"di\"\nredis-cli SCARD online                      # (integer) 3\nredis-cli SREM online cy                    # (integer) 1",
+   "code_lang": "bash",
+   "takeaways": [
+    "Sets hold unique members; SADD ignores duplicates",
+    "SISMEMBER is O(1)",
+    "SINTER, SUNION, SDIFF compute on the server",
+    "Members are unordered; use a sorted set when order matters"
+   ],
+   "pitfalls": [
+    "Relying on SMEMBERS returning members in insertion order."
+   ],
+   "quiz": [
+    {
+     "q": "Which command returns the members of friends:ana who are also in online?",
+     "options": [
+      "SUNION friends:ana online",
+      "SINTER friends:ana online",
+      "SDIFF online friends:ana",
+      "SMEMBERS friends:ana online"
+     ],
+     "answer": 1,
+     "explain": "SINTER returns members present in all given sets."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/develop/data-types/sets/",
+   "requires": [
+    "redis.strings"
+   ]
+  },
+  {
+   "id": "redis.sorted-sets",
+   "name": "Sorted sets and leaderboards",
+   "module": "types",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Keep members ordered by a numeric score with ZADD and query by rank or score range for leaderboards and timelines.",
+   "why": "Sorted sets make leaderboards, priority queues and time-ordered indexes trivial and fast.",
+   "body": "A **sorted set** (zset) is a set where every unique member has a floating-point **score**, kept in score order (ties broken lexicographically by member). Updates and lookups are O(log N).\n\n- `ZADD key score member` adds or updates; `ZINCRBY key 10 ana` adds to a score,\n- `ZRANGE key 0 9 REV WITHSCORES` gives the top 10 (highest first),\n- `ZRANK`/`ZREVRANK` give a member's position, `ZSCORE` its score,\n- `ZRANGE key 100 200 BYSCORE` returns members with scores in a range; use `(` for exclusive bounds and `-inf`/`+inf` for open ends,\n- `ZREM`, `ZCARD`, `ZCOUNT key min max`, and `ZREMRANGEBYSCORE` to trim.\n\n`ZADD` flags refine updates: `NX` only adds new members, `XX` only updates existing ones, `GT`/`LT` only update when the new score is greater/less, perfect for \"best score\" tables.\n\nSince Redis 6.2, `ZRANGE` with `BYSCORE`, `BYLEX`, `REV` and `LIMIT` replaces the older `ZRANGEBYSCORE` and `ZREVRANGE` family.\n\nUsing timestamps as scores turns a zset into a time index: \"events in the last hour\" is `ZRANGE key (now-3600) +inf BYSCORE`, and trimming old entries is `ZREMRANGEBYSCORE key -inf cutoff`. `ZPOPMIN` and `BZPOPMIN` give a priority queue.",
+   "code": "redis-cli ZADD game:lb 120 ana 95 ben 150 cy     # (integer) 3\nredis-cli ZINCRBY game:lb 40 ben                 # \"135\"\nredis-cli ZRANGE game:lb 0 1 REV WITHSCORES\n# 1) \"cy\"  2) \"150\"  3) \"ben\"  4) \"135\"\nredis-cli ZREVRANK game:lb ana                   # (integer) 2   (0-based)\nredis-cli ZADD game:lb GT 100 cy                 # (integer) 0   lower score ignored\nredis-cli ZSCORE game:lb cy                      # \"150\"\nredis-cli ZRANGE game:lb 100 140 BYSCORE         # 1) \"ana\" 2) \"ben\"\nredis-cli ZCOUNT game:lb '(120' +inf             # (integer) 2",
+   "code_lang": "bash",
+   "takeaways": [
+    "Members are unique and ordered by score; operations are O(log N)",
+    "ZRANGE ... REV WITHSCORES for top-N; ZREVRANK for a member's rank",
+    "BYSCORE with ( for exclusive bounds and -inf/+inf",
+    "Timestamps as scores make a time-ordered index"
+   ],
+   "pitfalls": [
+    "Expecting ZRANK to be 1-based: ranks start at 0."
+   ],
+   "quiz": [
+    {
+     "q": "Which ZADD flag updates a player's score only if the new score is higher?",
+     "options": [
+      "NX",
+      "XX",
+      "CH",
+      "GT"
+     ],
+     "answer": 3,
+     "explain": "GT updates existing members only when the new score is greater (and still adds new members)."
+    },
+    {
+     "q": "Scores are timestamps. How do you fetch events from the last 60 seconds if now is 1000?",
+     "options": [
+      "ZRANK key 940",
+      "ZRANGE key 0 60",
+      "ZRANGE key 940 1000 BYSCORE",
+      "ZRANGE key -60 -1"
+     ],
+     "answer": 2,
+     "explain": "BYSCORE selects by score range, here 940 to 1000."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/develop/data-types/sorted-sets/",
+   "requires": [
+    "redis.sets"
+   ]
+  },
+  {
+   "id": "redis.caching-patterns",
+   "name": "Caching patterns",
+   "module": "patterns",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Apply cache-aside with TTLs, choose invalidation strategies and protect the database from stampedes.",
+   "why": "Caching is the number one use of Redis, and naive caching causes stale data and outage-inducing stampedes.",
+   "body": "The common pattern is **cache-aside** (lazy loading): the app reads from Redis; on a miss it loads from the database, writes the result to Redis with a TTL, and returns it. Writes go to the database and then **delete** (rather than update) the cache key, so the next read reloads fresh data. Deleting is safer than setting, because two concurrent writers updating the cache can leave it in the wrong order.\n\nDesign decisions:\n\n- **Keys** encode everything the value depends on: `cache:product:42:v3:hy`.\n- **TTL** bounds staleness even if an invalidation is missed. Add random jitter so thousands of keys don't expire in the same second.\n- **Serialization**: JSON for interoperability, or hashes for partial reads.\n- **Negative caching**: cache \"not found\" briefly to stop repeated misses hammering the database.\n\nA **cache stampede** happens when a hot key expires and hundreds of requests miss at once, all querying the database. Defences: a short lock with `SET lock:key token NX EX 5` so only one request recomputes while others wait or serve stale data; early probabilistic refresh before expiry; or keeping a stale copy with a longer TTL.\n\nConfigure `maxmemory` and an eviction policy (such as `allkeys-lru`) for pure caches, so Redis evicts old entries instead of refusing writes.\n\nOther patterns: **write-through** (write cache and database together) and **write-behind** (write cache, flush later), which trade simplicity for freshness or durability.",
+   "code": "import json, random\nimport redis\n\nr = redis.Redis(decode_responses=True)\n\ndef get_product(pid, db):\n    key = f\"cache:product:{pid}\"\n    if (hit := r.get(key)) is not None:\n        return json.loads(hit)\n    if not r.set(f\"lock:{key}\", \"1\", nx=True, ex=5):   # someone else is loading\n        return db.load_product(pid)                     # or wait / serve stale\n    try:\n        product = db.load_product(pid)\n        ttl = 300 + random.randint(0, 60)               # jitter\n        r.set(key, json.dumps(product), ex=ttl)\n        return product\n    finally:\n        r.delete(f\"lock:{key}\")\n\ndef update_product(pid, data, db):\n    db.save_product(pid, data)\n    r.delete(f\"cache:product:{pid}\")                    # invalidate, don't set",
+   "code_lang": "python",
+   "takeaways": [
+    "Cache-aside: read cache, on miss load the DB and SET with TTL",
+    "On writes, update the DB then delete the cache key",
+    "Add TTL jitter and a recompute lock to avoid stampedes",
+    "For pure caches, set maxmemory with an allkeys eviction policy"
+   ],
+   "pitfalls": [
+    "Caching without a TTL and relying only on invalidation: one missed delete serves stale data forever."
+   ],
+   "quiz": [
+    {
+     "q": "Why do most cache-aside implementations delete the cache key after a write instead of setting the new value?",
+     "options": [
+      "DEL is faster than SET",
+      "SET cannot store JSON",
+      "Concurrent writers setting the cache can leave an older value last; deleting forces a fresh reload",
+      "Deleted keys use less memory permanently"
+     ],
+     "answer": 2,
+     "explain": "Delete-on-write avoids ordering races between concurrent cache updates."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/develop/",
+   "requires": [
+    "redis.keys-expiry",
+    "redis.hashes"
+   ]
+  },
+  {
+   "id": "redis.rate-limiting",
+   "name": "Rate limiting with counters",
+   "module": "patterns",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Build fixed-window and sliding-window rate limiters with INCR, EXPIRE and sorted sets.",
+   "why": "APIs, logins and SMS sending all need limits, and Redis is the usual shared store for them.",
+   "body": "A **fixed-window** limiter counts requests per client per time window. The key includes the window number, e.g. `rl:ana:` plus `now // 60` for minutes. Each request runs `INCR key`; if the result is 1, it also sets `EXPIRE key 60`. If the count exceeds the limit, reject. Because `INCR` is atomic, concurrent requests are counted correctly across all app servers.\n\nSend `INCR` and `EXPIRE` together in a pipeline or transaction (or use a Lua script) so a crash between them can't leave a counter without a TTL. Setting the expiry on every request also works; it just slides the window slightly.\n\nFixed windows allow bursts at boundaries: a client could send the full limit at 12:00:59 and again at 12:01:00. A **sliding-window log** fixes this with a sorted set per client:\n\n- `ZREMRANGEBYSCORE key -inf now-window` drops old entries,\n- `ZADD key now unique-id` records this request,\n- `ZCARD key` counts requests in the window,\n- `EXPIRE key window` cleans up idle clients.\n\nThat costs memory per request, so for high limits use a **sliding-window counter** (weighting the previous fixed window) or a **token bucket** implemented in a Lua script.\n\nReturn `429 Too Many Requests` with a `Retry-After` header, and key limits by user or API key rather than IP alone where possible.",
+   "code": "import time\nimport redis\n\nr = redis.Redis()\n\ndef allow_fixed(user, limit=5, window=60):\n    key = f\"rl:{user}:{int(time.time()) // window}\"\n    with r.pipeline() as p:                 # MULTI/EXEC: both or neither\n        p.incr(key)\n        p.expire(key, window)\n        count, _ = p.execute()\n    return count <= limit\n\ndef allow_sliding(user, limit=5, window=60):\n    key, now = f\"rls:{user}\", time.time()\n    with r.pipeline() as p:\n        p.zremrangebyscore(key, \"-inf\", now - window)\n        p.zadd(key, {f\"{now}\": now})\n        p.zcard(key)\n        p.expire(key, window)\n        _, _, count, _ = p.execute()\n    return count <= limit\n\nprint([allow_fixed(\"ana\", limit=3) for _ in range(5)])\n# [True, True, True, False, False]",
+   "code_lang": "python",
+   "takeaways": [
+    "Fixed window: INCR a per-window key and EXPIRE it",
+    "Send INCR and EXPIRE together so no counter lives forever",
+    "Sliding-window logs use a sorted set of timestamps",
+    "Fixed windows allow boundary bursts; sliding windows don't"
+   ],
+   "pitfalls": [
+    "Calling EXPIRE only when INCR returns 1 in a separate request: if that request fails, the key never expires and the user is blocked forever."
+   ],
+   "quiz": [
+    {
+     "q": "A fixed-window limiter allows 100 requests per minute. What is the worst case a client can send within any 2 seconds?",
+     "options": [
+      "100",
+      "101",
+      "200",
+      "50"
+     ],
+     "answer": 2,
+     "explain": "100 at the end of one window and 100 at the start of the next."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/commands/incr/",
+   "requires": [
+    "redis.keys-expiry",
+    "redis.sorted-sets"
+   ]
+  },
+  {
+   "id": "redis.pipelining",
+   "name": "Pipelining and clients",
+   "module": "atomicity",
+   "level": 2,
+   "minutes": 9,
+   "summary": "Batch many commands per network round trip with pipelines and use client libraries with connection pools.",
+   "why": "Network round trips, not Redis itself, are usually the bottleneck; pipelining often gives a 10x speedup.",
+   "body": "Each command normally costs a full network **round trip**: send, wait, receive. At 0.5 ms per round trip, 10,000 sequential `SET`s take 5 seconds even though Redis executes each in microseconds.\n\n**Pipelining** sends many commands without waiting for each reply, then reads all replies at once. Every client library supports it: in redis-py `r.pipeline(transaction=False)`, in node-redis by firing commands concurrently or with `multi()`/`execAsPipeline`. Throughput jumps because the server processes a stream of commands and the network carries big packets instead of tiny ones.\n\nA pipeline is **not atomic** on its own: other clients' commands may interleave between yours. redis-py's `pipeline()` wraps commands in `MULTI`/`EXEC` by default; pass `transaction=False` when you only want batching. Keep batches to a few thousand commands so replies don't pile up in memory on both sides.\n\nMulti-key commands (`MGET`, `MSET`, `HSET` with many fields, variadic `SADD`) are another way to reduce round trips.\n\nClient hygiene:\n\n- reuse a **connection pool** (one client object per process),\n- set connect and socket timeouts,\n- use `decode_responses=True` in Python if you want `str` instead of `bytes`,\n- for bulk imports use `redis-cli --pipe` with a file of commands.",
+   "code": "import time\nimport redis\n\nr = redis.Redis()                    # one pooled client per process\n\nt = time.perf_counter()\nfor i in range(10_000):\n    r.set(f\"k:{i}\", i)               # 10,000 round trips\nprint(\"one by one\", round(time.perf_counter() - t, 2))   # e.g. 0.7 (local; far more over a network)\n\nt = time.perf_counter()\nwith r.pipeline(transaction=False) as p:\n    for i in range(10_000):\n        p.set(f\"k:{i}\", i)\n    p.execute()                      # few round trips\nprint(\"pipelined\", round(time.perf_counter() - t, 2))    # e.g. 0.1\n\nprint(r.mget(\"k:1\", \"k:2\"))          # [b'1', b'2']",
+   "code_lang": "python",
+   "takeaways": [
+    "Round trips dominate latency; pipelines batch them",
+    "Pipelines are not atomic unless wrapped in MULTI/EXEC",
+    "Prefer variadic commands like MGET, MSET, SADD with many members",
+    "Reuse one pooled client and set timeouts"
+   ],
+   "pitfalls": [
+    "Opening a new connection per request, paying TCP (and TLS) setup every time."
+   ],
+   "quiz": [
+    {
+     "q": "Does a plain (non-transactional) pipeline guarantee no other client's command runs between yours?",
+     "options": [
+      "Yes, pipelines lock the server",
+      "Only within one key",
+      "Only for writes",
+      "No, other clients' commands can interleave"
+     ],
+     "answer": 3,
+     "explain": "Pipelining is a network optimization; atomicity needs MULTI/EXEC or a script."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/develop/using-commands/pipelining/",
+   "requires": [
+    "redis.strings"
+   ]
+  },
+  {
+   "id": "redis.transactions",
+   "name": "MULTI/EXEC and WATCH",
+   "module": "atomicity",
+   "level": 2,
+   "minutes": 11,
+   "summary": "Group commands to run atomically with MULTI/EXEC and use WATCH for optimistic check-and-set.",
+   "why": "Some updates span several keys or depend on a read, and must not interleave with other clients.",
+   "body": "`MULTI` starts a transaction; subsequent commands are **queued** (the server replies `QUEUED`), and `EXEC` runs them all back to back with no other client's commands in between. `DISCARD` drops the queue.\n\nRedis transactions are different from SQL ones:\n\n- there is **no rollback**: if a command fails at runtime (say `INCR` on a non-number), the others still run,\n- syntax errors detected while queuing make `EXEC` abort the whole transaction,\n- you can't read a value and branch on it inside `MULTI`, because replies only arrive at `EXEC`.\n\nFor check-then-act logic use **optimistic locking** with `WATCH`. `WATCH key` before `MULTI`; read the values you need; queue the writes; call `EXEC`. If any watched key changed in the meantime, `EXEC` returns nil and nothing runs, so you retry. This is check-and-set (CAS).\n\nIn redis-py, `pipeline()` gives you `MULTI`/`EXEC`, and `r.transaction(func, *keys)` wraps the WATCH-retry loop.\n\nFor complex logic, or when contention makes WATCH retry often, a Lua script or function is usually simpler and faster: it runs atomically on the server and can read and write in one step.",
+   "code": "import redis\n\nr = redis.Redis(decode_responses=True)\nr.set(\"stock:pen\", 3)\n\ndef buy(pipe):                      # called inside WATCH stock:pen\n    stock = int(pipe.get(\"stock:pen\"))\n    if stock <= 0:\n        raise ValueError(\"sold out\")\n    pipe.multi()                    # start queuing\n    pipe.decr(\"stock:pen\")\n    pipe.rpush(\"orders\", \"pen\")\n\nfor _ in range(3):\n    r.transaction(buy, \"stock:pen\")  # retries automatically if stock:pen changes\nprint(r.get(\"stock:pen\"), r.llen(\"orders\"))   # 0 3\n\n# no rollback: the failing INCR doesn't undo the SET\nwith r.pipeline() as p:\n    p.set(\"a\", \"x\").incr(\"a\").set(\"b\", \"y\")\n    print(p.execute(raise_on_error=False))\n# [True, ResponseError (value is not an integer...), True]",
+   "code_lang": "python",
+   "takeaways": [
+    "MULTI queues, EXEC runs the queue atomically",
+    "No rollback: runtime errors don't undo other commands",
+    "WATCH + EXEC gives optimistic check-and-set; nil means retry",
+    "Use Lua when logic must read and decide atomically"
+   ],
+   "pitfalls": [
+    "Expecting a failed command inside EXEC to roll back the rest."
+   ],
+   "quiz": [
+    {
+     "q": "Inside MULTI, the second of three commands fails at runtime with WRONGTYPE. What happens?",
+     "options": [
+      "The first and third commands still take effect",
+      "All three are rolled back",
+      "EXEC returns nil",
+      "Redis retries the failed command"
+     ],
+     "answer": 0,
+     "explain": "Redis transactions have no rollback; only the failing command errors."
+    },
+    {
+     "q": "You WATCH balance, read it, then MULTI ... EXEC, but another client changed balance in between. What does EXEC do?",
+     "options": [
+      "Runs the queued commands anyway",
+      "Merges both changes",
+      "Waits for the other client",
+      "Returns nil and runs nothing"
+     ],
+     "answer": 3,
+     "explain": "A modified watched key aborts the transaction so you can retry."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/develop/interact/transactions/",
+   "requires": [
+    "redis.pipelining",
+    "redis.keys-expiry"
+   ]
+  },
+  {
+   "id": "redis.pubsub",
+   "name": "Pub/Sub messaging",
+   "module": "messaging",
+   "level": 2,
+   "minutes": 9,
+   "summary": "Broadcast messages to subscribers on channels and patterns with PUBLISH and SUBSCRIBE, knowing its fire-and-forget limits.",
+   "why": "Pub/Sub is the simplest way to push real-time events, such as chat or cache invalidations, to many processes.",
+   "body": "**Pub/Sub** decouples senders from receivers. Subscribers call `SUBSCRIBE news` (or `PSUBSCRIBE news.*` for glob patterns) and the connection enters a listening mode. Publishers call `PUBLISH news \"hello\"`, which returns how many subscribers received it.\n\nDelivery is **fire-and-forget**, at most once:\n\n- messages are not stored; a subscriber that is offline or reconnecting misses them,\n- there is no acknowledgement or replay,\n- a slow subscriber whose output buffer grows past the limit is disconnected.\n\nThat's fine for ephemeral signals: chat typing indicators, live dashboards, telling every app server to drop a local cache entry, or WebSocket fan-out across servers. When you need durability, replay or work distribution among consumers, use **streams**.\n\nA subscribed connection can only run subscription commands (in RESP2), so client libraries use a dedicated connection for it. Channel names are global across logical databases.\n\nIn a Redis Cluster, classic `PUBLISH` is broadcast to every node. **Sharded Pub/Sub** (`SSUBSCRIBE`/`SPUBLISH`, Redis 7.0+) maps a channel to a hash slot so messages stay on one shard, which scales much better.\n\nKeyspace notifications (`notify-keyspace-events`) use Pub/Sub to announce events like key expiry, but they inherit the same fire-and-forget delivery.",
+   "code": "import threading, time\nimport redis\n\nr = redis.Redis(decode_responses=True)\np = r.pubsub()\np.subscribe(\"news\")\np.psubscribe(\"alerts.*\")\n\ndef listen():\n    for msg in p.listen():\n        if msg[\"type\"] in (\"message\", \"pmessage\"):\n            print(msg[\"channel\"], msg[\"data\"])\n\nthreading.Thread(target=listen, daemon=True).start()\ntime.sleep(0.1)\nprint(r.publish(\"news\", \"hello\"))        # 1 subscriber received it\nr.publish(\"alerts.disk\", \"90% full\")     # matched by the pattern\nr.publish(\"nobody-listens\", \"lost\")      # returns 0, message is gone\ntime.sleep(0.1)\n# news hello\n# alerts.disk 90% full",
+   "code_lang": "python",
+   "takeaways": [
+    "SUBSCRIBE/PSUBSCRIBE receive, PUBLISH sends and returns receiver count",
+    "At-most-once: no storage, no replay, no acks",
+    "Use a dedicated connection for subscribing",
+    "In a cluster prefer sharded Pub/Sub (SPUBLISH/SSUBSCRIBE)"
+   ],
+   "pitfalls": [
+    "Using Pub/Sub as a job queue: jobs published while workers restart are lost."
+   ],
+   "quiz": [
+    {
+     "q": "A worker restarts for 3 seconds while messages are published on its channel. What happens to those messages?",
+     "options": [
+      "They are lost for that worker",
+      "They are queued until it reconnects",
+      "PUBLISH blocks until it returns",
+      "Redis writes them to a stream"
+     ],
+     "answer": 0,
+     "explain": "Pub/Sub keeps no history; disconnected subscribers miss messages."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/develop/interact/pubsub/",
+   "requires": [
+    "redis.what-is-redis"
+   ]
+  },
+  {
+   "id": "redis.probabilistic",
+   "name": "Bitmaps and HyperLogLog",
+   "module": "types",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Count and flag huge numbers of items in tiny memory with bitmaps (SETBIT, BITCOUNT) and HyperLogLog (PFADD, PFCOUNT).",
+   "why": "Daily active users, feature flags and unique counts over millions of ids are cheap with the right structure.",
+   "body": "**Bitmaps** aren't a separate type: they are string values addressed bit by bit. `SETBIT key offset 1` sets one bit, `GETBIT` reads it, `BITCOUNT` counts set bits, and `BITOP AND|OR|XOR|NOT dest k1 k2` combines bitmaps. With integer user ids as offsets, one bitmap per day records who was active: 10 million users take about 1.2 MB. \"Active on both days\" is a `BITOP AND` followed by `BITCOUNT`. `BITFIELD` packs small integers into a string.\n\nBitmaps waste space if ids are sparse or huge, because the string grows to the highest offset.\n\n**HyperLogLog** estimates the number of **distinct** items. `PFADD key item ...` adds, `PFCOUNT key` returns the estimate with a standard error of 0.81%, and `PFMERGE` combines several, for instance seven daily HLLs into a weekly unique count. Each HLL uses at most 12 KB no matter how many items you add. You can't list or remove members; it only counts.\n\nChoose by question:\n\n- exact membership and per-id flags with dense integer ids: bitmap,\n- approximate unique count of arbitrary strings: HyperLogLog,\n- exact unique count where memory is fine: set.\n\nRedis 8 also ships Bloom and Cuckoo filters, Count-min sketch and Top-K for other approximate questions.",
+   "code": "redis-cli SETBIT active:2026-10-16 42 1      # (integer) 0  (previous bit value)\nredis-cli SETBIT active:2026-10-16 7 1       # (integer) 0\nredis-cli SETBIT active:2026-10-17 42 1      # (integer) 0\nredis-cli BITCOUNT active:2026-10-16         # (integer) 2\nredis-cli BITOP AND both active:2026-10-16 active:2026-10-17   # (integer) 6 (bytes)\nredis-cli BITCOUNT both                      # (integer) 1   user 42 on both days\nredis-cli GETBIT active:2026-10-17 7         # (integer) 0\n\nredis-cli PFADD visitors:mon ana ben cy      # (integer) 1\nredis-cli PFADD visitors:tue ben di          # (integer) 1\nredis-cli PFMERGE visitors:week visitors:mon visitors:tue   # OK\nredis-cli PFCOUNT visitors:week              # (integer) 4",
+   "code_lang": "bash",
+   "takeaways": [
+    "Bitmaps: one bit per integer id, combine with BITOP, count with BITCOUNT",
+    "HyperLogLog: ~0.81% error unique counts in at most 12 KB",
+    "PFMERGE turns daily HLLs into weekly or monthly counts",
+    "Sets for exact counts, HLL when approximate is fine"
+   ],
+   "pitfalls": [
+    "Using a bitmap with very large or sparse ids (like a 64-bit hash) and allocating a gigantic string."
+   ],
+   "quiz": [
+    {
+     "q": "You need the approximate number of distinct search queries per day, possibly hundreds of millions. Which structure?",
+     "options": [
+      "A set",
+      "A bitmap",
+      "A HyperLogLog",
+      "A list"
+     ],
+     "answer": 2,
+     "explain": "HyperLogLog counts distinct strings in fixed small memory with under 1% error."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/develop/data-types/probabilistic/hyperloglogs/",
+   "requires": [
+    "redis.sets",
+    "redis.strings"
+   ]
+  },
+  {
+   "id": "redis.streams",
+   "name": "Streams and consumer groups",
+   "module": "messaging",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Append events to a stream with XADD and process them reliably with consumer groups, acknowledgements and claiming.",
+   "why": "Streams give Redis durable, replayable, at-least-once messaging for event processing and work queues.",
+   "body": "A **stream** is an append-only log. `XADD orders * item pen qty 2` appends an entry whose ID (`*` = auto) is `<milliseconds>-<sequence>`, so entries are time-ordered. `XRANGE key - +` reads a range, `XREAD BLOCK 5000 STREAMS key $` waits for new entries, and `XLEN` counts them. Unlike Pub/Sub, entries stay until trimmed, so readers can replay history.\n\n**Consumer groups** distribute entries among workers:\n\n- `XGROUP CREATE orders billing $ MKSTREAM` creates a group starting at new entries (`0` to process history),\n- each worker calls `XREADGROUP GROUP billing worker-1 COUNT 10 BLOCK 5000 STREAMS orders >`; `>` means entries never delivered to this group, and each entry goes to only one consumer in the group,\n- delivered entries sit in the group's **pending entries list** (PEL) until the worker calls `XACK`.\n\nIf a worker crashes, its entries stay pending. Other workers find them with `XPENDING` and take them over with `XAUTOCLAIM` after an idle timeout, giving **at-least-once** delivery. Make handlers idempotent, because an entry may be processed twice.\n\nSeveral groups can read the same stream independently, like separate subscriptions. Cap growth with `XADD key MAXLEN ~ 100000 * ...` or `XTRIM`; the `~` allows efficient approximate trimming. Never trim entries that are still pending if you need them.",
+   "code": "redis-cli XGROUP CREATE orders billing '$' MKSTREAM       # OK\nredis-cli XADD orders '*' item pen qty 2                  # \"1760700000000-0\"\nredis-cli XADD orders '*' item pad qty 1                  # \"1760700000001-0\"\n\nredis-cli XREADGROUP GROUP billing w1 COUNT 1 STREAMS orders '>'\n# 1) 1) \"orders\"\n#    2) 1) 1) \"1760700000000-0\"\n#          2) 1) \"item\" 2) \"pen\" 3) \"qty\" 4) \"2\"\nredis-cli XPENDING orders billing                         # 1 pending, owned by w1\nredis-cli XACK orders billing 1760700000000-0             # (integer) 1\n\n# w1 died holding an entry? another worker claims entries idle > 60 s\nredis-cli XAUTOCLAIM orders billing w2 60000 0-0 COUNT 10\nredis-cli XADD orders MAXLEN '~' 100000 '*' item ink qty 5   # append and trim",
+   "code_lang": "bash",
+   "takeaways": [
+    "XADD appends entries with time-based IDs; entries persist until trimmed",
+    "Consumer groups split entries among consumers; > reads new entries",
+    "Entries stay pending until XACK; XAUTOCLAIM recovers from crashed workers",
+    "Delivery is at-least-once: make handlers idempotent"
+   ],
+   "pitfalls": [
+    "Never calling XACK: the pending list grows forever and memory leaks.",
+    "Letting a stream grow unbounded without MAXLEN or XTRIM."
+   ],
+   "quiz": [
+    {
+     "q": "A consumer reads an entry with XREADGROUP ... > and crashes before XACK. What happens to the entry?",
+     "options": [
+      "It is lost",
+      "It is deleted from the stream",
+      "It is redelivered automatically to all consumers",
+      "It stays in the pending list and can be claimed by another consumer"
+     ],
+     "answer": 3,
+     "explain": "Unacknowledged entries remain pending and can be taken over with XCLAIM/XAUTOCLAIM."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/develop/data-types/streams/",
+   "requires": [
+    "redis.lists",
+    "redis.pubsub"
+   ]
+  },
+  {
+   "id": "redis.lua-scripting",
+   "name": "Lua scripts and functions",
+   "module": "atomicity",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Run logic atomically on the server with EVAL and Redis Functions, passing keys and arguments correctly.",
+   "why": "Scripts turn read-decide-write sequences into one atomic, single-round-trip operation.",
+   "body": "`EVAL script numkeys key... arg...` runs a **Lua** script on the server. Inside, `KEYS[1]` and `ARGV[1]` hold the inputs and `redis.call(\"GET\", KEYS[1])` runs commands (`redis.pcall` returns errors instead of raising). The whole script is **atomic**: no other command runs while it executes, so it can read, decide and write without races or WATCH retries.\n\nRules that matter:\n\n- pass every key the script touches in `KEYS`, never build key names inside; Redis Cluster uses them to route the script, and all keys must be in the same hash slot,\n- keep scripts short: a long-running script blocks the whole server (`busy-reply-threshold`, default 5 seconds, after which only `SCRIPT KILL` or `SHUTDOWN NOSAVE` are accepted),\n- scripts should be deterministic with respect to their inputs.\n\n`SCRIPT LOAD` returns a SHA1 and `EVALSHA sha ...` runs the cached script; clients handle the `NOSCRIPT` fallback for you.\n\n**Redis Functions** (7.0+) are the managed successor: `FUNCTION LOAD` registers a library of named functions that persist with the data and replicate, and `FCALL name numkeys ...` calls one. Prefer functions for logic that is part of your application's API.\n\nA classic use is a safe lock release: delete the lock only if it still holds your token, which a plain `GET` then `DEL` from the client cannot do atomically.",
+   "code": "# release a lock only if we still own it (atomic compare-and-delete)\nredis-cli SET lock:report tok-123 NX EX 30            # OK\nredis-cli EVAL \"if redis.call('GET', KEYS[1]) == ARGV[1] then\n  return redis.call('DEL', KEYS[1]) else return 0 end\" 1 lock:report tok-999\n# (integer) 0   wrong token, lock kept\nredis-cli EVAL \"if redis.call('GET', KEYS[1]) == ARGV[1] then\n  return redis.call('DEL', KEYS[1]) else return 0 end\" 1 lock:report tok-123\n# (integer) 1   released\n\n# the same as a named Redis Function\nredis-cli FUNCTION LOAD \"#!lua name=locks\nredis.register_function('unlock', function(keys, args)\n  if redis.call('GET', keys[1]) == args[1] then return redis.call('DEL', keys[1]) end\n  return 0 end)\"                                       # \"locks\"\nredis-cli FCALL unlock 1 lock:report tok-123          # (integer) 0  already gone",
+   "code_lang": "bash",
+   "takeaways": [
+    "Scripts run atomically on the server: read, decide, write in one step",
+    "Pass all keys via KEYS so clusters can route them",
+    "Long scripts block everyone; keep them fast",
+    "Functions (7.0+) are named, persisted, replicated scripts called with FCALL"
+   ],
+   "pitfalls": [
+    "Building key names inside a script from ARGV: breaks cluster routing and hides keys from Redis."
+   ],
+   "quiz": [
+    {
+     "q": "Why can't a client safely release a lock with GET followed by DEL when the value matches?",
+     "options": [
+      "The lock may expire and be taken by another client between the GET and the DEL",
+      "DEL can't delete string keys",
+      "GET is not allowed on lock keys",
+      "It can; this is safe"
+     ],
+     "answer": 0,
+     "explain": "The two commands aren't atomic, so another owner's lock could be deleted; a script does both atomically."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/develop/interact/programmability/",
+   "requires": [
+    "redis.transactions"
+   ]
+  },
+  {
+   "id": "redis.persistence",
+   "name": "Persistence: RDB and AOF",
+   "module": "operations",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Choose between RDB snapshots and the append-only file, and understand what data you can lose on a crash.",
+   "why": "Whether Redis is a cache or a source of truth depends entirely on how it persists data.",
+   "body": "Redis offers two persistence mechanisms, usable together.\n\n**RDB snapshots** write a compact point-in-time dump (`dump.rdb`) at intervals, configured with `save <seconds> <changes>` rules or triggered by `BGSAVE`. Redis forks; the child writes the snapshot while the parent keeps serving, thanks to copy-on-write memory. RDB files are great for backups and fast restarts, but a crash loses everything since the last snapshot, possibly minutes of writes.\n\n**AOF (append-only file)** logs every write command. `appendfsync` controls durability:\n\n- `always`: fsync after every write, safest and slowest,\n- `everysec` (recommended default): fsync once per second, losing at most about a second of writes,\n- `no`: let the OS decide.\n\nThe AOF grows, so Redis periodically **rewrites** it in the background into the minimal command set. Since 7.0 AOF is a multi-part set (a base file plus incremental files and a manifest in `appenddirname`).\n\nTypical setups: a pure cache can disable persistence entirely; a store of record uses AOF `everysec`, often with RDB as well for backups. On restart with AOF enabled, Redis loads the AOF because it is more complete.\n\nWatch out for the fork: with a large dataset and heavy writes, copy-on-write can temporarily double memory use, so leave headroom and avoid swap.",
+   "code": "# redis.conf (or CONFIG SET at runtime)\nsave 3600 1 300 100 60 10000     # RDB: snapshot if 1 change/1h, 100/5min, 10000/1min\nappendonly yes                   # enable AOF\nappendfsync everysec             # lose at most ~1 s of writes\nappenddirname \"appendonlydir\"\nauto-aof-rewrite-percentage 100  # rewrite when AOF doubles\nauto-aof-rewrite-min-size 64mb\n\n# operations from the shell\nredis-cli BGSAVE                 # Background saving started\nredis-cli LASTSAVE               # (integer) 1760700000  unix time of last save\nredis-cli INFO persistence | grep -E 'rdb_last_bgsave_status|aof_enabled'\n# rdb_last_bgsave_status:ok\n# aof_enabled:1",
+   "code_lang": "bash",
+   "takeaways": [
+    "RDB: periodic forked snapshots, compact, may lose minutes",
+    "AOF: logs writes; everysec loses at most about one second",
+    "Both can be enabled; AOF is used for recovery when present",
+    "Forking can briefly double memory under heavy writes"
+   ],
+   "pitfalls": [
+    "Treating Redis with default snapshot-only settings as a durable primary database."
+   ],
+   "quiz": [
+    {
+     "q": "With appendonly yes and appendfsync everysec, how much acknowledged data can a power loss destroy?",
+     "options": [
+      "None",
+      "About one second of writes",
+      "Everything since the last RDB snapshot",
+      "The whole dataset"
+     ],
+     "answer": 1,
+     "explain": "The AOF is fsynced once per second, so roughly the last second may be lost."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/",
+   "requires": [
+    "redis.keys-expiry",
+    "redis.strings"
+   ]
+  },
+  {
+   "id": "redis.eviction-memory",
+   "name": "Memory limits and eviction",
+   "module": "operations",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Cap memory with maxmemory, pick an eviction policy, and find what is using memory.",
+   "why": "An in-memory store that runs out of RAM either evicts data or fails writes; you must choose which.",
+   "body": "`maxmemory` sets the memory limit (for example `4gb`). When it is reached, `maxmemory-policy` decides what happens on a write:\n\n- `noeviction` (default): writes that need memory fail with an OOM error, reads still work; right for data you can't lose,\n- `allkeys-lru` / `allkeys-lfu`: evict the least recently / least frequently used keys anywhere; right for caches,\n- `volatile-lru`, `volatile-lfu`, `volatile-ttl`, `volatile-random`: only evict keys that have an expiry, so you can mix permanent and cache keys,\n- `allkeys-random`.\n\nLRU and LFU are **approximated** by sampling (`maxmemory-samples`, default 5) rather than tracking exact order, which is cheap and close enough. LFU suits workloads where a few keys are always hot.\n\nLeave headroom below physical RAM for fragmentation, client buffers, replication buffers and forks.\n\nFinding memory hogs:\n\n- `INFO memory` shows `used_memory`, `used_memory_rss` and `mem_fragmentation_ratio`,\n- `MEMORY USAGE key` reports bytes for one key, `MEMORY DOCTOR` gives advice,\n- `redis-cli --bigkeys` and `--memkeys` sample the keyspace for the largest keys.\n\nKeep values small, prefer hashes for many small fields, set TTLs on cache keys, and avoid big keys (huge lists, sets, hashes) which also cause latency spikes when deleted or migrated.",
+   "code": "redis-cli CONFIG SET maxmemory 100mb                # OK\nredis-cli CONFIG SET maxmemory-policy allkeys-lfu   # OK\nredis-cli CONFIG GET maxmemory-policy\n# 1) \"maxmemory-policy\"  2) \"allkeys-lfu\"\n\nredis-cli SET big \"$(head -c 100000 /dev/zero | tr '\\0' x)\"   # OK\nredis-cli MEMORY USAGE big                          # (integer) 114736  (bytes incl. allocator overhead)\nredis-cli INFO memory | grep -E '^(used_memory_human|maxmemory_human|mem_fragmentation_ratio)'\n# used_memory_human:2.42M        (varies)\n# maxmemory_human:100.00M\n# mem_fragmentation_ratio:1.20    (varies)\nredis-cli --bigkeys                                 # scans and reports the biggest keys",
+   "code_lang": "bash",
+   "takeaways": [
+    "maxmemory + maxmemory-policy decide what happens when RAM is full",
+    "noeviction (default) fails writes; allkeys-lru/lfu suits caches",
+    "volatile-* policies evict only keys with a TTL",
+    "Use INFO memory, MEMORY USAGE and --bigkeys to find hogs"
+   ],
+   "pitfalls": [
+    "Running a cache with the default noeviction policy and getting OOM errors on writes once it fills."
+   ],
+   "quiz": [
+    {
+     "q": "Redis holds both permanent configuration keys (no TTL) and cache keys (with TTL). Which policy evicts only cache keys?",
+     "options": [
+      "volatile-lru",
+      "noeviction",
+      "allkeys-lru",
+      "allkeys-random"
+     ],
+     "answer": 0,
+     "explain": "volatile-* policies only consider keys that have an expiry set."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/develop/reference/eviction/",
+   "requires": [
+    "redis.caching-patterns"
+   ]
+  },
+  {
+   "id": "redis.replication-sentinel",
+   "name": "Replication and Sentinel",
+   "module": "scaling",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Replicate a primary to replicas asynchronously and use Sentinel for automatic failover, knowing what can be lost.",
+   "why": "High availability for Redis means understanding asynchronous replication and its failure modes.",
+   "body": "A **replica** connects to a primary with `REPLICAOF host port`. It first performs a full sync (the primary forks to produce an RDB, then streams buffered writes), then receives the live command stream. After a short disconnect it resumes with a **partial resync** from the primary's replication backlog (`repl-backlog-size`); if the gap is larger, it needs a new full sync.\n\nReplication is **asynchronous**: the primary acknowledges writes before replicas have them. If the primary dies, the last writes may be lost when a replica is promoted. `WAIT numreplicas timeout` blocks until that many replicas acknowledged previous writes, reducing (not eliminating) the window. `min-replicas-to-write` makes a primary refuse writes when too few replicas are connected, limiting damage in a network partition.\n\nReplicas are read-only by default and can serve reads, with possible staleness.\n\n**Redis Sentinel** provides automatic failover for non-cluster setups. Run at least three Sentinel processes on separate machines. They monitor the primary; when a **quorum** agrees it is down, one Sentinel is elected leader, promotes the best replica, reconfigures the others, and publishes the new address. Clients ask Sentinel for the current primary (`SENTINEL get-master-addr-by-name mymaster`) instead of hard-coding it.\n\nSplit brain is the classic hazard: an isolated old primary keeps accepting writes that are discarded when it rejoins as a replica.",
+   "code": "# on the replica\nredis-cli -p 6380 REPLICAOF 127.0.0.1 6379          # OK\nredis-cli -p 6380 INFO replication | grep -E 'role|master_link_status'\n# role:slave\n# master_link_status:up\n\n# on the primary: wait until 1 replica has the previous writes (max 100 ms)\nredis-cli SET balance:ana 100                        # OK\nredis-cli WAIT 1 100                                 # (integer) 1\n\n# sentinel.conf (one of three Sentinels)\n# sentinel monitor mymaster 10.0.0.1 6379 2          # quorum 2\n# sentinel down-after-milliseconds mymaster 5000\n# sentinel failover-timeout mymaster 60000\nredis-cli -p 26379 SENTINEL get-master-addr-by-name mymaster\n# 1) \"10.0.0.1\"  2) \"6379\"",
+   "code_lang": "bash",
+   "takeaways": [
+    "Replicas do a full sync, then follow the command stream; backlog enables partial resync",
+    "Replication is asynchronous: acknowledged writes can be lost on failover",
+    "WAIT and min-replicas-to-write narrow the loss window",
+    "Sentinel (3+ instances) detects failure by quorum and promotes a replica"
+   ],
+   "pitfalls": [
+    "Running a single Sentinel, which is itself a single point of failure and can't form a quorum."
+   ],
+   "quiz": [
+    {
+     "q": "A client gets OK for a write, then the primary crashes before replicating it and a replica is promoted. What happens to the write?",
+     "options": [
+      "It is lost",
+      "It is replayed from the client's buffer",
+      "Sentinel copies it from the dead primary",
+      "The promotion waits for it"
+     ],
+     "answer": 0,
+     "explain": "Asynchronous replication means acknowledged but unreplicated writes can be lost."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/operate/oss_and_stack/management/replication/",
+   "requires": [
+    "redis.persistence"
+   ]
+  },
+  {
+   "id": "redis.cluster",
+   "name": "Redis Cluster and hash slots",
+   "module": "scaling",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Shard data across nodes with 16384 hash slots, use hash tags for multi-key operations and handle redirections.",
+   "why": "When one server's memory or CPU isn't enough, Redis Cluster scales out, but it changes how you design keys.",
+   "body": "**Redis Cluster** splits the keyspace into **16384 hash slots**. A key's slot is `CRC16(key) mod 16384`, and each primary node owns a subset of slots, with replicas for failover. There is no proxy: clients are cluster-aware, cache the slot map, and send each command straight to the right node.\n\nIf a client asks the wrong node, it gets `-MOVED slot host:port` (update your map) or, during slot migration, `-ASK` (retry once on the other node). Good client libraries handle both.\n\nMulti-key commands (`MGET`, `SINTER`, transactions, Lua scripts) only work when all keys hash to the **same slot**; otherwise you get `CROSSSLOT`. **Hash tags** solve this: only the part inside the first `{...}` is hashed, so `{user:42}:profile` and `{user:42}:cart` share a slot. Use tags around the entity that operations group by, not a constant, or one slot becomes a hot spot.\n\nOther differences from a single instance:\n\n- only database 0 exists,\n- failover is built in: replicas of a failed primary are promoted by majority vote of primaries,\n- resharding moves slots between nodes online (`redis-cli --cluster reshard`),\n- `cluster-require-full-coverage` decides whether the cluster stops when some slots have no live node.\n\nLike Sentinel setups, cluster replication is asynchronous, so the same write-loss window applies.",
+   "code": "redis-cli --cluster create 10.0.0.1:6379 10.0.0.2:6379 10.0.0.3:6379 \\\n  10.0.0.4:6379 10.0.0.5:6379 10.0.0.6:6379 --cluster-replicas 1\n\nredis-cli -c -h 10.0.0.1 CLUSTER KEYSLOT user:42          # (integer) 6929 (example)\nredis-cli -c -h 10.0.0.1 CLUSTER KEYSLOT '{user:42}:cart'  # same slot as {user:42}:profile\nredis-cli -c -h 10.0.0.1 MSET a 1 b 2\n# (error) CROSSSLOT Keys in request don't hash to the same slot\nredis-cli -c -h 10.0.0.1 MSET '{user:42}:a' 1 '{user:42}:b' 2   # OK\nredis-cli -h 10.0.0.1 GET some-key-on-another-node\n# (error) MOVED 12182 10.0.0.3:6379   (-c makes redis-cli follow it)\nredis-cli -h 10.0.0.1 CLUSTER SHARDS        # slot ranges, primaries and replicas",
+   "code_lang": "bash",
+   "takeaways": [
+    "16384 slots; slot = CRC16(key) mod 16384; nodes own slot ranges",
+    "Clients follow MOVED/ASK redirections and cache the slot map",
+    "Multi-key operations need one slot: use {hash tags}",
+    "Only database 0; replication remains asynchronous"
+   ],
+   "pitfalls": [
+    "Using one constant hash tag like {app} for every key: all data lands in one slot on one node."
+   ],
+   "quiz": [
+    {
+     "q": "Which pair of keys can be used together in one MGET on a Redis Cluster?",
+     "options": [
+      "user:1:name and user:1:email",
+      "user:{1}:name and user:{2}:email",
+      "{user:1}:name and {user:1}:email",
+      "Any two keys"
+     ],
+     "answer": 2,
+     "explain": "With identical hash tags both keys hash to the same slot."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/operate/oss_and_stack/management/scaling/",
+   "requires": [
+    "redis.replication-sentinel",
+    "redis.lua-scripting"
+   ]
+  },
+  {
+   "id": "redis.internals",
+   "name": "Event loop, encodings and latency",
+   "module": "scaling",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Understand the single-threaded event loop, I/O threads, compact encodings and the causes of latency spikes.",
+   "why": "Diagnosing slow Redis means knowing what blocks the main thread and how data is laid out in memory.",
+   "body": "Redis executes commands on one **main thread** driven by an event loop (epoll/kqueue). That's why commands are atomic and why throughput is high without locks, but also why one slow command delays every client. Since Redis 6, optional **I/O threads** (`io-threads`) parse requests and write replies in parallel, and Redis 8 improved this substantially, but command execution itself stays serial. Background threads handle `UNLINK`/lazy freeing, AOF fsync and closing files.\n\nCommon causes of latency:\n\n- O(N) commands on big keys: `KEYS`, `HGETALL`/`SMEMBERS`/`LRANGE 0 -1` on huge collections, `DEL` of a big key (use `UNLINK` and lazyfree options),\n- slow Lua scripts,\n- fork for RDB/AOF rewrite on large instances, plus transparent huge pages making copy-on-write expensive (disable THP),\n- swapping, and `appendfsync always` on slow disks.\n\nTools: `SLOWLOG GET` lists commands slower than `slowlog-log-slower-than` (microseconds), `LATENCY DOCTOR` and `--latency` measure, `INFO commandstats` shows per-command totals.\n\n**Encodings**: small collections use compact sequential layouts. Hashes, zsets and lists use **listpack** while small, sets of integers use **intset**, and they convert to hash tables, skiplists or quicklists when they exceed thresholds like `hash-max-listpack-entries` (128) or a value exceeds `hash-max-listpack-value` (64 bytes). `OBJECT ENCODING key` shows the current one. Keeping collections under thresholds can cut memory several-fold.",
+   "code": "redis-cli HSET small f1 v1                  # (integer) 1\nredis-cli OBJECT ENCODING small             # \"listpack\"\nredis-cli SADD ids 1 2 3                    # (integer) 3\nredis-cli OBJECT ENCODING ids               # \"intset\"\nredis-cli HSET small f2 \"$(printf 'x%.0s' $(seq 1 100))\"   # value > 64 bytes\nredis-cli OBJECT ENCODING small             # \"hashtable\"\nredis-cli ZADD z 1 a                        # (integer) 1\nredis-cli OBJECT ENCODING z                 # \"listpack\" (skiplist when large)\n\nredis-cli CONFIG SET slowlog-log-slower-than 10000   # log commands > 10 ms\nredis-cli SLOWLOG GET 5                     # id, timestamp, microseconds, command\nredis-cli INFO commandstats | head -3       # cmdstat_hset:calls=...,usec_per_call=...",
+   "code_lang": "bash",
+   "takeaways": [
+    "One main thread executes all commands; I/O threads only help with networking",
+    "Big keys, O(N) commands, slow scripts and forks cause latency spikes",
+    "SLOWLOG, LATENCY DOCTOR and commandstats locate them",
+    "Small collections use listpack/intset encodings that save lots of memory"
+   ],
+   "pitfalls": [
+    "Adding io-threads to fix a CPU-bound slow command: execution is still single-threaded."
+   ],
+   "quiz": [
+    {
+     "q": "A single DEL on a 50-million-member set freezes Redis for seconds. What is the better command?",
+     "options": [
+      "EXPIRE key 0",
+      "SREM key *",
+      "FLUSHALL ASYNC",
+      "UNLINK key"
+     ],
+     "answer": 3,
+     "explain": "UNLINK removes the key immediately and frees memory in a background thread."
+    }
+   ],
+   "docs": "https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/latency/",
+   "requires": [
+    "redis.eviction-memory",
+    "redis.lua-scripting"
+   ]
+  }
+ ]
+}

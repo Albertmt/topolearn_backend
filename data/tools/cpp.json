@@ -1,0 +1,2106 @@
+{
+ "tool": {
+  "id": "cpp",
+  "name": "C++",
+  "category": "language",
+  "tagline": "Fast, zero-overhead systems language for performance-critical software",
+  "description": "C++ is a compiled, statically typed language that combines low-level control over memory and hardware with high-level abstractions such as classes, templates and the standard library. It powers game engines, browsers, databases, trading systems, embedded devices and machine-learning runtimes. Learning modern C++ (C++20, with C++23 notes) teaches you how software really runs and lets you write code that is both expressive and as fast as the machine allows.",
+  "icon": "C++",
+  "color": "#00599C",
+  "official_docs": "https://en.cppreference.com/w/cpp",
+  "version": "C++20",
+  "aliases": [
+   "c++",
+   "cplusplus",
+   "cxx"
+  ],
+  "requires": []
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "First steps"
+  },
+  {
+   "id": "data",
+   "name": "Core data types"
+  },
+  {
+   "id": "classes",
+   "name": "Classes and object lifetime"
+  },
+  {
+   "id": "memory",
+   "name": "Memory and performance"
+  },
+  {
+   "id": "stl",
+   "name": "Standard library"
+  },
+  {
+   "id": "errors",
+   "name": "Error handling"
+  },
+  {
+   "id": "build",
+   "name": "Building and linking"
+  },
+  {
+   "id": "generic",
+   "name": "Generic programming"
+  },
+  {
+   "id": "concurrency",
+   "name": "Concurrency and coroutines"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "cpp.compile-and-run",
+   "name": "Compiling and running",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Turn .cpp source files into an executable with a compiler and linker, and switch on the warnings and checks that catch bugs early.",
+   "why": "Every C++ program goes through this pipeline, and most confusing build errors make sense once you know its stages.",
+   "body": "C++ is compiled ahead of time. You write source files (`.cpp`), a **compiler** turns each one into machine code in an object file (`.o` / `.obj`), and a **linker** joins the object files and libraries into an executable. The three mainstream compilers are GCC (`g++`), Clang (`clang++`) and MSVC (`cl`).\n\nEach `.cpp` file is compiled on its own as a **translation unit**. First the preprocessor handles lines starting with `#`: `#include <iostream>` literally pastes the contents of that header into your file. Then the compiler checks and translates the code. Only at link time are calls into other files and libraries matched up with their definitions; an \"undefined reference\" error comes from the linker, not the compiler.\n\nAlways say which language standard you want with `-std=c++20` (or `-std=c++23`; on MSVC `/std:c++20`), because compilers default to older or extended dialects. Then turn on help from the compiler:\n\n- `-Wall -Wextra` enable the warnings that flag most real mistakes; treat warnings as bugs (`-Werror` in CI).\n- `-g` adds debug info for `gdb`/`lldb`; `-O2` optimises for release builds.\n- `-fsanitize=address,undefined` instruments the program to report out-of-bounds access, use-after-free and many kinds of undefined behaviour at run time. Use it in development and tests.\n\nCompiling only what changed is the job of a build system (CMake, covered later); for a single file, one command is enough. Online, Compiler Explorer (godbolt.org) shows what any compiler does with a snippet.",
+   "code": "# hello.cpp contains a main() function\ng++ -std=c++20 -Wall -Wextra -g hello.cpp -o hello\n./hello\n\n# development build with run-time bug detectors\nclang++ -std=c++20 -Wall -Wextra -g -fsanitize=address,undefined hello.cpp -o hello\n\n# optimised release build\ng++ -std=c++20 -O2 hello.cpp -o hello\n\n# several files: compile each to an object file, then link them\ng++ -std=c++20 -c main.cpp -o main.o\ng++ -std=c++20 -c util.cpp -o util.o\ng++ main.o util.o -o app\n\n# MSVC, from a Developer Command Prompt\ncl /std:c++20 /EHsc /W4 hello.cpp",
+   "code_lang": "bash",
+   "takeaways": [
+    "Source file -> preprocessor -> compiler -> object file -> linker -> executable",
+    "Always pass the standard explicitly: `-std=c++20`",
+    "Develop with `-Wall -Wextra -g -fsanitize=address,undefined`"
+   ],
+   "pitfalls": [
+    "Ignoring warnings: many real bugs (uninitialised variables, sign mismatches) show up as warnings first."
+   ],
+   "quiz": [
+    {
+     "q": "You change only util.cpp in a project of main.cpp and util.cpp. What is the minimum work to rebuild?",
+     "options": [
+      "Recompile util.cpp, then link the object files again",
+      "Recompile both files, then link",
+      "Only relink; the linker recompiles changed files",
+      "Recompile util.cpp; no link step is needed"
+     ],
+     "answer": 0,
+     "explain": "Each .cpp is compiled independently, so only util.o is stale, but the executable must be relinked to include it."
+    },
+    {
+     "q": "The build fails with \"undefined reference to `parse(int)'\". Which stage reported it?",
+     "options": [
+      "The linker",
+      "The compiler, while checking types",
+      "The preprocessor",
+      "The operating system loader"
+     ],
+     "answer": 0,
+     "explain": "The compiler accepted the declaration; the linker could not find any object file that defines parse(int)."
+    }
+   ],
+   "docs": "https://isocpp.org/get-started",
+   "requires": []
+  },
+  {
+   "id": "cpp.hello-world",
+   "name": "main, input and output",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Write a complete program: the main function, printing with std::cout and reading input with std::cin.",
+   "why": "Every program starts in main, and console I/O is how you try out everything else in this course.",
+   "body": "A C++ program starts in `main`. It returns an `int` to the operating system: `0` means success, anything else signals failure. `main` is the one function where you may leave out the `return`; reaching the closing brace returns `0`.\n\nStandard library names live in the namespace `std`, so you write `std::cout`, `std::string` and so on. You get them by including headers: `<iostream>` for console streams, `<string>` for strings.\n\n- `std::cout << x` writes to standard output. `<<` returns the stream, so calls chain: `std::cout << \"a\" << 1 << '\\n';`.\n- `std::cerr` is standard error, for diagnostics.\n- `std::cin >> x` reads one whitespace-separated value and converts it to the type of `x`. The expression is false if reading failed, so test it.\n- `std::getline(std::cin, s)` reads a whole line, spaces included.\n\nPrefer `'\\n'` over `std::endl`: `endl` also flushes the buffer, which is slow in loops. A classic gotcha is mixing `>>` and `getline`: after `std::cin >> n` the newline is still waiting in the input, so the next `getline` returns an empty line.\n\nC++20 added `std::format` (header `<format>`) for Python-style formatting, `std::format(\"{} is {}\", name, age)`, and C++23 adds `std::println` in `<print>`, which formats and prints in one call. Streams are still everywhere in existing code, so learn both.\n\nAvoid `using namespace std;` at file scope in real projects; it pulls hundreds of names into scope and causes clashes. Writing `std::` is the norm.",
+   "code": "#include <iostream>\n#include <string>\n\nint main() {\n    std::cout << \"What's your name? \";\n    std::string name;\n    std::getline(std::cin, name);           // whole line, spaces included\n    std::cout << \"Hello, \" << name << \"!\\n\";\n\n    int a = 0, b = 0;\n    std::cout << \"Two numbers: \";\n    if (std::cin >> a >> b) {               // false if the input wasn't numbers\n        std::cout << a << \" + \" << b << \" = \" << a + b << '\\n';\n    } else {\n        std::cerr << \"That was not a number\\n\";\n        return 1;                           // non-zero: failure\n    }\n}   // falling off the end of main returns 0",
+   "code_lang": "cpp",
+   "takeaways": [
+    "`main` returns `int`; 0 means success",
+    "`<<` writes, `>>` reads one token, `std::getline` reads a line",
+    "Use `'\\n'` instead of `std::endl` unless you really need a flush",
+    "C++20 `std::format` and C++23 `std::println` are the modern formatting tools"
+   ],
+   "pitfalls": [
+    "Calling `std::getline` right after `std::cin >> n` and getting an empty string because the newline was left in the input."
+   ],
+   "quiz": [
+    {
+     "q": "The user types `42 apples` and the program runs `std::cin >> n >> word;` with int n and std::string word. What ends up in word?",
+     "options": [
+      "\"42 apples\"",
+      "Nothing; reading fails",
+      "\" apples\"",
+      "\"apples\""
+     ],
+     "answer": 3,
+     "explain": ">> skips leading whitespace and reads one token, so n gets 42 and word gets apples."
+    },
+    {
+     "q": "Why is `'\\n'` usually preferred over `std::endl`?",
+     "options": [
+      "endl is deprecated in C++20",
+      "endl does not work on Windows",
+      "endl also flushes the stream, which is slow when done often",
+      "'\\n' is the only portable newline"
+     ],
+     "answer": 2,
+     "explain": "Both end the line, but std::endl forces a flush every time, which costs a system call."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/main_function",
+   "requires": [
+    "cpp.compile-and-run"
+   ]
+  },
+  {
+   "id": "cpp.variables-types",
+   "name": "Variables and fundamental types",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Declare variables of the built-in types (int, double, bool, char and friends) and know their sizes, limits and arithmetic rules.",
+   "why": "C++ makes you choose types explicitly, and the rules for sizes, overflow and conversions cause real bugs if you don't know them.",
+   "body": "A variable has a type fixed at compile time: `int count = 0;`. The fundamental types are:\n\n- Integers: `short`, `int`, `long`, `long long`, each with an `unsigned` variant. The standard only guarantees minimum widths (`int` at least 16 bits, `long long` at least 64); on every mainstream platform `int` is 32 bits.\n- `std::size_t`: unsigned, the type of sizes and indexes (`sizeof`, `.size()`).\n- Exact widths from `<cstdint>`: `std::int32_t`, `std::uint64_t`, ... for file formats and protocols.\n- Floating point: `float` (32-bit), `double` (64-bit, the default for literals like `1.5`).\n- `bool` (`true`/`false`) and `char` (one byte, holds a character such as `'A'`).\n\n`sizeof(T)` gives a size in bytes and `std::numeric_limits<T>` (header `<limits>`) gives ranges. Literals can use digit separators (`1'000'000`) and suffixes (`2.5f` is a float, `10u` unsigned, `10LL` long long).\n\nKnow the arithmetic rules. Integer division truncates: `7 / 2` is `3`; make one operand a double (`7 / 2.0`) for `3.5`. Unsigned arithmetic wraps around modulo 2^N, so `0u - 1` is a huge number. Signed overflow is **undefined behaviour**: the compiler assumes it never happens, and the result is not guaranteed to wrap.\n\nA local variable without an initializer, like `int x;`, holds garbage, and reading it is undefined behaviour. Initialize every variable when you declare it. Use `const` for values that never change: `const double tax_rate = 0.2;`.",
+   "code": "#include <cstdint>\n#include <iostream>\n#include <limits>\n\nint main() {\n    int count = 42;                 // usually 32 bits\n    long long big = 9'000'000'000;  // at least 64 bits\n    double price = 19.99;           // 64-bit floating point\n    float ratio = 0.5f;             // f suffix: float literal\n    bool done = false;\n    char letter = 'A';\n    std::int32_t exact = -7;        // exactly 32 bits, from <cstdint>\n    unsigned int u = 0;\n\n    std::cout << sizeof(int) << ' ' << sizeof(long long) << '\\n';   // 4 8 (typical)\n    std::cout << std::numeric_limits<int>::max() << '\\n';           // 2147483647\n    std::cout << 7 / 2 << ' ' << 7 / 2.0 << '\\n';                   // 3 3.5\n    std::cout << u - 1 << '\\n';                                     // 4294967295: wraps\n    std::cout << count + exact << ' ' << big << ' ' << price * ratio\n              << ' ' << done << ' ' << letter << '\\n';              // 35 9000000000 9.995 0 A\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Sizes are platform-dependent; use `<cstdint>` types when the exact width matters",
+    "Integer division truncates; unsigned wraps; signed overflow is undefined behaviour",
+    "Always initialise variables when you declare them"
+   ],
+   "pitfalls": [
+    "Reading an uninitialised local (`int x; x++;`) — it is undefined behaviour, not zero."
+   ],
+   "quiz": [
+    {
+     "q": "What does `int r = 9 / 4 * 2.0;` store in r?",
+     "options": [
+      "4.5",
+      "4",
+      "5",
+      "It does not compile"
+     ],
+     "answer": 1,
+     "explain": "9 / 4 is integer division giving 2, times 2.0 is 4.0, converted to int 4."
+    },
+    {
+     "q": "Which statement about `int` overflow, as in INT_MAX + 1, is correct?",
+     "options": [
+      "It wraps to INT_MIN on all platforms",
+      "It is undefined behaviour",
+      "It throws std::overflow_error",
+      "It saturates at INT_MAX"
+     ],
+     "answer": 1,
+     "explain": "Signed integer overflow is undefined behaviour; only unsigned arithmetic is defined to wrap."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/types",
+   "requires": [
+    "cpp.hello-world"
+   ]
+  },
+  {
+   "id": "cpp.auto-init",
+   "name": "auto and brace initialization",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Let the compiler deduce types with auto, and use brace initialization to get safe, uniform initialization without narrowing.",
+   "why": "Modern C++ code uses auto and {} everywhere; knowing their exact rules avoids silent copies and surprising vector sizes.",
+   "body": "`auto` asks the compiler to deduce a variable's type from its initializer: `auto n = 42;` is an `int`, `auto d = 2.5;` a `double`. It shines with long type names (iterators, lambdas) and keeps code correct when types change.\n\nThe rule to remember: plain `auto` makes a **copy** and drops top-level `const` and references. If `ref` is a `const std::vector<int>&`, then `auto v = ref;` copies the whole vector. Write `const auto& v = ref;` to bind without copying, or `auto&` when you want to modify the original.\n\nC++ has several initialization syntaxes. **Brace initialization** works for everything and is the safest:\n\n- `int x{5};` or `int x = {5};`\n- `int zero{};` value-initializes to `0` (also `nullptr`, `false`, empty objects).\n- Braces reject **narrowing**: `int n{3.7};` is a compile error, while `int n = 3.7;` silently truncates to `3`.\n- `Widget w{};` always creates an object, while `Widget w();` declares a function (the \"most vexing parse\").\n\nThe one big gotcha: if a class has a constructor taking `std::initializer_list`, braces prefer it. `std::vector<int> a(3, 7);` is three sevens, but `std::vector<int> b{3, 7};` is the two elements 3 and 7. Use parentheses when you mean \"count and value\".\n\nAnother subtle one: `auto s = \"hi\";` deduces `const char*`, not `std::string`. Write `std::string s = \"hi\";` or use the `s` literal suffix.\n\nUse `auto` where the type is obvious or noisy, and spell the type where it documents intent.",
+   "code": "#include <iostream>\n#include <string>\n#include <vector>\n\nint main() {\n    auto n = 42;              // int\n    auto d = 2.5;             // double\n    auto s = std::string{\"hi\"};\n    int zero{};               // value-initialised: 0\n    // int bad{3.7};          // error: narrowing conversion\n    int truncated = 3.7;      // compiles, silently 3 (warns with -Wconversion)\n\n    std::vector<int> a(3, 7); // three elements: 7 7 7\n    std::vector<int> b{3, 7}; // two elements: 3 7 (initializer_list wins)\n\n    const std::vector<int>& ref = a;\n    auto copy = ref;          // std::vector<int>: const and & dropped, real copy\n    const auto& alias = ref;  // no copy\n\n    std::cout << n + d << ' ' << s << ' ' << zero << ' ' << truncated << '\\n';  // 44.5 hi 0 3\n    std::cout << a.size() << ' ' << b.size() << ' '\n              << copy.size() << ' ' << alias.size() << '\\n';                   // 3 2 3 3\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "`auto` copies and drops `const`/`&`; use `const auto&` to avoid copies",
+    "Braces forbid narrowing and `{}` zero-initialises",
+    "Braces prefer `initializer_list` constructors: `vector{3, 7}` has two elements"
+   ],
+   "pitfalls": [
+    "Writing `std::vector<int> v{n};` expecting n elements — it creates one element with value n."
+   ],
+   "quiz": [
+    {
+     "q": "What is the type of `x` in `const std::string& r = name; auto x = r;`?",
+     "options": [
+      "const std::string&",
+      "std::string&",
+      "const std::string",
+      "std::string"
+     ],
+     "answer": 3,
+     "explain": "Plain auto drops references and top-level const, so x is a new std::string copy."
+    },
+    {
+     "q": "How many elements does `std::vector<int> v{5, 0};` contain?",
+     "options": [
+      "0",
+      "5",
+      "2",
+      "It does not compile"
+     ],
+     "answer": 2,
+     "explain": "Braces select the initializer_list constructor, so v holds the two values 5 and 0."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/auto",
+   "requires": [
+    "cpp.variables-types"
+   ]
+  },
+  {
+   "id": "cpp.operators",
+   "name": "Operators and expressions",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Arithmetic, comparison, logical and bitwise operators, plus the precedence and conversion rules that trip people up.",
+   "why": "Expressions are the bulk of any program, and a few C++ operator rules (precedence, signed/unsigned mixing) cause classic bugs.",
+   "body": "The arithmetic operators are `+ - * / %`, with compound forms like `+=` and `*=`. `%` is the remainder; with negative operands division truncates toward zero, so `-7 / 2` is `-3` and `-7 % 2` is `-1`.\n\n`++i` increments and yields the new value; `i++` yields the old value. On their own as statements they're equivalent; prefer `++i` as a habit (for iterators it can be cheaper).\n\nComparisons (`== != < <= > >=`) yield `bool`. The logical operators `&&`, `||` and `!` **short-circuit**: in `count != 0 && total / count > 10` the division is never evaluated when `count` is 0. That is guaranteed and widely relied upon.\n\nThe bitwise operators `& | ^ ~ << >>` work on the bits of integers; use unsigned types for bit manipulation. Watch precedence: `==` binds tighter than `&`, so `flags & mask == 0` means `flags & (mask == 0)`. When in doubt, add parentheses.\n\nThe conditional operator `cond ? a : b` picks one of two values and is handy for initializing `const` variables.\n\nMixed-type expressions are converted to a common type. The nasty case is signed with unsigned: the signed value is converted to unsigned, so `-1 < 0u` is **false** because -1 becomes 4294967295. Compilers warn about this (`-Wall` enables `-Wsign-compare`); C++20 adds `std::cmp_less` and friends in `<utility>` that compare mixed integers correctly. This bites most often when comparing an `int` index with `v.size()`.\n\nFinally, `=` assigns and `==` compares. `if (x = 5)` compiles (with a warning) and is always true.",
+   "code": "#include <iostream>\n#include <utility>\n\nint main() {\n    int a = 17, b = 5;\n    std::cout << a / b << ' ' << a % b << '\\n';     // 3 2\n    std::cout << -7 / 2 << ' ' << -7 % 2 << '\\n';   // -3 -1 (truncates toward zero)\n\n    int i = 5;\n    int x = i++;   // x = 5, then i = 6\n    int y = ++i;   // i = 7, then y = 7\n    std::cout << x << ' ' << y << '\\n';             // 5 7\n\n    int count = 0, total = 50;\n    if (count != 0 && total / count > 10) { }       // short-circuit: no division by zero\n\n    unsigned flags = 0b1010;\n    bool bit1 = (flags & 0b0010) != 0;              // parentheses needed: != binds tighter\n    std::cout << bit1 << ' ' << (flags >> 1) << '\\n';   // 1 5\n\n    std::cout << (-1 < 0u) << '\\n';                 // 0 (!) -1 converts to a huge unsigned\n    std::cout << std::cmp_less(-1, 0u) << '\\n';     // 1, C++20 safe comparison\n\n    int score = 72;\n    const char* grade = score >= 60 ? \"pass\" : \"fail\";\n    std::cout << grade << '\\n';                     // pass\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "`&&` and `||` short-circuit, which makes guards like `p && p->ok` safe",
+    "Comparing signed with unsigned converts the signed side: `-1 < 0u` is false",
+    "`==` binds tighter than `&`, `|`, `^`: parenthesise bit tests"
+   ],
+   "pitfalls": [
+    "Comparing `int i` with `v.size()` when i can be negative — use `std::ssize(v)` or `std::cmp_less`."
+   ],
+   "quiz": [
+    {
+     "q": "What does `std::cout << (5 & 4 == 4);` print?",
+     "options": [
+      "4",
+      "1",
+      "0",
+      "It does not compile"
+     ],
+     "answer": 1,
+     "explain": "4 == 4 is evaluated first giving true (1), and 5 & 1 is 1."
+    },
+    {
+     "q": "After `int i = 3; int j = i++ * 2;`, what are i and j?",
+     "options": [
+      "i = 4, j = 6",
+      "i = 3, j = 6",
+      "i = 4, j = 8",
+      "i = 3, j = 8"
+     ],
+     "answer": 0,
+     "explain": "i++ yields the old value 3, so j is 6, and i becomes 4."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/expressions",
+   "requires": [
+    "cpp.variables-types"
+   ]
+  },
+  {
+   "id": "cpp.control-flow",
+   "name": "Branches and loops",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Control flow with if, switch, while, do-while, classic for and range-based for, including if-with-initializer.",
+   "why": "Branching and looping are the core of every algorithm, and C++ has a few forms (range-for, init-statements) that make them safer.",
+   "body": "`if (cond) { ... } else if (other) { ... } else { ... }` works as in most languages. Always use braces in real code; a dangling `else` or an added second line under an unbraced `if` is a classic bug.\n\nSince C++17, `if` and `switch` can declare a variable scoped to the statement: `if (auto it = m.find(k); it != m.end()) { ... }`. The variable doesn't leak into the surrounding code.\n\n`switch` jumps to a matching `case` label on an integer, `char` or enum value. Execution falls through into the next case unless you `break`; several labels can share code deliberately, and `[[fallthrough]];` marks intentional fall-through so the compiler doesn't warn. `default` handles everything else. You can't switch on strings.\n\nLoops:\n\n- `while (cond) { ... }` checks before each iteration; `do { ... } while (cond);` runs the body at least once.\n- `for (int i = 0; i < n; ++i)` is the counting loop.\n- **Range-based for**, `for (int x : v)`, visits every element of a container or array. Use `for (const auto& x : v)` to avoid copying big elements and `for (auto& x : v)` to modify them.\n\n`break` leaves the innermost loop or switch and `continue` jumps to the next iteration. There's no labelled break; to exit nested loops, move them into a function and `return`.\n\nPrefer range-for whenever you don't need the index; it can't go out of bounds. When you do need an index into a container, use `std::size_t` (or C++20 `std::ssize` for a signed size) to avoid signed/unsigned warnings.",
+   "code": "#include <iostream>\n#include <vector>\n\nint main() {\n    std::vector<int> scores{90, 45, 72, 100, 58};\n\n    int passed = 0;\n    for (int s : scores) {                 // range-based for\n        if (s < 50) continue;              // skip failures\n        ++passed;\n    }\n\n    for (int i = 0; i < 3; ++i) std::cout << i << ' ';   // 0 1 2\n    std::cout << '\\n';\n\n    int n = 1;\n    while (n < 100) n *= 3;                // 1 3 9 27 81 243\n\n    if (int best = scores[3]; best == 100) // C++17 if with initializer\n        std::cout << \"perfect score\\n\";\n\n    char cmd = 'q';\n    switch (cmd) {\n        case 'a': std::cout << \"add\\n\"; break;\n        case 'q':\n        case 'x': std::cout << \"quit\\n\"; break;   // two labels share code\n        default:  std::cout << \"unknown\\n\";\n    }\n    std::cout << passed << ' ' << n << '\\n';     // 4 243\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Use `for (const auto& x : c)` to visit elements without copying",
+    "`switch` falls through without `break`; mark intentional cases with `[[fallthrough]]`",
+    "`if (init; cond)` keeps helper variables scoped to the branch"
+   ],
+   "pitfalls": [
+    "Forgetting `break` in a switch case, so the next case's code runs too."
+   ],
+   "quiz": [
+    {
+     "q": "With `int x = 2;`, what does this print? `switch (x) { case 1: std::cout << 'a'; case 2: std::cout << 'b'; case 3: std::cout << 'c'; break; default: std::cout << 'd'; }`",
+     "options": [
+      "b",
+      "bcd",
+      "bc",
+      "c"
+     ],
+     "answer": 2,
+     "explain": "Execution starts at case 2 and falls through into case 3 until the break."
+    },
+    {
+     "q": "Which loop is the right choice to double every element of `std::vector<int> v` in place?",
+     "options": [
+      "for (int x : v) x *= 2;",
+      "for (const auto& x : v) x *= 2;",
+      "for (auto& x : v) x *= 2;",
+      "for (auto x : v) x *= 2;"
+     ],
+     "answer": 2,
+     "explain": "Only a non-const reference refers to the elements themselves; the others copy or forbid modification."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/statements",
+   "requires": [
+    "cpp.operators"
+   ]
+  },
+  {
+   "id": "cpp.functions",
+   "name": "Functions",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Declare and define functions, pass arguments by value, return results, and understand declarations versus definitions.",
+   "why": "Functions are the unit of reuse and testing, and C++'s declare-before-use and pass-by-value rules shape how code is organised.",
+   "body": "A function has a return type, a name, parameters and a body: `int square(int x) { return x * x; }`. Use `void` when it returns nothing. A non-void function must return a value on every path; falling off the end is undefined behaviour (compilers warn with `-Wall`).\n\nC++ compiles top to bottom, so a function must be **declared** before it is called. A declaration (a prototype) is the signature followed by a semicolon: `int square(int x);`. The **definition** with the body can come later or live in another file. This split is exactly how headers work: headers hold declarations, `.cpp` files hold definitions.\n\nBy default arguments are passed **by value**: the parameter is a copy, so changes inside the function don't affect the caller. Copying an `int` is free, but copying a large `std::vector` or `std::string` is not; the next lessons show how references avoid that.\n\nA few modern touches:\n\n- `auto f(int x) { return x * 2; }` deduces the return type from the `return` statement.\n- Trailing return syntax `auto f(int x) -> int` is equivalent and common in generic code.\n- `[[nodiscard]] int parse(...)` makes the compiler warn when the caller ignores the result, which is great for error codes.\n\nRecursion works as you'd expect, but each call uses stack space, so very deep recursion can overflow the stack.\n\nKeep functions short and give them one job. A function you can describe in one sentence is easy to test, and the compiler inlines small functions, so splitting code up costs nothing at run time.",
+   "code": "#include <iostream>\n\nint square(int x);                  // declaration (prototype)\n\ndouble average(int a, int b) {      // definition\n    return (a + b) / 2.0;\n}\n\nvoid greet(const char* who) {       // void: returns nothing\n    std::cout << \"hi \" << who << '\\n';\n}\n\nlong long factorial(int n) {        // recursion\n    return n <= 1 ? 1 : n * factorial(n - 1);\n}\n\nvoid bump(int x) { x += 1; }        // x is a copy: caller's variable unchanged\n\nint main() {\n    int v = 4;\n    bump(v);\n    std::cout << square(v) << ' ' << average(3, 4) << '\\n';  // 16 3.5\n    std::cout << factorial(10) << '\\n';                       // 3628800\n    greet(\"Ann\");                                             // hi Ann\n}\n\nint square(int x) { return x * x; }  // defined after main: fine, it was declared",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Declare before use; a prototype is enough, the definition can come later or elsewhere",
+    "Arguments are copied by default",
+    "Mark results callers must check with `[[nodiscard]]`"
+   ],
+   "pitfalls": [
+    "Forgetting to return a value on some path of a non-void function — it compiles but is undefined behaviour."
+   ],
+   "quiz": [
+    {
+     "q": "`void reset(int n) { n = 0; }` is called as `reset(count);`. What happens to count?",
+     "options": [
+      "It becomes 0",
+      "Nothing; reset changed its own copy",
+      "Compile error: n is not a reference",
+      "It becomes undefined"
+     ],
+     "answer": 1,
+     "explain": "Parameters are passed by value, so only the local copy n is set to 0."
+    },
+    {
+     "q": "main calls helper(), which is defined further down the file with no earlier declaration. What happens?",
+     "options": [
+      "The compiler reports that helper was not declared",
+      "The linker reports an undefined reference",
+      "It compiles; the compiler scans the whole file first",
+      "It works only with -O2"
+     ],
+     "answer": 0,
+     "explain": "Names must be declared before use within a translation unit; add a prototype above main."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/functions",
+   "requires": [
+    "cpp.control-flow"
+   ]
+  },
+  {
+   "id": "cpp.function-overloading",
+   "name": "Overloading and default arguments",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Give several functions the same name with different parameter types, and make trailing parameters optional with defaults.",
+   "why": "Overloading is everywhere in the standard library and is the basis for operator overloading and templates.",
+   "body": "C++ lets several functions share a name as long as their parameter lists differ. At each call the compiler picks the best match by **overload resolution**: an exact match beats a promotion (like `char` to `int` or `float` to `double`), which beats a standard conversion (like `int` to `double`), which beats a user-defined conversion (like `const char*` to `std::string`).\n\nOverloads differ by parameters only. Two functions that differ only in return type can't coexist, because the call `f(1)` wouldn't tell them apart.\n\nIf two candidates are equally good, the call is **ambiguous** and won't compile. A classic example is calling `print(3L)` when only `print(int)` and `print(double)` exist: converting `long` to either is a standard conversion, so neither wins. The fix is an explicit cast or another overload.\n\nOverloading on `T` versus `const T&` for the same type is usually ambiguous too, so pick one parameter style per type.\n\n**Default arguments** make trailing parameters optional: `pad(std::string s, std::size_t width = 8, char fill = '.')` can be called with one, two or three arguments. Defaults must come at the end of the list, and they belong in the declaration that callers see (usually the header), not repeated in the definition.\n\nUse overloading when the functions do the same thing for different types (like `std::to_string`). If the behaviour differs, give them different names. Prefer a default argument over a second overload when only one value changes. Templates, covered later, write the overloads for you when the code is identical for every type.",
+   "code": "#include <iostream>\n#include <string>\n\nvoid print(int n)                { std::cout << \"int \" << n << '\\n'; }\nvoid print(double d)             { std::cout << \"double \" << d << '\\n'; }\nvoid print(const std::string& s) { std::cout << \"string \" << s << '\\n'; }\n\nstd::string pad(std::string s, std::size_t width = 8, char fill = '.') {\n    if (s.size() < width) s.append(width - s.size(), fill);\n    return s;\n}\n\nint main() {\n    print(3);           // int 3\n    print(2.5);         // double 2.5\n    print(\"hey\");       // string hey (user-defined conversion from const char*)\n    print('A');         // int 65: char -> int is a promotion\n    // print(3L);       // error: ambiguous, long -> int and long -> double tie\n\n    std::cout << pad(\"ab\") << '|' << pad(\"ab\", 4) << '|' << pad(\"ab\", 4, '-') << '\\n';\n    // ab......|ab..|ab--\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Overloads must differ in parameters, never only in return type",
+    "Exact match > promotion > conversion > user-defined conversion; ties are errors",
+    "Default arguments go at the end, in the declaration"
+   ],
+   "pitfalls": [
+    "Repeating the default value in both the header declaration and the .cpp definition — that's a compile error."
+   ],
+   "quiz": [
+    {
+     "q": "Given only `void f(long)` and `void f(double)`, what does `f(5)` do?",
+     "options": [
+      "Calls f(long)",
+      "Calls f(double)",
+      "Calls f(long) only on 64-bit platforms",
+      "It is ambiguous and does not compile"
+     ],
+     "answer": 3,
+     "explain": "int to long and int to double are both standard conversions of equal rank, so neither overload is better."
+    },
+    {
+     "q": "Which declaration is valid?",
+     "options": [
+      "void g(int a = 1, int b);",
+      "void g(int a = 1, int a2 = a);",
+      "int g(int a); double g(int a);",
+      "void g(int a, int b = 2);"
+     ],
+     "answer": 3,
+     "explain": "Defaults must be trailing; overloads can't differ only in return type, and a default can't use another parameter."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/overload_resolution",
+   "requires": [
+    "cpp.functions",
+    "cpp.strings"
+   ]
+  },
+  {
+   "id": "cpp.references",
+   "name": "References",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Use references as aliases to pass large objects without copying and to let functions modify their arguments.",
+   "why": "Pass-by-const-reference is the default way to hand objects to functions in C++, and references appear in almost every signature.",
+   "body": "A **reference** is another name for an existing object. `int& r = a;` makes `r` an alias of `a`: reading or writing `r` reads or writes `a`. A reference must be initialized when it's declared and can never be rebound. `r = b;` doesn't make `r` refer to `b`; it assigns `b`'s value to `a`.\n\nReferences are mostly used in function parameters:\n\n- `void f(T& x)`: the function works on the caller's object and may modify it (\"out\" or \"in-out\" parameter).\n- `void f(const T& x)`: no copy and no modification. This is the standard way to pass anything bigger than a few machine words, such as strings, vectors and user types. A const reference can also bind to temporaries: `f(std::string{\"tmp\"})` works.\n- `void f(T x)`: by value, for cheap types like `int`, `double` and small structs, or when the function needs its own copy anyway.\n\nIn range-for loops, `for (auto& x : v)` lets you modify elements and `for (const auto& x : v)` reads them without copying.\n\nThe big danger is a **dangling reference**: a reference that outlives the object it refers to. Returning a reference to a local variable is the classic case; the local is destroyed when the function returns, and using the reference is undefined behaviour. Compilers warn about the obvious cases but not all of them. Returning a reference is fine when the object lives on, such as a member of `*this` or an element of a container the caller owns.\n\nUnlike pointers, references can't be null and need no special syntax to use, which makes them the default choice for \"refer to an object that definitely exists\".",
+   "code": "#include <iostream>\n#include <string>\n#include <vector>\n\nvoid double_all(std::vector<int>& v) {            // modifies the caller's vector\n    for (int& x : v) x *= 2;\n}\n\nstd::size_t total_length(const std::vector<std::string>& words) {  // no copy, read-only\n    std::size_t n = 0;\n    for (const auto& w : words) n += w.size();\n    return n;\n}\n\n// int& bad() { int local = 1; return local; }   // dangling: local dies on return\n\nint main() {\n    int a = 1, b = 2;\n    int& r = a;        // r is another name for a\n    r = b;             // assigns 2 to a; does NOT rebind r\n    r += 10;\n    std::cout << a << ' ' << b << '\\n';                  // 12 2\n\n    std::vector<int> nums{1, 2, 3};\n    double_all(nums);\n    std::cout << nums[2] << '\\n';                        // 6\n    std::cout << total_length({\"ab\", \"cde\"}) << '\\n';    // 5\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "A reference is an alias: must be initialised, can't be null, can't be rebound",
+    "Pass big objects as `const T&`, outputs as `T&`, small values by value",
+    "Never return a reference to a local variable"
+   ],
+   "pitfalls": [
+    "Returning a reference (or `std::string_view`) to a local or temporary that is destroyed at the end of the function."
+   ],
+   "quiz": [
+    {
+     "q": "After `int x = 1, y = 5; int& r = x; r = y; y = 9;`, what is x?",
+     "options": [
+      "1",
+      "5",
+      "9",
+      "Undefined"
+     ],
+     "answer": 1,
+     "explain": "r = y copies y's value (5) into x; r still refers to x, so the later change to y doesn't matter."
+    },
+    {
+     "q": "Which signature is the idiomatic way to pass a large std::vector that the function only reads?",
+     "options": [
+      "void f(const std::vector<int>& v)",
+      "void f(std::vector<int>& v)",
+      "void f(std::vector<int> v)",
+      "void f(const std::vector<int> v)"
+     ],
+     "answer": 0,
+     "explain": "A const reference avoids the copy and documents that the function won't modify the argument."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/reference",
+   "requires": [
+    "cpp.functions",
+    "cpp.vector"
+   ]
+  },
+  {
+   "id": "cpp.vector",
+   "name": "Arrays and std::vector",
+   "module": "data",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Store sequences of values: built-in arrays, fixed-size std::array, and std::vector, the dynamic array you should reach for first.",
+   "why": "std::vector is the most-used container in C++; it is the right default for almost any list of things.",
+   "body": "C++ inherited **built-in arrays** from C: `int a[3] = {1, 2, 3};`. Their size is fixed at compile time, they don't know their own size when passed to a function (they decay to a pointer), they can't be assigned, and `a[10]` is not checked. Modern code rarely uses them directly.\n\n`std::array<int, 3>` (header `<array>`) is a fixed-size array with no overhead that behaves like a proper value: it knows its `size()`, can be copied and compared, and works with the standard algorithms.\n\n`std::vector<T>` (header `<vector>`) is a **dynamic array**: elements sit contiguously in heap memory and the vector grows as needed.\n\n- `push_back(x)` appends; `emplace_back(args...)` constructs the element in place; `pop_back()` removes the last one.\n- `size()`, `empty()`, `front()`, `back()`, `clear()`.\n- `v[i]` is unchecked (out of range is undefined behaviour); `v.at(i)` checks and throws `std::out_of_range`.\n- `reserve(n)` preallocates capacity when you know roughly how many elements are coming, avoiding repeated reallocations.\n\nWhen a vector runs out of capacity it allocates a bigger block (typically 1.5x or 2x), moves the elements over and frees the old block. Appends are therefore cheap on average, but any pointers, references or iterators to elements become invalid after a reallocation. Don't hold on to `&v[0]` across a `push_back`.\n\nContiguous storage is why `std::vector` is so fast: iteration is cache-friendly and the CPU prefetches well. Even when you insert in the middle now and then, a vector usually beats a linked list. Make it your default container.",
+   "code": "#include <array>\n#include <iostream>\n#include <stdexcept>\n#include <vector>\n\nint main() {\n    int raw[3] = {1, 2, 3};                // C array: fixed, unchecked\n    std::array<int, 3> fixed{4, 5, 6};     // fixed size, knows its size, copyable\n\n    std::vector<int> v;                    // dynamic array on the heap\n    v.reserve(10);                         // optional: preallocate\n    for (int i = 0; i < 5; ++i) v.push_back(i * i);   // 0 1 4 9 16\n    v.pop_back();                          // removes 16\n\n    std::cout << v.size() << ' ' << v.front() << ' ' << v.back() << '\\n';  // 4 0 9\n    std::cout << v[1] << '\\n';             // 1, unchecked access\n    try {\n        std::cout << v.at(10) << '\\n';     // checked\n    } catch (const std::out_of_range&) {\n        std::cout << \"out of range\\n\";\n    }\n    std::cout << raw[0] + fixed[2] << ' ' << fixed.size() << '\\n';   // 7 3\n\n    std::vector<std::vector<int>> grid(2, std::vector<int>(3, 0));   // 2 x 3 zeros\n    grid[1][2] = 7;\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "`std::vector` is the default container: contiguous, fast, growable",
+    "`v[i]` is unchecked, `v.at(i)` throws on a bad index",
+    "Growth reallocates and invalidates pointers, references and iterators to elements"
+   ],
+   "pitfalls": [
+    "Keeping a reference or pointer to an element and then calling `push_back`, which may reallocate and leave it dangling."
+   ],
+   "quiz": [
+    {
+     "q": "A vector has size() == 4 and capacity() == 4. You hold `int& first = v[0];` and call `v.push_back(5);`. What about first?",
+     "options": [
+      "It still refers to v[0]",
+      "push_back throws because capacity is full",
+      "It refers to the new element",
+      "It may now dangle, because the elements were probably moved to a new block"
+     ],
+     "answer": 3,
+     "explain": "A full vector must reallocate to grow, which invalidates all references to its old elements."
+    },
+    {
+     "q": "Which of these knows its size at compile time and can be copied with `=`?",
+     "options": [
+      "int a[5]",
+      "std::vector<int>(5)",
+      "std::array<int, 5>",
+      "int* a = new int[5]"
+     ],
+     "answer": 2,
+     "explain": "std::array has a compile-time size and value semantics; a built-in array can't be assigned and a vector's size is dynamic."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/container/vector",
+   "requires": [
+    "cpp.control-flow"
+   ]
+  },
+  {
+   "id": "cpp.strings",
+   "name": "std::string and string_view",
+   "module": "data",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Work with text using std::string, and pass read-only text cheaply with std::string_view.",
+   "why": "Text processing is everywhere, and choosing between string, string_view and C strings affects both safety and speed.",
+   "body": "`std::string` (header `<string>`) owns a mutable sequence of `char`s and manages its own memory. It behaves like a value: copying a string copies its characters, and `==` compares contents.\n\nThe common operations:\n\n- Concatenate with `+` and `+=`; `size()` and `empty()`; index with `s[i]`.\n- `s.substr(pos, count)` copies out a piece; `s.find(\"x\")` returns a position or `std::string::npos` if not found.\n- C++20 adds `starts_with` and `ends_with`; C++23 adds `contains`.\n- Convert with `std::to_string(42)` and `std::stoi(\"42\")` / `std::stod` (these throw on bad input).\n\nA string literal like `\"abc\"` is not a `std::string`; it's a `const char[4]` array inherited from C, with a hidden terminating `'\\0'`. So `\"a\" + \"b\"` doesn't compile (it tries to add two pointers), while `std::string{\"a\"} + \"b\"` works. Short strings (typically up to 15 characters) are stored inside the string object itself, the **small string optimization**, so they don't allocate.\n\n`std::string_view` (C++17, header `<string_view>`) is a non-owning view: just a pointer and a length. It can refer to a `std::string`, a literal or part of a buffer without copying, which makes `std::string_view` the best parameter type for functions that only read text. Its `substr` is free.\n\nThe flip side: a view does not keep the text alive. Never return a `string_view` into a local string, and never store one that outlives the string it points to.\n\n`char` holds bytes, not Unicode characters; UTF-8 text works fine in a `std::string`, but `size()` counts bytes.",
+   "code": "#include <cctype>\n#include <iostream>\n#include <string>\n#include <string_view>\n\nbool is_header(std::string_view line) {      // cheap read-only view of any text\n    return line.starts_with(\"#\");            // C++20\n}\n\nint main() {\n    std::string name = \"Ada\";\n    std::string greeting = \"Hello, \" + name + \"!\";   // needs one std::string operand\n    greeting += \" Welcome.\";\n\n    std::cout << greeting.size() << '\\n';             // 20\n    std::cout << greeting.substr(7, 3) << '\\n';       // Ada (pos, count)\n\n    auto pos = greeting.find(\"Welcome\");\n    if (pos != std::string::npos) std::cout << \"found at \" << pos << '\\n';  // 12\n\n    int n = std::stoi(\"42\");                          // string -> int\n    std::string s = std::to_string(n * 2);            // int -> string \"84\"\n    std::cout << s << ' ' << (name == \"Ada\") << ' ' << is_header(\"# title\") << '\\n';  // 84 1 1\n\n    for (char& c : name) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));\n    std::cout << name << '\\n';                        // ADA\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "`std::string` owns its text; `std::string_view` only looks at someone else's",
+    "Take read-only text parameters as `std::string_view`",
+    "`find` returns `std::string::npos` when nothing matches"
+   ],
+   "pitfalls": [
+    "Returning a `std::string_view` that points into a local or temporary `std::string`."
+   ],
+   "quiz": [
+    {
+     "q": "Why doesn't `auto s = \"Hello, \" + \"world\";` compile?",
+     "options": [
+      "String literals are const char arrays, and adding two pointers is not allowed",
+      "operator+ is only defined for std::string_view",
+      "auto cannot deduce string types",
+      "The literals need a trailing \\0"
+     ],
+     "answer": 0,
+     "explain": "Neither operand is a std::string, so no string operator+ applies; the arrays decay to pointers that can't be added."
+    },
+    {
+     "q": "Which parameter type lets a read-only function accept a std::string, a literal, or part of a buffer without copying?",
+     "options": [
+      "std::string_view",
+      "const char*",
+      "std::string&",
+      "std::string"
+     ],
+     "answer": 0,
+     "explain": "string_view is a pointer-plus-length view that binds to all of these without allocating."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/string/basic_string",
+   "requires": [
+    "cpp.variables-types"
+   ]
+  },
+  {
+   "id": "cpp.structs-classes",
+   "name": "Structs and classes",
+   "module": "data",
+   "level": 1,
+   "minutes": 14,
+   "summary": "Group data and behaviour into your own types with struct and class, member functions and public/private access.",
+   "why": "User-defined types are how C++ programs model their domain, and the class is the foundation for RAII and the rest of the language.",
+   "body": "A `struct` or `class` defines a new type that groups data members and member functions. The only difference between the two keywords is the default access: members of a `struct` are public by default, members of a `class` are private. By convention, use `struct` for plain bundles of data and `class` for types that protect an **invariant**, a rule that must always hold, such as \"balance is never changed except through deposit\".\n\n- Data members can have default values: `double x = 0;`.\n- Member functions see the members directly; inside them `this` points to the current object.\n- A member function marked `const` after its parameter list promises not to modify the object, and is the only kind you can call on a const object.\n- `public:` and `private:` sections control who can touch what. Keep data private and expose operations, so the class can check every change.\n\nA struct with only public data and no constructors is an **aggregate**, initialized with braces in member order: `Point p{1.5, 2.0};`. C++20 adds **designated initializers**, `Point q{.x = 3, .y = 4};`, which must follow declaration order but can skip members, which keep their defaults.\n\nClasses with invariants use a **constructor**, a member function with the class's name that runs when the object is created, to establish them. Mark single-argument constructors `explicit` so a plain `std::string` can't silently convert into an `Account`.\n\nObjects are values: `Point b = a;` copies all members, and each object has its own data. Member functions don't add to an object's size; only data members do.",
+   "code": "#include <iostream>\n#include <string>\n#include <utility>\n\nstruct Point {            // aggregate: public data, no invariants\n    double x = 0;\n    double y = 0;\n};\n\nclass Account {           // class: members private by default\npublic:\n    explicit Account(std::string owner) : owner_{std::move(owner)} {}\n    void deposit(long cents) { if (cents > 0) balance_ += cents; }\n    long balance() const { return balance_; }\n    const std::string& owner() const { return owner_; }\nprivate:\n    std::string owner_;\n    long balance_ = 0;    // invariant: only changed through deposit()\n};\n\nint main() {\n    Point p{1.5, 2.0};\n    Point q{.x = 3, .y = 4};          // C++20 designated initializers\n    Account acc{\"Lin\"};\n    acc.deposit(500);\n    acc.deposit(-100);                // ignored\n    // acc.balance_ = 1'000'000;      // error: balance_ is private\n    std::cout << p.x + q.y << ' ' << acc.owner() << ' ' << acc.balance() << '\\n';  // 5.5 Lin 500\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "`struct` and `class` differ only in default access",
+    "Keep data private when the type has an invariant; expose operations",
+    "Aggregates take `{...}` initialisation; C++20 adds `.member = value`"
+   ],
+   "pitfalls": [
+    "Making every member public with getters and setters for each — that protects nothing; expose meaningful operations instead."
+   ],
+   "quiz": [
+    {
+     "q": "What is the only language difference between `struct S { int a; };` and `class S { int a; };`?",
+     "options": [
+      "A class can have member functions, a struct cannot",
+      "Only classes can have constructors",
+      "Structs are allocated on the stack, classes on the heap",
+      "Members are public by default in a struct and private in a class"
+     ],
+     "answer": 3,
+     "explain": "Both keywords define the same kind of type; only the default access (and default base access) differ."
+    },
+    {
+     "q": "Why mark `long balance() const`?",
+     "options": [
+      "It makes the function faster",
+      "It prevents derived classes from overriding it",
+      "It lets it be called on const objects and promises not to modify the object",
+      "It makes the return value const"
+     ],
+     "answer": 2,
+     "explain": "A const member function can be called through const references and can't change the object's members."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/classes",
+   "requires": [
+    "cpp.functions",
+    "cpp.strings"
+   ]
+  },
+  {
+   "id": "cpp.constructors-raii",
+   "name": "Constructors, destructors and RAII",
+   "module": "classes",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Initialise objects with constructors, clean up with destructors, and tie every resource to an object's lifetime (RAII).",
+   "why": "RAII is the central idiom of C++: it is how the language manages memory, files and locks without a garbage collector or finally blocks.",
+   "body": "A **constructor** runs when an object is created and a **destructor** (`~T()`) runs when it is destroyed. For a local variable that happens deterministically: at the closing brace of its scope, in reverse order of construction, including when the scope is left by `return`, `break` or an exception.\n\nInitialize members in the **member initializer list**, `Trace(std::string n) : name_{std::move(n)} {}`, not by assigning in the body. Members are always initialized in the order they are declared in the class, whatever order you write the list in, so keep the two consistent (`-Wall` warns otherwise). `const` members and reference members can only be set there.\n\nOther constructor tools:\n\n- `T() = default;` keeps the compiler-generated default constructor; one constructor can delegate to another: `T() : T(0) {}`.\n- `explicit` on single-argument constructors prevents surprising implicit conversions.\n\n**RAII** (\"Resource Acquisition Is Initialization\") means: acquire a resource in a constructor, release it in the destructor. The resource can be heap memory, a file handle, a socket, a mutex lock or a database transaction. Because destructors always run when the owning object goes away, the resource can't leak, even on error paths. You get cleanup with no `finally` and no manual `close()` calls.\n\nThe standard library is built this way: `std::vector` and `std::string` free their memory, `std::ofstream` closes its file, `std::lock_guard` unlocks its mutex, and `std::unique_ptr` deletes its object.\n\nThe rule of thumb: never manage a resource manually in application code. Wrap it in a class (or use an existing one), and let scope do the cleanup. Destructors must not throw; they are implicitly `noexcept`.",
+   "code": "#include <fstream>\n#include <iostream>\n#include <string>\n#include <utility>\n\nclass Trace {\npublic:\n    explicit Trace(std::string name) : name_{std::move(name)} {\n        std::cout << \"enter \" << name_ << '\\n';\n    }\n    ~Trace() { std::cout << \"leave \" << name_ << '\\n'; }   // runs automatically\nprivate:\n    std::string name_;\n};\n\nvoid work() {\n    Trace outer{\"outer\"};\n    {\n        Trace inner{\"inner\"};\n    }                                   // leave inner\n    std::ofstream log{\"log.txt\"};       // RAII: file opened here...\n    log << \"done\\n\";\n    Trace last{\"last\"};\n}   // leave last, then log is closed, then leave outer (reverse order)\n\nint main() { work(); }",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Destructors run at scope exit in reverse order, on every path including exceptions",
+    "RAII: acquire in the constructor, release in the destructor",
+    "Members are initialised in declaration order; use the member initializer list"
+   ],
+   "pitfalls": [
+    "Writing a member initializer list in a different order than the declarations and reading a member before it is initialised."
+   ],
+   "quiz": [
+    {
+     "q": "A function creates `A a; B b; C c;` and then throws. In what order are they destroyed?",
+     "options": [
+      "a, b, c",
+      "c, b, a",
+      "They are not destroyed because of the exception",
+      "Unspecified"
+     ],
+     "answer": 1,
+     "explain": "Stack unwinding destroys fully constructed locals in reverse order of construction."
+    },
+    {
+     "q": "Class X declares `int a; int b;` and its constructor is `X() : b{1}, a{b + 1} {}`. What is wrong?",
+     "options": [
+      "Nothing; a becomes 2",
+      "a is initialised first, reading b before b is initialised",
+      "b must be listed first in the class",
+      "Initializer lists can't use other members"
+     ],
+     "answer": 1,
+     "explain": "Members initialise in declaration order, so a{b + 1} runs while b is still uninitialised."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/raii",
+   "requires": [
+    "cpp.structs-classes",
+    "cpp.references"
+   ]
+  },
+  {
+   "id": "cpp.const-correctness",
+   "name": "Const correctness",
+   "module": "classes",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Mark what must not change with const: variables, reference parameters and member functions, so the compiler enforces it.",
+   "why": "Const is a contract the compiler checks; const-correct interfaces are safer, clearer, and required to work with const objects.",
+   "body": "`const` says \"this won't change\", and the compiler holds you to it. It appears in three main places.\n\n**Const variables.** `const int max_items = 10;` can't be modified after initialization. Use it by default for values you don't intend to change; it makes code easier to reason about. (For values known at compile time, `constexpr` is even stronger; see the Advanced lessons.)\n\n**Const references and pointers in parameters.** `void report(const Inventory& inv)` promises the caller that `inv` won't be modified, and it accepts temporaries and const objects. For pointers, read right to left: `const int* p` is a pointer to a const int (can't change `*p`, can repoint `p`), while `int* const p` is a const pointer to a mutable int.\n\n**Const member functions.** `std::size_t count() const;` means the function doesn't modify the object. Only const member functions can be called on a const object or through a const reference. That makes const contagious in a good way: if `count()` forgets its `const`, nobody holding a `const Inventory&` can call it. Mark every member function that doesn't change observable state as const.\n\nGetters often come in a pair, a const version returning `const T&` and a non-const version returning `T&`, as `std::vector::operator[]` does.\n\nSometimes a const function needs to update something that isn't part of the object's logical state: a cache, a statistics counter or a mutex. Declare such members `mutable`. Use it sparingly, and remember a const function may be called from several threads at once, so mutable state needs synchronization.\n\nAvoid `const_cast` to strip const; modifying an object that was defined const is undefined behaviour.",
+   "code": "#include <iostream>\n#include <string>\n#include <utility>\n#include <vector>\n\nclass Inventory {\npublic:\n    void add(std::string item) { items_.push_back(std::move(item)); }  // modifies: not const\n    std::size_t count() const { return items_.size(); }               // read-only\n    bool has(const std::string& name) const {\n        ++lookups_;                                   // allowed: lookups_ is mutable\n        for (const auto& i : items_) if (i == name) return true;\n        return false;\n    }\n    int lookups() const { return lookups_; }\nprivate:\n    std::vector<std::string> items_;\n    mutable int lookups_ = 0;                         // statistics, not logical state\n};\n\nvoid report(const Inventory& inv) {                   // promises not to modify inv\n    std::cout << inv.count() << ' ' << inv.has(\"rope\") << '\\n';\n    // inv.add(\"x\");                                  // error: add() is not const\n}\n\nint main() {\n    const int max_items = 10;\n    Inventory inv;\n    inv.add(\"rope\");\n    report(inv);                                                    // 1 1\n    std::cout << max_items - inv.count() << ' ' << inv.lookups() << '\\n';  // 9 1\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Mark every member function that doesn't change the object `const`",
+    "`const int*` = pointer to const; `int* const` = const pointer",
+    "`mutable` is for caches and counters, not for real state"
+   ],
+   "pitfalls": [
+    "Forgetting `const` on a getter, which makes it uncallable through every `const&` in the codebase."
+   ],
+   "quiz": [
+    {
+     "q": "`void show(const Widget& w) { w.draw(); }` fails to compile. What is the most likely fix?",
+     "options": [
+      "Change the parameter to Widget w",
+      "Make draw() static",
+      "Remove const and use const_cast",
+      "Declare draw() as a const member function"
+     ],
+     "answer": 3,
+     "explain": "Through a const reference only const member functions can be called, so draw() needs to be const if it doesn't modify the widget."
+    },
+    {
+     "q": "Given `int a = 1, b = 2; const int* p = &a;`, which statement compiles?",
+     "options": [
+      "*p = 5;",
+      "Both",
+      "p = &b;",
+      "Neither"
+     ],
+     "answer": 2,
+     "explain": "p points to const int, so the pointee can't be modified through p, but p itself can be repointed."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/cv",
+   "requires": [
+    "cpp.structs-classes",
+    "cpp.references"
+   ]
+  },
+  {
+   "id": "cpp.pointers",
+   "name": "Pointers",
+   "module": "memory",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Understand raw pointers: addresses, dereferencing, nullptr, pointer arithmetic, and their modern role as non-owning observers.",
+   "why": "Pointers underlie arrays, polymorphism, data structures and every C API, and you must read them fluently even if you rarely own memory with them.",
+   "body": "A **pointer** holds the address of an object. `int* p = &x;` stores the address of `x`; `*p` dereferences it to reach `x`. For a pointer to a struct, `p->member` is shorthand for `(*p).member`.\n\nUnlike references, pointers can be **null** (`nullptr`, never `NULL` or `0` in modern code), can be reassigned to point elsewhere, and need explicit dereferencing. Dereferencing a null or dangling pointer is undefined behaviour, so check for `nullptr` wherever null is a valid state.\n\nPointers and arrays are closely tied. An array name **decays** to a pointer to its first element, and **pointer arithmetic** moves by whole elements: `p + 2` points two `int`s further, and `p[i]` means `*(p + i)`. Arithmetic is only valid within one array (plus one past the end); going beyond is undefined.\n\n`const` applies as usual, read right to left: `const T*` can't modify the pointee, `T* const` can't be repointed.\n\nYou can allocate with `new` and must then `delete` (or `new[]` with `delete[]`). Doing this by hand leaks memory on early returns and exceptions and invites double deletes. In modern C++ **raw pointers don't own**: use containers and smart pointers for ownership, and use raw pointers (or references) only to observe objects someone else owns.\n\nSo when should a function take `T*` instead of `T&`? When \"no object\" is a valid argument. Otherwise a reference states the intent better. Raw pointers remain essential for linked structures that point to optional neighbours, for C APIs, and for low-level code.",
+   "code": "#include <iostream>\n\nstruct Node { int value; Node* next; };   // can be null, can be repointed\n\nint main() {\n    int x = 10;\n    int* p = &x;            // p holds the address of x\n    *p = 20;                // write through the pointer\n    std::cout << x << ' ' << (p != nullptr) << '\\n';   // 20 1\n\n    int arr[] = {1, 2, 3, 4};\n    int* it = arr;          // array decays to a pointer to its first element\n    it += 2;                // pointer arithmetic: now at arr[2]\n    std::cout << *it << ' ' << it[1] << '\\n';          // 3 4\n\n    const int* read_only = &x;   // can't modify *read_only, can repoint\n    int* const fixed = &x;       // can modify *fixed, can't repoint\n    *fixed = 30;\n    std::cout << *read_only << '\\n';                   // 30\n\n    Node c{3, nullptr}, b{2, &c}, a{1, &b};\n    for (Node* n = &a; n != nullptr; n = n->next)      // n->value is (*n).value\n        std::cout << n->value << ' ';                  // 1 2 3\n    std::cout << '\\n';\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "`&x` takes an address, `*p` dereferences, `p->m` accesses a member",
+    "Use `nullptr`; dereferencing null or a dangling pointer is undefined behaviour",
+    "Raw pointers observe; containers and smart pointers own"
+   ],
+   "pitfalls": [
+    "Using `new`/`delete` by hand in application code, leaking on early return or exception."
+   ],
+   "quiz": [
+    {
+     "q": "Given `int a[4] = {10, 20, 30, 40}; int* p = a + 1;`, what is `p[2]`?",
+     "options": [
+      "30",
+      "40",
+      "20",
+      "Undefined"
+     ],
+     "answer": 1,
+     "explain": "p points at a[1], so p[2] is *(p + 2), which is a[3] = 40."
+    },
+    {
+     "q": "When is a raw `T*` parameter more appropriate than `T&`?",
+     "options": [
+      "When passing \"no object\" (nullptr) is a valid option",
+      "When the function needs to modify the object",
+      "When the object is large",
+      "When the function takes ownership"
+     ],
+     "answer": 0,
+     "explain": "References can't be null, so a pointer expresses an optional argument; ownership transfer should use a smart pointer."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/pointer",
+   "requires": [
+    "cpp.references",
+    "cpp.vector"
+   ]
+  },
+  {
+   "id": "cpp.smart-pointers",
+   "name": "Smart pointers",
+   "module": "memory",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Own heap objects safely with std::unique_ptr, share them with std::shared_ptr, and break cycles with std::weak_ptr.",
+   "why": "Smart pointers make heap ownership explicit and leak-free; they replace almost every use of new and delete.",
+   "body": "Smart pointers (header `<memory>`) are RAII classes that own a heap object and delete it automatically.\n\n`std::unique_ptr<T>` is **sole ownership**. Create it with `std::make_unique<T>(args...)`. It can't be copied, only moved, so ownership transfers are visible in the code: `auto b = std::move(a);` leaves `a` null. It has no overhead over a raw pointer, which makes it the default choice. It also handles arrays (`std::unique_ptr<int[]>`) and custom deleters, for example to `fclose` a `FILE*`.\n\n`std::shared_ptr<T>` is **shared ownership** with reference counting: each copy increments a count, and the object is deleted when the last `shared_ptr` goes away. Create it with `std::make_shared<T>(args...)`, which puts the object and its control block in one allocation. The count is updated atomically, so it's safe to copy shared pointers across threads (the pointed-to object itself is not synchronized). Copying costs an atomic increment, so pass `shared_ptr` by reference or don't pass it at all when the callee doesn't need ownership.\n\n`std::weak_ptr<T>` observes a shared object without keeping it alive. Call `lock()` to get a `shared_ptr` if the object still exists. Use it to break **cycles**: two objects holding `shared_ptr`s to each other never reach a count of zero and leak.\n\nGuidelines:\n\n- Prefer `unique_ptr`; reach for `shared_ptr` only when ownership is genuinely shared.\n- Functions that just use an object should take `T&` or `T*`, not a smart pointer.\n- Never construct two smart pointers from the same raw pointer: each would delete it.",
+   "code": "#include <iostream>\n#include <memory>\n#include <string>\n#include <utility>\n#include <vector>\n\nstruct Texture {\n    explicit Texture(std::string n) : name{std::move(n)} {}\n    ~Texture() { std::cout << \"free \" << name << '\\n'; }\n    std::string name;\n};\n\nvoid inspect(const Texture& t) { std::cout << \"inspect \" << t.name << '\\n'; }  // no ownership\n\nint main() {\n    auto solo = std::make_unique<Texture>(\"grass\");     // sole owner\n    inspect(*solo);\n    std::unique_ptr<Texture> owner = std::move(solo);   // ownership moved; solo is null\n\n    auto shared = std::make_shared<Texture>(\"sky\");\n    std::vector<std::shared_ptr<Texture>> users{shared, shared};\n    std::cout << shared.use_count() << '\\n';            // 3\n\n    std::weak_ptr<Texture> watcher = shared;            // doesn't affect the count\n    shared.reset();\n    users.clear();                                      // last owner gone: \"free sky\"\n    std::cout << watcher.expired() << '\\n';             // 1\n}                                                       // \"free grass\"",
+   "code_lang": "cpp",
+   "takeaways": [
+    "`unique_ptr` by default: zero overhead, move-only ownership",
+    "`shared_ptr` for genuinely shared ownership; `weak_ptr` to observe and break cycles",
+    "Create with `make_unique` / `make_shared`; pass `T&` to functions that don't own"
+   ],
+   "pitfalls": [
+    "Two objects holding `shared_ptr`s to each other: the cycle keeps both alive forever. Make one side a `weak_ptr`."
+   ],
+   "quiz": [
+    {
+     "q": "What happens with `auto a = std::make_unique<int>(5); auto b = a;`?",
+     "options": [
+      "b shares ownership with a",
+      "b gets a deep copy of the int",
+      "Compile error: unique_ptr can't be copied",
+      "a becomes null"
+     ],
+     "answer": 2,
+     "explain": "unique_ptr's copy constructor is deleted; you must write std::move(a) to transfer ownership."
+    },
+    {
+     "q": "A function only reads a Texture and doesn't care how it's owned. What should it take?",
+     "options": [
+      "std::shared_ptr<Texture>",
+      "std::unique_ptr<Texture>",
+      "const Texture&",
+      "std::weak_ptr<Texture>"
+     ],
+     "answer": 2,
+     "explain": "Taking a reference works with any ownership scheme and costs nothing; smart pointer parameters imply ownership."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/memory",
+   "requires": [
+    "cpp.pointers",
+    "cpp.constructors-raii"
+   ]
+  },
+  {
+   "id": "cpp.inheritance",
+   "name": "Inheritance and virtual functions",
+   "module": "classes",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Build class hierarchies with public inheritance, override virtual functions for runtime polymorphism, and use virtual destructors.",
+   "why": "Runtime polymorphism through virtual functions is how C++ code handles plugin-style designs, GUI widgets and many frameworks.",
+   "body": "`class Circle : public Shape` makes `Circle` a `Shape`: it inherits Shape's members, and a `Circle` can be used wherever a `Shape&` or `Shape*` is expected.\n\nA member function declared `virtual` in the base is dispatched at run time on the object's real type. Calling `s->area()` through a `Shape*` that points to a `Circle` runs `Circle::area`. Mark each overriding function `override`: the compiler then errors if the signature doesn't actually match a base virtual, which catches typos and mismatched `const`. A function declared `= 0` is **pure virtual**; a class with one is **abstract** and can't be instantiated, which makes it an interface. `final` stops further overriding or derivation.\n\nThree rules that matter in practice:\n\n- Give a polymorphic base class a **virtual destructor** (`virtual ~Shape() = default;`). Otherwise deleting a derived object through a base pointer, which is exactly what `std::unique_ptr<Shape>` does, is undefined behaviour.\n- Polymorphism only works through references and pointers. Copying a `Circle` into a `Shape` variable **slices** it: only the base part is copied and the virtual calls go to `Shape`. Hold polymorphic objects as `std::unique_ptr<Base>` in containers.\n- Don't call virtual functions from constructors or destructors expecting derived behaviour; during construction the object is still only a base.\n\nEach polymorphic object carries a hidden pointer to its class's vtable, and a virtual call is an indirect call that's hard to inline. That cost is small but real in hot loops.\n\nUse inheritance for \"is-a\" relationships with polymorphic behaviour. To reuse code, prefer composition (a member) over inheritance.",
+   "code": "#include <iostream>\n#include <memory>\n#include <vector>\n\nclass Shape {\npublic:\n    virtual ~Shape() = default;                  // needed to delete through Shape*\n    virtual double area() const = 0;             // pure virtual: Shape is abstract\n    virtual const char* name() const { return \"shape\"; }\n};\n\nclass Circle : public Shape {\n    double r_;\npublic:\n    explicit Circle(double r) : r_{r} {}\n    double area() const override { return 3.14159 * r_ * r_; }\n    const char* name() const override { return \"circle\"; }\n};\n\nclass Square final : public Shape {\n    double side_;\npublic:\n    explicit Square(double s) : side_{s} {}\n    double area() const override { return side_ * side_; }   // name() inherited\n};\n\nint main() {\n    std::vector<std::unique_ptr<Shape>> shapes;\n    shapes.push_back(std::make_unique<Circle>(1.0));\n    shapes.push_back(std::make_unique<Square>(2.0));\n    for (const auto& s : shapes)\n        std::cout << s->name() << ' ' << s->area() << '\\n';   // circle 3.14159, shape 4\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "`virtual` + `override` gives runtime dispatch; always write `override`",
+    "Polymorphic bases need a virtual destructor",
+    "Use polymorphic objects through references or pointers; copying slices them"
+   ],
+   "pitfalls": [
+    "Storing derived objects in a `std::vector<Base>` — they are sliced to Base. Use `std::vector<std::unique_ptr<Base>>`."
+   ],
+   "quiz": [
+    {
+     "q": "`Shape s = Circle{2.0}; s.name();` — Shape::name is virtual and Circle overrides it. Which runs? (Assume Shape is not abstract.)",
+     "options": [
+      "Circle::name, because name is virtual",
+      "Shape::name, because s is a sliced Shape object",
+      "It's undefined behaviour",
+      "It depends on optimisation"
+     ],
+     "answer": 1,
+     "explain": "Assigning to a Shape value copies only the base part, so s really is a Shape and calls Shape::name."
+    },
+    {
+     "q": "Why does the base class need `virtual ~Shape()` when shapes are held as `std::unique_ptr<Shape>`?",
+     "options": [
+      "Without it, deleting a Circle through a Shape* is undefined behaviour",
+      "unique_ptr requires every class to have a virtual destructor",
+      "It makes the vtable smaller",
+      "It's only needed if Circle has a destructor"
+     ],
+     "answer": 0,
+     "explain": "unique_ptr<Shape> deletes through Shape*, which only calls the derived destructor correctly if the base destructor is virtual."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/virtual",
+   "requires": [
+    "cpp.constructors-raii",
+    "cpp.smart-pointers"
+   ]
+  },
+  {
+   "id": "cpp.operator-overloading",
+   "name": "Operator overloading",
+   "module": "classes",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Give your types natural syntax: arithmetic, comparisons with C++20's spaceship operator, and stream output.",
+   "why": "Well-chosen operators make value types like money, vectors or dates read like built-ins, and the standard library relies on them.",
+   "body": "You can define what operators mean for your own types by writing functions named `operator+`, `operator==`, `operator<<` and so on. The rule is to keep the usual meaning: `+` should add, `==` should compare, and nothing should surprise the reader.\n\nSome conventions:\n\n- Implement compound assignment (`+=`) as a member returning `*this` by reference, then write `+` in terms of it.\n- Make symmetric binary operators non-members, so conversions apply to both operands. A popular way is a **hidden friend**: a `friend` function defined inside the class body, found only by argument-dependent lookup.\n- Stream output is always a non-member: `std::ostream& operator<<(std::ostream& os, const T& v)`, returning `os` so calls chain.\n- Other common ones: `operator[]` for indexing (C++23 allows several arguments), `operator()` to make function objects, and `operator bool` (declare it `explicit`).\n\nC++20 transformed comparisons. Declare `auto operator<=>(const T&) const = default;` (the **three-way comparison** or \"spaceship\" operator) and the compiler compares members in declaration order and gives you `<`, `<=`, `>` and `>=`. A defaulted `<=>` also implicitly declares a defaulted `operator==`, so you get `==` and `!=` too. If you write `<=>` by hand, also define `==` yourself, since equality is often cheaper to compute than ordering. The result is a `std::strong_ordering` (or `weak_ordering`/`partial_ordering` for doubles), from `<compare>`.\n\nThe compiler also rewrites expressions: `a != b` uses `operator==`, and `b < a` can be served by `a <=> b`. That removes the old boilerplate of writing six comparison operators.\n\nDon't overload `&&`, `||` or `,`: overloaded versions lose short-circuiting and ordering guarantees.",
+   "code": "#include <compare>\n#include <iostream>\n\nstruct Money {\n    long cents = 0;\n\n    Money& operator+=(Money other) { cents += other.cents; return *this; }\n    friend Money operator+(Money a, Money b) { return a += b; }    // built on +=\n\n    // C++20: compares members in order, gives < <= > >= and also == !=\n    friend auto operator<=>(const Money&, const Money&) = default;\n\n    friend std::ostream& operator<<(std::ostream& os, Money m) {\n        return os << '$' << m.cents / 100 << '.' << (m.cents % 100 < 10 ? \"0\" : \"\") << m.cents % 100;\n    }\n};\n\nint main() {\n    Money a{250}, b{1999};\n    Money total = a + b;\n    total += Money{1};\n    std::cout << total << '\\n';                                    // $22.50\n    std::cout << (a < b) << ' ' << (a == Money{250}) << ' ' << (a != b) << '\\n';  // 1 1 1\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Keep the conventional meaning of each operator",
+    "Write `+=` as a member, `+` (and `<<`) as non-member or hidden friend",
+    "C++20: a defaulted `<=>` gives all six comparisons"
+   ],
+   "pitfalls": [
+    "Writing a custom `operator<=>` and expecting `==` to appear — only a *defaulted* `<=>` declares `==` for you."
+   ],
+   "quiz": [
+    {
+     "q": "A struct declares only `auto operator<=>(const P&) const = default;`. Which expressions compile?",
+     "options": [
+      "Only <, <=, > and >=",
+      "None until operator== is written",
+      "Only == and !=",
+      "All six: <, <=, >, >=, == and !="
+     ],
+     "answer": 3,
+     "explain": "A defaulted <=> also implicitly declares a defaulted ==, and != is rewritten in terms of ==."
+    },
+    {
+     "q": "Why is `operator<<` for printing written as a non-member?",
+     "options": [
+      "Members can't return references",
+      "The standard forbids member operator<<",
+      "Non-members are faster",
+      "Its left operand is the std::ostream, which isn't your class"
+     ],
+     "answer": 3,
+     "explain": "A member operator always has the class object as its left operand, but in `std::cout << x` the left operand is the stream."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/operators",
+   "requires": [
+    "cpp.const-correctness",
+    "cpp.function-overloading"
+   ]
+  },
+  {
+   "id": "cpp.enum-class",
+   "name": "Scoped enums (enum class)",
+   "module": "classes",
+   "level": 2,
+   "minutes": 8,
+   "summary": "Define named sets of constants with enum class, which are scoped, strongly typed and can choose their underlying type.",
+   "why": "Enums replace magic numbers and bool parameters; enum class does it without the name clashes and silent conversions of old enums.",
+   "body": "An enumeration is a type with a fixed set of named values. C++ has two kinds.\n\nThe old C-style `enum Color { Red, Green };` puts `Red` and `Green` directly into the surrounding scope (so two enums can't both have `None`) and converts silently to `int`, so `Red + 3` and `if (color == 1)` compile.\n\nThe C++11 **scoped enum**, `enum class Level { Debug, Info, Warn, Error };`, fixes both problems:\n\n- Values are scoped: you write `Level::Warn`.\n- No implicit conversion to integers; use `static_cast<int>(l)` when you need the number, or C++23's `std::to_underlying(l)`.\n- Comparisons between values of the same enum still work: `l >= Level::Warn`.\n\nYou can fix the underlying type, `enum class Level : std::uint8_t`, to control size in structs and binary formats; for scoped enums it defaults to `int`. Values count up from 0 unless you assign them explicitly (`Error = 40`). Enums with a specified underlying type can be forward-declared.\n\n`switch` on an enum is the natural way to handle each case. If the switch has no `default`, `-Wall` warns when you forget an enumerator, which is a useful safety net when someone adds a new value later. C++20's `using enum Level;` brings the names into a scope so you can write `case Warn:` instead of `case Level::Warn:`.\n\nUse enum class for states, modes and options instead of `int` codes or several `bool` parameters: `open(path, Mode::ReadOnly)` reads far better than `open(path, true, false)`. There's still no built-in enum-to-string conversion; write a function with a switch.",
+   "code": "#include <cstdint>\n#include <iostream>\n\nenum Color { Red, Green };                      // old style: names leak, converts to int\nenum class Level : std::uint8_t { Debug, Info, Warn, Error };   // scoped, one byte\n\nconst char* label(Level l) {\n    using enum Level;                           // C++20: no Level:: prefix needed below\n    switch (l) {                                // -Wall warns if a case is missing\n        case Debug: return \"debug\";\n        case Info:  return \"info\";\n        case Warn:  return \"warn\";\n        case Error: return \"error\";\n    }\n    return \"?\";\n}\n\nint main() {\n    Level l = Level::Warn;\n    // int bad = l;                             // error: no implicit conversion\n    int n = static_cast<int>(l);                // 2 (C++23: std::to_underlying(l))\n    bool loud = l >= Level::Warn;               // same-enum comparison is fine\n    int c = Green;                              // compiles: unscoped enums convert silently\n    std::cout << label(l) << ' ' << n << ' ' << loud << ' ' << c << '\\n';  // warn 2 1 1\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Prefer `enum class`: scoped names, no implicit int conversion",
+    "Choose the underlying type with `: std::uint8_t` when size matters",
+    "Switch without `default` so the compiler flags missing cases"
+   ],
+   "pitfalls": [
+    "Adding a `default:` to every enum switch, which silences the warning that would tell you about a newly added enumerator."
+   ],
+   "quiz": [
+    {
+     "q": "Given `enum class Dir { Up, Down };`, which line compiles?",
+     "options": [
+      "int d = Dir::Up;",
+      "bool b = Dir::Up < Dir::Down;",
+      "Dir d = 0;",
+      "Dir d = Up;"
+     ],
+     "answer": 1,
+     "explain": "Scoped enum values compare with each other, but don't convert to or from int and need the Dir:: prefix."
+    },
+    {
+     "q": "Why might you write `enum class Opcode : std::uint8_t`?",
+     "options": [
+      "To make each Opcode exactly one byte, e.g. in a packed message",
+      "To allow implicit conversion to uint8_t",
+      "To make the values start at 1",
+      "It is required for switch statements"
+     ],
+     "answer": 0,
+     "explain": "The underlying type fixes the storage size; conversions still need an explicit cast."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/enum",
+   "requires": [
+    "cpp.control-flow",
+    "cpp.variables-types"
+   ]
+  },
+  {
+   "id": "cpp.stl-containers",
+   "name": "Standard containers",
+   "module": "stl",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Choose between vector, deque, map, set, unordered_map and friends, and use their lookup and insertion APIs correctly.",
+   "why": "Picking the right container is the most common design decision in C++ code and has a big effect on speed and clarity.",
+   "body": "The standard library's containers fall into a few families:\n\n- **Sequence**: `std::vector` (the default), `std::array` (fixed size), `std::deque` (fast push/pop at both ends), `std::list` / `std::forward_list` (linked lists, rarely the right choice).\n- **Ordered associative**: `std::map<K, V>` and `std::set<K>`, kept sorted by key in a balanced tree. Lookup, insert and erase are O(log n), and iteration is in key order.\n- **Unordered associative**: `std::unordered_map` and `std::unordered_set`, hash tables with average O(1) operations and no ordering. Keys need `std::hash` and `==`.\n- **Adapters**: `std::stack`, `std::queue`, `std::priority_queue` (a heap) on top of another container.\n\nMap APIs have well-known traps. `m[key]` inserts a default-constructed value if the key is missing, which is convenient for counting (`++freq[word]`) but surprising for lookups, and unavailable on a const map. To look up without inserting, use `find` (returns `end()` when missing), `contains` (C++20) or `at` (throws). `try_emplace` and `insert_or_assign` are the clear way to insert. Iterate with structured bindings: `for (const auto& [key, value] : m)`.\n\nRules of thumb: start with `vector`; use `unordered_map` for fast key lookup; use `map` when you need sorted order or range queries like `lower_bound`. For a small, mostly-read lookup table, a sorted vector often beats both thanks to cache locality; C++23 packages that idea as `std::flat_map` and `std::flat_set`.\n\nAll containers are RAII values: they free everything they hold, copy deeply and can be moved cheaply.",
+   "code": "#include <iostream>\n#include <map>\n#include <set>\n#include <string>\n#include <unordered_map>\n#include <vector>\n\nint main() {\n    std::vector<std::string> words{\"to\", \"be\", \"or\", \"not\", \"to\", \"be\"};\n\n    std::unordered_map<std::string, int> freq;       // hash table, average O(1)\n    for (const auto& w : words) ++freq[w];           // [] inserts 0 if missing\n\n    std::map<std::string, int> sorted(freq.begin(), freq.end());   // ordered by key\n    for (const auto& [word, n] : sorted)             // structured bindings\n        std::cout << word << '=' << n << ' ';        // be=2 not=1 or=1 to=2\n    std::cout << '\\n';\n\n    std::set<std::string> unique(words.begin(), words.end());\n    std::cout << unique.size() << ' ' << unique.contains(\"or\") << '\\n';   // 4 1\n\n    if (auto it = freq.find(\"xyz\"); it == freq.end())\n        std::cout << \"no xyz\\n\";                     // find doesn't insert; [] would\n    std::cout << freq.size() << '\\n';                // 4\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "`vector` first; `unordered_map` for fast lookup; `map` for sorted keys",
+    "`m[k]` inserts when k is missing — use `find`, `contains` or `at` to look up",
+    "Iterate maps with `for (const auto& [k, v] : m)`"
+   ],
+   "pitfalls": [
+    "Using `if (m[key] == 0)` to test for presence, which inserts every key you test."
+   ],
+   "quiz": [
+    {
+     "q": "You need to print all entries sorted by key and occasionally find all keys in a range. Which container fits best?",
+     "options": [
+      "std::unordered_map",
+      "std::stack",
+      "std::list<std::pair<K, V>>",
+      "std::map"
+     ],
+     "answer": 3,
+     "explain": "std::map keeps keys sorted, so in-order iteration and lower_bound/upper_bound range queries are natural."
+    },
+    {
+     "q": "After `std::map<std::string, int> m; if (m[\"a\"] > 0) {}`, what is m.size()?",
+     "options": [
+      "0",
+      "It throws std::out_of_range",
+      "1",
+      "It does not compile"
+     ],
+     "answer": 2,
+     "explain": "operator[] inserts a value-initialised entry for a missing key, so \"a\" is now in the map with value 0."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/container",
+   "requires": [
+    "cpp.vector",
+    "cpp.strings"
+   ]
+  },
+  {
+   "id": "cpp.iterators",
+   "name": "Iterators",
+   "module": "stl",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Traverse any container with iterators, understand half-open ranges and iterator categories, and avoid invalidation bugs.",
+   "why": "Iterators are the glue between containers and algorithms; misusing an invalidated iterator is one of the most common C++ bugs.",
+   "body": "An **iterator** is a generalised pointer into a container: `*it` gives the element, `++it` advances. Every container has `begin()`, pointing at the first element, and `end()`, pointing **one past the last**. Ranges are half-open, `[begin, end)`, so an empty container has `begin() == end()` and loops use `it != end()`.\n\nRange-for is built on these: `for (auto x : v)` is shorthand for a loop from `begin()` to `end()`. Other variations are `cbegin()` for read-only iteration and `rbegin()`/`rend()` for reverse order.\n\nIterators come in **categories** that determine which algorithms they work with:\n\n- Input/forward: only `++` (e.g. `std::forward_list`, stream iterators).\n- Bidirectional: `++` and `--` (`std::list`, `std::map`, `std::set`).\n- Random access: also `it + n`, `it[n]`, `it2 - it1` (`std::deque`).\n- Contiguous: random access with elements adjacent in memory (`std::vector`, `std::array`, `std::string`).\n\nThat's why `std::sort` works on a vector but not on a list (which has its own `sort()` member).\n\nThe critical rule is **invalidation**. Operations that change a container's structure can invalidate iterators, pointers and references into it. For `std::vector`, any reallocation invalidates everything, and `erase` invalidates everything from the erased point on. Node-based containers (`list`, `map`, `set`) only invalidate iterators to erased elements. Using an invalid iterator is undefined behaviour.\n\nTo erase while iterating, use the iterator that `erase` returns. Better still, C++20's `std::erase(v, value)` and `std::erase_if(v, pred)` remove matching elements in one call.",
+   "code": "#include <iostream>\n#include <list>\n#include <vector>\n\nint main() {\n    std::vector<int> v{3, 1, 4, 1, 5, 9};\n    for (auto it = v.begin(); it != v.end(); ++it)   // [begin, end): end is one past the last\n        *it *= 10;\n\n    for (auto it = v.rbegin(); it != v.rend(); ++it) std::cout << *it << ' ';\n    std::cout << '\\n';                               // 90 50 10 40 10 30\n\n    auto third = v.begin() + 2;                      // random access: jump by n\n    std::cout << *third << ' ' << (v.end() - v.begin()) << '\\n';   // 40 6\n\n    std::list<int> l{1, 2, 3};\n    auto li = l.begin();\n    ++li;                                            // bidirectional: no li + 2\n    l.insert(li, 99);                                // list iterators stay valid: 1 99 2 3\n\n    for (auto it = v.begin(); it != v.end();)        // erase while iterating:\n        it = (*it == 10) ? v.erase(it) : it + 1;     // continue from what erase returns\n    std::erase(v, 90);                               // C++20 one-liner\n    for (int x : v) std::cout << x << ' ';           // 30 40 50\n    std::cout << '\\n';\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Ranges are half-open: `[begin(), end())`; `end()` is never dereferenced",
+    "Iterator category decides which algorithms apply (e.g. `std::sort` needs random access)",
+    "Structural changes can invalidate iterators; continue from the one `erase` returns"
+   ],
+   "pitfalls": [
+    "Calling `v.erase(it)` inside a for loop and then doing `++it` on the invalidated iterator."
+   ],
+   "quiz": [
+    {
+     "q": "Which container's iterators allow `it + 5`?",
+     "options": [
+      "std::deque",
+      "std::map",
+      "std::list",
+      "std::forward_list"
+     ],
+     "answer": 0,
+     "explain": "deque iterators are random access; list and map are bidirectional and forward_list is forward-only."
+    },
+    {
+     "q": "You hold an iterator to the 2nd element of a vector and then erase the 1st element. What about your iterator?",
+     "options": [
+      "Invalidated: erase invalidates iterators at or after the erased position",
+      "Still valid, pointing at the same value",
+      "Automatically moved to the new 1st element",
+      "Valid only if capacity didn't change"
+     ],
+     "answer": 0,
+     "explain": "vector::erase shifts later elements down, so iterators from the erase point onwards are invalidated."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/iterator",
+   "requires": [
+    "cpp.stl-containers",
+    "cpp.pointers"
+   ]
+  },
+  {
+   "id": "cpp.lambdas",
+   "name": "Lambdas",
+   "module": "stl",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Write inline function objects with lambdas: captures by value and by reference, generic lambdas, and storing callables.",
+   "why": "Lambdas are how you customise algorithms, write callbacks and launch threads in modern C++.",
+   "body": "A **lambda** is an anonymous function object written inline: `[captures](params) { body }`. The return type is deduced, or given as `-> T`.\n\nThe capture list says which outside variables the lambda can use:\n\n- `[x]` copies `x` into the lambda when it's created; `[&x]` refers to the original.\n- `[=]` and `[&]` capture everything used, by copy or by reference. Prefer listing captures explicitly in longer code.\n- Init-captures create new members: `[n = 0]`, or `[p = std::move(ptr)]` to move a unique_ptr in.\n- In a member function, `[this]` captures the object pointer and `[*this]` copies the object.\n\nCaptured copies are const inside the lambda unless you mark it `mutable`, which lets a lambda keep its own state between calls.\n\nEach lambda has its own unique, unnamed type, so store one in `auto`. With `auto` parameters you get a **generic lambda**, a template in disguise; C++20 also allows an explicit template parameter list, `[]<typename T>(T x) { ... }`. Lambdas with no captures convert to plain function pointers, handy for C APIs.\n\nTo store different callables in one variable or container, such as a list of callbacks, use `std::function<int(int)>` from `<functional>`. It type-erases any callable with that signature, at the cost of a possible heap allocation and an indirect call. Templates or `auto` parameters avoid that cost when you just pass a lambda to a function. C++23 adds `std::move_only_function` for callables that can't be copied.\n\nThe main danger: a lambda that captures by reference must not outlive the variables it captured. That bites with callbacks, threads and lambdas returned from functions; capture by value there.",
+   "code": "#include <algorithm>\n#include <functional>\n#include <iostream>\n#include <memory>\n#include <vector>\n\nint main() {\n    std::vector<int> v{5, 2, 8, 1};\n    int threshold = 3;\n\n    auto above = [threshold](int x) { return x > threshold; };     // capture by value\n    std::cout << std::count_if(v.begin(), v.end(), above) << '\\n';  // 2\n\n    int calls = 0;\n    std::sort(v.begin(), v.end(), [&calls](int a, int b) { ++calls; return a > b; });\n    std::cout << v[0] << ' ' << (calls > 0) << '\\n';                // 8 1\n\n    auto add = [](auto a, auto b) { return a + b; };                // generic lambda\n    std::cout << add(1, 2) << ' ' << add(1.5, 2.0) << '\\n';         // 3 3.5\n\n    auto counter = [n = 0]() mutable { return ++n; };               // own state\n    counter(); counter();\n    std::cout << counter() << '\\n';                                 // 3\n\n    auto owned = [p = std::make_unique<int>(7)] { return *p; };     // move-only capture\n    std::function<int(int)> twice = [](int x) { return 2 * x; };    // type-erased\n    std::cout << owned() + twice(4) << '\\n';                        // 15\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "`[x]` copies at creation, `[&x]` refers to the live variable",
+    "Use `mutable` to modify by-value captures; init-captures `[p = std::move(x)]` move things in",
+    "`std::function` stores any callable but costs more than `auto`/templates"
+   ],
+   "pitfalls": [
+    "Capturing locals by reference in a callback or thread that runs after the function has returned."
+   ],
+   "quiz": [
+    {
+     "q": "What does this print? `int x = 1; auto f = [x] { return x; }; x = 5; std::cout << f();`",
+     "options": [
+      "It does not compile",
+      "5",
+      "Undefined",
+      "1"
+     ],
+     "answer": 3,
+     "explain": "A by-value capture copies x when the lambda is created, so later changes to x are not seen."
+    },
+    {
+     "q": "Why does `[n = 0]() { return ++n; }` fail to compile?",
+     "options": [
+      "Init-captures must be references",
+      "Lambdas can't return int",
+      "By-value captures are const unless the lambda is mutable",
+      "n must be declared outside"
+     ],
+     "answer": 2,
+     "explain": "The lambda's call operator is const by default, so modifying a captured copy requires `mutable`."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/lambda",
+   "requires": [
+    "cpp.references",
+    "cpp.auto-init"
+   ]
+  },
+  {
+   "id": "cpp.algorithms",
+   "name": "Standard algorithms",
+   "module": "stl",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Replace hand-written loops with std::sort, find_if, transform, accumulate and the rest of <algorithm> and <numeric>.",
+   "why": "Named algorithms are clearer, tested and often faster than raw loops, and every C++ reviewer expects you to know them.",
+   "body": "The headers `<algorithm>` and `<numeric>` hold over a hundred generic algorithms that operate on iterator ranges, usually customised with a lambda. Knowing the common ones turns ten-line loops into one line that states its intent.\n\n- Searching: `find`, `find_if`, `any_of`/`all_of`/`none_of`, `count_if`, and on sorted ranges `binary_search`, `lower_bound`, `equal_range`.\n- Sorting: `sort` (not stable), `stable_sort`, `partial_sort`, `nth_element` (k-th element in O(n)), `is_sorted`.\n- Transforming: `transform`, `copy_if`, `fill`, `iota`, `reverse`, `rotate`, `unique`.\n- Reducing: `accumulate` and `reduce` (`<numeric>`), `min_element`, `max_element`, `minmax_element`.\n\nComparators must define a **strict weak ordering**: use `<`, never `<=`, or `std::sort` can misbehave and even crash.\n\nAlgorithms never change the size of a container, since they only see iterators. `remove_if` and `unique` move kept elements to the front and return the new logical end; you must then call `erase` to shrink the container (the **erase-remove idiom**). For the remove case, C++20's `std::erase_if` does both steps.\n\nWatch `accumulate`'s initial value: its type is the type of the accumulator, so `accumulate(v.begin(), v.end(), 0)` over doubles truncates every step to `int`. Pass `0.0`.\n\nOutput algorithms like `transform` and `copy` write to an output iterator and assume there's room: size the destination first or use `std::back_inserter(dest)`.\n\nSince C++17, many algorithms accept an execution policy such as `std::execution::par` to run in parallel. The C++20 range versions in the Advanced lessons take whole containers instead of iterator pairs.",
+   "code": "#include <algorithm>\n#include <iostream>\n#include <numeric>\n#include <string>\n#include <vector>\n\nstruct Order { std::string customer; double amount; };\n\nint main() {\n    std::vector<Order> orders{{\"ann\", 30.0}, {\"bob\", 120.5}, {\"cy\", 75.0}, {\"ann\", 9.5}};\n\n    std::sort(orders.begin(), orders.end(),\n              [](const Order& a, const Order& b) { return a.amount > b.amount; });\n    std::cout << orders.front().customer << '\\n';                     // bob\n\n    double total = std::accumulate(orders.begin(), orders.end(), 0.0,  // 0.0, not 0!\n        [](double sum, const Order& o) { return sum + o.amount; });\n    bool any_big = std::any_of(orders.begin(), orders.end(),\n                               [](const Order& o) { return o.amount > 100; });\n\n    std::vector<std::string> names;\n    std::transform(orders.begin(), orders.end(), std::back_inserter(names),\n                   [](const Order& o) { return o.customer; });\n    std::sort(names.begin(), names.end());\n    names.erase(std::unique(names.begin(), names.end()), names.end());  // dedupe\n    std::cout << total << ' ' << any_big << ' ' << names.size() << '\\n'; // 235 1 3\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Prefer a named algorithm to a raw loop: it states intent",
+    "`remove_if`/`unique` don't shrink the container — follow with `erase` (or use `std::erase_if`)",
+    "Comparators must be strict (`<`), and `accumulate`'s initial value sets the result type"
+   ],
+   "pitfalls": [
+    "Passing `0` instead of `0.0` to `std::accumulate` over doubles, silently truncating the sum."
+   ],
+   "quiz": [
+    {
+     "q": "v is {1, 2, 3, 2} and you call `std::remove(v.begin(), v.end(), 2);` without erase. What is v.size() afterwards?",
+     "options": [
+      "2",
+      "4",
+      "3",
+      "It depends on the implementation"
+     ],
+     "answer": 1,
+     "explain": "Algorithms can't change a container's size; remove only shuffles kept elements forward and returns the new logical end."
+    },
+    {
+     "q": "What's wrong with `std::sort(v.begin(), v.end(), [](int a, int b) { return a <= b; });`?",
+     "options": [
+      "Nothing",
+      "<= is not a strict weak ordering, so the behaviour is undefined",
+      "Lambdas can't be comparators",
+      "It sorts in descending order"
+     ],
+     "answer": 1,
+     "explain": "Comparators must return false for equal elements; <= breaks that and can make sort read out of bounds."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/algorithm",
+   "requires": [
+    "cpp.iterators",
+    "cpp.lambdas"
+   ]
+  },
+  {
+   "id": "cpp.namespaces-headers",
+   "name": "Headers, namespaces and the ODR",
+   "module": "build",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Split code into headers and source files, organise names with namespaces, and follow the one-definition rule.",
+   "why": "Every multi-file C++ project depends on this structure, and most linker errors come from getting it wrong.",
+   "body": "C++ code is split into **headers** (`.h`/`.hpp`), which contain declarations other files need, and **source files** (`.cpp`), which contain definitions. A source file `#include`s the headers it uses; the preprocessor pastes them in textually. Each header starts with an include guard, `#pragma once` (supported everywhere) or the classic `#ifndef X_H / #define X_H / #endif`, so it isn't processed twice in one translation unit.\n\nThe **one-definition rule (ODR)**: a non-inline function or variable may be defined only once in the whole program. If you put `int helper() { ... }` in a header included by two `.cpp` files, the linker reports \"multiple definition\". Things that may appear in headers, because they're implicitly or explicitly `inline`, are class definitions, templates, `inline` functions, `constexpr` functions, member functions defined inside a class body, and C++17 `inline` variables. Their definitions must be identical everywhere; violating that is undefined behaviour with no diagnostic.\n\n**Namespaces** group names and prevent clashes: `namespace geo { ... }`, used as `geo::distance`. C++17 lets you write nested ones as `namespace app::net { }`. Never write `using namespace` in a header, because it leaks into every file that includes it. In a `.cpp` file, a targeted `using std::string;` is fine.\n\nAn **unnamed namespace**, `namespace { ... }`, gives its contents internal linkage: visible only inside that `.cpp`. Use it for file-local helpers (the modern replacement for `static` functions).\n\nC++20 **modules** (`export module geo;` / `import geo;`) and C++23's `import std;` aim to replace headers with faster, isolated compilation. Compiler and build-tool support is improving, but headers remain the norm.",
+   "code": "// ---- geometry.h ----\n#pragma once                        // process at most once per translation unit\nnamespace geo {\nstruct Point { double x, y; };\ndouble distance(Point a, Point b);              // declaration only\ninline constexpr double pi = 3.14159265358979;  // inline: one entity in all TUs\n}  // namespace geo\n\n// ---- geometry.cpp ----\n#include \"geometry.h\"\n#include <cmath>\nnamespace {                          // internal linkage: only this file sees it\ndouble square(double v) { return v * v; }\n}\ndouble geo::distance(Point a, Point b) {\n    return std::sqrt(square(a.x - b.x) + square(a.y - b.y));\n}\n\n// ---- main.cpp ----   build: g++ -std=c++20 main.cpp geometry.cpp -o app\n#include \"geometry.h\"\n#include <iostream>\nint main() { std::cout << geo::distance({0, 0}, {3, 4}) << '\\n'; }   // 5",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Headers declare, source files define; guard every header with `#pragma once`",
+    "Only inline things (classes, templates, `inline`/`constexpr` functions) may be defined in headers",
+    "Use an unnamed namespace for file-local helpers; never `using namespace` in a header"
+   ],
+   "pitfalls": [
+    "Defining a normal function in a header and getting \"multiple definition\" link errors once two files include it."
+   ],
+   "quiz": [
+    {
+     "q": "`int counter = 0;` is placed in a header included by a.cpp and b.cpp. What happens?",
+     "options": [
+      "Each file gets its own counter",
+      "Compile error in the second file",
+      "It works; the compiler merges them",
+      "The linker reports a multiple-definition error"
+     ],
+     "answer": 3,
+     "explain": "It's a non-inline definition with external linkage in two translation units, violating the ODR; `inline int counter = 0;` would fix it."
+    },
+    {
+     "q": "What does wrapping a helper function in `namespace { }` in a .cpp file do?",
+     "options": [
+      "Puts it in the global namespace",
+      "Makes it inline",
+      "Makes it visible only within that translation unit",
+      "Makes it usable before its declaration"
+     ],
+     "answer": 2,
+     "explain": "Names in an unnamed namespace have internal linkage, so other files can't see or clash with them."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/namespace",
+   "requires": [
+    "cpp.functions",
+    "cpp.structs-classes"
+   ]
+  },
+  {
+   "id": "cpp.exceptions",
+   "name": "Exceptions",
+   "module": "errors",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Report errors with throw, handle them with try/catch, and rely on RAII and noexcept for exception-safe code.",
+   "why": "Exceptions are the standard library's error mechanism, so you need to handle them even if your own code reports errors differently.",
+   "body": "`throw` signals an error that the current function can't handle. Control leaves the function and unwinds the stack until a matching `catch` is found; along the way every fully constructed local object is destroyed. That's why RAII matters: destructors free memory, close files and release locks during unwinding, so you don't need cleanup code at each exit.\n\nThrow objects derived from `std::exception` (header `<stdexcept>` has `std::runtime_error`, `std::invalid_argument`, `std::out_of_range` and others), and **catch by const reference**: `catch (const std::exception& e)`. Catching by value slices derived exceptions and copies them. Handlers are tried in order, so put specific types first. `catch (...)` catches anything; inside a handler, `throw;` rethrows the current exception.\n\nIf no handler is found, `std::terminate` ends the program.\n\n`noexcept` declares that a function won't throw; if it does, the program terminates. Destructors are `noexcept` by default. Mark move constructors and move assignment `noexcept` too, because containers like `std::vector` only move elements during reallocation when the move can't throw.\n\nThink about **exception-safety guarantees**:\n\n- Basic: after an exception nothing leaks and objects are still valid.\n- Strong: the operation either succeeds or has no effect (commit-or-rollback, often via copy-and-swap).\n- Nothrow: the operation never fails.\n\nOn mainstream compilers exceptions are \"zero-cost\" when nothing is thrown, but throwing is slow (microseconds). Use them for exceptional failures such as a missing config file or out of memory, not for normal control flow like \"key not found\". Some codebases (games, embedded) disable them, which is why the Advanced lessons cover `std::optional` and `std::expected`.",
+   "code": "#include <iostream>\n#include <stdexcept>\n#include <string>\n\nstruct Guard {\n    ~Guard() { std::cout << \"cleanup\\n\"; }      // runs during stack unwinding\n};\n\nint parse_port(const std::string& s) {\n    Guard g;\n    int port = std::stoi(s);                     // throws std::invalid_argument on \"abc\"\n    if (port < 1 || port > 65535)\n        throw std::out_of_range(\"port out of range: \" + s);\n    return port;\n}\n\nint main() {\n    for (std::string input : {\"8080\", \"99999\", \"abc\"}) {\n        try {\n            int port = parse_port(input);\n            std::cout << \"port \" << port << '\\n';\n        } catch (const std::out_of_range& e) {   // most specific first\n            std::cout << \"range error: \" << e.what() << '\\n';\n        } catch (const std::exception& e) {      // base of all standard exceptions\n            std::cout << \"bad input: \" << e.what() << '\\n';\n        }\n    }\n}   // each input prints \"cleanup\" before its result or error",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Throw `std::exception`-derived types; catch by `const&`, most specific first",
+    "Stack unwinding runs destructors, so RAII makes code exception-safe",
+    "Mark move operations `noexcept`; use exceptions for exceptional failures only"
+   ],
+   "pitfalls": [
+    "Catching `std::exception` before `std::out_of_range`, so the specific handler is never reached."
+   ],
+   "quiz": [
+    {
+     "q": "Why should a move constructor be marked noexcept?",
+     "options": [
+      "It's required for the class to be movable",
+      "std::vector only moves elements during reallocation if moving can't throw; otherwise it copies",
+      "It makes the move constructor inline",
+      "noexcept functions can't be called from catch blocks"
+     ],
+     "answer": 1,
+     "explain": "To keep the strong guarantee, vector falls back to copying unless the element's move constructor is noexcept."
+    },
+    {
+     "q": "A function throws while a std::vector, a std::unique_ptr and an open std::ofstream are local variables. What happens to them?",
+     "options": [
+      "Their destructors run during stack unwinding, freeing memory and closing the file",
+      "They leak unless caught in the same function",
+      "Only the unique_ptr is cleaned up",
+      "The program terminates immediately"
+     ],
+     "answer": 0,
+     "explain": "Unwinding destroys all fully constructed locals, and these RAII types release their resources in their destructors."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/exceptions",
+   "requires": [
+    "cpp.constructors-raii",
+    "cpp.inheritance"
+   ]
+  },
+  {
+   "id": "cpp.cmake",
+   "name": "Building with CMake",
+   "module": "build",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Describe a project with targets in CMakeLists.txt, set the C++ standard and warnings, link libraries and run tests.",
+   "why": "CMake is the de-facto build system for C++; nearly every library and IDE speaks it.",
+   "body": "Compiling by hand stops scaling after a few files. **CMake** is a build-system generator: you describe your project in `CMakeLists.txt`, and CMake generates Ninja files, Makefiles or Visual Studio projects. IDEs (CLion, VS Code, Visual Studio) open CMake projects directly.\n\nModern CMake is all about **targets**:\n\n- `add_executable(app main.cpp)` and `add_library(core STATIC a.cpp b.cpp)` define targets.\n- `target_link_libraries(app PRIVATE core)` links them, and also pulls in core's public include paths and flags.\n- `target_include_directories`, `target_compile_options` and `target_compile_definitions` attach settings to one target.\n\nThe keywords matter. `PRIVATE` applies only to this target, `PUBLIC` applies to it and everything that links to it, and `INTERFACE` applies only to dependents. Avoid the old global commands like `include_directories()` and `add_compile_options()` in new code.\n\nSet the standard with `set(CMAKE_CXX_STANDARD 20)`, `CMAKE_CXX_STANDARD_REQUIRED ON` and `CMAKE_CXX_EXTENSIONS OFF` (so you get `-std=c++20`, not `-std=gnu++20`). `CMAKE_EXPORT_COMPILE_COMMANDS` writes `compile_commands.json`, which clangd and clang-tidy use.\n\nDependencies come in through `find_package(Foo CONFIG REQUIRED)` for installed packages (often via vcpkg or Conan), or `FetchContent` to download and build a dependency as part of your project.\n\nAlways build **out of source**: `cmake -S . -B build` configures into a separate `build` directory, `cmake --build build` compiles only what changed, and `ctest` runs tests registered with `add_test`. Choose `-DCMAKE_BUILD_TYPE=Debug` or `Release` with single-config generators. CMake presets (`CMakePresets.json`) let a team share these settings.",
+   "code": "cmake_minimum_required(VERSION 3.20)\nproject(inventory LANGUAGES CXX)\n\nset(CMAKE_CXX_STANDARD 20)\nset(CMAKE_CXX_STANDARD_REQUIRED ON)\nset(CMAKE_CXX_EXTENSIONS OFF)\nset(CMAKE_EXPORT_COMPILE_COMMANDS ON)        # compile_commands.json for tools\n\nadd_library(core STATIC src/inventory.cpp src/storage.cpp)\ntarget_include_directories(core PUBLIC include)   # users of core see include/\nif(MSVC)\n  target_compile_options(core PRIVATE /W4)\nelse()\n  target_compile_options(core PRIVATE -Wall -Wextra -Wpedantic)\nendif()\n\nfind_package(fmt CONFIG REQUIRED)            # an installed dependency\nadd_executable(app src/main.cpp)\ntarget_link_libraries(app PRIVATE core fmt::fmt)\n\nenable_testing()\nadd_executable(core_tests tests/core_tests.cpp)\ntarget_link_libraries(core_tests PRIVATE core)\nadd_test(NAME core_tests COMMAND core_tests)\n\n# cmake -S . -B build -DCMAKE_BUILD_TYPE=Release\n# cmake --build build -j\n# ctest --test-dir build",
+   "code_lang": "cmake",
+   "takeaways": [
+    "Think in targets: `add_library`/`add_executable` + `target_*` commands",
+    "`PRIVATE` / `PUBLIC` / `INTERFACE` control what propagates to dependents",
+    "Configure out of source: `cmake -S . -B build`, then `cmake --build build`"
+   ],
+   "pitfalls": [
+    "Using global `include_directories()` and raw `CMAKE_CXX_FLAGS` edits instead of per-target settings."
+   ],
+   "quiz": [
+    {
+     "q": "Library `core` has `target_include_directories(core PUBLIC include)`. App links core with `target_link_libraries(app PRIVATE core)`. Can app's sources include headers from core's include/ directory?",
+     "options": [
+      "No, PRIVATE blocks it",
+      "Only if app also calls include_directories",
+      "Yes, because core declared that include directory PUBLIC",
+      "Only for header-only libraries"
+     ],
+     "answer": 2,
+     "explain": "PUBLIC usage requirements propagate to anything that links the target; app's PRIVATE only stops it propagating further."
+    },
+    {
+     "q": "Why set CMAKE_CXX_EXTENSIONS OFF?",
+     "options": [
+      "To disable C++ exceptions",
+      "To forbid third-party libraries",
+      "So the compiler uses standard -std=c++20 instead of the GNU dialect -std=gnu++20",
+      "To turn off compiler warnings"
+     ],
+     "answer": 2,
+     "explain": "With extensions on, GCC and Clang get -std=gnu++20, which accepts non-standard extensions."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/guide/tutorial/index.html",
+   "requires": [
+    "cpp.namespaces-headers",
+    "cpp.compile-and-run"
+   ]
+  },
+  {
+   "id": "cpp.move-semantics",
+   "name": "Move semantics and rvalue references",
+   "module": "classes",
+   "level": 3,
+   "minutes": 18,
+   "summary": "Transfer resources instead of copying them: rvalue references, std::move, move constructors and copy elision.",
+   "why": "Move semantics is why returning big objects by value is cheap in modern C++, and you need it to write efficient resource-owning types.",
+   "body": "Copying a `std::vector` duplicates all its elements. But if the source is about to die anyway, such as a temporary or a local being returned, we could just steal its heap buffer. **Move semantics** does exactly that.\n\nExpressions have value categories. An **lvalue** has a name and an identity (`x`, `v[0]`); an **rvalue** is a temporary (`f()`, `a + b`, `Buffer(8)`). An **rvalue reference**, `T&&`, binds only to rvalues, so overloads can tell \"copy from something that stays alive\" from \"take from something that's going away\":\n\n- `T(const T&)` is the copy constructor; `T(T&&)` is the move constructor, which takes the resource and leaves the source empty but valid.\n- The same pair exists for assignment operators.\n\n`std::move(x)` doesn't move anything. It's a cast to `T&&` that says \"I'm done with `x`, you may steal from it\". After a move, the object is in a **valid but unspecified** state: you may destroy it or assign a new value, but don't rely on its contents. (Standard containers do document that a moved-from vector is empty.)\n\nRules that matter:\n\n- Mark move operations `noexcept`, or `std::vector` will copy instead of move when it grows.\n- Return locals by plain `return x;`. The compiler elides the copy (NRVO) or moves implicitly. Writing `return std::move(x);` can block the elision.\n- Since C++17, returning or initializing from a prvalue (`return Buffer(1024);`) is guaranteed to construct in place, with no copy or move at all.\n- Moving a `const` object silently copies, because `const T&&` can't bind to the move constructor.\n\nFor functions that store their argument, a common idiom is to take it by value and move it in: `void set(std::string s) { name_ = std::move(s); }`.",
+   "code": "#include <iostream>\n#include <utility>\n#include <vector>\n\nclass Buffer {\npublic:\n    explicit Buffer(std::size_t n) : data_(n) {}\n    Buffer(const Buffer& o) : data_(o.data_) { std::cout << \"copy\\n\"; }\n    Buffer(Buffer&& o) noexcept : data_(std::move(o.data_)) { std::cout << \"move\\n\"; }\n    Buffer& operator=(const Buffer&) = default;\n    Buffer& operator=(Buffer&&) noexcept = default;\n    std::size_t size() const { return data_.size(); }\nprivate:\n    std::vector<char> data_;\n};\n\nBuffer make() { Buffer b(1024); return b; }   // NRVO or implicit move, never a copy\n\nint main() {\n    Buffer a(100);\n    Buffer b = a;                // copy: a is an lvalue\n    Buffer c = std::move(a);     // move: std::move casts a to Buffer&&\n    Buffer d = make();           // typically prints nothing: elided\n    std::vector<Buffer> v;\n    v.push_back(Buffer(8));      // move: the temporary is an rvalue\n    std::cout << b.size() << ' ' << c.size() << ' ' << d.size() << '\\n';  // 100 100 1024\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "`std::move` is only a cast; the move constructor does the stealing",
+    "Moved-from objects are valid but unspecified: assign or destroy them only",
+    "Return locals by name; don't `return std::move(local);`",
+    "Move operations should be `noexcept`"
+   ],
+   "pitfalls": [
+    "Calling `std::move` on a `const` object and getting a silent copy."
+   ],
+   "quiz": [
+    {
+     "q": "What does `std::move(x)` do by itself?",
+     "options": [
+      "Moves x's contents into a temporary",
+      "Casts x to an rvalue reference so a move overload can be chosen",
+      "Destroys x",
+      "Sets x to its default value"
+     ],
+     "answer": 1,
+     "explain": "std::move is just a static_cast<T&&>; nothing happens until a move constructor or assignment uses it."
+    },
+    {
+     "q": "Why is `return std::move(local);` usually worse than `return local;`?",
+     "options": [
+      "It can prevent copy elision (NRVO), forcing a move",
+      "It doesn't compile",
+      "It copies instead of moving",
+      "It leaves local in an invalid state"
+     ],
+     "answer": 0,
+     "explain": "Return of a named local is already elided or implicitly moved; the explicit cast disables NRVO."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/move_constructor",
+   "requires": [
+    "cpp.constructors-raii",
+    "cpp.smart-pointers"
+   ]
+  },
+  {
+   "id": "cpp.rule-of-zero",
+   "name": "Rule of zero, three and five",
+   "module": "classes",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Decide which special member functions a class needs, prefer letting members manage resources, and use =default and =delete.",
+   "why": "Getting the special members wrong causes double frees, leaks and silent slow copies; these rules make it systematic.",
+   "body": "The compiler can generate five special members besides the default constructor: the destructor, copy constructor, copy assignment, move constructor and move assignment. Which ones it generates depends on what you declare yourself.\n\n**Rule of three/five.** If a class needs a custom destructor, it almost certainly owns a resource directly, so the generated copy operations (which copy the raw pointer) would be wrong. Define or delete all five together. Declaring any of the destructor or copy operations suppresses the implicit move operations, so a class that only adds a destructor quietly becomes copy-only.\n\n**Rule of zero.** Better: don't own resources directly. Make every member manage itself, such as `std::string`, `std::vector`, `std::unique_ptr` or a small RAII wrapper, and declare none of the five. The generated versions then do the right thing member by member, and the class is copyable or move-only exactly when its members are. Most classes in good C++ code follow the rule of zero.\n\nWrite the full five only for a class whose job *is* to manage one resource, like a buffer or a handle wrapper. Tools that help:\n\n- `= default` asks for the generated version explicitly (and keeps it trivial when possible).\n- `= delete` forbids an operation: `T(const T&) = delete;` makes a type non-copyable.\n- **Copy-and-swap**: take the assignment parameter by value and swap with it. One operator covers copy and move assignment and gives the strong exception guarantee.\n- `std::exchange(o.p_, nullptr)` reads the source pointer and nulls it in one step in move constructors.\n\nA polymorphic base declares `virtual ~Base() = default;`, which suppresses moves, so default them explicitly if the hierarchy needs to be movable.",
+   "code": "#include <cstring>\n#include <memory>\n#include <string>\n#include <utility>\n#include <vector>\n\n// Rule of zero: members own the resources; the compiler writes all five correctly.\nclass Document {\n    std::string title_;\n    std::vector<std::string> lines_;\n    std::unique_ptr<int[]> index_;      // makes Document move-only automatically\npublic:\n    explicit Document(std::string t) : title_{std::move(t)} {}\n};\n\n// Rule of five: only for a class whose job IS owning one resource.\nclass CBuffer {\n    char* p_;\n    std::size_t n_;\npublic:\n    explicit CBuffer(std::size_t n) : p_{new char[n]{}}, n_{n} {}\n    ~CBuffer() { delete[] p_; }\n    CBuffer(const CBuffer& o) : p_{new char[o.n_]}, n_{o.n_} { std::memcpy(p_, o.p_, n_); }\n    CBuffer(CBuffer&& o) noexcept : p_{std::exchange(o.p_, nullptr)}, n_{std::exchange(o.n_, 0)} {}\n    CBuffer& operator=(CBuffer o) noexcept {   // copy-and-swap: covers copy AND move\n        std::swap(p_, o.p_); std::swap(n_, o.n_); return *this;\n    }\n};\n\nint main() {\n    Document d{\"notes\"};\n    Document d2 = std::move(d);         // OK; `Document d3 = d2;` would not compile\n    CBuffer a{16}, b{a};                // deep copy\n    b = std::move(a);\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Rule of zero: compose RAII members and declare no special members",
+    "Rule of five: a custom destructor means you must handle copy and move too",
+    "Declaring a destructor or copy operation suppresses implicit moves"
+   ],
+   "pitfalls": [
+    "Adding an empty `~T() {}` \"for debugging\" and silently turning every move of T into a copy."
+   ],
+   "quiz": [
+    {
+     "q": "A class holds `std::vector<int>` and `std::unique_ptr<Foo>` and declares no special members. What can you do with it?",
+     "options": [
+      "Copy and move it",
+      "Copy it but not move it",
+      "Neither copy nor move it",
+      "Move it but not copy it"
+     ],
+     "answer": 3,
+     "explain": "The generated copy constructor is deleted because unique_ptr is non-copyable, while moves are generated member-wise."
+    },
+    {
+     "q": "A class declares only a destructor `~T();`. What happens to `T b = std::move(a);`?",
+     "options": [
+      "It moves",
+      "It fails to compile",
+      "It's undefined behaviour",
+      "It copies, because the implicit move constructor isn't declared"
+     ],
+     "answer": 3,
+     "explain": "A user-declared destructor suppresses the implicit move operations, so the rvalue binds to the copy constructor instead."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/rule_of_three",
+   "requires": [
+    "cpp.move-semantics"
+   ]
+  },
+  {
+   "id": "cpp.templates",
+   "name": "Templates",
+   "module": "generic",
+   "level": 3,
+   "minutes": 18,
+   "summary": "Write generic code with function and class templates, deduction, non-type parameters, CTAD and variadic templates.",
+   "why": "Templates power the whole standard library; reading and writing them is essential for any serious C++ work.",
+   "body": "A **template** is a pattern from which the compiler generates code for each set of arguments you use. `template <typename T> T max_of(T a, T b)` works for any `T` supporting `<`; calling `max_of(3, 7)` **instantiates** `max_of<int>`. There's no runtime cost: each instantiation is ordinary, fully optimised code.\n\n- **Function templates** usually deduce their arguments from the call. Deduction needs consistent types, so `max_of(2, 2.5)` fails (is `T` int or double?); write `max_of<double>(2, 2.5)`.\n- **Class templates** like `std::vector<T>` parameterise a whole type. Since C++17, **CTAD** (class template argument deduction) deduces the arguments from the constructor: `std::vector v{1, 2, 3};` and `std::pair p{1, 2.5};`. C++20 extends CTAD to aggregates.\n- **Non-type parameters** pass compile-time values: `template <typename T, std::size_t N> class Ring`. C++20 allows floating-point and simple class types here as well.\n- **Variadic templates** take any number of arguments, `template <typename... Ts>`, and **fold expressions** combine them: `(xs + ... + 0)`.\n\nBecause the compiler needs the full definition to instantiate it, template code normally lives entirely in headers.\n\nA template parameter written `T&&` in a deduced context is a **forwarding reference**, not an rvalue reference. It binds to anything, and `std::forward<T>(arg)` passes the argument on as an lvalue or rvalue, exactly as it came in. That's how `emplace_back` and `make_unique` pass constructor arguments through.\n\nYou can **specialise** a template for particular arguments, `template <> struct Hash<MyType> { ... };`, to give a custom implementation.\n\nThe traditional downside is error messages: a type that lacks an operation fails deep inside the template body. Concepts, next, fix that.",
+   "code": "#include <array>\n#include <iostream>\n#include <string>\n#include <utility>\n\ntemplate <typename T>\nT max_of(T a, T b) { return a < b ? b : a; }        // any T with operator<\n\ntemplate <typename T, std::size_t N>                 // type + non-type parameter\nclass Ring {\npublic:\n    void push(T v) { data_[head_++ % N] = std::move(v); }\n    const T& operator[](std::size_t i) const { return data_[i % N]; }\nprivate:\n    std::array<T, N> data_{};\n    std::size_t head_ = 0;\n};\n\ntemplate <typename... Ts>                             // variadic template\nauto sum(Ts... xs) { return (xs + ... + 0); }        // fold expression\n\nint main() {\n    std::cout << max_of(3, 7) << ' ' << max_of<double>(2, 2.5) << '\\n';     // 7 2.5\n    std::cout << max_of(std::string{\"pear\"}, std::string{\"apple\"}) << '\\n'; // pear\n    Ring<int, 3> r;\n    for (int i = 1; i <= 5; ++i) r.push(i);           // overwrites the oldest\n    std::pair p{1, 2.5};                              // CTAD: std::pair<int, double>\n    std::cout << r[0] << ' ' << sum(1, 2, 3.5) << ' ' << p.second << '\\n';  // 4 6.5 2.5\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Templates generate code per argument set at compile time — no runtime overhead",
+    "Template definitions go in headers",
+    "In a deduced `template <class T> f(T&& x)`, `T&&` is a forwarding reference; pass it on with `std::forward<T>(x)`"
+   ],
+   "pitfalls": [
+    "Declaring a template in a header and defining it in a .cpp file, then getting undefined-reference link errors."
+   ],
+   "quiz": [
+    {
+     "q": "Why does `max_of(2, 2.5)` fail for `template <typename T> T max_of(T a, T b)`?",
+     "options": [
+      "Templates can't take literals",
+      "Deduction gets int from one argument and double from the other, a conflict",
+      "double has no operator<",
+      "max_of must be called with <>"
+     ],
+     "answer": 1,
+     "explain": "Each argument deduces T independently; int and double disagree, so deduction fails."
+    },
+    {
+     "q": "In `template <typename T> void wrap(T&& arg)`, what is `T&&`?",
+     "options": [
+      "A forwarding reference that binds to lvalues and rvalues",
+      "Always an rvalue reference",
+      "A reference to a reference",
+      "A const reference"
+     ],
+     "answer": 0,
+     "explain": "When T is deduced, T&& is a forwarding reference: T becomes U& for lvalues, so it binds to everything."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/templates",
+   "requires": [
+    "cpp.function-overloading",
+    "cpp.stl-containers"
+   ]
+  },
+  {
+   "id": "cpp.concepts",
+   "name": "Concepts and constraints",
+   "module": "generic",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Constrain templates with C++20 concepts and requires clauses for clear errors and overloading by capability.",
+   "why": "Concepts turn template errors from pages of noise into one line and document what a template actually needs.",
+   "body": "A **concept** is a named compile-time predicate on types. `std::integral<T>` is true for integer types; `std::totally_ordered<T>` for types with all comparisons. The header `<concepts>` provides the core set (`same_as`, `convertible_to`, `derived_from`, `invocable`, `regular`...), and `<iterator>` and `<ranges>` add many more.\n\nYou can constrain a template in several equivalent ways:\n\n- `template <std::integral T> T half(T x);`\n- `template <typename T> requires std::integral<T> T half(T x);`\n- Abbreviated: `auto half(std::integral auto x);`\n\nIf a call doesn't satisfy the constraint, the error names the failed concept at the call site instead of failing somewhere inside the template body.\n\nDefine your own with a **requires-expression**, which lists the operations a type must support:\n\n```cpp\ntemplate <typename T>\nconcept Shape = requires(const T& s) {\n    { s.area() } -> std::convertible_to<double>;\n};\n```\n\nEach requirement must compile for the concept to hold; the `-> concept` part also checks the result type.\n\nConstraints take part in overload resolution. You can write one `half` for integers and one for floating-point types, and the right one is picked; when one constraint **subsumes** another (it includes it via `&&`), the more constrained overload wins. This replaces most uses of SFINAE and `enable_if`.\n\nConcepts are checked structurally: a type satisfies `Shape` if it has the right members, without inheriting from anything. That's static duck typing with good errors.\n\nUse the standard concepts when they fit, and design your own around meaningful abstractions (\"a Shape\", \"a Sortable range\") rather than single operations.",
+   "code": "#include <concepts>\n#include <iostream>\n#include <string>\n\ntemplate <typename T>\nconcept Shape = requires(const T& s) {\n    { s.area() } -> std::convertible_to<double>;     // must have area() giving ~double\n    { s.name() } -> std::convertible_to<std::string>;\n};\n\nstruct Square {\n    double side;\n    double area() const { return side * side; }\n    std::string name() const { return \"square\"; }\n};\n\nvoid describe(const Shape auto& s) {                 // abbreviated function template\n    std::cout << s.name() << \": \" << s.area() << '\\n';\n}\n\ntemplate <typename T> requires std::integral<T>\nT half(T x) { return x / 2; }\n\ntemplate <std::floating_point T>                     // chosen for float and double\nT half(T x) { return x / 2.0; }\n\nint main() {\n    describe(Square{3});                             // square: 9\n    std::cout << half(7) << ' ' << half(7.0) << '\\n'; // 3 3.5\n    // describe(42);   // error: constraints not satisfied (Shape<int> is false)\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Constrain templates with `template <Concept T>`, `requires`, or `Concept auto`",
+    "Define concepts with requires-expressions listing the needed operations",
+    "Constraints participate in overload resolution and replace most SFINAE"
+   ],
+   "pitfalls": [
+    "Writing a concept for a single syntactic operation (\"HasPlus\") instead of a meaningful abstraction."
+   ],
+   "quiz": [
+    {
+     "q": "What happens when you call `half(\"text\")` with only the two constrained overloads above?",
+     "options": [
+      "It picks the integral overload",
+      "It picks the floating-point overload",
+      "It compiles but fails at run time",
+      "Compile error: no overload's constraints are satisfied"
+     ],
+     "answer": 3,
+     "explain": "const char* is neither integral nor floating point, so both candidates are removed and no viable function remains."
+    },
+    {
+     "q": "A type `Circle` has `double area() const` and `std::string name() const` but no base class. Does it satisfy the Shape concept above?",
+     "options": [
+      "No, it must derive from Shape",
+      "Only if marked with `requires Shape`",
+      "Yes, concepts check the required expressions structurally",
+      "Only after explicit specialisation"
+     ],
+     "answer": 2,
+     "explain": "Concept satisfaction is checked by whether the requirements compile; no inheritance or registration is involved."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/constraints",
+   "requires": [
+    "cpp.templates"
+   ]
+  },
+  {
+   "id": "cpp.ranges",
+   "name": "Ranges and views",
+   "module": "stl",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Use C++20 ranges: algorithms on whole containers with projections, and lazy, composable views joined with |.",
+   "why": "Ranges make data pipelines shorter and safer than iterator pairs, and views avoid building temporary containers.",
+   "body": "C++20's `<ranges>` brings two big improvements.\n\n**Range algorithms.** Everything in `std::ranges::` accepts a whole container: `std::ranges::sort(v)` instead of `std::sort(v.begin(), v.end())`. They're constrained with concepts, so misuse produces readable errors, and they accept **projections**, a function applied to each element before comparing. `std::ranges::sort(staff, {}, &Employee::age)` sorts by age with no lambda; `std::ranges::find(staff, \"Mo\", &Employee::name)` finds by name.\n\n**Views.** A view is a lightweight, lazy range adaptor that doesn't own elements and computes them on demand. Compose them with `|`:\n\n- `views::filter(pred)`, `views::transform(f)`, `views::take(n)`, `views::drop(n)`, `views::reverse`\n- `views::iota(a, b)` generates numbers; `views::iota(1)` counts forever (fine when combined with `take`)\n- `views::keys` / `views::values` on maps, `views::split`, `views::join`\n\nNothing runs until you iterate, and each element flows through the whole pipeline individually, with no intermediate vectors. C++23 adds `views::zip`, `views::enumerate`, `views::chunk`, `views::slide`, and `std::ranges::to<std::vector>()` to collect a view into a container.\n\nThings to watch:\n\n- Views refer to their underlying data. A view over a container must not outlive it, just like an iterator.\n- Some views (such as `filter`) cache their `begin()` and must be non-const to iterate; pass views to functions by value or forwarding reference rather than `const&`.\n- Range algorithms called on a temporary container return `std::ranges::dangling` instead of an iterator, so the compiler stops you from using a dangling result.",
+   "code": "#include <algorithm>\n#include <iostream>\n#include <map>\n#include <ranges>\n#include <string>\n#include <vector>\n\nstruct Employee { std::string name; int age; };\n\nint main() {\n    std::vector<Employee> staff{{\"Zoe\", 41}, {\"Al\", 29}, {\"Mo\", 35}};\n    std::ranges::sort(staff, {}, &Employee::age);       // whole range + projection\n    std::cout << staff.front().name << '\\n';           // Al\n\n    namespace views = std::views;\n    auto squares_of_odds = views::iota(1)              // 1, 2, 3, ... lazily\n        | views::filter([](int n) { return n % 2 == 1; })\n        | views::transform([](int n) { return n * n; })\n        | views::take(4);\n    for (int x : squares_of_odds) std::cout << x << ' ';   // 1 9 25 49\n    std::cout << '\\n';\n\n    std::map<std::string, int> stock{{\"apple\", 3}, {\"kiwi\", 0}};\n    for (const auto& name : stock | views::keys) std::cout << name << ' ';  // apple kiwi\n    std::cout << '\\n';\n\n    auto it = std::ranges::find(staff, \"Mo\", &Employee::name);   // projection again\n    std::cout << it->age << '\\n';                      // 35\n    // C++23: auto v = squares_of_odds | std::ranges::to<std::vector>();\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "`std::ranges::` algorithms take whole ranges and support projections",
+    "Views are lazy and non-owning; compose them with `|`",
+    "A view must not outlive the data it looks at"
+   ],
+   "pitfalls": [
+    "Returning a view over a local container from a function — the view dangles once the container is destroyed."
+   ],
+   "quiz": [
+    {
+     "q": "When does the filter lambda in `auto v = nums | std::views::filter(pred);` run?",
+     "options": [
+      "Only as v is iterated",
+      "Immediately, for every element",
+      "When v is copied into a vector automatically",
+      "Once at compile time"
+     ],
+     "answer": 0,
+     "explain": "Views are lazy: elements are filtered on demand as the iteration reaches them."
+    },
+    {
+     "q": "What does `std::ranges::sort(people, {}, &Person::height)` do?",
+     "options": [
+      "Sorts people by height using the default less-than comparator",
+      "Sorts heights into a new vector",
+      "Doesn't compile: the comparator can't be {}",
+      "Sorts people and resets heights"
+     ],
+     "answer": 0,
+     "explain": "{} is the default std::ranges::less, and the projection compares the height members while sorting the Person objects."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/ranges",
+   "requires": [
+    "cpp.algorithms",
+    "cpp.concepts"
+   ]
+  },
+  {
+   "id": "cpp.constexpr",
+   "name": "constexpr and compile-time code",
+   "module": "generic",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Run code at compile time with constexpr, consteval and constinit, and check assumptions with static_assert.",
+   "why": "Moving work and checks to compile time catches bugs earlier and removes runtime cost, and modern C++ lets you do it with normal code.",
+   "body": "A `constexpr` function can be evaluated by the compiler when its arguments are constants, and is an ordinary function otherwise. Modern `constexpr` allows loops, local variables, `if`, `switch`, and since C++20 even virtual calls, `try` blocks, and `std::vector`/`std::string` used temporarily within the evaluation.\n\n- `constexpr` variables must be initialized with a constant expression and are implicitly `const`. They can size arrays, be template arguments and be used in `static_assert`.\n- `static_assert(cond, \"msg\")` fails the build if `cond` is false, documenting assumptions about sizes, layouts and constants.\n- C++20 `consteval` makes an **immediate function**: every call must be evaluated at compile time. Use it when a runtime call would be a mistake, like validating format strings.\n- C++20 `constinit` guarantees a global is initialized at compile time (avoiding the static initialization order problem) while staying mutable.\n- `if constexpr (cond)` discards the untaken branch at compile time inside templates, so it doesn't even need to compile for that type.\n\nA nice trick is building lookup tables with an immediately invoked lambda: `constexpr auto table = [] { ... return t; }();`. The table is computed by the compiler and stored in the binary.\n\nA huge benefit: undefined behaviour isn't allowed in constant evaluation. Overflow, out-of-bounds access and use of uninitialized values become compile errors, so `static_assert` tests of constexpr functions double as UB checks.\n\n`std::is_constant_evaluated()` (C++20) and C++23's `if consteval` let a function choose a different implementation at compile time, for example avoiding intrinsics the compiler can't evaluate.\n\nCompile-time work isn't free: it costs build time, and compilers limit evaluation steps. Use it for tables, validation and configuration, not big computations.",
+   "code": "#include <array>\n#include <iostream>\n#include <string_view>\n\nconstexpr unsigned long long fib(int n) {        // usable at compile time AND run time\n    unsigned long long a = 0, b = 1;\n    for (int i = 0; i < n; ++i) { auto t = a + b; a = b; b = t; }\n    return a;\n}\n\nconsteval std::size_t count_vowels(std::string_view s) {   // compile time only\n    std::size_t n = 0;\n    for (char c : s) n += std::string_view{\"aeiou\"}.find(c) != std::string_view::npos;\n    return n;\n}\n\nconstexpr auto table = [] {                      // lookup table built by the compiler\n    std::array<unsigned long long, 20> t{};\n    for (int i = 0; i < 20; ++i) t[i] = fib(i);\n    return t;\n}();\n\nstatic_assert(fib(10) == 55);                    // checked during compilation\nconstinit int counter = 0;                       // compile-time init, still mutable\n\nint main(int argc, char**) {\n    std::cout << table[19] << ' ' << count_vowels(\"constexpr\") << '\\n';  // 4181 2\n    std::cout << fib(argc + 5) << '\\n';          // runtime call: 8 when run with no args\n    ++counter;\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "`constexpr` functions run at compile time when given constants, at run time otherwise",
+    "`consteval` forces compile time; `constinit` forces static initialisation",
+    "UB is a compile error in constant evaluation, so `static_assert` tests catch it"
+   ],
+   "pitfalls": [
+    "Assuming a `constexpr` function call is always computed at compile time — only contexts that require a constant guarantee it."
+   ],
+   "quiz": [
+    {
+     "q": "`constexpr int sq(int x) { return x * x; }` is called as `sq(n)` where n is read from std::cin. What happens?",
+     "options": [
+      "Compile error: n is not a constant",
+      "Undefined behaviour",
+      "The compiler reads n at build time",
+      "It runs at run time like a normal function"
+     ],
+     "answer": 3,
+     "explain": "constexpr allows compile-time evaluation but doesn't require it; with a runtime argument it is an ordinary call."
+    },
+    {
+     "q": "Which keyword makes every call of a function a compile-time evaluation?",
+     "options": [
+      "constexpr",
+      "constinit",
+      "consteval",
+      "static"
+     ],
+     "answer": 2,
+     "explain": "consteval declares an immediate function; a call that can't be evaluated at compile time is an error."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/constexpr",
+   "requires": [
+    "cpp.templates",
+    "cpp.const-correctness"
+   ]
+  },
+  {
+   "id": "cpp.optional-variant",
+   "name": "optional, variant and expected",
+   "module": "errors",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Model maybe-values with std::optional, one-of-several types with std::variant and std::visit, and errors as values with C++23 std::expected.",
+   "why": "These vocabulary types replace sentinel values, null pointers and many exceptions with types the compiler checks.",
+   "body": "**`std::optional<T>`** (C++17) holds either a `T` or nothing. It's the clear return type for \"might not have a result\": `std::optional<int> parse_int(std::string_view)`. Test it with `if (opt)` or `has_value()`, read it with `*opt` (unchecked) or `opt.value()` (throws `std::bad_optional_access`), and supply a fallback with `value_or(x)`. The value is stored inline, so there's no heap allocation. C++23 adds monadic chaining: `and_then`, `transform` and `or_else`.\n\n**`std::variant<A, B, C>`** (C++17) holds exactly one of several types, a type-safe tagged union, also stored inline. It is a closed alternative to inheritance: no virtual functions, no heap, and the set of types is fixed.\n\n- `std::holds_alternative<B>(v)` tests the active type, `std::get<B>(v)` reads it (throws if wrong), `std::get_if<B>(&v)` returns a pointer or null.\n- `std::visit(visitor, v)` calls the visitor with the active alternative. With the **overloaded** helper (a struct inheriting from several lambdas) you write one lambda per type, and forgetting a type is a compile error.\n\n**`std::expected<T, E>`** (C++23, `<expected>`) holds either a value or an error of type `E`. It reports failure without exceptions while keeping the reason:\n\n```cpp\nstd::expected<Config, std::string> load(std::string_view path);\nauto cfg = load(\"app.toml\");\nif (!cfg) log(cfg.error());\n```\n\nReturn `std::unexpected(err)` to signal failure. It has the same monadic operations as optional.\n\nWhich to use: exceptions for rare failures far from where they're handled; `optional` when absence needs no explanation; `expected` when callers handle errors right away and need the reason; `variant` for states and messages with a fixed set of shapes.",
+   "code": "#include <charconv>\n#include <iostream>\n#include <optional>\n#include <string_view>\n#include <variant>\n\nstd::optional<int> parse_int(std::string_view s) {\n    int v{};\n    auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), v);\n    if (ec != std::errc{} || ptr != s.data() + s.size()) return std::nullopt;\n    return v;\n}\n\nstruct Circle { double r; };\nstruct Rect { double w, h; };\nusing Shape = std::variant<Circle, Rect>;          // exactly one of these, no heap\n\ntemplate <class... Fs> struct overloaded : Fs... { using Fs::operator()...; };\n\ndouble area(const Shape& s) {\n    return std::visit(overloaded{\n        [](const Circle& c) { return 3.14159 * c.r * c.r; },\n        [](const Rect& r) { return r.w * r.h; },\n    }, s);                                         // missing a case = compile error\n}\n\nint main() {\n    std::cout << parse_int(\"42\").value_or(-1) << ' ' << parse_int(\"4x\").value_or(-1) << '\\n';  // 42 -1\n    if (auto n = parse_int(\"7\")) std::cout << *n * 2 << '\\n';   // 14\n    Shape s = Rect{2, 3};\n    std::cout << area(s) << ' ' << std::holds_alternative<Rect>(s) << '\\n';  // 6 1\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "`optional<T>`: a value or nothing; `value_or` gives a fallback",
+    "`variant` + `std::visit`: a closed set of types, checked exhaustively",
+    "C++23 `expected<T, E>`: a value or an error, without exceptions"
+   ],
+   "pitfalls": [
+    "Calling `*opt` without checking — dereferencing an empty optional is undefined behaviour."
+   ],
+   "quiz": [
+    {
+     "q": "A lookup may find nothing, and the caller just needs to know whether it did. Which return type fits best?",
+     "options": [
+      "std::variant<T, int>",
+      "std::optional<T>",
+      "T* allocated with new",
+      "std::expected<T, std::string>"
+     ],
+     "answer": 1,
+     "explain": "optional expresses \"value or nothing\" with no extra error information and no allocation."
+    },
+    {
+     "q": "What does std::visit with an `overloaded` set of lambdas give you over a chain of holds_alternative checks?",
+     "options": [
+      "Faster heap allocation",
+      "A compile error if an alternative is not handled",
+      "Automatic conversion between alternatives",
+      "Runtime type registration"
+     ],
+     "answer": 1,
+     "explain": "visit must be callable for every alternative, so a missing lambda fails to compile."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/utility/optional",
+   "requires": [
+    "cpp.exceptions",
+    "cpp.lambdas",
+    "cpp.templates"
+   ]
+  },
+  {
+   "id": "cpp.concurrency",
+   "name": "Threads, mutexes and atomics",
+   "module": "concurrency",
+   "level": 3,
+   "minutes": 18,
+   "summary": "Run work in parallel with std::jthread, protect shared data with mutexes and scoped locks, and use atomics for simple counters.",
+   "why": "Multicore hardware is the norm, and data races are undefined behaviour, so correct synchronisation is a core skill.",
+   "body": "`std::thread` starts a function on a new thread. You must `join()` it (wait) or `detach()` it before the `std::thread` object is destroyed, or the program calls `std::terminate`. C++20's **`std::jthread`** joins automatically in its destructor (RAII again) and supports cooperative cancellation: the thread function can take a `std::stop_token` and poll `stop_requested()`, and `request_stop()` asks it to finish. Prefer `jthread`.\n\nWhen threads share data and at least one writes, you need synchronization. An unsynchronized concurrent read and write is a **data race**, which is undefined behaviour, not just a wrong number.\n\n- `std::mutex` provides mutual exclusion. Never call `lock()`/`unlock()` by hand; use `std::scoped_lock lock{m};` (C++17), which unlocks at scope exit even on exceptions. `scoped_lock` can lock several mutexes at once without deadlock. Use `std::unique_lock` when you need to unlock early or wait on a condition variable.\n- `std::condition_variable` lets a thread sleep until another notifies it that a condition (checked under the mutex) has become true.\n- `std::atomic<T>` makes individual operations on small values (`++`, `load`, `store`, `fetch_add`, `compare_exchange`) indivisible without a lock. Good for counters and flags; for invariants spanning several variables, use a mutex.\n\nHigher-level tools: `std::async` returns a `std::future` with the result; C++20 adds `std::latch`, `std::barrier` and `std::counting_semaphore`.\n\nPractical advice: share as little as possible, hold locks briefly and never call unknown code while holding one, and pass data to threads by value. Capturing locals by reference in a thread lambda is only safe if the thread is joined before those locals die. Test with `-fsanitize=thread`, which detects data races at run time.",
+   "code": "#include <atomic>\n#include <iostream>\n#include <mutex>\n#include <thread>\n#include <vector>\n\nint main() {\n    std::atomic<int> hits{0};             // indivisible ++, no data race\n    std::mutex m;\n    std::vector<int> finished;            // shared, guarded by m\n\n    {\n        std::vector<std::jthread> workers;            // C++20: joins in its destructor\n        for (int id = 0; id < 4; ++id) {\n            workers.emplace_back([&, id] {\n                for (int i = 0; i < 1000; ++i) ++hits;\n                std::scoped_lock lock{m};              // unlocks at end of scope\n                finished.push_back(id);\n            });\n        }\n    }                                                  // all threads joined here\n\n    std::cout << hits << ' ' << finished.size() << '\\n';   // 4000 4\n\n    std::jthread ticker([](std::stop_token st) {       // cooperative cancellation\n        while (!st.stop_requested()) std::this_thread::yield();\n    });\n    ticker.request_stop();               // the destructor would do this too, then join\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "A data race (unsynchronised write + access) is undefined behaviour",
+    "Prefer `std::jthread`; lock with `std::scoped_lock`, never manual lock/unlock",
+    "Atomics for single counters/flags, mutexes for multi-variable invariants"
+   ],
+   "pitfalls": [
+    "Letting a `std::thread` object be destroyed while still joinable, which calls `std::terminate`."
+   ],
+   "quiz": [
+    {
+     "q": "Two threads each run `++count;` 1000 times on a plain `int count = 0;`. What is guaranteed?",
+     "options": [
+      "count ends at 2000",
+      "count ends between 1000 and 2000",
+      "The second thread waits for the first",
+      "Nothing: it's a data race, which is undefined behaviour"
+     ],
+     "answer": 3,
+     "explain": "Unsynchronised concurrent writes are a data race; the standard gives no guarantee at all, not even a range."
+    },
+    {
+     "q": "What advantage does std::jthread have over std::thread?",
+     "options": [
+      "It runs faster",
+      "It never needs synchronisation",
+      "It joins automatically in its destructor and supports stop tokens",
+      "It runs on the GPU"
+     ],
+     "answer": 2,
+     "explain": "jthread is the RAII version of thread and adds cooperative cancellation via std::stop_token."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/thread",
+   "requires": [
+    "cpp.lambdas",
+    "cpp.constructors-raii"
+   ]
+  },
+  {
+   "id": "cpp.undefined-behavior",
+   "name": "Undefined behaviour",
+   "module": "memory",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Know what undefined behaviour is, the common ways to trigger it, why optimisers make it dangerous, and the tools that find it.",
+   "why": "UB is the source of C++'s worst bugs and security holes; experienced developers recognise the patterns on sight.",
+   "body": "The C++ standard sorts program behaviour into categories. **Implementation-defined** behaviour, like `sizeof(long)`, varies by platform but is documented. **Unspecified** behaviour, like the evaluation order of function arguments, is one of several allowed outcomes. **Undefined behaviour (UB)** means the standard places no requirements at all: the program may crash, appear to work, or do something bizarre.\n\nThe danger is the optimiser. Compilers assume UB never happens and optimise on that assumption. If `x + 1 < x` can only be true by overflowing a signed int, the compiler may fold it to `false`. If you dereference a pointer and later check it for null, the check may be deleted. UB can also appear to \"travel back in time\" and affect code that ran before it.\n\nCommon sources:\n\n- Signed integer overflow, division by zero, shifting by the type's width or more.\n- Out-of-bounds access (`v[i]`, raw arrays, pointer arithmetic beyond the array).\n- Null, dangling or freed pointers and references, including iterators invalidated by `push_back` and `string_view`s into dead strings.\n- Reading an uninitialized variable. (C++26 makes this \"erroneous behaviour\" with defined consequences, but it's still a bug.)\n- Data races between threads.\n- Breaking strict aliasing (reading a `float` through a `uint32_t*`) and other object-lifetime violations.\n- Modifying a const object, or infinite loops without side effects.\n\nYour defences: compile with `-Wall -Wextra`; test with `-fsanitize=address,undefined` (and `thread` for races); run static analysers like clang-tidy; use checked accessors (`at()`) in non-critical paths and hardened standard library modes; and prefer RAII and value types that make lifetime errors hard to write. `constexpr` evaluation also rejects UB, so compile-time tests catch it.",
+   "code": "// build: g++ -std=c++20 -O2 -g -fsanitize=address,undefined ub.cpp\n#include <climits>\n#include <iostream>\n#include <string>\n#include <string_view>\n#include <vector>\n\nbool will_overflow(int x) {\n    return x + 1 < x;           // UB when x == INT_MAX; -O2 may compile it to `false`\n}\nbool will_overflow_ok(int x) { return x == INT_MAX; }   // check before computing\n\nstd::string_view first_word(const std::string& s) {\n    return std::string_view(s).substr(0, s.find(' '));\n}\n\nint main() {\n    std::cout << will_overflow(INT_MAX) << will_overflow_ok(INT_MAX) << '\\n';  // often \"01\"\n\n    std::vector<int> v{1, 2, 3};\n    int& first = v[0];\n    v.push_back(4);             // may reallocate: `first` now dangles\n    // std::cout << first;      // UB: ASan reports heap-use-after-free\n\n    auto w = first_word(std::string(\"hello world\"));   // view into a dead temporary\n    // std::cout << w;          // UB: dangling string_view\n    (void)first; (void)w;\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "UB means no guarantees; the optimiser assumes it never happens",
+    "Usual suspects: overflow, out of bounds, dangling pointers/refs, uninitialised reads, data races",
+    "Sanitizers (`-fsanitize=address,undefined,thread`) and warnings find most of it"
+   ],
+   "pitfalls": [
+    "Concluding code is fine because it \"works on my machine\" — UB can change behaviour with a new compiler, flag or input."
+   ],
+   "quiz": [
+    {
+     "q": "`int* p = get(); int v = *p; if (p == nullptr) return;` — what may an optimising compiler do?",
+     "options": [
+      "Move the null check before the dereference",
+      "Remove the null check, since p was already dereferenced and so can't be null",
+      "Insert a runtime null check automatically",
+      "Nothing; the check always runs"
+     ],
+     "answer": 1,
+     "explain": "Dereferencing null is UB, so the compiler may assume p is non-null and delete the later check."
+    },
+    {
+     "q": "Which of these is implementation-defined rather than undefined?",
+     "options": [
+      "sizeof(long)",
+      "Reading past the end of an array",
+      "Signed integer overflow",
+      "Using a moved-from unique_ptr's pointee"
+     ],
+     "answer": 0,
+     "explain": "The size of long varies by platform but is documented; the others are undefined behaviour."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/ub",
+   "requires": [
+    "cpp.pointers",
+    "cpp.iterators"
+   ]
+  },
+  {
+   "id": "cpp.memory-model",
+   "name": "Memory model and atomic ordering",
+   "module": "concurrency",
+   "level": 4,
+   "minutes": 20,
+   "summary": "Understand happens-before, and choose between seq_cst, acquire/release and relaxed memory orders for atomics.",
+   "why": "Lock-free code and fast synchronisation depend on memory ordering; getting it wrong produces bugs that appear only on some CPUs and some days.",
+   "body": "Compilers and CPUs reorder memory operations freely as long as a single thread can't tell. Other threads can. The C++ **memory model** defines what one thread is guaranteed to see of another's writes, through the **happens-before** relation. A program without data races behaves as if operations were interleaved in an order consistent with happens-before; a program with a data race has undefined behaviour.\n\nAtomic operations take a `std::memory_order`:\n\n- `seq_cst` (the default): all seq_cst operations appear in one global order that every thread agrees on. The easiest to reason about, and a bit more expensive on weakly ordered CPUs (ARM, POWER) and for stores on x86.\n- `release` (on stores) and `acquire` (on loads): if an acquire load reads the value written by a release store, everything the writer did before the store **happens-before** everything the reader does after the load. This is the publish/subscribe pattern behind mutexes, queues and one-time initialization.\n- `relaxed`: the operation itself is atomic, but there are no ordering guarantees for other memory. Fine for statistics counters and for compare-and-swap loops where only the atomic value matters.\n- `acq_rel` for read-modify-write operations that both acquire and release. (`consume` exists but compilers treat it as `acquire`, and it's being removed.)\n\nx86 is strongly ordered, so a missing acquire/release often only shows up on ARM, which is a good reason to rely on the model rather than on testing.\n\n`compare_exchange_weak(expected, desired)` is the building block of lock-free algorithms. On failure it loads the current value into `expected`, so it belongs in a loop; the weak form can fail spuriously and is cheaper on LL/SC architectures. C++20 also adds `atomic::wait`/`notify_one` for efficient blocking and `std::atomic<std::shared_ptr<T>>`.\n\nStart with mutexes or seq_cst; weaken orderings only with a proof and a benchmark.",
+   "code": "#include <atomic>\n#include <cassert>\n#include <string>\n#include <thread>\n\nstd::string payload;                     // ordinary, non-atomic data\nstd::atomic<bool> ready{false};\n\nvoid producer() {\n    payload = \"hello\";                                 // (1) plain write\n    ready.store(true, std::memory_order_release);      // (2) publishes everything before it\n}\n\nvoid consumer() {\n    while (!ready.load(std::memory_order_acquire))     // (3) synchronises with (2)\n        std::this_thread::yield();\n    assert(payload == \"hello\");                        // (4) safe: (1) happens-before (4)\n}\n\nstd::atomic<int> max_seen{0};\nvoid update_max(int v) {                               // lock-free CAS loop\n    int cur = max_seen.load(std::memory_order_relaxed);\n    while (cur < v && !max_seen.compare_exchange_weak(cur, v, std::memory_order_relaxed)) {\n        // on failure `cur` now holds the latest value; the loop re-checks it\n    }\n}\n\nint main() {\n    std::jthread c{consumer}, p{producer};\n    std::jthread a{update_max, 7}, b{update_max, 3};\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "A release store read by an acquire load makes all prior writes visible",
+    "`relaxed` = atomicity only; fine for counters, wrong for publishing data",
+    "Default `seq_cst` is easiest; weaken only with proof and measurements"
+   ],
+   "pitfalls": [
+    "Publishing data with a relaxed flag: it may work on x86 and fail on ARM."
+   ],
+   "quiz": [
+    {
+     "q": "In the producer/consumer above, both orders are changed to memory_order_relaxed. What is the consequence?",
+     "options": [
+      "Nothing; atomics are always ordered",
+      "The program deadlocks",
+      "The consumer may see ready == true but read a stale payload — a data race on payload",
+      "It becomes sequentially consistent"
+     ],
+     "answer": 2,
+     "explain": "Relaxed operations create no happens-before edge, so the payload write isn't guaranteed to be visible and the access races."
+    },
+    {
+     "q": "Why is compare_exchange_weak normally called in a loop?",
+     "options": [
+      "It only works on every second call",
+      "Loops make it sequentially consistent",
+      "It may fail spuriously and, on failure, updates expected with the current value to retry with",
+      "It blocks until the value changes"
+     ],
+     "answer": 2,
+     "explain": "The weak form can fail even when the values match, and the refreshed expected value lets the loop retry correctly."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/atomic/memory_order",
+   "requires": [
+    "cpp.concurrency"
+   ]
+  },
+  {
+   "id": "cpp.sfinae-metaprogramming",
+   "name": "Template metaprogramming and SFINAE",
+   "module": "generic",
+   "level": 4,
+   "minutes": 20,
+   "summary": "Compute with types: type traits, SFINAE and enable_if, the detection idiom, if constexpr, and how concepts replace them.",
+   "why": "Library code and older codebases are full of these techniques, and they explain how the standard library makes compile-time decisions.",
+   "body": "**Template metaprogramming** uses templates to compute with types and constants at compile time. The standard toolkit lives in `<type_traits>`: predicates like `std::is_integral_v<T>`, `std::is_trivially_copyable_v<T>` and `std::is_base_of_v<B, D>`; transformations like `std::remove_cvref_t<T>`, `std::decay_t<T>` and `std::conditional_t<cond, A, B>`; and `std::integral_constant` / `std::bool_constant` as the base for writing your own traits.\n\n**SFINAE**, \"substitution failure is not an error\", is the rule that makes the old techniques work. While the compiler substitutes template arguments into a candidate's *signature*, an invalid type or expression just removes that candidate from overload resolution instead of causing an error. Errors inside the function *body* are still hard errors.\n\n- `std::enable_if_t<cond, int> = 0` as a template parameter enables an overload only when `cond` holds.\n- The **detection idiom** uses partial specialisation with `std::void_t<decltype(expr)>` to ask \"does this expression compile?\": if it does, the specialisation that inherits from `std::true_type` is chosen.\n- `decltype` and `std::declval<T>()` let you form expressions on types without creating objects.\n\nC++17 `if constexpr` removed much of the need for overload tricks: the discarded branch isn't instantiated, so it may contain code that wouldn't compile for that `T`. Fold expressions replaced most recursive variadic templates.\n\nC++20 concepts replace the rest. `template <std::integral T>` says what `enable_if` used to say, with better errors and real subsumption rules, and a `requires` expression is the detection idiom built into the language. Write new code with concepts and `if constexpr`; learn SFINAE to read and maintain existing libraries, and for the rare cases where you still need a trait class.",
+   "code": "#include <iostream>\n#include <string>\n#include <type_traits>\n#include <utility>\n#include <vector>\n\n// SFINAE: each overload exists only if its enable_if condition holds\ntemplate <typename T, std::enable_if_t<std::is_integral_v<T>, int> = 0>\nstd::string kind(T) { return \"integral\"; }\ntemplate <typename T, std::enable_if_t<std::is_floating_point_v<T>, int> = 0>\nstd::string kind(T) { return \"floating\"; }\n\n// Detection idiom: does `t.size()` compile for T?\ntemplate <typename T, typename = void>\nstruct has_size : std::false_type {};\ntemplate <typename T>\nstruct has_size<T, std::void_t<decltype(std::declval<const T&>().size())>> : std::true_type {};\n\ntemplate <typename T>\nauto length(const T& x) {\n    if constexpr (has_size<T>::value) return x.size();   // other branch not instantiated\n    else return sizeof(T);\n}\n\nint main() {\n    std::cout << kind(1) << ' ' << kind(1.0) << '\\n';                       // integral floating\n    std::cout << length(std::vector<int>(5)) << ' ' << length(42) << '\\n';  // 5 4\n    static_assert(has_size<std::string>::value && !has_size<int>::value);\n    static_assert(requires(std::string s) { s.size(); });   // C++20 way to ask the same\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "SFINAE: invalid substitution in a signature drops the candidate silently",
+    "`<type_traits>` + `decltype`/`declval` are the metaprogramming toolkit",
+    "Prefer concepts and `if constexpr` in new code"
+   ],
+   "pitfalls": [
+    "Expecting SFINAE to apply to errors inside a function body — only the immediate signature context is SFINAE-friendly."
+   ],
+   "quiz": [
+    {
+     "q": "What does SFINAE do when substituting T into a candidate's return type produces an invalid type?",
+     "options": [
+      "Reports a compile error",
+      "Removes that candidate from the overload set and keeps looking",
+      "Substitutes void instead",
+      "Delays the error until run time"
+     ],
+     "answer": 1,
+     "explain": "Substitution failure in the immediate context isn't an error; the candidate is just not viable."
+    },
+    {
+     "q": "Why does `if constexpr (has_size<T>::value) return x.size(); else return sizeof(T);` compile for T = int?",
+     "options": [
+      "The discarded branch inside a template is not instantiated",
+      "int has a hidden size() member",
+      "if constexpr converts errors into false",
+      "sizeof makes the whole function constexpr"
+     ],
+     "answer": 0,
+     "explain": "In a template, the branch not taken by if constexpr is discarded, so x.size() is never checked for int."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/sfinae",
+   "requires": [
+    "cpp.concepts",
+    "cpp.constexpr"
+   ]
+  },
+  {
+   "id": "cpp.object-lifetime-layout",
+   "name": "Object lifetime and layout",
+   "module": "classes",
+   "level": 4,
+   "minutes": 20,
+   "summary": "How objects occupy memory: storage versus lifetime, construct_at and destroy_at, alignment and padding, trivial types and bit_cast.",
+   "why": "Containers, allocators, serialisation and low-level optimisation all depend on the exact rules for when an object exists and how it's laid out.",
+   "body": "In C++, **storage** and **object lifetime** are separate. Memory can exist without an object in it, and an object's lifetime begins only when it's constructed and ends when its destructor runs (or its storage is reused). Accessing an object outside its lifetime is undefined behaviour, even if the bytes are still there.\n\nThat's how `std::vector` works: it allocates raw capacity, then constructs elements in place with **placement new**, `new (ptr) T(args)`, or C++20's `std::construct_at(ptr, args...)`, and destroys them with `std::destroy_at(ptr)` without freeing the memory. If you reuse storage in tricky ways (const members, a different type), `std::launder` may be needed to obtain a valid pointer to the new object.\n\n**Layout.** Every type has a size and an alignment (`alignof`). Members are laid out in declaration order with padding inserted so each is properly aligned, and the struct's size is padded to a multiple of its alignment. Ordering members from largest to smallest alignment often shrinks a struct, which matters for big arrays. `alignas(64)` raises alignment, for example to give a variable its own cache line.\n\nType properties decide what's legal:\n\n- **Trivially copyable** types (no custom copy, move or destructor) may be copied with `memcpy`.\n- **Standard-layout** types have C-compatible layout, and `offsetof` works on them.\n- **Implicit-lifetime** types (aggregates of scalars, for example) are created implicitly in memory from `malloc` or `memcpy` since C++20; C++23's `std::start_lifetime_as` does it explicitly.\n\nTo reinterpret bits, use C++20's `std::bit_cast<To>(from)` (or `memcpy`). Reading a `float` through a `uint32_t*` violates **strict aliasing** and is UB. C++20's `[[no_unique_address]]` lets an empty member take no space, which is how allocators and comparators get stored for free.",
+   "code": "#include <bit>\n#include <cstdint>\n#include <iostream>\n#include <memory>\n#include <string>\n\nstruct Bad  { char a; double b; char c; };    // 1 + 7 pad + 8 + 1 + 7 pad = 24\nstruct Good { double b; char a; char c; };    // 8 + 1 + 1 + 6 pad = 16\n\nstruct Empty {};\nstruct WithTag { [[no_unique_address]] Empty tag; int x; };   // C++20: tag uses no space\n\nint main() {\n    std::cout << sizeof(Bad) << ' ' << sizeof(Good) << ' ' << alignof(double) << '\\n';  // 24 16 8\n    std::cout << sizeof(WithTag) << '\\n';      // 4 on GCC and Clang\n\n    alignas(std::string) unsigned char storage[sizeof(std::string)];   // storage, no object yet\n    std::string* s = std::construct_at(reinterpret_cast<std::string*>(storage), \"alive\");\n    std::cout << *s << '\\n';                   // lifetime has begun\n    std::destroy_at(s);                        // lifetime ends; storage remains\n\n    float f = 1.0f;\n    auto bits = std::bit_cast<std::uint32_t>(f);   // well-defined type punning\n    std::cout << std::hex << bits << '\\n';         // 3f800000\n    // *reinterpret_cast<std::uint32_t*>(&f)       // UB: strict aliasing violation\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Storage and lifetime are separate: construct_at begins it, destroy_at ends it",
+    "Padding follows alignment; order members largest-first to shrink structs",
+    "Use `std::bit_cast` or `memcpy` for type punning, never pointer casts"
+   ],
+   "pitfalls": [
+    "Using `memcpy` on a type that isn't trivially copyable (e.g. one containing a std::string)."
+   ],
+   "quiz": [
+    {
+     "q": "What is sizeof(S) for `struct S { char c; int i; char d; };` on a typical platform with 4-byte int alignment?",
+     "options": [
+      "6",
+      "9",
+      "8",
+      "12"
+     ],
+     "answer": 3,
+     "explain": "c at 0, 3 bytes padding, i at 4, d at 8, then padding to a multiple of 4 gives 12."
+    },
+    {
+     "q": "Which is a well-defined way to get the bit pattern of a float as a uint32_t?",
+     "options": [
+      "*reinterpret_cast<std::uint32_t*>(&f)",
+      "A union, writing f and reading the integer member",
+      "static_cast<std::uint32_t>(f)",
+      "std::bit_cast<std::uint32_t>(f)"
+     ],
+     "answer": 3,
+     "explain": "bit_cast copies the object representation; the pointer cast breaks strict aliasing, static_cast converts the value, and union punning is UB in C++."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/lifetime",
+   "requires": [
+    "cpp.undefined-behavior",
+    "cpp.rule-of-zero"
+   ]
+  },
+  {
+   "id": "cpp.abi-linking",
+   "name": "Linking, libraries and the ABI",
+   "module": "build",
+   "level": 4,
+   "minutes": 18,
+   "summary": "How the linker resolves symbols, name mangling, static versus shared libraries, ABI compatibility, extern \"C\" and the pimpl idiom.",
+   "why": "Shipping libraries, debugging link errors and upgrading compilers safely all require understanding symbols and the ABI.",
+   "body": "Each object file has a symbol table: the functions and variables it defines and those it needs. The linker matches them up. **Linkage** decides visibility: external (shared across translation units, the default for functions and globals), internal (`static` or an unnamed namespace, private to one file) or none (locals).\n\nOverloading and namespaces mean C++ names can't be used as raw symbols, so compilers **mangle** them: `geo::area(double)` becomes `_ZN3geo4areaEd` under the Itanium C++ ABI used on Linux and macOS (MSVC has its own scheme). `nm -C` and `c++filt` demangle. `extern \"C\"` turns mangling off, giving a plain C symbol; use it for C interop and for stable plugin entry points.\n\nLibraries come in two kinds. A **static library** (`.a`, `.lib`) is an archive of object files copied into the executable at link time. With GNU ld, order matters: list libraries after the objects that use them. A **shared library** (`.so`, `.dylib`, `.dll`) is loaded at run time and shared between processes. That makes its **ABI**, the binary interface, a contract.\n\nThe ABI covers calling conventions, name mangling, object layout, vtable layout and exception handling. Changing a public class's data members, adding a virtual function, or changing an inline function or template in a header breaks the ABI: existing binaries silently use the old layout. Even standard library types change, as with libstdc++'s `std::string` switch, controlled by `_GLIBCXX_USE_CXX11_ABI`. Mixing code built against different standard libraries or with incompatible flags causes link errors or worse.\n\nTo keep a stable ABI, hide data behind the **pimpl** idiom (`class Widget { struct Impl; std::unique_ptr<Impl> p_; };`), so the layout lives in the `.cpp`; or expose a C API. On ELF platforms, build with `-fvisibility=hidden` and export only the public symbols.",
+   "code": "# lib.cpp:  namespace geo { double area(double r) { return 3.14159 * r * r; } }\n#           extern \"C\" double geo_area(double r) { return geo::area(r); }\ng++ -std=c++20 -O2 -fPIC -c lib.cpp -o lib.o\nnm lib.o\n#   T _ZN3geo4areaEd        mangled C++ name (Itanium ABI)\n#   T geo_area              extern \"C\": plain, unmangled\nnm -C lib.o                 # demangled: geo::area(double)\necho _ZN3geo4areaEd | c++filt\n\n# static library: archive of objects, copied into the executable\nar rcs libgeo.a lib.o\ng++ main.o -L. -lgeo -o app            # libraries AFTER the objects that need them\n\n# shared library: loaded at run time, its ABI is now a contract\ng++ -shared -o libgeo.so lib.o\ng++ main.o -L. -lgeo -Wl,-rpath,'$ORIGIN' -o app\nldd app | grep geo\n\n# undefined reference to `geo::area(double)'  -> definition not linked, or wrong order\n# multiple definition of `helper()'           -> non-inline function defined in a header",
+   "code_lang": "bash",
+   "takeaways": [
+    "C++ names are mangled into symbols; `extern \"C\"` gives plain C symbols",
+    "Static libraries are copied in at link time; shared libraries make the ABI a contract",
+    "Pimpl or a C API keeps a library's ABI stable across changes"
+   ],
+   "pitfalls": [
+    "Adding a data member or virtual function to a class exported from a shared library without rebuilding all its users."
+   ],
+   "quiz": [
+    {
+     "q": "A shared library adds a private data member to a public class whose definition is in its header. Existing apps aren't rebuilt. What's the risk?",
+     "options": [
+      "None, the member is private",
+      "The apps still use the old object size and layout, causing memory corruption",
+      "A compile error in the apps",
+      "The dynamic loader adapts the layout automatically"
+     ],
+     "answer": 1,
+     "explain": "Code compiled against the old header allocates and accesses objects with the old size and offsets, which is an ABI break."
+    },
+    {
+     "q": "Why is `extern \"C\"` used for plugin entry points like `create_plugin()`?",
+     "options": [
+      "It gives an unmangled symbol name that dlsym/GetProcAddress can find reliably",
+      "It makes the function faster",
+      "It allows the function to throw exceptions across the boundary",
+      "It makes the function inline"
+     ],
+     "answer": 0,
+     "explain": "C linkage turns off name mangling, so the symbol name is predictable across compilers."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/storage_duration",
+   "requires": [
+    "cpp.cmake",
+    "cpp.inheritance"
+   ]
+  },
+  {
+   "id": "cpp.allocators",
+   "name": "Allocators and polymorphic memory resources",
+   "module": "memory",
+   "level": 4,
+   "minutes": 18,
+   "summary": "Control where containers get memory: the allocator model, std::pmr memory resources, arenas and pools.",
+   "why": "Allocation is often the hidden cost in hot paths; custom memory resources can make code several times faster and more predictable.",
+   "body": "Every standard container gets its memory through an **allocator**, the last template parameter: `std::vector<T, Alloc>`. The default, `std::allocator<T>`, calls `operator new`. A custom allocator only needs a `value_type`, `allocate(n)`, `deallocate(p, n)`, equality comparison and a converting constructor; `std::allocator_traits` fills in the rest:\n\n```cpp\ntemplate <class T> struct Arena {\n    using value_type = T;\n    T* allocate(std::size_t n);\n    void deallocate(T* p, std::size_t n) noexcept;\n};\n```\n\nThe classic model has drawbacks. The allocator is part of the type, so `vector<int, A>` and `vector<int, B>` don't mix, and stateful allocators bring tricky propagation rules on copy, move and swap.\n\nC++17's **polymorphic memory resources** (`<memory_resource>`, namespace `std::pmr`) solve this. A `std::pmr::memory_resource` is an abstract class with virtual `allocate`/`deallocate`. `std::pmr::polymorphic_allocator` forwards to one, and aliases like `std::pmr::vector<T>` and `std::pmr::string` use it, so containers backed by different resources share one type. The allocator also propagates to elements: a `pmr::vector<pmr::string>` places its strings' buffers in the same resource.\n\nStandard resources:\n\n- `monotonic_buffer_resource`: bump-pointer arena. Allocation is a pointer increment, `deallocate` is a no-op, and everything is freed at once when the resource dies. Ideal for per-request or per-frame data, optionally starting from a stack buffer.\n- `unsynchronized_pool_resource` / `synchronized_pool_resource`: pools of fixed-size blocks, without or with locking.\n- `new_delete_resource()` and `null_memory_resource()` (which always throws, handy as an upstream to catch overflow).\n\nThe usual caveat: the resource must outlive every container using it, and measure before and after to confirm allocation was actually the bottleneck.",
+   "code": "#include <array>\n#include <cstddef>\n#include <iostream>\n#include <memory_resource>\n#include <string>\n#include <vector>\n\nint main() {\n    std::array<std::byte, 4096> buffer;                        // arena on the stack\n    std::pmr::monotonic_buffer_resource arena{\n        buffer.data(), buffer.size(), std::pmr::null_memory_resource()};  // throw if exceeded\n\n    std::pmr::vector<std::pmr::string> names{&arena};          // vector AND strings use the arena\n    names.reserve(8);\n    names.emplace_back(\"a string long enough to need its own heap buffer\");\n    names.emplace_back(\"short\");\n\n    bool same = names[0].get_allocator().resource() == &arena; // allocator propagated\n    std::cout << names.size() << ' ' << same << '\\n';          // 2 1\n\n    std::pmr::unsynchronized_pool_resource pool;               // size-class pools\n    std::pmr::vector<int> nums{&pool};\n    nums.assign(1000, 7);\n    std::cout << nums.back() << '\\n';                          // 7\n}   // arena memory is released all at once; monotonic deallocate() is a no-op",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Containers allocate through their allocator parameter",
+    "`std::pmr` puts the strategy in a runtime memory_resource, keeping one container type",
+    "Monotonic arenas make allocation a pointer bump and free everything at once"
+   ],
+   "pitfalls": [
+    "Letting a memory resource be destroyed while a pmr container still uses it."
+   ],
+   "quiz": [
+    {
+     "q": "What is the main advantage of std::pmr::vector<int> over std::vector<int, MyAlloc<int>>?",
+     "options": [
+      "pmr containers are always faster",
+      "pmr containers are thread-safe",
+      "pmr never allocates",
+      "Vectors backed by different memory resources still have the same type"
+     ],
+     "answer": 3,
+     "explain": "The resource is chosen at run time through a pointer, so the allocator strategy isn't baked into the type."
+    },
+    {
+     "q": "Why is deallocate a no-op in monotonic_buffer_resource?",
+     "options": [
+      "It leaks memory deliberately",
+      "It hands memory back to the OS immediately",
+      "It frees everything at once when the resource is destroyed or released, which makes allocation a cheap pointer bump",
+      "Deallocation happens on a background thread"
+     ],
+     "answer": 2,
+     "explain": "A monotonic arena only grows; memory is reclaimed in bulk, trading reuse for very fast allocation."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/memory/polymorphic_allocator",
+   "requires": [
+    "cpp.object-lifetime-layout",
+    "cpp.stl-containers"
+   ]
+  },
+  {
+   "id": "cpp.coroutines",
+   "name": "Coroutines under the hood",
+   "module": "concurrency",
+   "level": 4,
+   "minutes": 25,
+   "summary": "How C++20 coroutines work: the coroutine frame, promise_type, coroutine_handle, awaiters, and C++23 std::generator.",
+   "why": "Coroutines power async I/O frameworks and generators; using them safely requires knowing what the compiler generates.",
+   "body": "A function becomes a **coroutine** as soon as its body uses `co_await`, `co_yield` or `co_return`. It can then suspend and later resume where it left off. C++20 coroutines are stackless: locals that live across a suspension are stored in a heap-allocated **coroutine frame**, which the compiler may elide when the coroutine's lifetime is nested in the caller.\n\nThe language supplies the mechanism; libraries supply the types. The return type (say `Generator<int>`) must name a nested **`promise_type`**, which customises behaviour:\n\n- `get_return_object()` builds what the caller receives, usually holding a `std::coroutine_handle<promise_type>`.\n- `initial_suspend()` decides whether the body starts eagerly or lazily; `final_suspend()` whether the frame stays alive after finishing (it must be `noexcept`).\n- `yield_value(v)`, `return_value(v)`/`return_void()` and `unhandled_exception()` handle `co_yield`, `co_return` and exceptions.\n\nA **`std::coroutine_handle`** is a non-owning pointer to the frame, with `resume()`, `done()`, `destroy()` and `promise()`. Someone must call `destroy()` exactly once, which is why wrapper types are move-only RAII classes.\n\n`co_await expr` uses the **awaiter** protocol: `await_ready()` (skip suspending?), `await_suspend(handle)` (store the handle somewhere, such as an I/O completion queue, to resume later) and `await_resume()` (the result). `std::suspend_always` and `std::suspend_never` are trivial awaiters.\n\nThe biggest pitfall is lifetime. Reference parameters, and lambda captures for coroutine lambdas, are not copied into the frame, so a coroutine resumed after its caller's arguments died reads dangling memory. Take parameters by value.\n\nC++23 adds `std::generator<T>` in `<generator>`, so you rarely write generators yourself; for async work use a library such as cppcoro, Asio or the C++26 `std::execution` model.",
+   "code": "#include <coroutine>\n#include <iostream>\n#include <utility>\n\ntemplate <typename T>\nclass Generator {\npublic:\n    struct promise_type {\n        T current{};\n        Generator get_return_object() {\n            return Generator{std::coroutine_handle<promise_type>::from_promise(*this)};\n        }\n        std::suspend_always initial_suspend() noexcept { return {}; }   // lazy start\n        std::suspend_always final_suspend() noexcept { return {}; }     // keep frame for done()\n        std::suspend_always yield_value(T v) noexcept { current = v; return {}; }\n        void return_void() noexcept {}\n        void unhandled_exception() { throw; }\n    };\n    explicit Generator(std::coroutine_handle<promise_type> h) : h_{h} {}\n    Generator(Generator&& o) noexcept : h_{std::exchange(o.h_, {})} {}\n    ~Generator() { if (h_) h_.destroy(); }                              // frees the frame\n    bool next() { h_.resume(); return !h_.done(); }\n    T value() const { return h_.promise().current; }\nprivate:\n    std::coroutine_handle<promise_type> h_;\n};\n\nGenerator<int> fib(int n) {                     // co_yield makes this a coroutine\n    int a = 0, b = 1;\n    for (int i = 0; i < n; ++i) { co_yield a; b = a + b; a = b - a; }\n}\n\nint main() {\n    auto g = fib(8);\n    while (g.next()) std::cout << g.value() << ' ';   // 0 1 1 2 3 5 8 13\n    std::cout << '\\n';   // C++23: std::generator<int> from <generator> replaces all of this\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Any of `co_await`/`co_yield`/`co_return` makes a coroutine with a heap frame",
+    "`promise_type` customises behaviour; `coroutine_handle` resumes and destroys",
+    "Take coroutine parameters by value; references may dangle across suspensions"
+   ],
+   "pitfalls": [
+    "Passing a `const std::string&` to a lazily started coroutine with a temporary argument — it dangles before the body runs."
+   ],
+   "quiz": [
+    {
+     "q": "With `initial_suspend()` returning std::suspend_always, when does the coroutine body start running?",
+     "options": [
+      "On the first resume() of its handle",
+      "Immediately when the coroutine function is called",
+      "When the return object is destroyed",
+      "At compile time"
+     ],
+     "answer": 0,
+     "explain": "Suspending initially returns control to the caller before any body code runs; the body starts at the first resume."
+    },
+    {
+     "q": "Why does the Generator wrapper call h_.destroy() in its destructor?",
+     "options": [
+      "The coroutine frame is not freed automatically after final suspension; the owner must destroy it",
+      "To resume the coroutine one last time",
+      "destroy() is required by std::cout",
+      "To reset the promise's current value"
+     ],
+     "answer": 0,
+     "explain": "A coroutine that suspends at final_suspend keeps its frame alive until someone calls destroy() on its handle."
+    }
+   ],
+   "docs": "https://en.cppreference.com/w/cpp/language/coroutines",
+   "requires": [
+    "cpp.move-semantics",
+    "cpp.templates"
+   ]
+  },
+  {
+   "id": "cpp.performance",
+   "name": "Performance and cache-friendly code",
+   "module": "memory",
+   "level": 4,
+   "minutes": 20,
+   "summary": "Write fast C++: measure first, then exploit caches with contiguous data, avoid needless allocations and copies, and prevent false sharing.",
+   "why": "Modern CPUs are limited by memory far more than arithmetic; data layout often decides performance more than algorithms do.",
+   "body": "Rule one: **measure**. Build with optimisations (`-O2`, plus `-march=native` and link-time optimisation `-flto` where suitable), profile with `perf`, VTune or Instruments, and microbenchmark with a library like Google Benchmark that stops the optimiser deleting your test. Intuition about performance is wrong surprisingly often.\n\nRule two: **memory dominates**. A main-memory access costs on the order of 100 ns, versus about 1 ns for L1 cache. The CPU fetches 64-byte cache lines and prefetches sequential access patterns. So:\n\n- Prefer contiguous containers. Iterating a `std::vector` is typically several times faster than a `std::list` or `std::map` of the same size, because every node hop can be a cache miss. Sorted vectors and flat maps often beat trees and hash tables for small and medium sizes.\n- Lay out data for how it's accessed. If a loop touches only positions, a **structure of arrays** (separate `x`, `y`, `z` vectors) keeps the cache full of useful bytes, where an **array of structures** drags whole objects in. Keep hot fields together and cold ones elsewhere.\n- Avoid **false sharing**: two threads writing different variables on the same cache line ping-pong it between cores. Pad per-thread data with `alignas(std::hardware_destructive_interference_size)` (or 64).\n\nRule three: **don't do needless work**. `reserve()` before filling vectors; pass by `const&` or `string_view`; move instead of copying; avoid `std::function` and virtual calls in the hottest loops when templates or `std::variant` will do; keep allocation out of inner loops (use arenas, see allocators).\n\nBranch mispredictions cost about 15 cycles; branch-free code and sorted data help, and C++20's `[[likely]]` / `[[unlikely]]` are hints. Finally, check the generated assembly (Compiler Explorer) to confirm the optimiser did what you expect.",
+   "code": "#include <chrono>\n#include <iostream>\n#include <list>\n#include <numeric>\n#include <vector>\n\ntemplate <typename F>\nlong long time_us(F f) {\n    auto t0 = std::chrono::steady_clock::now();\n    f();\n    auto dt = std::chrono::steady_clock::now() - t0;\n    return std::chrono::duration_cast<std::chrono::microseconds>(dt).count();\n}\n\nint main() {\n    const int n = 5'000'000;\n    std::vector<int> vec;\n    vec.reserve(n);                         // one allocation instead of ~30\n    for (int i = 0; i < n; ++i) vec.push_back(i % 7);\n    std::list<int> lst(vec.begin(), vec.end());   // same data, one node per element\n\n    long long sum = 0;\n    auto tv = time_us([&] { sum += std::accumulate(vec.begin(), vec.end(), 0LL); });\n    auto tl = time_us([&] { sum += std::accumulate(lst.begin(), lst.end(), 0LL); });\n    std::cout << \"vector \" << tv << \" us, list \" << tl << \" us, sum \" << sum << '\\n';\n    // build with -O2: the list is typically several times slower (pointer chasing)\n}",
+   "code_lang": "cpp",
+   "takeaways": [
+    "Measure optimised builds with a profiler before changing anything",
+    "Contiguous, sequential data wins: cache misses cost ~100x a cache hit",
+    "Avoid needless allocations and copies; pad per-thread data against false sharing"
+   ],
+   "pitfalls": [
+    "Micro-optimising arithmetic while the real cost is cache misses from pointer-heavy data structures."
+   ],
+   "quiz": [
+    {
+     "q": "Two threads each increment their own counter, but the counters are adjacent members of one struct. Why can this scale poorly?",
+     "options": [
+      "The counters need a mutex",
+      "The compiler merges the counters",
+      "Atomics are slower than mutexes",
+      "False sharing: both counters share a cache line that bounces between cores"
+     ],
+     "answer": 3,
+     "explain": "Writes from different cores to the same 64-byte line force constant cache-coherency traffic even though the data is distinct."
+    },
+    {
+     "q": "A physics loop reads only particle positions, but particles are stored as a vector of large structs. What layout change usually helps most?",
+     "options": [
+      "Switch to std::list",
+      "Make every member a pointer",
+      "Store positions in their own contiguous arrays (structure of arrays)",
+      "Add virtual functions"
+     ],
+     "answer": 2,
+     "explain": "SoA puts only the hot data into the cache lines the loop pulls in, improving bandwidth use and enabling vectorisation."
+    }
+   ],
+   "docs": "https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#S-performance",
+   "requires": [
+    "cpp.stl-containers",
+    "cpp.move-semantics"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,705 @@
+{
+ "tool": {
+  "id": "pillow",
+  "name": "Pillow",
+  "category": "library",
+  "tagline": "Python's friendly imaging library for opening, editing and saving images",
+  "description": "Pillow is the maintained fork of PIL, the Python Imaging Library. It reads and writes dozens of image formats and handles everyday edits: resizing, cropping, rotating, drawing text, filters, colour conversion and metadata. Web backends, scripts and ML data pipelines use it whenever images need to be loaded or produced.",
+  "icon": "Pi",
+  "color": "#2B6CB0",
+  "official_docs": "https://pillow.readthedocs.io/en/stable/",
+  "version": "12.x",
+  "aliases": [
+   "PIL",
+   "python imaging library"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Opening and saving"
+  },
+  {
+   "id": "editing",
+   "name": "Everyday editing"
+  },
+  {
+   "id": "drawing",
+   "name": "Drawing and compositing"
+  },
+  {
+   "id": "metadata",
+   "name": "Metadata and multi-frame images"
+  },
+  {
+   "id": "internals",
+   "name": "Production and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "pillow.image-basics",
+   "name": "Opening images: the Image object",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Open a file with Image.open and inspect its format, size and mode; create new images with Image.new.",
+   "why": "Every Pillow task starts from an Image object, and knowing what open actually does avoids file-handle and lazy-loading surprises.",
+   "body": "Pillow is installed as `pillow` but imported as `PIL`: `from PIL import Image`. The central class is **`Image.Image`**.\n\n`Image.open(path_or_file)` identifies the format from the file's contents, not its extension, and returns an Image. Useful attributes:\n\n- `im.format`: the detected file format, such as `\"JPEG\"` or `\"PNG\"` (`None` for images you create)\n- `im.size`: a `(width, height)` tuple, also `im.width` and `im.height`\n- `im.mode`: how pixels are stored, such as `\"RGB\"`, `\"RGBA\"` or `\"L\"` (grayscale)\n\n`Image.open` is **lazy**: it reads only the header. Pixel data is decoded when you first need it, or when you call `im.load()`. The file stays open until then, so use a `with` block, which closes the file when you are done. If you need the pixels after the block, call `im.load()` or make a copy inside it.\n\n`Image.new(mode, size, color)` creates a blank image; colours can be tuples, ints or names like `\"skyblue\"` and `\"#ff8800\"`.\n\nMost methods return a **new** image rather than changing the original: `im.resize(...)`, `im.convert(...)`, `im.rotate(...)`. A few operate in place and return `None`, notably `im.thumbnail(...)` and `im.paste(...)`.\n\n`im.getpixel((x, y))` and `im.putpixel` read and write single pixels; they are fine for a few values, but far too slow for loops over a whole image.",
+   "code": "from PIL import Image\n\nim = Image.new(\"RGB\", (320, 200), \"skyblue\")    # mode, (width, height), colour\nprint(im.size, im.mode, im.format)              # (320, 200) RGB None\nim.save(\"sky.png\")\n\nwith Image.open(\"sky.png\") as img:              # lazy: header only so far\n    print(img.format, img.size, img.mode)       # PNG (320, 200) RGB\n    print(img.width, img.height)                # 320 200\n    print(img.getpixel((10, 10)))               # (135, 206, 235)\n    img.load()                                  # decode pixels now\n\nbigger = im.resize((640, 400))                  # returns a NEW image\nprint(im.size, bigger.size)                     # (320, 200) (640, 400)",
+   "code_lang": "python",
+   "takeaways": [
+    "Install `pillow`, import `from PIL import Image`",
+    "`size` is (width, height); `mode` says how pixels are stored",
+    "`Image.open` is lazy and detects the format from content",
+    "Most methods return new images; thumbnail and paste work in place"
+   ],
+   "pitfalls": [
+    "Writing `im.resize((w, h))` and expecting `im` itself to change: assign the returned image."
+   ],
+   "quiz": [
+    {
+     "q": "What does `Image.open('photo.jpg').size` return for a photo 4000 pixels wide and 3000 tall?",
+     "options": [
+      "(3000, 4000)",
+      "(4000, 3000)",
+      "(3000, 4000, 3)",
+      "12000000"
+     ],
+     "answer": 1,
+     "explain": "Pillow sizes are (width, height), unlike NumPy shapes."
+    },
+    {
+     "q": "A file named `logo.png` actually contains JPEG data. What is `Image.open('logo.png').format`?",
+     "options": [
+      "JPEG",
+      "PNG",
+      "None",
+      "It raises an error"
+     ],
+     "answer": 0,
+     "explain": "Pillow identifies files by their contents, not by extension."
+    }
+   ],
+   "docs": "https://pillow.readthedocs.io/en/stable/reference/Image.html",
+   "requires": [
+    "python.modules-imports",
+    "python.files"
+   ]
+  },
+  {
+   "id": "pillow.modes-convert",
+   "name": "Modes and convert()",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Understand RGB, RGBA, L, 1, P, CMYK and I;16 modes and convert between them correctly.",
+   "why": "Mode mismatches cause most save errors and odd colours, for example saving RGBA as JPEG or reading palette PNGs.",
+   "body": "An image's **mode** defines its bands (channels) and bit depth. The common ones:\n\n- `\"RGB\"`: 3 x 8-bit; `\"RGBA\"`: plus an alpha (transparency) band\n- `\"L\"`: 8-bit grayscale (luminance); `\"LA\"`: grayscale plus alpha\n- `\"1\"`: 1-bit black and white, stored one byte per pixel\n- `\"P\"`: palette mode: each pixel is an index into a colour table of up to 256 entries (GIFs, many PNGs)\n- `\"CMYK\"`: printing; many JPEGs from print workflows use it\n- `\"I;16\"`, `\"I\"`, `\"F\"`: 16-bit and 32-bit integer and float images, used for scientific and depth data\n\n`im.convert(mode)` returns a converted copy. RGB to L uses the weights `L = R*299/1000 + G*587/1000 + B*114/1000`. `getbands()` lists the bands and `split()` returns one L image per band.\n\nTypical fixes you'll need:\n\n- Before saving as JPEG, convert `RGBA` or `P` to `RGB`, because JPEG has no alpha or palette and Pillow raises `OSError: cannot write mode RGBA as JPEG`.\n- After `Image.open` on a PNG or GIF, check for `\"P\"` mode before doing pixel maths: values are palette indices, not colours. `convert(\"RGB\")` or `convert(\"RGBA\")` resolves them.\n- Dropping alpha with `convert(\"RGB\")` discards transparency, so transparent pixels show whatever colour they stored, often black. Composite onto a background first if appearance matters.\n\n`convert(\"1\")` dithers by default (Floyd-Steinberg); pass `dither=Image.Dither.NONE` for a plain threshold.",
+   "code": "from PIL import Image\n\nrgba = Image.new(\"RGBA\", (4, 4), (255, 0, 0, 128))     # half-transparent red\nprint(rgba.mode, rgba.getbands())                       # RGBA ('R', 'G', 'B', 'A')\n\ntry:\n    rgba.save(\"out.jpg\")\nexcept OSError as e:\n    print(\"error:\", e)                                  # cannot write mode RGBA as JPEG\nrgba.convert(\"RGB\").save(\"out.jpg\")                     # works\n\ngray = Image.new(\"RGB\", (1, 1), (255, 0, 0)).convert(\"L\")\nprint(gray.getpixel((0, 0)))                            # 76\n\npal = Image.new(\"RGB\", (2, 1), (0, 128, 255)).convert(\"P\")\nprint(pal.mode, pal.getpixel((0, 0)))                   # P <an index, not a colour>\nprint(pal.convert(\"RGB\").getpixel((0, 0)))              # (0, 153, 255) nearest palette colour\n\nr, g, b, a = rgba.split()\nprint(a.mode, a.getpixel((0, 0)))                       # L 128",
+   "code_lang": "python",
+   "takeaways": [
+    "Mode = bands + bit depth: RGB, RGBA, L, 1, P, CMYK, I;16, F",
+    "`convert(mode)` returns a converted copy",
+    "Convert RGBA/P to RGB before saving JPEG",
+    "P-mode pixels are palette indices, not colours"
+   ],
+   "pitfalls": [
+    "Doing arithmetic on a P-mode image's pixel values as if they were colours or intensities."
+   ],
+   "quiz": [
+    {
+     "q": "Why does saving an RGBA image as JPEG fail?",
+     "options": [
+      "JPEG files cannot be larger than 4 GB",
+      "RGBA images must be saved with quality=100",
+      "JPEG has no alpha channel, so Pillow refuses to write RGBA",
+      "JPEG requires mode L"
+     ],
+     "answer": 2,
+     "explain": "JPEG stores no transparency; convert to RGB (or composite on a background) first."
+    },
+    {
+     "q": "A GIF opens with mode 'P' and `getpixel((0, 0))` returns 3. What is 3?",
+     "options": [
+      "The red intensity",
+      "The pixel's brightness",
+      "The number of bands",
+      "An index into the image's colour palette"
+     ],
+     "answer": 3,
+     "explain": "In palette mode each pixel stores an index into a colour table."
+    }
+   ],
+   "docs": "https://pillow.readthedocs.io/en/stable/handbook/concepts.html#modes",
+   "requires": [
+    "pillow.image-basics"
+   ]
+  },
+  {
+   "id": "pillow.resize-thumbnail-crop",
+   "name": "Resize, thumbnail and crop",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Scale images with resize and the right resampling filter, make bounded thumbnails, and crop with boxes.",
+   "why": "Generating previews, normalising dataset images and cutting regions are the most common Pillow jobs.",
+   "body": "`im.resize((width, height), resample=...)` returns an image of exactly that size, distorting it if the aspect ratio differs. Resampling filters live in `Image.Resampling`:\n\n- `LANCZOS`: highest quality for downscaling photos (the old `ANTIALIAS` name was removed in Pillow 10)\n- `BICUBIC` (default for most modes), `BILINEAR`: good general choices\n- `NEAREST`: no blending; use it for pixel art, masks and label images\n\n`im.thumbnail((max_w, max_h))` shrinks the image **in place** to fit inside the box while keeping its aspect ratio, and never enlarges. It returns `None`, so don't assign its result. For a copy, call it on `im.copy()`.\n\n`ImageOps.contain(im, size)` (fit inside), `ImageOps.cover` (fill the box, may overflow) and `ImageOps.fit(im, size)` (fill exactly by cropping the centre) cover the other common cases, returning new images.\n\n`im.crop((left, upper, right, lower))` takes a **box** of pixel coordinates; `right` and `lower` are exclusive, so the result is `right - left` wide. Coordinates outside the image are allowed and filled with zeros (black or transparent).\n\n`im.reduce(factor)` shrinks by an integer factor quickly by averaging blocks, which is handy before a final `resize` on very large images.",
+   "code": "from PIL import Image, ImageOps\n\nim = Image.new(\"RGB\", (1200, 800), \"orange\")\n\nsmall = im.resize((300, 200), Image.Resampling.LANCZOS)\nprint(small.size)                    # (300, 200)\n\nthumb = im.copy()\nresult = thumb.thumbnail((256, 256))  # in place, keeps aspect ratio\nprint(result, thumb.size)            # None (256, 171)\n\nsquare = ImageOps.fit(im, (200, 200))        # centre-crop to fill\nprint(square.size)                           # (200, 200)\nprint(ImageOps.contain(im, (200, 200)).size) # (200, 133)\n\nbox = (100, 50, 400, 250)            # left, upper, right, lower\ncrop = im.crop(box)\nprint(crop.size)                     # (300, 200)\nprint(im.crop((1100, 0, 1300, 10)).getpixel((150, 5)))   # (0, 0, 0) outside",
+   "code_lang": "python",
+   "takeaways": [
+    "`resize` gives an exact size; pick `Image.Resampling.LANCZOS` for quality downscaling",
+    "`thumbnail` shrinks in place, keeps aspect ratio and returns None",
+    "`ImageOps.fit`/`contain`/`cover` handle common fitting rules",
+    "`crop((left, upper, right, lower))` uses exclusive right/lower"
+   ],
+   "pitfalls": [
+    "Writing `thumb = im.thumbnail(size)` and getting None."
+   ],
+   "quiz": [
+    {
+     "q": "A 1000x500 image gets `im.thumbnail((200, 200))`. What is `im.size` afterwards?",
+     "options": [
+      "(200, 200)",
+      "(200, 100)",
+      "(100, 200)",
+      "(1000, 500)"
+     ],
+     "answer": 1,
+     "explain": "thumbnail keeps the 2:1 aspect ratio while fitting inside 200x200."
+    },
+    {
+     "q": "What size is `im.crop((10, 20, 110, 70))`?",
+     "options": [
+      "(100, 50)",
+      "(110, 70)",
+      "(101, 51)",
+      "(50, 100)"
+     ],
+     "answer": 0,
+     "explain": "Width is right - left = 100 and height is lower - upper = 50."
+    }
+   ],
+   "docs": "https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.resize",
+   "requires": [
+    "pillow.image-basics"
+   ]
+  },
+  {
+   "id": "pillow.saving-formats",
+   "name": "Saving: formats, quality and options",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Save as PNG, JPEG, WebP and more, controlling quality, optimisation and progressive encoding.",
+   "why": "File size and visual quality depend almost entirely on the format and options you choose at save time.",
+   "body": "`im.save(fp, format=None, **options)` writes the image. Without `format`, Pillow uses the file extension; when saving to a file object such as `io.BytesIO`, you must pass `format=`.\n\nChoosing a format:\n\n- **JPEG**: lossy, small, for photos. No alpha. `quality=` from 1 to 95 (default 75; above 95 just grows files), `optimize=True`, `progressive=True`. `subsampling=0` keeps full colour resolution for sharp text or graphics.\n- **PNG**: lossless, supports alpha and palettes; best for screenshots, diagrams and masks. `optimize=True` and `compress_level=0..9` trade CPU for size, never quality.\n- **WebP**: lossy or lossless (`lossless=True`), with alpha, usually smaller than JPEG and PNG.\n- **GIF**: palette-based, mainly for simple animation.\n- **TIFF**: archival and scientific, many compressions; **AVIF** is supported in recent Pillow versions.\n\nOptions are format specific; unknown keywords are mostly ignored, so check the format docs. Saving a re-opened JPEG again loses quality every time (generation loss), so keep a lossless master if you edit repeatedly.\n\n`Image.registered_extensions()` maps extensions to formats, and `features.check(\"webp\")` tells you whether optional codecs are available in your build.\n\nFor web uploads and APIs, saving to `io.BytesIO()` gives you bytes without touching disk.",
+   "code": "import io\nfrom PIL import Image\n\nim = Image.effect_noise((400, 300), 60).convert(\"RGB\")   # noisy test photo\n\nsizes = {}\nfor q in (30, 75, 95):\n    buf = io.BytesIO()\n    im.save(buf, format=\"JPEG\", quality=q, optimize=True)\n    sizes[q] = buf.tell()\nprint(sizes[30] < sizes[75] < sizes[95])   # True: quality costs bytes\n\npng = io.BytesIO()\nim.save(png, format=\"PNG\", optimize=True)\nwebp = io.BytesIO()\nim.save(webp, format=\"WEBP\", quality=80)\nprint(png.tell() > webp.tell())            # True for photo-like content\n\nim.save(\"photo.jpg\", quality=85, progressive=True)   # format from extension\nprint(Image.open(\"photo.jpg\").format)       # JPEG\nprint(Image.registered_extensions()[\".webp\"])        # WEBP",
+   "code_lang": "python",
+   "takeaways": [
+    "The extension picks the format; pass `format=` for file objects",
+    "JPEG for photos (quality 1-95), PNG for lossless/alpha, WebP for both",
+    "Options are format-specific: quality, optimize, progressive, lossless",
+    "Re-saving JPEGs compounds quality loss"
+   ],
+   "pitfalls": [
+    "Saving to an `io.BytesIO` without `format=`, which raises because there is no extension to infer from."
+   ],
+   "quiz": [
+    {
+     "q": "You need a screenshot with crisp text and a transparent background. Which format fits best?",
+     "options": [
+      "JPEG at quality 95",
+      "PNG",
+      "GIF",
+      "JPEG with subsampling=0"
+     ],
+     "answer": 1,
+     "explain": "PNG is lossless and supports alpha, ideal for text and graphics."
+    },
+    {
+     "q": "What happens when you save with `quality=100` instead of 95 for JPEG?",
+     "options": [
+      "Much larger files for almost no visible gain",
+      "Lossless JPEG",
+      "Noticeably better quality",
+      "An error"
+     ],
+     "answer": 0,
+     "explain": "Values above 95 disable some compression and mostly just grow the file."
+    }
+   ],
+   "docs": "https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html",
+   "requires": [
+    "pillow.modes-convert"
+   ]
+  },
+  {
+   "id": "pillow.orientation-rotate",
+   "name": "Rotate, transpose and EXIF orientation",
+   "module": "editing",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Rotate and flip images correctly, and apply the camera's EXIF orientation with ImageOps.exif_transpose.",
+   "why": "Phone photos often appear sideways after processing because the orientation lives in metadata, not in the pixels.",
+   "body": "`im.rotate(angle)` rotates **counter-clockwise** by any angle in degrees around the centre, keeping the original canvas size, so corners get clipped. Pass `expand=True` to grow the canvas to fit, `fillcolor=` for the uncovered area and `resample=Image.Resampling.BICUBIC` for smoother edges.\n\nFor exact 90-degree steps and mirrors, use `im.transpose(...)` with `Image.Transpose.ROTATE_90`, `ROTATE_180`, `ROTATE_270`, `FLIP_LEFT_RIGHT` or `FLIP_TOP_BOTTOM`. These are lossless pixel moves with no resampling. `ImageOps.mirror` and `ImageOps.flip` are shortcuts.\n\nCameras usually store pixels in the sensor's native orientation and record how to display them in the **EXIF Orientation** tag (values 1 to 8). Viewers honour it; Pillow does not automatically. If you resize or save without handling it, the image ends up sideways and, worse, the tag may be stripped.\n\n`ImageOps.exif_transpose(im)` reads the tag, rotates and flips the pixels accordingly, and returns a new image with the orientation reset to normal. Call it right after opening user photos, before resizing or cropping:\n\n```python\nim = ImageOps.exif_transpose(Image.open(path))\n```\n\nPass `in_place=True` to modify the image instead of returning a copy. It is harmless on images without the tag.",
+   "code": "from PIL import Image, ImageOps\n\nim = Image.new(\"RGB\", (300, 100), \"white\")     # wide image\nim.paste(\"red\", (0, 0, 50, 100))               # red stripe on the left\n\nprint(im.rotate(90).size)                      # (300, 100) canvas kept, clipped\nprint(im.rotate(90, expand=True).size)         # (100, 300)\nprint(im.transpose(Image.Transpose.ROTATE_90).size)    # (100, 300) lossless\n\nflipped = ImageOps.mirror(im)\nprint(flipped.getpixel((299, 50)))             # (255, 0, 0) stripe moved right\n\nexif = im.getexif()\nexif[0x0112] = 6                               # Orientation: rotate 90 CW to view\nim.save(\"phone.jpg\", exif=exif)\n\nraw = Image.open(\"phone.jpg\")\nprint(raw.size, raw.getexif().get(0x0112))     # (300, 100) 6\nfixed = ImageOps.exif_transpose(raw)\nprint(fixed.size, fixed.getexif().get(0x0112)) # (100, 300) None -- applied",
+   "code_lang": "python",
+   "takeaways": [
+    "`rotate` is counter-clockwise and keeps the canvas unless `expand=True`",
+    "`transpose` does exact, lossless 90-degree turns and flips",
+    "Phone photos store orientation in EXIF; Pillow doesn't apply it automatically",
+    "Call `ImageOps.exif_transpose` right after opening user images"
+   ],
+   "pitfalls": [
+    "Generating thumbnails from phone photos without exif_transpose, producing sideways images."
+   ],
+   "quiz": [
+    {
+     "q": "A portrait phone photo opens in Pillow as 4032x3024 (landscape). What should you do before resizing?",
+     "options": [
+      "Nothing, the camera stored it wrongly",
+      "Rotate by 90 with rotate(90)",
+      "Call ImageOps.exif_transpose to apply the EXIF orientation",
+      "Convert it to RGBA"
+     ],
+     "answer": 2,
+     "explain": "The orientation is stored in EXIF; exif_transpose applies whatever rotation the tag specifies."
+    }
+   ],
+   "docs": "https://pillow.readthedocs.io/en/stable/reference/ImageOps.html#PIL.ImageOps.exif_transpose",
+   "requires": [
+    "pillow.resize-thumbnail-crop"
+   ]
+  },
+  {
+   "id": "pillow.drawing-text",
+   "name": "ImageDraw and fonts",
+   "module": "drawing",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Draw shapes and text with ImageDraw, load TrueType fonts and measure text with textbbox.",
+   "why": "Watermarks, labels, charts on the fly and generated social images all rely on drawing text precisely.",
+   "body": "`ImageDraw.Draw(im)` returns a drawing context that **modifies `im` in place**. Its methods take coordinates as `(x, y)` tuples or bounding boxes `[x0, y0, x1, y1]`:\n\n- `line`, `rectangle`, `rounded_rectangle`, `ellipse`, `polygon`, `arc`, `pieslice`\n- `fill=` for the interior colour, `outline=` and `width=` for the border\n\nFor text, load a font with `ImageFont.truetype(\"DejaVuSans.ttf\", size)`; a path or a font name your system can find. `ImageFont.load_default(size=...)` gives a built-in scalable font in recent versions, good for quick labels.\n\n`draw.text((x, y), text, font=font, fill=...)` draws text; `anchor=` changes what `(x, y)` refers to, for example `\"mm\"` centres the text on the point and `\"ls\"` puts it on the left baseline. Multi-line strings work, with `spacing=` and `align=`.\n\nTo lay out text, **measure** it: `draw.textbbox((x, y), text, font=font)` returns the box `(left, top, right, bottom)` the text would occupy, and `draw.textlength(text, font=font)` the advance width. The old `textsize` method was removed in Pillow 10.\n\nFor semi-transparent overlays (watermarks), draw on a separate transparent `RGBA` layer and combine it with `Image.alpha_composite`; drawing a translucent fill straight onto an RGB image replaces pixels rather than blending.",
+   "code": "from PIL import Image, ImageDraw, ImageFont\n\nim = Image.new(\"RGB\", (400, 200), \"white\")\ndraw = ImageDraw.Draw(im)                       # draws on im in place\ndraw.rectangle([20, 20, 180, 120], outline=\"navy\", width=3)\ndraw.ellipse([220, 30, 320, 130], fill=\"tomato\")\ndraw.line([(0, 190), (399, 150)], fill=\"gray\", width=2)\n\nfont = ImageFont.load_default(size=28)          # or ImageFont.truetype(path, 28)\ntext = \"Hello Pillow\"\nbox = draw.textbbox((0, 0), text, font=font)\nw, h = box[2] - box[0], box[3] - box[1]\nprint(w > 0 and h > 0)                          # True: measured before drawing\n\ndraw.text((200, 170), text, font=font, fill=\"black\", anchor=\"mm\")  # centred\nprint(im.getpixel((270, 80)))                   # (255, 99, 71) tomato\nprint(draw.textlength(\"ab\", font=font) > draw.textlength(\"a\", font=font))  # True",
+   "code_lang": "python",
+   "takeaways": [
+    "ImageDraw.Draw draws in place on the image",
+    "Load fonts with ImageFont.truetype or load_default(size=...)",
+    "Measure text with textbbox/textlength; textsize is gone",
+    "`anchor='mm'` centres text on a point"
+   ],
+   "pitfalls": [
+    "Calling the removed `draw.textsize()` from old tutorials; use `textbbox` instead."
+   ],
+   "quiz": [
+    {
+     "q": "You want text centred exactly on (200, 100). Which call does it?",
+     "options": [
+      "draw.text((200, 100), t, font=f)",
+      "draw.text((200, 100), t, font=f, align='center')",
+      "draw.textbbox((200, 100), t, font=f)",
+      "draw.text((200, 100), t, font=f, anchor='mm')"
+     ],
+     "answer": 3,
+     "explain": "The 'mm' anchor places the middle of the text at the given point; align only affects multi-line text."
+    }
+   ],
+   "docs": "https://pillow.readthedocs.io/en/stable/reference/ImageDraw.html",
+   "requires": [
+    "pillow.image-basics",
+    "pillow.modes-convert"
+   ]
+  },
+  {
+   "id": "pillow.filters-enhance",
+   "name": "Filters, enhancement and ImageOps",
+   "module": "editing",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Blur, sharpen and find edges with ImageFilter, adjust brightness and contrast with ImageEnhance, and use ImageOps helpers.",
+   "why": "These three modules cover most photo-editing and data-augmentation needs without writing pixel code.",
+   "body": "**`ImageFilter`** provides filters applied with `im.filter(...)`:\n\n- `GaussianBlur(radius)`, `BoxBlur(radius)`\n- `UnsharpMask(radius, percent, threshold)`: the standard sharpening tool; `SHARPEN` is a simpler fixed kernel\n- `FIND_EDGES`, `CONTOUR`, `EMBOSS`, `SMOOTH`, `DETAIL`\n- `MedianFilter(size)`, `MinFilter`, `MaxFilter`: rank filters, good against speckle noise\n- `Kernel(size, kernel)`: your own 3x3 or 5x5 convolution\n\n**`ImageEnhance`** classes each wrap an image and expose `enhance(factor)`, where 1.0 returns the original, below 1 reduces and above 1 increases: `Brightness`, `Contrast`, `Color` (saturation; 0 gives grayscale) and `Sharpness`.\n\n**`ImageOps`** has ready-made operations: `grayscale`, `invert`, `autocontrast(im, cutoff=2)` (stretch the histogram, ignoring the extreme 2%), `equalize`, `posterize`, `solarize`, `expand(im, border, fill)` for borders, `pad`, and `colorize` for tinting grayscale images.\n\nAll of these return new images. Some filters work only on certain modes: most need `L` or `RGB`, and palette images should be converted first. `im.point(func_or_table)` maps each pixel value through a function or lookup table, which is how you build custom curves efficiently.",
+   "code": "from PIL import Image, ImageEnhance, ImageFilter, ImageOps\n\nim = Image.linear_gradient(\"L\").resize((64, 64)).convert(\"RGB\")\nim.paste((200, 30, 30), (16, 16, 48, 48))           # red square\n\nblur = im.filter(ImageFilter.GaussianBlur(3))\nsharp = im.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))\nedges = im.convert(\"L\").filter(ImageFilter.FIND_EDGES)\nprint(blur.size == im.size, edges.mode)             # True L\n\ngray = ImageEnhance.Color(im).enhance(0.0)          # saturation 0 = gray look\nr, g, b = gray.getpixel((32, 32))\nprint(r == g == b)                                  # True\ndarker = ImageEnhance.Brightness(im).enhance(0.5)\nprint(darker.getpixel((32, 32)))                    # (100, 15, 15)\n\ndull = Image.new(\"L\", (10, 1))\ndull.putdata(list(range(100, 110)))\nprint(ImageOps.autocontrast(dull).getextrema())     # (0, 255)\nprint(ImageOps.invert(im).getpixel((32, 32)))       # (55, 225, 225)\nprint(dull.point(lambda v: 255 if v > 104 else 0).getextrema())  # (0, 255)",
+   "code_lang": "python",
+   "takeaways": [
+    "`im.filter(ImageFilter.X)` applies blurs, sharpening, edges, rank filters",
+    "`ImageEnhance.<Kind>(im).enhance(f)`: 1.0 = unchanged",
+    "`ImageOps` has autocontrast, equalize, invert, expand, pad and more",
+    "`im.point` maps pixel values through a function or table"
+   ],
+   "pitfalls": [
+    "Applying filters to a P-mode image and getting errors or odd results; convert to RGB or L first."
+   ],
+   "quiz": [
+    {
+     "q": "What does `ImageEnhance.Contrast(im).enhance(1.0)` return?",
+     "options": [
+      "A grayscale image",
+      "An image identical to the original",
+      "An image with doubled contrast",
+      "A flat gray image"
+     ],
+     "answer": 1,
+     "explain": "A factor of 1.0 always gives back the original image."
+    },
+    {
+     "q": "Which filter is the usual choice for sharpening photos with control over strength?",
+     "options": [
+      "ImageFilter.UnsharpMask",
+      "ImageFilter.FIND_EDGES",
+      "ImageFilter.MaxFilter",
+      "ImageFilter.EMBOSS"
+     ],
+     "answer": 0,
+     "explain": "UnsharpMask takes radius, percent and threshold to tune sharpening."
+    }
+   ],
+   "docs": "https://pillow.readthedocs.io/en/stable/reference/ImageFilter.html",
+   "requires": [
+    "pillow.modes-convert"
+   ]
+  },
+  {
+   "id": "pillow.paste-alpha",
+   "name": "Pasting, masks and alpha compositing",
+   "module": "drawing",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Combine images with paste and masks, alpha_composite for proper transparency, and blend for cross-fades.",
+   "why": "Watermarks, overlays, stickers and image collages are all compositing problems with easy-to-miss alpha rules.",
+   "body": "`base.paste(other, box, mask=None)` copies `other` into `base` **in place**. `box` can be a 2-tuple `(x, y)` for the top-left corner or a 4-tuple region. Without a mask, transparent pixels of `other` are copied as-is, overwriting the base, so a PNG logo pasted onto a photo gets an opaque rectangle around it.\n\nPass a **mask**: an `L` or `1` image (or the `A` band of an RGBA image) where 255 means copy, 0 means keep the base and values in between blend. Using the image itself as mask, `base.paste(logo, (x, y), logo)`, makes Pillow use its alpha band.\n\n`Image.alpha_composite(dst, src)` does true **Porter-Duff \"over\"** compositing: both images must be `RGBA` and the same size, and the result's alpha is computed correctly. That matters when the base itself has transparency, where paste-with-mask gets alpha wrong. `dst.alpha_composite(src, dest=(x, y))` places a smaller `src` at an offset in place.\n\nOther tools:\n\n- `Image.blend(a, b, alpha)`: linear mix of two same-size, same-mode images (`0.0` gives a, `1.0` gives b)\n- `Image.composite(a, b, mask)`: pick per pixel from `a` or `b` via a mask\n- `im.putalpha(band_or_value)`: add or replace the alpha band\n\nA common watermark recipe: draw text on a transparent RGBA layer with a partly transparent fill, then `alpha_composite` it onto the photo converted to RGBA.",
+   "code": "from PIL import Image, ImageDraw\n\nphoto = Image.new(\"RGB\", (200, 100), (0, 0, 255))\nlogo = Image.new(\"RGBA\", (40, 40), (0, 0, 0, 0))               # transparent\nImageDraw.Draw(logo).ellipse([0, 0, 39, 39], fill=(255, 255, 0, 255))\n\na = photo.copy(); a.paste(logo, (10, 10))                     # no mask\nb = photo.copy(); b.paste(logo, (10, 10), logo)               # alpha as mask\nprint(a.getpixel((11, 11)), b.getpixel((11, 11)))             # (0, 0, 0) (0, 0, 255)\n\nlayer = Image.new(\"RGBA\", photo.size, (0, 0, 0, 0))\nImageDraw.Draw(layer).rectangle([100, 0, 199, 99], fill=(255, 255, 255, 128))\nmarked = Image.alpha_composite(photo.convert(\"RGBA\"), layer)\nprint(marked.getpixel((150, 50)))                             # (128, 128, 255, 255)\n\nfade = Image.blend(photo, Image.new(\"RGB\", (200, 100), \"red\"), 0.25)\nprint(fade.getpixel((0, 0)))                                  # (63, 0, 191)",
+   "code_lang": "python",
+   "takeaways": [
+    "`paste` works in place; pass a mask (often the image's own alpha) to respect transparency",
+    "`alpha_composite` does correct 'over' blending of two RGBA images",
+    "`blend` cross-fades, `composite` picks per pixel via a mask",
+    "Draw watermarks on a transparent layer, then composite"
+   ],
+   "pitfalls": [
+    "Pasting a transparent PNG without a mask and getting a black or solid box around it."
+   ],
+   "quiz": [
+    {
+     "q": "You paste a logo with transparent corners onto a photo and see black corners. What fixes it?",
+     "options": [
+      "Convert the logo to RGB first",
+      "Use Image.blend with alpha 0.5",
+      "Pass the logo as the mask: photo.paste(logo, pos, logo)",
+      "Save the photo as PNG"
+     ],
+     "answer": 2,
+     "explain": "Using the logo's alpha band as mask copies only its opaque pixels."
+    }
+   ],
+   "docs": "https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.alpha_composite",
+   "requires": [
+    "pillow.modes-convert",
+    "pillow.drawing-text"
+   ]
+  },
+  {
+   "id": "pillow.numpy-interop",
+   "name": "Pillow and NumPy arrays",
+   "module": "editing",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Convert between Image objects and NumPy arrays with np.asarray and Image.fromarray, minding shape, dtype and mode.",
+   "why": "ML pipelines, OpenCV and scientific code all work on arrays, so moving images in and out of Pillow is routine.",
+   "body": "Pillow images implement the array interface, so `np.asarray(im)` gives an array without writing any conversion code:\n\n- RGB becomes shape `(height, width, 3)`, dtype `uint8`\n- L becomes `(height, width)`; RGBA `(height, width, 4)`\n- `1` mode becomes a `bool` array; `I;16` gives `uint16`, `F` gives `float32`\n\nNote the axis order flips relative to `im.size`, which is `(width, height)`. The array from `np.asarray` is **read-only**; use `np.array(im)` for a writable copy.\n\n`Image.fromarray(arr)` goes the other way, inferring the mode from shape and dtype: `uint8` with 3 channels becomes RGB, 2-D `uint8` becomes L, `float32` becomes F. If your array is `float64` in the range 0 to 1, as many pipelines produce, scale and convert first: `(arr * 255).clip(0, 255).astype(np.uint8)`. Using `fromarray`'s `mode=` argument to reinterpret the data as a different type is deprecated; convert the array's dtype instead, or call `.convert()` afterwards.\n\nOpenCV uses BGR channel order while Pillow uses RGB, so reverse the last axis when crossing between them: `Image.fromarray(bgr[..., ::-1])`.\n\nFor performance, prefer whole-array NumPy operations over `getpixel`/`putpixel` loops, then convert back once.",
+   "code": "import numpy as np\nfrom PIL import Image\n\nim = Image.new(\"RGB\", (4, 2), (10, 20, 30))\narr = np.asarray(im)\nprint(arr.shape, arr.dtype, arr.flags.writeable)   # (2, 4, 3) uint8 False\n\nwork = np.array(im)                                # writable copy\nwork[:, :2] = [255, 0, 0]                          # left half red\nout = Image.fromarray(work)\nprint(out.mode, out.size, out.getpixel((0, 0)))    # RGB (4, 2) (255, 0, 0)\n\nprob = np.random.default_rng(0).random((2, 4))     # float64 in [0, 1)\ngray = Image.fromarray((prob * 255).astype(np.uint8))\nprint(gray.mode)                                   # L\nprint(Image.fromarray(prob.astype(np.float32)).mode)   # F\n\nbgr = work[..., ::-1]                              # pretend OpenCV array\nprint(Image.fromarray(np.ascontiguousarray(bgr[..., ::-1])).getpixel((0, 0)))  # (255, 0, 0)",
+   "code_lang": "python",
+   "takeaways": [
+    "`np.asarray(im)` gives (h, w, channels); it is read-only, `np.array` copies",
+    "`Image.fromarray` infers the mode from shape and dtype",
+    "Scale float images to uint8 before making RGB/L images",
+    "Swap BGR and RGB when moving between OpenCV and Pillow"
+   ],
+   "pitfalls": [
+    "Passing a float64 array in 0..1 to Image.fromarray and getting an F-mode or black image instead of a photo."
+   ],
+   "quiz": [
+    {
+     "q": "An RGB image has `im.size == (640, 480)`. What is `np.asarray(im).shape`?",
+     "options": [
+      "(640, 480, 3)",
+      "(480, 640, 3)",
+      "(3, 480, 640)",
+      "(640, 480)"
+     ],
+     "answer": 1,
+     "explain": "Arrays are (rows, columns, channels) = (height, width, 3)."
+    }
+   ],
+   "docs": "https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.fromarray",
+   "requires": [
+    "pillow.modes-convert"
+   ]
+  },
+  {
+   "id": "pillow.exif-metadata",
+   "name": "EXIF, ICC profiles and image info",
+   "module": "metadata",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Read and write EXIF tags with getexif, find the info dictionary, and decide what metadata to keep or strip.",
+   "why": "Metadata carries capture dates, GPS location and colour profiles: you need it for photo apps and must strip it for privacy.",
+   "body": "Pillow exposes metadata in two places.\n\n`im.info` is a dict of format-specific extras found while opening: `dpi`, `icc_profile` (bytes), `transparency`, `duration` for animations, PNG text chunks, and the raw `exif` bytes.\n\n`im.getexif()` returns an **`Image.Exif`** object, a mapping from numeric tag ids to values. `ExifTags.Base` gives readable names: `exif[ExifTags.Base.Model]`, `ExifTags.Base.Orientation` (0x0112), `DateTime`. Camera details and GPS are in sub-directories (IFDs): `exif.get_ifd(ExifTags.IFD.Exif)` for exposure settings and `exif.get_ifd(ExifTags.IFD.GPSInfo)` for location.\n\nTo write, modify the Exif object and pass it to `save(..., exif=exif)`. Supported for JPEG, PNG, WebP, TIFF and others.\n\nPillow mostly **drops metadata when saving unless you pass it**: a re-saved JPEG loses EXIF and its ICC profile by default. That is good for privacy (removes GPS coordinates) but changes colours for wide-gamut photos if the ICC profile is lost. A common policy for user uploads:\n\n- apply `ImageOps.exif_transpose` first,\n- keep `icc_profile=im.info.get(\"icc_profile\")` so colours stay right,\n- omit `exif=` to strip location and device details.\n\nPNG text chunks can be written with `PngImagePlugin.PngInfo`. XMP data appears in `im.info` or via `im.getxmp()` when `defusedxml` is installed.",
+   "code": "from PIL import ExifTags, Image\n\nim = Image.new(\"RGB\", (64, 48), \"green\")\nexif = Image.Exif()\nexif[ExifTags.Base.Make] = \"ACME\"\nexif[ExifTags.Base.Model] = \"Cam 1\"\nexif[ExifTags.Base.DateTime] = \"2026:05:01 12:00:00\"\nim.save(\"tagged.jpg\", exif=exif, dpi=(300, 300))\n\nsrc = Image.open(\"tagged.jpg\")\ntags = src.getexif()\nprint(tags[ExifTags.Base.Model], tags.get(ExifTags.Base.Make))   # Cam 1 ACME\nnames = {ExifTags.TAGS.get(k, k): v for k, v in tags.items()}\nprint(sorted(names))                       # ['DateTime', 'Make', 'Model']\nprint(src.info.get(\"dpi\"))                 # (300, 300)\n\nsrc.save(\"clean.jpg\")                      # no exif= : metadata dropped\nprint(len(Image.open(\"clean.jpg\").getexif()))   # 0\n\nkeep = {\"icc_profile\": src.info.get(\"icc_profile\")}   # keep colours, drop EXIF\nsrc.save(\"web.jpg\", **{k: v for k, v in keep.items() if v})",
+   "code_lang": "python",
+   "takeaways": [
+    "`im.info` holds format extras (dpi, icc_profile, duration...)",
+    "`im.getexif()` maps tag ids to values; use ExifTags.Base for names",
+    "Pass `exif=` and `icc_profile=` to save to keep them",
+    "Re-saving without them strips metadata, useful for privacy"
+   ],
+   "pitfalls": [
+    "Stripping the ICC profile along with EXIF, so wide-gamut photos look washed out."
+   ],
+   "quiz": [
+    {
+     "q": "You re-save a user's JPEG with `im.save('out.jpg')`. What happens to its GPS EXIF data?",
+     "options": [
+      "It is copied automatically",
+      "It is moved to im.info",
+      "Saving fails",
+      "It is dropped because exif= was not passed"
+     ],
+     "answer": 3,
+     "explain": "Pillow writes EXIF only when you pass it explicitly."
+    },
+    {
+     "q": "Where do you find a camera's exposure time in Pillow?",
+     "options": [
+      "im.info['exposure']",
+      "In the Exif sub-IFD via exif.get_ifd(ExifTags.IFD.Exif)",
+      "im.getpixel((0, 0))",
+      "ExifTags.TAGS['ExposureTime']"
+     ],
+     "answer": 1,
+     "explain": "Detailed camera settings live in the Exif sub-directory, not in the top-level IFD."
+    }
+   ],
+   "docs": "https://pillow.readthedocs.io/en/stable/reference/ExifTags.html",
+   "requires": [
+    "pillow.orientation-rotate",
+    "pillow.saving-formats",
+    "python.dicts"
+   ]
+  },
+  {
+   "id": "pillow.animation-frames",
+   "name": "Multi-frame images and animation",
+   "module": "metadata",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Iterate frames of GIFs, animated WebP and multi-page TIFFs with seek and ImageSequence, and save animations.",
+   "why": "Without frame handling you silently process only the first frame of animations and multi-page scans.",
+   "body": "Some files hold several **frames**: animated GIF, APNG and WebP, multi-page TIFF, ICO with several sizes. `Image.open` positions you on frame 0; most operations then see only that frame.\n\nCheck `getattr(im, \"n_frames\", 1)` and `getattr(im, \"is_animated\", False)`. Move with `im.seek(i)` and read the position with `im.tell()`. Seeking past the end raises `EOFError`. The simplest loop uses **`ImageSequence.Iterator(im)`** (or `ImageSequence.all_frames(im, func)`).\n\nEach frame object is the *same* Image re-pointed at a new position, so `.copy()` frames you want to keep, and `.convert(\"RGBA\")` them because GIF frames are palette images whose palettes and transparency can differ per frame.\n\nTiming per frame is in `im.info[\"duration\"]` (milliseconds), looping in `im.info[\"loop\"]` (0 = forever).\n\nTo **write** an animation, save the first frame with `save_all=True` and pass the rest:\n\n```python\nframes[0].save(\"out.gif\", save_all=True, append_images=frames[1:],\n               duration=80, loop=0)\n```\n\n`duration` can be a list with one value per frame. GIF is limited to 256 colours per frame, so photos band and dither; animated WebP (`.webp`) or APNG (`.png`) give better quality. The same `save_all` pattern writes multi-page TIFFs and PDFs.",
+   "code": "from PIL import Image, ImageDraw, ImageSequence\n\nframes = []\nfor i in range(5):\n    f = Image.new(\"RGB\", (60, 40), \"white\")\n    ImageDraw.Draw(f).ellipse([i * 10, 10, i * 10 + 20, 30], fill=\"red\")\n    frames.append(f)\nframes[0].save(\"ball.gif\", save_all=True, append_images=frames[1:],\n               duration=100, loop=0)\n\nim = Image.open(\"ball.gif\")\nprint(im.n_frames, im.is_animated, im.info[\"duration\"])   # 5 True 100\n\nkept = [fr.copy().convert(\"RGB\") for fr in ImageSequence.Iterator(im)]\nprint(len(kept), kept[4].getpixel((50, 20)))              # 5 (255, 0, 0)\n\nim.seek(2)\nprint(im.tell())                                          # 2\ntry:\n    im.seek(99)\nexcept EOFError:\n    print(\"no frame 99\")\n\nframes[0].save(\"pages.pdf\", save_all=True, append_images=frames[1:])  # 5-page PDF",
+   "code_lang": "python",
+   "takeaways": [
+    "Check `n_frames` / `is_animated`; open() only shows frame 0",
+    "Iterate with ImageSequence.Iterator and `.copy()` frames you keep",
+    "Save animations with save_all=True, append_images, duration and loop",
+    "Prefer animated WebP or APNG over GIF for photo quality"
+   ],
+   "pitfalls": [
+    "Resizing an animated GIF with a single resize() call and saving only its first frame."
+   ],
+   "quiz": [
+    {
+     "q": "You loop `for fr in ImageSequence.Iterator(im): frames.append(fr)` and all stored frames look like the last one. Why?",
+     "options": [
+      "The iterator yields the same Image object seeked to new positions; append fr.copy() instead",
+      "GIFs store only one real frame",
+      "You must call im.load() first",
+      "append_images is required when reading"
+     ],
+     "answer": 0,
+     "explain": "Each step re-points the same object, so keep copies of frames you need later."
+    }
+   ],
+   "docs": "https://pillow.readthedocs.io/en/stable/reference/ImageSequence.html",
+   "requires": [
+    "pillow.saving-formats",
+    "python.iterators-generators"
+   ]
+  },
+  {
+   "id": "pillow.large-images",
+   "name": "Large images: lazy loading, draft and reduce",
+   "module": "metadata",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Handle huge images efficiently with lazy opening, JPEG draft mode, reduce, and closing files properly.",
+   "why": "Decoding a 50-megapixel photo to make a 200-pixel thumbnail wastes seconds and hundreds of megabytes if done naively.",
+   "body": "Memory is roughly width x height x bands bytes once decoded: a 8000x6000 RGB photo needs about 144 MB, before any copies.\n\nPillow helps in several ways:\n\n- **Lazy open**: `Image.open` reads only the header, so checking `size`, `format` and `mode` of thousands of files is cheap. Reject oversize files before decoding.\n- **`im.draft(mode, size)`** (JPEG and some others): asks the decoder to decode at a reduced scale (1/2, 1/4 or 1/8) directly using the JPEG's DCT structure. It must be called before the image is loaded. `thumbnail()` calls `draft` automatically, which is why it is so fast on JPEGs.\n- **`im.reduce(factor)`**: fast integer downscaling by box averaging; `resize(..., reducing_gap=2.0)` uses it internally before the precise resampling step, trading a little quality for large speedups.\n- **Cropping doesn't save decoding**: `im.crop()` on a freshly opened file calls `load()` and decodes the whole image first, so crop after downscaling when you can.\n\nClose files you open in loops. Opened-but-unloaded images keep file handles; after `load()`, single-frame images close them automatically, but multi-frame ones stay open. `with Image.open(p) as im:` is the reliable pattern.\n\n`Image.MAX_IMAGE_PIXELS` guards against decompression bombs and will stop absurdly large images; don't just set it to `None` for untrusted input.",
+   "code": "import time\nfrom PIL import Image\n\nImage.effect_noise((4000, 3000), 40).convert(\"RGB\").save(\"big.jpg\", quality=90)\n\nwith Image.open(\"big.jpg\") as im:\n    print(im.size, im.mode)               # (4000, 3000) RGB -- header only\n\nt = time.perf_counter()\nwith Image.open(\"big.jpg\") as im:\n    full = im.resize((400, 300))          # decodes all 12 megapixels\nt_full = time.perf_counter() - t\n\nt = time.perf_counter()\nwith Image.open(\"big.jpg\") as im:\n    im.draft(\"RGB\", (400, 300))           # decode at 1/8 scale\n    print(im.size)                        # (500, 375)\n    fast = im.resize((400, 300))\nt_draft = time.perf_counter() - t\nprint(t_draft < t_full)                   # True, typically several times faster\n\nprint(Image.open(\"big.jpg\").reduce(4).size)   # (1000, 750)",
+   "code_lang": "python",
+   "takeaways": [
+    "Opening is lazy: inspect size and format before decoding",
+    "JPEG draft mode decodes directly at 1/2, 1/4 or 1/8 scale; thumbnail uses it",
+    "reduce() and reducing_gap speed up big downscales",
+    "Use `with Image.open(...)` in loops to release file handles"
+   ],
+   "pitfalls": [
+    "Calling draft() after the image has already been loaded, when it has no effect."
+   ],
+   "quiz": [
+    {
+     "q": "Why is `im.thumbnail((200, 200))` on a large JPEG much faster than `im.resize((200, 150))`?",
+     "options": [
+      "thumbnail uses a lower quality filter",
+      "resize always converts to RGBA",
+      "thumbnail calls draft() so the JPEG decoder outputs a smaller image directly",
+      "thumbnail runs on the GPU"
+     ],
+     "answer": 2,
+     "explain": "Draft mode lets the JPEG decoder skip most of the work by decoding at reduced scale."
+    }
+   ],
+   "docs": "https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.draft",
+   "requires": [
+    "pillow.resize-thumbnail-crop",
+    "python.context-managers"
+   ]
+  },
+  {
+   "id": "pillow.untrusted-input",
+   "name": "Handling untrusted images safely",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Defend upload endpoints against decompression bombs, format confusion, malformed files and metadata leaks.",
+   "why": "Image decoders are a classic attack surface; user uploads must be treated as hostile input.",
+   "body": "Accepting images from users means running complex C decoders on attacker-controlled bytes. Pillow is fuzzed and patched quickly, but your code still needs a defensive layer.\n\n**Decompression bombs**: a tiny file can declare a gigantic size (a 50 KB PNG that decodes to 20 GB). Pillow compares `width * height` with `Image.MAX_IMAGE_PIXELS` (about 89 million by default): above it emits `DecompressionBombWarning`, above twice it raises `DecompressionBombError`. Turn the warning into an error with the `warnings` module and lower the limit to what your app needs.\n\n**Restrict formats**: `Image.open(fp, formats=[\"JPEG\", \"PNG\", \"WEBP\"])` refuses other decoders, shrinking the attack surface. Never trust the filename extension or the client's content type.\n\n**Validate cheaply first**: check `im.size` before `load()`. `im.verify()` checks file integrity for some formats without decoding pixels, but leaves the object unusable, so reopen afterwards.\n\n**Re-encode** accepted images: decode, `exif_transpose`, resize to your maximum, and save in a format you choose. This drops embedded payloads, strips EXIF location data and normalises the output.\n\nAlso cap the upload size in bytes, decode in a worker process with memory and time limits for heavy traffic, catch `(OSError, ValueError, Image.DecompressionBombError)`, keep Pillow updated, and never run `Image.open` on untrusted paths that could point to arbitrary files. `ImageFile.LOAD_TRUNCATED_IMAGES = True` hides corruption; avoid it for uploads.",
+   "code": "import io\nimport warnings\nfrom PIL import Image\n\nwarnings.simplefilter(\"error\", Image.DecompressionBombWarning)\nImage.MAX_IMAGE_PIXELS = 40_000_000          # app limit: 40 MP\n\ndef load_upload(data: bytes, max_side=2048):\n    if len(data) > 15_000_000: raise ValueError(\"file too large\")\n    im = Image.open(io.BytesIO(data), formats=[\"JPEG\", \"PNG\", \"WEBP\"])\n    im.load()                                # decode inside our guards\n    im.thumbnail((max_side, max_side))\n    out = io.BytesIO(); im.convert(\"RGB\").save(out, \"JPEG\", quality=85)\n    return out.getvalue()                    # re-encoded, no EXIF\n\nok = io.BytesIO(); Image.new(\"RGB\", (3000, 2000)).save(ok, \"PNG\")\nprint(len(load_upload(ok.getvalue())) > 0)          # True\n\nbomb = io.BytesIO(); Image.new(\"1\", (10_000, 10_000)).save(bomb, \"PNG\")\nprint(len(bomb.getvalue()) < 50_000)                # True: tiny file, 100 MP\ntry:\n    load_upload(bomb.getvalue())\nexcept (Image.DecompressionBombWarning, Image.DecompressionBombError) as e:\n    print(\"rejected:\", type(e).__name__)",
+   "code_lang": "python",
+   "takeaways": [
+    "MAX_IMAGE_PIXELS plus warnings-as-errors stops decompression bombs",
+    "Restrict decoders with Image.open(..., formats=[...])",
+    "Check size before load(); re-encode accepted images yourself",
+    "Cap bytes, catch decoder errors and keep Pillow patched"
+   ],
+   "pitfalls": [
+    "Setting Image.MAX_IMAGE_PIXELS = None to silence warnings on a public upload endpoint."
+   ],
+   "quiz": [
+    {
+     "q": "A 40 KB PNG upload declares 30000 x 30000 pixels. What protects you?",
+     "options": [
+      "Checking that the extension is .png",
+      "im.verify(), which decodes all pixels safely",
+      "Converting to RGB",
+      "The decompression bomb check against Image.MAX_IMAGE_PIXELS"
+     ],
+     "answer": 3,
+     "explain": "The pixel-count check runs before decoding and stops images far larger than the limit."
+    },
+    {
+     "q": "Why re-encode accepted uploads instead of storing the original bytes?",
+     "options": [
+      "Re-encoding is required by Pillow",
+      "It normalises format and size and drops embedded payloads and EXIF metadata",
+      "It makes files lossless",
+      "It removes the need to check MAX_IMAGE_PIXELS"
+     ],
+     "answer": 1,
+     "explain": "Saving a fresh image you produced yourself discards anything unexpected in the original file."
+    }
+   ],
+   "docs": "https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.open",
+   "requires": [
+    "pillow.large-images",
+    "pillow.exif-metadata",
+    "python.exceptions"
+   ]
+  },
+  {
+   "id": "pillow.plugins-internals",
+   "name": "Format plugins and decoder internals",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "How Pillow identifies formats, decodes through tiles and C codecs, and how to feed incremental data or register a plugin.",
+   "why": "Knowing the plugin architecture explains lazy loading, partial-data errors and how to support a custom format.",
+   "body": "Each file format is a **plugin module** such as `PngImagePlugin` or `JpegImagePlugin`, containing an `ImageFile.ImageFile` subclass. Plugins register themselves with `Image.register_open(format, factory, accept)`, `register_save` and `register_extension(s)`.\n\nWhen you call `Image.open`, Pillow reads the first bytes and asks each registered plugin's **accept** function whether it recognises the magic number; the first match runs its `_open()` method, which parses only the header and fills in `mode`, `size` and **`tile`**. The tile list describes how to decode: for each region, a decoder name (`\"zip\"`, `\"jpeg\"`, `\"raw\"`...), the box, the file offset and decoder arguments.\n\n`load()` then walks `im.tile`, looks up the C decoder in the `_imaging` extension, feeds it file data in chunks, and fills the internal image memory (`im.im`, an `ImagingCore` object). This split is what makes opening lazy and lets `draft()` change decoding parameters beforehand.\n\nFor streaming data, `ImageFile.Parser` accepts bytes incrementally with `feed()` and produces an image from `close()`, useful when downloading.\n\nA minimal custom format plugin only needs `format`, `format_description`, an `_open` that validates the header and sets `_size`, `_mode` and `tile` (often using the built-in `raw` decoder), plus the register calls. `features.pilinfo()` prints which plugins and codecs your build includes.",
+   "code": "import io\nfrom PIL import Image, ImageFile\n\nclass TinyImageFile(ImageFile.ImageFile):\n    format, format_description = \"TINY\", \"Toy grayscale format\"\n\n    def _open(self):\n        header = self.fp.read(8)               # b\"TINY\" + width + height\n        if header[:4] != b\"TINY\":\n            raise SyntaxError(\"not a TINY file\")\n        self._mode = \"L\"\n        self._size = (header[4] | header[5] << 8, header[6] | header[7] << 8)\n        self.tile = [(\"raw\", (0, 0) + self.size, 8, (\"L\", 0, 1))]   # decoder, box, offset, args\n\nImage.register_open(\"TINY\", TinyImageFile, lambda prefix: prefix[:4] == b\"TINY\")\n\ndata = b\"TINY\" + bytes([3, 0, 2, 0]) + bytes([0, 50, 100, 150, 200, 250])\nim = Image.open(io.BytesIO(data))\nprint(im.format, im.size, im.mode)              # TINY (3, 2) L\nprint(im.getpixel((2, 1)))                      # 250  (decoded on demand)\n\np = ImageFile.Parser()\nfor i in range(0, len(data), 4):\n    p.feed(data[i:i + 4])                       # incremental bytes\nprint(p.close().size)                           # (3, 2)",
+   "code_lang": "python",
+   "takeaways": [
+    "Plugins register an ImageFile subclass plus an accept() magic-number check",
+    "_open parses the header and sets mode, size and the tile list",
+    "load() runs C decoders over the tiles into internal memory",
+    "ImageFile.Parser decodes data fed incrementally"
+   ],
+   "pitfalls": [
+    "Relying on private internals such as `im.im` in application code; they change between versions."
+   ],
+   "quiz": [
+    {
+     "q": "What does a plugin's `_open()` method typically do?",
+     "options": [
+      "Parse the header and set mode, size and the tile descriptors for later decoding",
+      "Decode all pixel data into memory",
+      "Convert the image to RGB",
+      "Write the file back to disk"
+     ],
+     "answer": 0,
+     "explain": "Decoding is deferred to load(), which uses the tile list _open prepared."
+    }
+   ],
+   "docs": "https://pillow.readthedocs.io/en/stable/handbook/writing-your-own-image-plugin.html",
+   "requires": [
+    "pillow.large-images",
+    "python.classes"
+   ]
+  },
+  {
+   "id": "pillow.color-management",
+   "name": "Colour management with ImageCms",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Convert images between ICC colour profiles such as Display P3, Adobe RGB, sRGB and CMYK using ImageCms.",
+   "why": "Without colour management, wide-gamut phone photos and print CMYK files look dull or shifted after processing.",
+   "body": "The same RGB numbers mean different colours in different **colour spaces**. Most of the web assumes **sRGB**, but iPhones shoot in Display P3, photographers use Adobe RGB, and print uses CMYK with device-specific profiles. The space is described by an **ICC profile** embedded in the file, found in `im.info.get(\"icc_profile\")`.\n\nPillow's `convert(\"RGB\")` on a CMYK image, or simply ignoring the profile, does a naive conversion. Results look wrong: CMYK JPEGs come out oversaturated or muddy, and P3 photos look washed out once the profile is lost.\n\n**`ImageCms`** (a wrapper around LittleCMS) does proper conversions:\n\n- `ImageCms.ImageCmsProfile(io.BytesIO(icc_bytes))` loads the embedded profile\n- `ImageCms.createProfile(\"sRGB\")` creates a standard target\n- `ImageCms.profileToProfile(im, src, dst, outputMode=\"RGB\")` converts pixels\n- `buildTransform(...)` once plus `applyTransform(im, t)` per image is faster for batches\n\nThe **rendering intent** decides how out-of-gamut colours are handled: perceptual compresses the whole gamut smoothly, relative colorimetric clips only what doesn't fit.\n\nA robust pipeline for web output: if the image has a profile, convert it to sRGB with ImageCms; then either embed an sRGB profile with `save(..., icc_profile=ImageCms.ImageCmsProfile(srgb).tobytes())` or omit it, since browsers assume sRGB.",
+   "code": "import io\nfrom PIL import Image, ImageCms\n\nsrgb = ImageCms.createProfile(\"sRGB\")\nlab = ImageCms.createProfile(\"LAB\")\n\nim = Image.new(\"RGB\", (2, 1), (255, 0, 0))\nto_lab = ImageCms.buildTransform(srgb, lab, \"RGB\", \"LAB\")\nlab_im = ImageCms.applyTransform(im, to_lab)\nprint(lab_im.mode, lab_im.getpixel((0, 0))[0] > 100)   # LAB True (L of red ~54%)\n\nicc = ImageCms.ImageCmsProfile(srgb).tobytes()        # embed a profile\nim.save(\"tagged.png\", icc_profile=icc)\nsrc = Image.open(\"tagged.png\")\nprof = ImageCms.ImageCmsProfile(io.BytesIO(src.info[\"icc_profile\"]))\nprint(ImageCms.getProfileDescription(prof).strip())   # sRGB built-in (or similar)\n\nout = ImageCms.profileToProfile(src, prof, srgb, outputMode=\"RGB\",\n                                renderingIntent=ImageCms.Intent.PERCEPTUAL)\nprint(out.getpixel((0, 0)))                            # (255, 0, 0) same space",
+   "code_lang": "python",
+   "takeaways": [
+    "ICC profiles in im.info define what RGB numbers mean",
+    "Use ImageCms.profileToProfile or build/applyTransform to convert",
+    "Convert to sRGB for the web; keep or embed the profile on save",
+    "Rendering intent controls out-of-gamut handling"
+   ],
+   "pitfalls": [
+    "Converting CMYK print files to RGB with plain convert() and getting badly shifted colours."
+   ],
+   "quiz": [
+    {
+     "q": "A Display P3 photo is re-saved without its ICC profile. How does it look in a browser?",
+     "options": [
+      "Identical",
+      "Grayscale",
+      "Less saturated, because browsers then assume sRGB",
+      "It fails to load"
+     ],
+     "answer": 2,
+     "explain": "Without the profile, P3 numbers are interpreted as sRGB, which dulls saturated colours."
+    }
+   ],
+   "docs": "https://pillow.readthedocs.io/en/stable/reference/ImageCms.html",
+   "requires": [
+    "pillow.exif-metadata",
+    "pillow.modes-convert"
+   ]
+  }
+ ]
+}

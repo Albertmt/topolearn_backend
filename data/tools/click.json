@@ -1,0 +1,617 @@
+{
+ "tool": {
+  "id": "click",
+  "name": "Click",
+  "category": "library",
+  "tagline": "Composable command-line interfaces in Python with decorators",
+  "description": "Click is a Python package for building command-line tools by decorating functions: options, arguments, nested command groups, prompts, help pages and shell completion all come from declarations. It powers the CLIs of Flask, pip-tools, Black and many other projects. Learning it lets you turn scripts into polished, testable command-line applications quickly.",
+  "icon": "Ck",
+  "color": "#2D6A6E",
+  "official_docs": "https://click.palletsprojects.com/en/stable/",
+  "version": "8.5",
+  "aliases": [
+   "python click",
+   "click cli",
+   "pallets click"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "First commands"
+  },
+  {
+   "id": "params",
+   "name": "Parameters"
+  },
+  {
+   "id": "structure",
+   "name": "Groups and context"
+  },
+  {
+   "id": "shipping",
+   "name": "Testing and shipping"
+  },
+  {
+   "id": "internals",
+   "name": "Advanced and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "click.first-command",
+   "name": "Your first Click command",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Turn a function into a command-line program with @click.command and run it, getting --help for free.",
+   "why": "Every Click CLI starts as a decorated function, and the generated help is the first thing users see.",
+   "body": "Install with `pip install click`. A Click program is a Python function decorated with `@click.command()`. Calling the decorated object parses `sys.argv`, calls your function with the parsed values, and exits:\n\n```python\n@click.command()\ndef hello():\n    click.echo(\"Hello!\")\n\nif __name__ == \"__main__\":\n    hello()\n```\n\nRunning `python hello.py` prints `Hello!`, and `python hello.py --help` prints a generated help page. The function's **docstring** becomes the help text, and the first sentence is used as the short summary in command lists.\n\n`click.echo` is Click's `print`. It behaves the same for normal text but works consistently across terminals and platforms, handles bytes, strips ANSI colour codes when output is not a terminal, and accepts `err=True` to write to stderr.\n\nSome behaviour to know from the start:\n\n- The decorated object is no longer a plain function but a `click.Command`. Calling `hello()` runs the full CLI machinery and ends with `sys.exit`. To call it from Python without exiting, use `hello.main(args, standalone_mode=False)` or, in tests, `CliRunner`.\n- Unknown options produce a usage error with exit code 2 and a short message, so users get helpful feedback automatically.\n- The command name defaults to the function name, with underscores replaced by dashes (`def sync_db` becomes `sync-db`).",
+   "code": "import click\n\n@click.command()\ndef hello():\n    \"\"\"Greet the world. Prints a friendly message.\"\"\"\n    click.echo(\"Hello!\")\n    click.echo(\"Warnings go to stderr\", err=True)\n\nif __name__ == \"__main__\":\n    hello()\n\n# $ python hello.py\n# Hello!\n# Warnings go to stderr\n# $ python hello.py --help\n# Usage: hello.py [OPTIONS]\n#\n#   Greet the world. Prints a friendly message.\n#\n# Options:\n#   --help  Show this message and exit.",
+   "code_lang": "python",
+   "takeaways": [
+    "@click.command() turns a function into a CLI with --help",
+    "The docstring becomes the help text",
+    "Use click.echo (err=True for stderr) instead of print"
+   ],
+   "pitfalls": [
+    "Calling the command object from other Python code and being surprised when the process exits."
+   ],
+   "quiz": [
+    {
+     "q": "Where does the text shown by --help under the usage line come from?",
+     "options": [
+      "The function's docstring",
+      "A help.txt file",
+      "The module name",
+      "The first click.echo call"
+     ],
+     "answer": 0,
+     "explain": "Click uses the command function's docstring as its help text."
+    }
+   ],
+   "docs": "https://click.palletsprojects.com/en/stable/quickstart/",
+   "requires": [
+    "python.functions",
+    "python.modules-imports"
+   ]
+  },
+  {
+   "id": "click.options",
+   "name": "Options",
+   "module": "basics",
+   "level": 1,
+   "minutes": 11,
+   "summary": "Add named options like --count 3 and boolean flags like --verbose with @click.option, including defaults and help.",
+   "why": "Options are how users configure a command; declaring them well gives validation and help text for free.",
+   "body": "`@click.option` declares an optional named parameter. The declaration names become the flags, and Click derives the Python parameter name from the longest one, converting dashes to underscores:\n\n```python\n@click.option(\"-n\", \"--count\", default=1, help=\"Number of greetings.\")\n```\n\ngives your function a `count` argument. Key features:\n\n- **Types from defaults.** `default=1` makes the option an `int`, so `--count abc` is rejected with a clear error. You can also set `type=int`, `float`, `str` or richer types.\n- **Required options**: `required=True`. Without a default and not required, the value is `None` when omitted.\n- **Boolean flags**: `is_flag=True` makes `--verbose` a switch that is `True` when present. On/off pairs are written `\"--color/--no-color\"`.\n- **Counting**: `count=True` counts repetitions, so `-vvv` gives 3, a classic verbosity pattern.\n- **Multiple values**: `multiple=True` collects `--tag a --tag b` into a tuple; `nargs=2` takes two values per occurrence.\n- **Help**: `help=\"...\"` text appears in `--help`, and `show_default=True` displays the default there.\n\nThe decorator order matters only for the help listing: options appear in the order the decorators are written (top to bottom). The function receives parameters as keyword arguments, so names must match.\n\nOptions are for optional, named settings. Things the command fundamentally needs, like the file to process, are usually **arguments** instead.",
+   "code": "import click\n\n@click.command()\n@click.option(\"-n\", \"--count\", default=1, show_default=True, help=\"Number of greetings.\")\n@click.option(\"--name\", required=True, help=\"Who to greet.\")\n@click.option(\"--shout/--no-shout\", default=False, help=\"Uppercase output.\")\n@click.option(\"-v\", \"--verbose\", count=True, help=\"Repeat for more detail.\")\n@click.option(\"--tag\", multiple=True, help=\"Tags to attach (repeatable).\")\ndef greet(count, name, shout, verbose, tag):\n    \"\"\"Greet NAME a number of times.\"\"\"\n    msg = f\"Hello, {name}!\"\n    for _ in range(count):\n        click.echo(msg.upper() if shout else msg)\n    if verbose:\n        click.echo(f\"verbosity={verbose} tags={tag}\")\n\ngreet.main([\"--name\", \"Ada\", \"-n\", \"2\", \"--shout\", \"-vv\", \"--tag\", \"x\", \"--tag\", \"y\"],\n           standalone_mode=False)\n# HELLO, ADA!\n# HELLO, ADA!\n# verbosity=2 tags=('x', 'y')",
+   "code_lang": "python",
+   "takeaways": [
+    "@click.option('-n', '--count') maps to a count parameter",
+    "default= sets the type; is_flag, --x/--no-x, count and multiple cover switches and repeats",
+    "help= and show_default=True document options in --help"
+   ],
+   "pitfalls": [
+    "A function parameter name that doesn't match the option's derived name, causing a TypeError."
+   ],
+   "quiz": [
+    {
+     "q": "What value does an option declared with @click.option('-v', '--verbose', count=True) receive for -vvv?",
+     "options": [
+      "True",
+      "'vvv'",
+      "3",
+      "(True, True, True)"
+     ],
+     "answer": 2,
+     "explain": "count=True counts how many times the flag was given."
+    }
+   ],
+   "docs": "https://click.palletsprojects.com/en/stable/options/",
+   "requires": [
+    "click.first-command"
+   ]
+  },
+  {
+   "id": "click.arguments",
+   "name": "Arguments",
+   "module": "basics",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Declare positional arguments with @click.argument, including optional and variadic ones, and know when to prefer options.",
+   "why": "Arguments express what a command operates on, like files or names, which is how users expect Unix tools to work.",
+   "body": "`@click.argument(\"src\")` declares a positional parameter. Arguments are **required by default** and are matched by position, in decorator order.\n\n- `nargs=-1` accepts any number of values into a tuple, like `cp`'s list of sources: `@click.argument(\"files\", nargs=-1)`. Only one argument can be variadic. Add `required=True` if at least one value is needed.\n- `type=` works as for options: `int`, `click.Path(exists=True)`, `click.File(\"r\")`, `click.Choice([...])`.\n- `required=False` or a `default=` makes an argument optional.\n- Since Click 8.5, arguments accept `help=` text, shown in a \"Positional arguments\" section of `--help`. Before that, arguments were documented only in the command's docstring, which is still a good habit.\n\nArguments names are shown in uppercase in the usage line: `Usage: copy [OPTIONS] SRC... DST`.\n\nWhen to choose which: use arguments for the primary objects of a command (the file to read, the user to delete), and options for everything that modifies behaviour. Avoid more than two or three arguments; long positional lists are hard to remember, while named options are self-documenting.\n\nA common trick for values that start with a dash, like negative numbers or file names such as `-data.txt`: users can put `--` before them, which tells Click that everything after it is positional.",
+   "code": "import click\n\n@click.command()\n@click.argument(\"sources\", nargs=-1, required=True)\n@click.argument(\"dest\")\n@click.option(\"--dry-run\", is_flag=True)\ndef copy(sources, dest, dry_run):\n    \"\"\"Copy SOURCES... to DEST.\"\"\"\n    for src in sources:\n        click.echo(f\"{'would copy' if dry_run else 'copy'} {src} -> {dest}\")\n\ncopy.main([\"a.txt\", \"b.txt\", \"backup/\", \"--dry-run\"], standalone_mode=False)\n# would copy a.txt -> backup/\n# would copy b.txt -> backup/\n\ncopy.main([\"--\", \"-odd-name.txt\", \"backup/\"], standalone_mode=False)\n# copy -odd-name.txt -> backup/",
+   "code_lang": "python",
+   "takeaways": [
+    "Arguments are positional and required by default",
+    "nargs=-1 collects any number of values into a tuple",
+    "Use arguments for what the command acts on, options for how"
+   ],
+   "pitfalls": [
+    "Using several positional arguments where named options would be clearer."
+   ],
+   "quiz": [
+    {
+     "q": "With @click.argument('files', nargs=-1), what does the function receive when no files are given?",
+     "options": [
+      "None",
+      "An empty tuple",
+      "A usage error is always raised",
+      "An empty list"
+     ],
+     "answer": 1,
+     "explain": "Variadic arguments collect values into a tuple, which is empty unless required=True is set."
+    }
+   ],
+   "docs": "https://click.palletsprojects.com/en/stable/arguments/",
+   "requires": [
+    "click.first-command"
+   ]
+  },
+  {
+   "id": "click.output-help",
+   "name": "Output, styling and help text",
+   "module": "basics",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Print with echo and secho, add colour with style, and shape help output with docstrings, epilogs and metavars.",
+   "why": "A CLI's output and help are its user interface; small touches make tools pleasant and scriptable.",
+   "body": "Click's output helpers:\n\n- `click.echo(msg, err=False, nl=True)`: print to stdout or stderr. Colour codes are removed automatically when the stream is not a terminal, so piping to a file stays clean.\n- `click.style(text, fg=\"green\", bold=True)` returns a styled string; `click.secho(...)` styles and echoes in one call. Since Click 8.5 colours are validated and Windows terminals support ANSI codes natively, no colorama needed.\n- `click.echo_via_pager(text)` shows long output in a pager like `less`.\n- `click.progressbar(iterable, label=...)` as a context manager draws a progress bar.\n- `click.confirm` and `click.prompt` ask questions (see the prompts lesson).\n\nShaping help:\n\n- The docstring is the help body. Paragraphs are re-wrapped; a paragraph starting with `\\b` on its own line is kept as is, for lists or examples.\n- `@click.command(epilog=\"...\")` adds text at the end, and `short_help=` overrides the summary used in group listings.\n- `metavar=\"FILE\"` changes how a value is shown in help; `hidden=True` hides an option.\n- `context_settings={\"help_option_names\": [\"-h\", \"--help\"]}` adds `-h`, and `max_content_width` widens output.\n- `@click.version_option(package_name=\"mytool\")` adds `--version`.\n\nGood practice for scriptable tools: send data to stdout, and messages, warnings and progress to stderr (`err=True`). Then `mytool | jq` still works while users see feedback.",
+   "code": "import click\n\n@click.command(epilog=\"See the docs for more examples.\",\n               context_settings={\"help_option_names\": [\"-h\", \"--help\"]})\n@click.option(\"--out\", metavar=\"FILE\", help=\"Write the report to FILE.\")\ndef report(out):\n    \"\"\"Build a status report.\n\n    \\b\n    Examples:\n      report --out today.txt\n      report | less\n    \"\"\"\n    click.secho(\"3 checks passed\", fg=\"green\", bold=True)\n    click.echo(click.style(\"1 warning\", fg=\"yellow\"), err=True)\n\nreport.main([\"-h\"], prog_name=\"report\", standalone_mode=False)\n# Usage: report [OPTIONS]\n#\n#   Build a status report.\n#\n#   Examples:\n#     report --out today.txt\n#     report | less\n# ...",
+   "code_lang": "python",
+   "takeaways": [
+    "echo/secho/style print and colour; colours are stripped when not a terminal",
+    "Docstrings, epilog, metavar and \\b paragraphs shape --help",
+    "Data to stdout, messages to stderr"
+   ],
+   "pitfalls": [
+    "Printing progress messages to stdout, which corrupts output meant for pipes."
+   ],
+   "quiz": [
+    {
+     "q": "Your tool's output is piped into a file. What happens to colours added with click.secho?",
+     "options": [
+      "The escape codes are written into the file",
+      "Click raises an error",
+      "Click strips them because the stream is not a terminal",
+      "The output is suppressed"
+     ],
+     "answer": 2,
+     "explain": "echo and secho remove ANSI styles when the output stream is not an interactive terminal."
+    }
+   ],
+   "docs": "https://click.palletsprojects.com/en/stable/utils/",
+   "requires": [
+    "click.options"
+   ]
+  },
+  {
+   "id": "click.parameter-types",
+   "name": "Parameter types and validation",
+   "module": "params",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Validate input with built-in types like Choice, IntRange, Path and File, so bad values fail with clear errors.",
+   "why": "Declaring types moves validation out of your code and gives users precise error messages.",
+   "body": "Every parameter has a **type** that converts the raw string and validates it. Built-ins beyond `int`, `float`, `bool` and `str`:\n\n- `click.Choice([\"json\", \"csv\"], case_sensitive=False)`: one of a fixed set, shown in help. Since 8.2 it also accepts an `Enum` class, and your function receives the enum member.\n- `click.IntRange(1, 10)` / `click.FloatRange(0, 1)`: numbers within bounds; `clamp=True` clips instead of failing.\n- `click.Path(exists=True, file_okay=True, dir_okay=False, path_type=pathlib.Path)`: validates a filesystem path and returns a `Path` object if you ask.\n- `click.File(\"r\")` / `click.File(\"wb\")`: opens the file for you, supports `-` for stdin/stdout, and closes it when the command finishes. Output files are opened lazily, so a failed command does not leave empty files.\n- `click.DateTime(formats=[...])`, `click.UUID`, and tuples of types such as `type=(str, int)` with `nargs=2`.\n\nWhen conversion fails, Click prints a usage error such as `Error: Invalid value for '--level': 12 is not in the range 1<=x<=10.` and exits with code 2. Your function never runs with invalid data.\n\nChoosing `Path` versus `File`: use `File` for simple read/write of one stream, especially when supporting `-`. Use `Path` when you need the path itself (directories, passing to other libraries, opening several times).\n\nEnvironment variables and prompts go through the same types, so validation is consistent wherever the value comes from.",
+   "code": "import enum\nimport pathlib\nimport click\n\nclass Fmt(enum.Enum):\n    JSON = \"json\"\n    CSV = \"csv\"\n\n@click.command()\n@click.option(\"--fmt\", type=click.Choice(Fmt, case_sensitive=False), default=\"json\")\n@click.option(\"--level\", type=click.IntRange(1, 10), default=5)\n@click.option(\"--src\", type=click.Path(exists=True, dir_okay=False, path_type=pathlib.Path))\n@click.option(\"--out\", type=click.File(\"w\"), default=\"-\")\ndef export(fmt, level, src, out):\n    out.write(f\"{fmt} level={level} src={src}\\n\")\n\nexport.main([\"--fmt\", \"CSV\", \"--level\", \"3\"], standalone_mode=False)\n# Fmt.CSV level=3 src=None\ntry:\n    export.main([\"--level\", \"12\"], standalone_mode=False)\nexcept click.BadParameter as e:\n    print(e.format_message())\n# Invalid value for '--level': 12 is not in the range 1<=x<=10.",
+   "code_lang": "python",
+   "takeaways": [
+    "Choice, IntRange, Path and File validate and convert input",
+    "Invalid values fail with a clear usage error before your code runs",
+    "File handles '-' and closes files; Path gives you the path"
+   ],
+   "pitfalls": [
+    "Opening files manually from a str option instead of using click.File or click.Path validation."
+   ],
+   "quiz": [
+    {
+     "q": "What does a user see for --level 12 with type=click.IntRange(1, 10)?",
+     "options": [
+      "The value is clamped to 10",
+      "A usage error saying 12 is not in the range, exit code 2",
+      "A Python traceback",
+      "The command runs with level=12"
+     ],
+     "answer": 1,
+     "explain": "IntRange validates and reports a usage error unless clamp=True is set."
+    }
+   ],
+   "docs": "https://click.palletsprojects.com/en/stable/parameter-types/",
+   "requires": [
+    "click.options",
+    "click.arguments"
+   ]
+  },
+  {
+   "id": "click.groups",
+   "name": "Command groups and subcommands",
+   "module": "structure",
+   "level": 2,
+   "minutes": 11,
+   "summary": "Build git-style CLIs with @click.group and subcommands, including group options and command chaining.",
+   "why": "Most real tools have several actions (init, run, deploy); groups organise them under one entry point.",
+   "body": "A **group** is a command that dispatches to subcommands:\n\n```python\n@click.group()\ndef cli(): ...\n\n@cli.command()\ndef init(): ...\n```\n\nNow `cli init` runs `init`, and `cli --help` lists the subcommands with their short help. Commands can also be defined separately and attached with `cli.add_command(cmd)`, which is how large CLIs split commands across modules.\n\nOptions declared on the group belong **before** the subcommand: `cli --verbose init`, not `cli init --verbose`. The group's function runs first (useful for setup such as configuring logging), then the subcommand's.\n\nGroups nest: a subcommand can itself be a group, giving `cli db migrate`.\n\nUseful settings:\n\n- `invoke_without_command=True` lets the group run when called alone; check `ctx.invoked_subcommand` to know whether a subcommand follows.\n- `chain=True` allows several subcommands in one invocation, like `cli build test deploy`.\n- `@cli.command(\"custom-name\")` sets a name different from the function's; Click also converts underscores to dashes automatically.\n- `no_args_is_help=True` shows help instead of an error when no subcommand is given (the default for groups).\n\nCommands are listed alphabetically in help by default. Sharing state between the group and its subcommands is done with the context object, covered next.",
+   "code": "import click\n\n@click.group()\n@click.option(\"--verbose\", is_flag=True, help=\"Print extra details.\")\ndef cli(verbose):\n    \"\"\"Manage the project.\"\"\"\n    if verbose:\n        click.echo(\"[verbose mode]\")\n\n@cli.command()\n@click.argument(\"name\")\ndef init(name):\n    click.echo(f\"Initialised {name}\")\n\n@cli.group()\ndef db():\n    \"\"\"Database commands.\"\"\"\n\n@db.command(\"migrate\")\n@click.option(\"--to\", default=\"head\")\ndef db_migrate(to):\n    click.echo(f\"Migrating to {to}\")\n\ncli.main([\"--verbose\", \"init\", \"demo\"], standalone_mode=False)  # [verbose mode] / Initialised demo\ncli.main([\"db\", \"migrate\", \"--to\", \"042\"], standalone_mode=False)  # Migrating to 042",
+   "code_lang": "python",
+   "takeaways": [
+    "@click.group() plus @group.command() builds subcommands",
+    "Group options go before the subcommand name",
+    "Groups nest; add_command assembles commands from other modules"
+   ],
+   "pitfalls": [
+    "Passing a group option after the subcommand (cli init --verbose), which the subcommand rejects."
+   ],
+   "quiz": [
+    {
+     "q": "Given a group cli with option --verbose and subcommand init, which invocation is valid?",
+     "options": [
+      "cli init --verbose",
+      "cli init -- --verbose",
+      "Either order works",
+      "cli --verbose init"
+     ],
+     "answer": 3,
+     "explain": "Options belong to the command they are declared on, so group options come before the subcommand."
+    }
+   ],
+   "docs": "https://click.palletsprojects.com/en/stable/commands-and-groups/",
+   "requires": [
+    "click.options",
+    "click.arguments"
+   ]
+  },
+  {
+   "id": "click.context",
+   "name": "The context and sharing state",
+   "module": "structure",
+   "level": 2,
+   "minutes": 11,
+   "summary": "Use click.Context, @pass_context and ctx.obj to share configuration and resources between a group and its subcommands.",
+   "why": "Subcommands usually need shared setup like config, clients or a database handle, without global variables.",
+   "body": "Each invocation creates a **context** (`click.Context`) holding the command, the parsed parameters, the parent context (for subcommands) and a free slot, `ctx.obj`, for your own data. Contexts form a chain from the root group down to the running command.\n\nGet the current context with `@click.pass_context`, which passes `ctx` as the first argument. The typical pattern: the group builds shared state and stores it in `ctx.obj`; subcommands read it.\n\n```python\n@click.group()\n@click.pass_context\ndef cli(ctx):\n    ctx.obj = Config(...)\n```\n\nSubcommands then use `@click.pass_obj` to receive `ctx.obj` directly, or `@click.make_pass_decorator(Config)` to find the nearest object of that type in the chain.\n\nOther context features:\n\n- `ctx.ensure_object(dict)` creates `ctx.obj` if missing, convenient when the root may be called from tests with or without an object.\n- `ctx.invoke(other_command, x=1)` and `ctx.forward(other_command)` call another command's callback.\n- `ctx.call_on_close(fn)` and `ctx.with_resource(cm)` register cleanup that runs when the context ends: close a database connection opened in the group callback, for example.\n- `ctx.exit(code)` and `ctx.abort()` end the program; `ctx.fail(\"msg\")` reports a usage error.\n- `ctx.meta` is a dict shared across the whole chain, for extensions.\n- `click.get_current_context()` retrieves the context from anywhere during execution.\n\n`obj=` can also be passed to `main()` or `CliRunner.invoke()`, which is handy for injecting fakes in tests.",
+   "code": "import click\n\nclass Config:\n    def __init__(self, env):\n        self.env = env\n        self.log = []\n\n@click.group()\n@click.option(\"--env\", default=\"dev\")\n@click.pass_context\ndef cli(ctx, env):\n    ctx.obj = Config(env)\n    ctx.call_on_close(lambda: click.echo(f\"closing ({len(ctx.obj.log)} actions)\"))\n\n@cli.command()\n@click.argument(\"service\")\n@click.pass_obj\ndef deploy(cfg, service):\n    cfg.log.append(service)\n    click.echo(f\"Deploying {service} to {cfg.env}\")\n\ncli.main([\"--env\", \"prod\", \"deploy\", \"api\"], standalone_mode=False)\n# Deploying api to prod\n# closing (1 actions)",
+   "code_lang": "python",
+   "takeaways": [
+    "ctx.obj carries shared state from groups to subcommands",
+    "@pass_context gives the context; @pass_obj gives ctx.obj",
+    "call_on_close and with_resource clean up when the command ends"
+   ],
+   "pitfalls": [
+    "Using module-level globals for configuration, which leaks state between test runs."
+   ],
+   "quiz": [
+    {
+     "q": "Which decorator passes ctx.obj directly as the first argument of a subcommand?",
+     "options": [
+      "@click.pass_obj",
+      "@click.pass_context",
+      "@click.make_context",
+      "@click.with_obj"
+     ],
+     "answer": 0,
+     "explain": "pass_obj passes the context's obj; pass_context passes the whole context."
+    }
+   ],
+   "docs": "https://click.palletsprojects.com/en/stable/complex/",
+   "requires": [
+    "click.groups"
+   ]
+  },
+  {
+   "id": "click.testing",
+   "name": "Testing CLIs with CliRunner",
+   "module": "shipping",
+   "level": 2,
+   "minutes": 11,
+   "summary": "Invoke commands in-process with click.testing.CliRunner and assert on output, exit codes and exceptions.",
+   "why": "Automated tests keep a CLI's behaviour and error messages stable as it grows.",
+   "body": "`click.testing.CliRunner` runs a command in-process with isolated standard streams:\n\n```python\nrunner = CliRunner()\nresult = runner.invoke(cli, [\"init\", \"demo\"])\n```\n\nThe `Result` object holds:\n\n- `result.exit_code`: 0 on success, 2 for usage errors, 1 for unhandled exceptions or `click.Abort`.\n- `result.output`: what a user would see in the terminal, stdout and stderr combined. `result.stdout` and `result.stderr` are available separately (since Click 8.2 both are always captured).\n- `result.exception` and `result.exc_info`: an unhandled exception raised by your code. By default `invoke` catches it, so a test can silently pass with a crashed command unless you check `exit_code`. Pass `catch_exceptions=False` to let it propagate and get a real traceback in pytest.\n\nOther options:\n\n- `input=\"yes\\n\"` feeds stdin, for prompts and confirmations.\n- `env={\"APP_TOKEN\": \"x\"}` sets environment variables for the run.\n- `obj=` passes a context object, letting you inject fakes.\n\nFor files, use pytest's `tmp_path` fixture and pass absolute paths. Click 8.5 deprecated `CliRunner.isolated_filesystem()` because it changes the process-wide working directory.\n\n`CliRunner` swaps the process-global `sys.stdin`/`sys.stdout`, so it is not safe to use from several threads at once; run tests in parallel with processes (`pytest-xdist`).",
+   "code": "import click\nfrom click.testing import CliRunner\n\n@click.command()\n@click.option(\"--count\", type=int, default=1)\n@click.option(\"--name\", prompt=\"Your name\")\ndef hello(count, name):\n    if name == \"boom\":\n        raise RuntimeError(\"unexpected\")\n    for _ in range(count):\n        click.echo(f\"Hello {name}\")\n\nrunner = CliRunner()\nr = runner.invoke(hello, [\"--count\", \"2\"], input=\"Ada\\n\")\nprint(r.exit_code, repr(r.output))  # 0 'Your name: Ada\\nHello Ada\\nHello Ada\\n'\n\nr = runner.invoke(hello, [\"--count\", \"x\", \"--name\", \"Ada\"])\nprint(r.exit_code, \"Invalid value\" in r.output)   # 2 True\n\nr = runner.invoke(hello, [\"--name\", \"boom\"])\nprint(r.exit_code, type(r.exception).__name__)    # 1 RuntimeError",
+   "code_lang": "python",
+   "takeaways": [
+    "runner.invoke(cmd, args) returns exit_code, output, stdout, stderr, exception",
+    "Always assert exit_code; use catch_exceptions=False for real tracebacks",
+    "Use input=, env= and obj= to drive prompts, configuration and fakes"
+   ],
+   "pitfalls": [
+    "Checking only the output and missing that the command crashed (exit_code 1 with result.exception set)."
+   ],
+   "quiz": [
+    {
+     "q": "A command raises ValueError inside runner.invoke(cmd, []) with default settings. What happens?",
+     "options": [
+      "The test process crashes with a traceback",
+      "result.exit_code is 2",
+      "CliRunner retries the command",
+      "result.exit_code is 1 and result.exception holds the ValueError"
+     ],
+     "answer": 3,
+     "explain": "invoke catches the exception by default and records it on the result."
+    }
+   ],
+   "docs": "https://click.palletsprojects.com/en/stable/testing/",
+   "requires": [
+    "click.context",
+    "click.parameter-types",
+    "python.testing"
+   ]
+  },
+  {
+   "id": "click.prompts-env",
+   "name": "Prompts, confirmation and environment variables",
+   "module": "params",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Fill values interactively with prompt=, confirm destructive actions, hide passwords and read defaults from environment variables.",
+   "why": "Good CLIs work interactively for humans and non-interactively for scripts and CI.",
+   "body": "A value is looked up in order of precedence: the **command line**, then an **environment variable**, then the `default_map` (config), then the option's **default**. If the option has `prompt=` and the value did not come from the command line or environment, Click asks interactively and offers the default as the suggested answer.\n\n**Prompts on options**: `@click.option(\"--name\", prompt=True)` asks `Name:` only if the option was not given. `prompt=\"Your name\"` customises the text. For secrets use `hide_input=True` and `confirmation_prompt=True`, or the shortcut `@click.password_option()`.\n\n**Confirmation**: `@click.confirmation_option(prompt=\"Drop all tables?\")` adds a `--yes` flag and aborts unless confirmed. Inside code, `click.confirm(\"Continue?\", abort=True)` does the same, and `click.prompt(\"Port\", type=int, default=8080)` asks for a typed value anywhere.\n\n**Environment variables**:\n\n- `envvar=\"APP_TOKEN\"` on an option reads it from the environment (also a list of names).\n- `auto_envvar_prefix=\"APP\"` in `context_settings` (or in `main()`) makes every option read `APP_<OPTION>`, e.g. `--db-url` from `APP_DB_URL`; for subcommands the command name is included, as in `APP_DEPLOY_REGION`.\n- `show_envvar=True` documents the variable in `--help`.\n\nValues from environment variables go through the same type conversion and validation as command-line values.\n\nFor scripts and CI, make sure every prompt can be bypassed with an option or variable; a prompt in a non-interactive run reads from empty stdin and aborts. `ctx.get_parameter_source(\"name\")` tells you where a value came from.",
+   "code": "import click\nfrom click.testing import CliRunner\n\n@click.command(context_settings={\"auto_envvar_prefix\": \"APP\"})\n@click.option(\"--region\", default=\"eu-west\", show_envvar=True)\n@click.option(\"--token\", envvar=\"API_TOKEN\", prompt=True, hide_input=True)\n@click.confirmation_option(prompt=\"Deploy to production?\")\ndef deploy(region, token):\n    click.echo(f\"deploying to {region} with token {token[:2]}***\")\n\nrunner = CliRunner()\nr = runner.invoke(deploy, input=\"s3cret\\ny\\n\")\nprint(r.output)\n# Token:\n# Deploy to production? [y/N]: y\n# deploying to eu-west with token s3***\n\nr = runner.invoke(deploy, [\"--yes\"], env={\"APP_REGION\": \"us-east\", \"API_TOKEN\": \"abc\"})\nprint(r.output)   # deploying to us-east with token ab***",
+   "code_lang": "python",
+   "takeaways": [
+    "Precedence: command line, environment variable, then a prompt (if set), default_map, default",
+    "prompt=, hide_input, password_option and confirmation_option for interactive input",
+    "envvar= and auto_envvar_prefix connect options to the environment"
+   ],
+   "pitfalls": [
+    "Prompting in a CI job without an option or env var to supply the value, which aborts the run."
+   ],
+   "quiz": [
+    {
+     "q": "An option has envvar='APP_PORT' and default=8000. The user runs `tool --port 9000` with APP_PORT=7000 set. Which value wins?",
+     "options": [
+      "7000",
+      "8000",
+      "9000",
+      "Click raises a conflict error"
+     ],
+     "answer": 2,
+     "explain": "The command line has the highest precedence, then the environment variable, then the default."
+    }
+   ],
+   "docs": "https://click.palletsprojects.com/en/stable/prompts/",
+   "requires": [
+    "click.parameter-types"
+   ]
+  },
+  {
+   "id": "click.entry-points",
+   "name": "Packaging a CLI with entry points",
+   "module": "shipping",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Install your Click app as a real command with [project.scripts] in pyproject.toml, and structure the package for it.",
+   "why": "Users should type mytool, not python path/to/script.py, and packaging is how that happens.",
+   "body": "To make a CLI installable as a command, declare a **console script entry point** in `pyproject.toml`:\n\n```toml\n[project.scripts]\nmytool = \"mytool.cli:cli\"\n```\n\nThe value is `module:object`, pointing to your Click command or group. When the package is installed (`pip install .`, `pip install -e .` for development, `pipx install` or `uv tool install` for end users), the installer generates a small executable called `mytool` on the PATH that imports the module and calls `cli()`. This works on all platforms, including creating `.exe` launchers on Windows.\n\nA typical layout:\n\n```\nsrc/mytool/__init__.py\nsrc/mytool/cli.py        # defines the click group `cli`\nsrc/mytool/__main__.py   # from .cli import cli; cli()\n```\n\nThe `__main__.py` file adds `python -m mytool` support, handy when the script directory is not on PATH.\n\nTips:\n\n- Pass `prog_name` if the displayed name should differ from the executable name; otherwise Click uses the invoked name in usage lines.\n- `@click.version_option()` reads the installed distribution's version via `importlib.metadata`; give `package_name=` if it cannot be detected.\n- Keep imports at the top of `cli.py` light, because every invocation, even `--help` and shell completion, imports the module. Import heavy libraries inside the command functions or use lazy loading.\n- Avoid `if __name__ == \"__main__\"` scripts as the main entry; entry points are more robust.",
+   "code": "# pyproject.toml\n[project]\nname = \"mytool\"\nversion = \"1.2.0\"\ndependencies = [\"click>=8.5\"]\n\n[project.scripts]\nmytool = \"mytool.cli:cli\"\n\n[build-system]\nrequires = [\"hatchling\"]\nbuild-backend = \"hatchling.build\"\n\n# Then:\n#   pip install -e .        (development)\n#   pipx install .          (end users, isolated)\n#   mytool --version        -> mytool, version 1.2.0",
+   "code_lang": "toml",
+   "takeaways": [
+    "[project.scripts] name = 'package.module:command' creates the executable",
+    "Add __main__.py for python -m support",
+    "Keep CLI module imports light: they run on every invocation"
+   ],
+   "pitfalls": [
+    "Importing heavy libraries at module level, making even --help slow."
+   ],
+   "quiz": [
+    {
+     "q": "What does mytool = \"mytool.cli:cli\" under [project.scripts] mean?",
+     "options": [
+      "Create a mytool command that imports mytool.cli and calls the cli object",
+      "Run the file mytool/cli.py as a script",
+      "Alias the cli module as mytool",
+      "Register cli as a plugin for mytool"
+     ],
+     "answer": 0,
+     "explain": "Console script entry points name a module and a callable to invoke."
+    }
+   ],
+   "docs": "https://click.palletsprojects.com/en/stable/entry-points/",
+   "requires": [
+    "click.groups",
+    "python.packaging"
+   ]
+  },
+  {
+   "id": "click.custom-types-callbacks",
+   "name": "Custom types and callbacks",
+   "module": "params",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Write ParamType subclasses for domain values and use callbacks and eager options for validation and early actions.",
+   "why": "Domain-specific parsing such as durations or key=value pairs belongs in reusable types, not command bodies.",
+   "body": "When the built-in types are not enough, subclass `click.ParamType`:\n\n- set `name` (shown in help and error messages),\n- implement `convert(self, value, param, ctx)`, returning the converted value or calling `self.fail(message, param, ctx)` to produce a proper usage error.\n\n`convert` must accept values that are **already converted**: defaults, prompts and programmatic calls may pass the target type rather than a string. Start with `if isinstance(value, TargetType): return value`. Since Click 8.4, `ParamType` is generic, so you can annotate it as `ParamType[timedelta]` for type checkers.\n\nFor one-off validation, a **callback** is lighter. `callback=fn` on a parameter is called as `fn(ctx, param, value)` after conversion, and its return value replaces the value. Raise `click.BadParameter(\"...\")` to reject it. Callbacks are good for cross-checks and normalisation.\n\n**Eager** parameters (`is_eager=True`) are processed before the others. Combined with `expose_value=False` and a callback that calls `ctx.exit()`, they implement options like `--version` or `--list-formats` that do something immediately and stop, even if required parameters are missing. Callbacks run even when the value was not supplied, so check `value` (and `ctx.resilient_parsing`, which is set during shell completion) before acting.\n\nFor custom version output, Click 8.5 adds `click.custom_version_option`; `version_option` covers the standard case.",
+   "code": "import re\nfrom datetime import timedelta\nimport click\n\nclass Duration(click.ParamType):\n    name = \"duration\"\n    def convert(self, value, param, ctx):\n        if isinstance(value, timedelta):\n            return value\n        m = re.fullmatch(r\"(\\d+)([smh])\", value)\n        if not m:\n            self.fail(f\"{value!r} is not like 30s, 5m or 2h\", param, ctx)\n        unit = {\"s\": \"seconds\", \"m\": \"minutes\", \"h\": \"hours\"}[m[2]]\n        return timedelta(**{unit: int(m[1])})\n\ndef even_only(ctx, param, value):\n    if value % 2:\n        raise click.BadParameter(\"must be even\")\n    return value\n@click.command()\n@click.option(\"--timeout\", type=Duration(), default=\"30s\")\n@click.option(\"--workers\", type=int, default=2, callback=even_only)\ndef run(timeout, workers):\n    click.echo(f\"timeout={timeout.total_seconds():.0f}s workers={workers}\")\nrun.main([\"--timeout\", \"5m\", \"--workers\", \"4\"], standalone_mode=False)  # timeout=300s workers=4",
+   "code_lang": "python",
+   "takeaways": [
+    "Subclass ParamType with name and convert(); call self.fail for bad input",
+    "convert must also accept already-converted values",
+    "callback=(ctx, param, value) validates; is_eager + ctx.exit() for --version-style options"
+   ],
+   "pitfalls": [
+    "Writing convert() that assumes the value is always a string, breaking defaults of the target type."
+   ],
+   "quiz": [
+    {
+     "q": "Inside a custom ParamType.convert, how should you reject an invalid value?",
+     "options": [
+      "return None",
+      "raise ValueError",
+      "call self.fail(message, param, ctx)",
+      "click.echo an error and continue"
+     ],
+     "answer": 2,
+     "explain": "fail raises BadParameter with the parameter context, giving a proper usage error and exit code 2."
+    }
+   ],
+   "docs": "https://click.palletsprojects.com/en/stable/parameter-types/",
+   "requires": [
+    "click.parameter-types",
+    "click.prompts-env",
+    "python.classes"
+   ]
+  },
+  {
+   "id": "click.shell-completion",
+   "name": "Shell completion",
+   "module": "shipping",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Enable tab completion for bash, zsh, fish and PowerShell, and provide dynamic completions with shell_complete.",
+   "why": "Completion makes large CLIs discoverable and is expected of polished tools.",
+   "body": "Click has built-in completion for **bash** (4.4+), **zsh**, **fish** and, since 8.5, **PowerShell**. It works for installed entry points (not `python script.py`). Completion is activated by an environment variable named after the program: for `my-tool` it is `_MY_TOOL_COMPLETE`.\n\nUsers generate a script once and source it from their shell config:\n\n```bash\n_MY_TOOL_COMPLETE=bash_source my-tool > ~/.my-tool-complete.bash\necho '. ~/.my-tool-complete.bash' >> ~/.bashrc\n```\n\nwith `zsh_source`, `fish_source` or `powershell_source` for the other shells. Document this in your README or offer a `completion` subcommand that prints it.\n\nOut of the box Click completes subcommand names, option names, `Choice` values, and file paths for `Path` and `File` types.\n\nFor dynamic values (git branches, server names), pass `shell_complete=fn` to a parameter. The function receives `(ctx, param, incomplete)` and returns a list of strings or `click.shell_completion.CompletionItem` objects (which can carry help text shown by zsh and fish). Filter by the `incomplete` prefix yourself.\n\nCompletion runs your program with `ctx.resilient_parsing = True`: callbacks and prompts are skipped and errors suppressed. Keep completion functions fast, avoid side effects, and remember that your module is imported on every keypress-triggered completion, which is a strong reason to keep top-level imports light.",
+   "code": "import click\nfrom click.shell_completion import CompletionItem\n\nENVIRONMENTS = {\"dev\": \"local cluster\", \"staging\": \"pre-prod\", \"prod\": \"live!\"}\n\ndef complete_env(ctx, param, incomplete):\n    return [CompletionItem(name, help=desc)\n            for name, desc in ENVIRONMENTS.items() if name.startswith(incomplete)]\n\n@click.command()\n@click.argument(\"env\", shell_complete=complete_env)\n@click.option(\"--format\", type=click.Choice([\"json\", \"table\"]))\ndef status(env, format):\n    click.echo(f\"{env}: ok\")\n\nitems = complete_env(None, None, \"st\")\nprint([(i.value, i.help) for i in items])   # [('staging', 'pre-prod')]\n\n# Users enable it once for the installed command `status`:\n#   eval \"$(_STATUS_COMPLETE=bash_source status)\"",
+   "code_lang": "python",
+   "takeaways": [
+    "Built-in completion for bash, zsh, fish and (8.5+) PowerShell via _PROG_COMPLETE",
+    "Choices, subcommands and paths complete automatically",
+    "shell_complete=fn returns CompletionItems for dynamic values"
+   ],
+   "pitfalls": [
+    "Doing slow network calls in shell_complete without caching, making Tab hang."
+   ],
+   "quiz": [
+    {
+     "q": "For an installed program named db-admin, which variable triggers completion script generation?",
+     "options": [
+      "DB_ADMIN_COMPLETE",
+      "_DB_ADMIN_COMPLETE",
+      "CLICK_COMPLETE_DB_ADMIN",
+      "_db-admin_COMPLETE"
+     ],
+     "answer": 1,
+     "explain": "The name is uppercased, dashes become underscores, with a leading underscore and _COMPLETE suffix."
+    }
+   ],
+   "docs": "https://click.palletsprojects.com/en/stable/shell-completion/",
+   "requires": [
+    "click.entry-points",
+    "click.parameter-types"
+   ]
+  },
+  {
+   "id": "click.custom-groups",
+   "name": "Custom groups and lazy loading",
+   "module": "internals",
+   "level": 4,
+   "minutes": 13,
+   "summary": "Subclass click.Group and override list_commands and get_command for plugins, aliases and lazily imported subcommands.",
+   "why": "Large CLIs need fast startup and extensibility, which come from controlling how commands are found.",
+   "body": "A `click.Group` finds subcommands through two methods:\n\n- `list_commands(ctx)` returns the names shown in help and completion,\n- `get_command(ctx, name)` returns the `Command` for a name, or `None`.\n\nThe default implementation reads a dict of registered commands. Overriding these methods changes discovery without touching the rest of Click.\n\n**Lazy loading**: map names to import paths (`\"deploy\": \"mytool.commands.deploy:cli\"`) and import the module only in `get_command`. Then `mytool --help` and `mytool status` no longer import the heavy dependencies of every other command, which can cut startup from seconds to milliseconds. Note that `--help` on the group calls `get_command` for every listed command to fetch short help, so keep command modules themselves light, or provide summaries separately.\n\n**Plugins**: discover commands from installed packages via `importlib.metadata.entry_points(group=\"mytool.plugins\")` in `list_commands`/`get_command`.\n\n**Aliases and prefixes**: `get_command` can resolve `ci` to `commit`, or accept unique prefixes, by matching against `list_commands`.\n\nUse a custom class with `@click.group(cls=LazyGroup, ...)`; extra keyword arguments go to its `__init__`. Other override points include `format_commands` for help output, `resolve_command` for parsing, and `Command.invoke` or `Context` subclasses (`context_class`) for cross-cutting behaviour such as timing every command.",
+   "code": "import importlib\nimport click\n\nclass LazyGroup(click.Group):\n    def __init__(self, *args, lazy=None, **kwargs):\n        super().__init__(*args, **kwargs)\n        self.lazy = lazy or {}                    # name -> \"module:attr\"\n\n    def list_commands(self, ctx):\n        return sorted([*super().list_commands(ctx), *self.lazy])\n\n    def get_command(self, ctx, name):\n        if name in self.lazy:\n            module, attr = self.lazy[name].split(\":\")\n            return getattr(importlib.import_module(module), attr)  # imported on demand\n        matches = [c for c in self.list_commands(ctx) if c.startswith(name)]\n        return super().get_command(ctx, matches[0]) if len(matches) == 1 else None\n@click.group(cls=LazyGroup, lazy={\"pretty\": \"json:tool\"})   # demo target: any importable object\ndef cli():\n    pass\n@cli.command()\ndef status():\n    click.echo(\"all good\")\nprint(cli.list_commands(None))                   # ['pretty', 'status']\ncli.main([\"stat\"], standalone_mode=False)          # all good  (unique prefix)",
+   "code_lang": "python",
+   "takeaways": [
+    "Override list_commands and get_command to control discovery",
+    "Lazy loading imports a subcommand's module only when it is used",
+    "Plugins, aliases and prefix matching are all get_command logic"
+   ],
+   "pitfalls": [
+    "Making the lazily loaded modules themselves import everything, which defeats the purpose."
+   ],
+   "quiz": [
+    {
+     "q": "Which Group method must return None for an unknown subcommand name?",
+     "options": [
+      "list_commands",
+      "invoke",
+      "format_commands",
+      "get_command"
+     ],
+     "answer": 3,
+     "explain": "get_command looks up a name; returning None makes Click report 'No such command'."
+    }
+   ],
+   "docs": "https://click.palletsprojects.com/en/stable/extending-click/",
+   "requires": [
+    "click.context",
+    "click.entry-points",
+    "python.inheritance"
+   ]
+  },
+  {
+   "id": "click.exceptions-exit-codes",
+   "name": "Exceptions, exit codes and standalone mode",
+   "module": "internals",
+   "level": 4,
+   "minutes": 11,
+   "summary": "Control error reporting and exit codes with ClickException, UsageError, Abort and standalone_mode.",
+   "why": "Scripts and CI rely on exit codes, and users rely on clean error messages instead of tracebacks.",
+   "body": "In **standalone mode** (the default when you call `cli()`), `Command.main` wraps everything:\n\n- `click.ClickException` and subclasses are printed nicely (`Error: ...`) and exit with their `exit_code`: 1 for `ClickException`, 2 for `UsageError` and `BadParameter` (which also print the usage line and a \"Try --help\" hint).\n- `click.Abort` (raised on Ctrl+C at a prompt or when a confirmation is declined) prints `Aborted!` and exits 1.\n- `click.exceptions.Exit(code)` / `ctx.exit(code)` exits with that code silently.\n- `KeyboardInterrupt` becomes `Abort`, and `EOFError` at a prompt too.\n- A broken pipe on stdout (`mytool | head`) is handled quietly.\n- Any other exception propagates with a normal traceback.\n\nSo raise `click.ClickException(\"config file is invalid\")` for expected errors, and subclass it to set a custom `exit_code` (for example 3 for \"not found\") or to override `show()`.\n\nWith `standalone_mode=False`, Click does not print or exit: `main()` returns the command's return value, and exceptions propagate (except `Exit`, whose code is returned). This is how you embed a Click command in another program or test the raw behaviour. `UsageError` still carries `.ctx` and `format_message()` for your own reporting.\n\nCommand callbacks' return values are ignored in standalone mode unless you use `result_callback` on groups, which receives the subcommands' return values, useful for pipelines with `chain=True`.",
+   "code": "import click\n\nclass NotFound(click.ClickException):\n    exit_code = 3\n\n@click.command()\n@click.argument(\"key\")\ndef get(key):\n    data = {\"a\": 1}\n    if key not in data:\n        raise NotFound(f\"no such key: {key}\")\n    return data[key]\n\nfor args in ([\"a\"], [\"zzz\"], []):\n    try:\n        get.main(args, prog_name=\"get\")            # standalone mode\n    except SystemExit as e:\n        print(\"exit code\", e.code)\n# exit code 0\n# Error: no such key: zzz                          (stderr)\n# exit code 3\n# Usage: get [OPTIONS] KEY ... Error: Missing argument 'KEY'.   (stderr)\n# exit code 2\n\nprint(get.main([\"a\"], standalone_mode=False))     # 1  (return value, no exit)",
+   "code_lang": "python",
+   "takeaways": [
+    "ClickException exits 1, UsageError/BadParameter exit 2, Abort prints 'Aborted!'",
+    "Subclass ClickException to set custom exit codes",
+    "standalone_mode=False returns values and propagates exceptions"
+   ],
+   "pitfalls": [
+    "Calling sys.exit or printing tracebacks for expected user errors instead of raising ClickException."
+   ],
+   "quiz": [
+    {
+     "q": "What exit code does a missing required argument produce in standalone mode?",
+     "options": [
+      "0",
+      "1",
+      "2",
+      "127"
+     ],
+     "answer": 2,
+     "explain": "Missing arguments are usage errors, which exit with code 2."
+    }
+   ],
+   "docs": "https://click.palletsprojects.com/en/stable/exceptions/",
+   "requires": [
+    "click.testing",
+    "click.custom-types-callbacks",
+    "python.exceptions"
+   ]
+  },
+  {
+   "id": "click.parsing-internals",
+   "name": "How Click parses: contexts and parameter order",
+   "module": "internals",
+   "level": 4,
+   "minutes": 13,
+   "summary": "Follow an invocation from make_context through parsing, parameter processing order, callbacks and invoke.",
+   "why": "Subtle behaviours, like which callback sees which value or why defaults misbehave, follow from this pipeline.",
+   "body": "When `cli.main(args)` runs:\n\n- **make_context** creates a `Context` (applying `context_settings`) and calls `parse_args`.\n- **Parsing.** Click's parser (modelled on `optparse`) splits the argument list into options and positional values according to each parameter's declaration (`nargs`, flags, `--` handling). For groups, parsing stops at the first positional that names a subcommand; the rest is kept in `ctx.protected_args`/`ctx.args` for the child.\n- **Processing.** Each parameter's `handle_parse_result` resolves the value from its source in precedence order (command line, environment, `default_map`, default; an option with `prompt=` asks instead of silently using the last two), converts it with its type, then runs its callback, and stores it in `ctx.params`. Parameters are processed in the order the user **typed** them on the command line, with eager parameters first and unspecified ones after. That is why callbacks should not assume another parameter is already in `ctx.params`.\n- `ctx.get_parameter_source(name)` reports where a value came from (`COMMANDLINE`, `ENVIRONMENT`, `DEFAULT`, `DEFAULT_MAP`, `PROMPT`).\n- **invoke.** The command callback is called with `**ctx.params`. For groups, the group callback runs, then the subcommand's context is created as a child (`parent=ctx`) and the process repeats.\n\n`Command.to_info_dict(ctx)` dumps the whole structure as data, which tools use to generate documentation. Knowing this pipeline explains things like defaults bypassing callbacks during completion (`resilient_parsing`) and why options must precede subcommands.",
+   "code": "import click\nfrom click.core import ParameterSource\n\nseen = []\ndef trace(ctx, param, value):\n    seen.append(param.name)\n    return value\n\n@click.command()\n@click.option(\"--a\", default=1, callback=trace)\n@click.option(\"--b\", default=2, callback=trace, envvar=\"B_VAL\")\n@click.option(\"--c\", default=3, callback=trace)\n@click.pass_context\ndef cmd(ctx, a, b, c):\n    for name in (\"a\", \"b\", \"c\"):\n        click.echo(f\"{name}={ctx.params[name]} from {ctx.get_parameter_source(name).name}\")\n\ncmd.main([\"--c\", \"30\", \"--a\", \"10\"], standalone_mode=False)\n# a=10 from COMMANDLINE\n# b=2 from DEFAULT\n# c=30 from COMMANDLINE\nprint(seen)   # ['c', 'a', 'b']  (command-line order first, then the rest)",
+   "code_lang": "python",
+   "takeaways": [
+    "make_context -> parse -> process each parameter -> invoke callback",
+    "Parameters are processed in command-line order (eager first), unspecified ones last",
+    "get_parameter_source tells where each value came from"
+   ],
+   "pitfalls": [
+    "Writing a callback for --b that reads ctx.params['a'], which may not be set yet."
+   ],
+   "quiz": [
+    {
+     "q": "A user runs `cmd --c 30 --a 10`. In which order are the callbacks for a, b and c called?",
+     "options": [
+      "a, b, c (declaration order)",
+      "c, a, b",
+      "b, a, c",
+      "All at once"
+     ],
+     "answer": 1,
+     "explain": "Values typed on the command line are processed in typed order, then the remaining parameters."
+    }
+   ],
+   "docs": "https://click.palletsprojects.com/en/stable/advanced/",
+   "requires": [
+    "click.custom-groups",
+    "click.exceptions-exit-codes"
+   ]
+  }
+ ]
+}

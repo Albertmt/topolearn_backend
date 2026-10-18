@@ -1,0 +1,846 @@
+{
+ "tool": {
+  "id": "spacy",
+  "name": "spaCy",
+  "category": "library",
+  "tagline": "Industrial-strength NLP pipelines for tokenizing, tagging, parsing and entities",
+  "description": "spaCy is a fast, production-oriented NLP library. A trained pipeline turns text into a Doc with tokens, lemmas, part-of-speech tags, dependency parses, sentences and named entities, and you can add rule-based matchers, custom components or transformer models. It is a common choice for information extraction and text processing services.",
+  "icon": "sC",
+  "color": "#09A3D5",
+  "official_docs": "https://spacy.io/usage",
+  "version": "3.8",
+  "aliases": [
+   "spacy.io",
+   "space y"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Getting started"
+  },
+  {
+   "id": "linguistics",
+   "name": "Linguistic features"
+  },
+  {
+   "id": "rules",
+   "name": "Rule-based matching"
+  },
+  {
+   "id": "pipelines",
+   "name": "Pipelines and components"
+  },
+  {
+   "id": "training",
+   "name": "Training and models"
+  },
+  {
+   "id": "internals",
+   "name": "Internals and scale"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "spacy.install-models",
+   "name": "Installing spaCy and loading pipelines",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Install spaCy, download a trained pipeline package, and load it with spacy.load or start empty with spacy.blank.",
+   "why": "Nothing linguistic happens without a pipeline; choosing the right one sets your accuracy, speed and memory.",
+   "body": "spaCy is installed with `pip install spacy`, but the library alone has no trained models. Trained **pipelines** are separate Python packages, installed with:\n\n```bash\npython -m spacy download en_core_web_sm\n```\n\nThe naming scheme is `language_type_genre_size`: `en_core_web_sm` is English, general-purpose (\"core\"), trained on web text, small. Sizes trade accuracy against speed and memory:\n\n- `sm`: small and fast, no real word vectors\n- `md`, `lg`: add word vectors (useful for similarity), bigger downloads\n- `trf`: transformer-based (RoBERTa for English), most accurate, much slower, ideally with a GPU\n\n`nlp = spacy.load(\"en_core_web_sm\")` returns a **`Language`** object, conventionally named `nlp`. Calling it on text runs the whole pipeline.\n\n`spacy.blank(\"en\")` creates a pipeline with only the language's tokenizer and rules, no trained components. It's fast and handy for tokenization, rule-based matching or as the starting point for training your own model.\n\nPipeline packages are versioned against spaCy: a model for 3.8 expects spaCy 3.8.x. `python -m spacy validate` checks installed packages for compatibility. Pin both in `requirements.txt` (pipelines can be installed from their release URLs) so deployments don't drift. `nlp.meta` shows the model's name, version and accuracy figures.",
+   "code": "import spacy\n\nnlp = spacy.load(\"en_core_web_sm\")     # after: python -m spacy download en_core_web_sm\nprint(nlp.meta[\"name\"], nlp.meta[\"version\"])   # core_web_sm 3.8.0\nprint(nlp.pipe_names)\n# ['tok2vec', 'tagger', 'parser', 'attribute_ruler', 'lemmatizer', 'ner']\n\ndoc = nlp(\"Apple is looking at buying a U.K. startup.\")\nprint([t.text for t in doc])\n# ['Apple', 'is', 'looking', 'at', 'buying', 'a', 'U.K.', 'startup', '.']\n\nblank = spacy.blank(\"en\")              # tokenizer only, nothing trained\nprint(blank.pipe_names)                # []\nprint(len(blank(\"Fast tokenization only.\")))   # 4\n\ntry:\n    spacy.load(\"en_core_web_xx\")\nexcept OSError as e:\n    print(\"OSError:\", \"E050\" in str(e))  # True: package not installed",
+   "code_lang": "python",
+   "takeaways": [
+    "Trained pipelines are separate packages: python -m spacy download <name>",
+    "Names encode language, type, genre and size (sm, md, lg, trf)",
+    "spacy.load returns the nlp object; spacy.blank gives a tokenizer-only pipeline",
+    "Keep pipeline and spaCy versions compatible (spacy validate)"
+   ],
+   "pitfalls": [
+    "Expecting `pip install spacy` alone to make spacy.load('en_core_web_sm') work."
+   ],
+   "quiz": [
+    {
+     "q": "You need accurate entities and have a GPU; speed is secondary. Which English pipeline fits best?",
+     "options": [
+      "en_core_web_trf",
+      "en_core_web_sm",
+      "en_core_web_md",
+      "spacy.blank('en')"
+     ],
+     "answer": 0,
+     "explain": "The transformer pipeline is the most accurate and benefits from a GPU."
+    },
+    {
+     "q": "What does `spacy.blank('en')` give you?",
+     "options": [
+      "The small English model",
+      "An error until you download a model",
+      "A pipeline with tokenizer and language rules but no trained components",
+      "A transformer model"
+     ],
+     "answer": 2,
+     "explain": "blank pipelines contain only the tokenizer and language data."
+    }
+   ],
+   "docs": "https://spacy.io/usage/models",
+   "requires": [
+    "python.venv-pip",
+    "python.modules-imports"
+   ]
+  },
+  {
+   "id": "spacy.doc-token-span",
+   "name": "Doc, Token and Span",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Understand the Doc container, Token views and Span slices, and how spaCy's tokenization preserves the original text.",
+   "why": "Every spaCy result lives on these three objects, so navigating them fluently is the core skill.",
+   "body": "Calling `nlp(text)` returns a **`Doc`**: a sequence of tokens plus all the annotations the pipeline added. Three objects matter:\n\n- **`Doc`**: the container. `len(doc)` counts tokens; iterate or index it like a list.\n- **`Token`**: `doc[i]`, a view of one token. `token.text`, `token.i` (index in the doc), `token.idx` (character offset) and `token.whitespace_` (the trailing space, if any).\n- **`Span`**: `doc[start:end]`, a slice of tokens. Spans are views too, with `.text`, `.start`, `.end`, `.start_char`, `.end_char`, and they're how sentences, entities and matches are represented.\n\nspaCy's tokenization is **non-destructive**: each token remembers its trailing whitespace, so `doc.text` reproduces the input exactly, and `token.idx` lets you map results back to character positions for highlighting.\n\nThe tokenizer splits on whitespace, then applies language-specific rules for prefixes, suffixes, infixes and exceptions, which is why \"U.K.\" stays one token while \"don't\" becomes \"do\" and \"n't\".\n\nTokens and spans don't own data; they point into the Doc. Keep the Doc alive while using them, and store `token.i` or character offsets rather than the objects if you need to persist positions.\n\nTo get a span from character offsets, for example from an external annotation, use `doc.char_span(start, end)`. It returns `None` if the offsets don't align with token boundaries; `alignment_mode=\"expand\"` snaps to the surrounding tokens.",
+   "code": "import spacy\n\nnlp = spacy.load(\"en_core_web_sm\")\ndoc = nlp(\"Don't ship it.  Test it first!\")\n\nprint(len(doc), [t.text for t in doc])\n# 10 ['Do', \"n't\", 'ship', 'it', '.', ' ', 'Test', 'it', 'first', '!']\ntok = doc[2]\nprint(tok.text, tok.i, tok.idx, repr(tok.whitespace_))   # ship 2 6 ' '\nprint(doc.text == \"\".join(t.text_with_ws for t in doc))  # True: non-destructive\n\nspan = doc[6:9]\nprint(span.text, span.start, span.end, span.start_char)  # Test it first 6 9 16\n\nprint(doc.char_span(16, 23))                             # Test it\nprint(doc.char_span(17, 23))                             # None: not a token boundary\nprint(doc.char_span(17, 23, alignment_mode=\"expand\"))    # Test it",
+   "code_lang": "python",
+   "takeaways": [
+    "nlp(text) returns a Doc; doc[i] is a Token; doc[a:b] is a Span",
+    "Tokens keep trailing whitespace, so the original text is recoverable",
+    "token.i is the token index, token.idx the character offset",
+    "doc.char_span maps character offsets to a Span (or None)"
+   ],
+   "pitfalls": [
+    "Storing Token or Span objects long-term after the Doc is gone; store indices or offsets instead."
+   ],
+   "quiz": [
+    {
+     "q": "Why does `doc.text` always equal the original input string?",
+     "options": [
+      "spaCy stores a copy of the input separately",
+      "spaCy never splits punctuation",
+      "It re-runs the tokenizer",
+      "Each token records its trailing whitespace, making tokenization non-destructive"
+     ],
+     "answer": 3,
+     "explain": "text_with_ws of every token concatenates back to the exact original."
+    },
+    {
+     "q": "What type is `doc[3:7]`?",
+     "options": [
+      "A list of Tokens",
+      "A Span",
+      "A Doc",
+      "A string"
+     ],
+     "answer": 1,
+     "explain": "Slicing a Doc returns a Span view over those tokens."
+    }
+   ],
+   "docs": "https://spacy.io/api/doc",
+   "requires": [
+    "spacy.install-models",
+    "python.slicing"
+   ]
+  },
+  {
+   "id": "spacy.token-attributes",
+   "name": "Token attributes: lemma, POS, stop words",
+   "module": "linguistics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Read lemma_, pos_, tag_, is_stop, is_alpha, like_num, shape_ and more, and know why attributes come in string and hash forms.",
+   "why": "Most text preprocessing and feature extraction is a filter or map over these token attributes.",
+   "body": "Each token exposes lexical and predicted attributes:\n\n- `lemma_`: the base form (\"running\" to \"run\"), from the lemmatizer\n- `pos_`: coarse **Universal POS** tag (`NOUN`, `VERB`, `ADJ`, `PROPN`...); `tag_`: the fine-grained, language-specific tag (Penn Treebank `VBG` for English)\n- `morph`: morphological features such as `Tense=Past|VerbForm=Fin`\n- `is_stop`, `is_punct`, `is_alpha`, `is_digit`, `like_num`, `like_email`, `like_url`\n- `shape_`: an abstract shape like `Xxxxx` or `dd`, `lower_`, `prefix_`, `suffix_`\n\nThe **trailing underscore** matters. `token.pos_` is the readable string; `token.pos` (no underscore) is an integer id or hash. spaCy stores strings as 64-bit hashes internally for speed and memory, so the int form is what you'd use in arrays, and the string form is for humans and most code.\n\n`spacy.explain(\"VBG\")` describes a tag or label.\n\nLexical flags like `is_stop` and `like_num` come from language data and don't depend on the model; `pos_`, `tag_` and `lemma_` are predictions (or rule-based lookups) and can be wrong on unusual text.\n\nA typical cleanup for bag-of-words features is a comprehension: keep tokens that are alphabetic and not stopwords, map them to lowercase lemmas. Unlike NLTK, the context-aware tagger already handles the POS needed for correct lemmas.",
+   "code": "import spacy\n\nnlp = spacy.load(\"en_core_web_sm\")\ndoc = nlp(\"The striped bats were hanging upside down, eating 12 mangoes.\")\n\nfor t in doc[:5]:\n    print(f\"{t.text:8} {t.lemma_:6} {t.pos_:5} {t.tag_:4} {t.is_stop}\")\n# The      the    DET   DT   True\n# striped  striped ADJ  JJ   False\n# bats     bat    NOUN  NNS  False\n# were     be     AUX   VBD  True\n# hanging  hang   VERB  VBG  False\n\nprint(doc[9].text, doc[9].like_num, doc[9].shape_)    # 12 True dd\nprint(doc[4].morph)                                   # Aspect=Prog|Tense=Pres|VerbForm=Part\nprint(doc[2].pos, doc[2].pos_)                        # 92 NOUN  (id vs string)\nprint(spacy.explain(\"VBG\"))                           # verb, gerund or present participle\n\nclean = [t.lemma_.lower() for t in doc if t.is_alpha and not t.is_stop]\nprint(clean)   # ['striped', 'bat', 'hang', 'upside', 'eat', 'mango']",
+   "code_lang": "python",
+   "takeaways": [
+    "lemma_, pos_, tag_ and morph are pipeline predictions",
+    "is_stop, is_alpha, like_num, shape_ come from lexical rules",
+    "Underscore = readable string; no underscore = integer id/hash",
+    "spacy.explain decodes tags and labels"
+   ],
+   "pitfalls": [
+    "Using `token.lemma` (an integer hash) when you meant the string `token.lemma_`."
+   ],
+   "quiz": [
+    {
+     "q": "What is the difference between `token.pos_` and `token.tag_`?",
+     "options": [
+      "pos_ is a coarse universal tag, tag_ a fine-grained language-specific tag",
+      "They are identical",
+      "pos_ is the lemma, tag_ the entity label",
+      "tag_ is only set by spacy.blank"
+     ],
+     "answer": 0,
+     "explain": "pos_ uses Universal POS tags like VERB; tag_ uses detailed tags like VBG."
+    },
+    {
+     "q": "`print(token.lemma)` shows a large integer. Why?",
+     "options": [
+      "The lemmatizer failed",
+      "The token is a number",
+      "Without the underscore you get the hash id of the string",
+      "The model is not loaded"
+     ],
+     "answer": 2,
+     "explain": "spaCy stores strings as hashes; the underscore attribute returns the text."
+    }
+   ],
+   "docs": "https://spacy.io/usage/linguistic-features#pos-tagging",
+   "requires": [
+    "spacy.doc-token-span",
+    "python.comprehensions"
+   ]
+  },
+  {
+   "id": "spacy.sentences-noun-chunks",
+   "name": "Sentences and noun chunks",
+   "module": "linguistics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Split text into sentences with doc.sents, extract base noun phrases with doc.noun_chunks, and pick a sentence segmenter.",
+   "why": "Sentences and noun phrases are the natural units for summaries, search snippets and keyword extraction.",
+   "body": "`doc.sents` yields one **Span** per sentence. In the trained English pipelines, sentence boundaries come from the **dependency parser**, which is accurate but means you need the parser enabled. Each token also has `token.is_sent_start`, and `span.sent` gives the sentence containing a span.\n\nIf you only need sentences, there are faster options:\n\n- the rule-based **`sentencizer`** component splits on punctuation: `nlp = spacy.blank(\"en\"); nlp.add_pipe(\"sentencizer\")`\n- the trained `senter` component (included but disabled in core pipelines) is faster than the parser\n\n`doc.sents` is a generator, so wrap it in `list()` to index or count. Accessing it on a Doc with no sentence boundaries raises an error (E030), telling you to add a parser, senter or sentencizer.\n\n`doc.noun_chunks` yields **base noun phrases**: a noun plus the words describing it, such as \"the striped bats\" or \"a new dataset\". They come from the dependency parse, need the parser and are available for languages with noun chunk rules (English, German, French and others). `chunk.root` is the head noun, and `chunk.root.head` the word the phrase attaches to, e.g. the verb it is the object of.\n\nNoun chunks are a cheap way to get candidate keywords and topics, especially after filtering out pronouns and counting lemma forms of their roots.",
+   "code": "import spacy\n\nnlp = spacy.load(\"en_core_web_sm\")\ndoc = nlp(\"Dr. Lee released a new dataset. The striped bats love ripe mangoes. Really!\")\n\nsents = list(doc.sents)\nprint(len(sents), [s.text for s in sents][:2])\n# 3 ['Dr. Lee released a new dataset.', 'The striped bats love ripe mangoes.']\n\nfor chunk in doc.noun_chunks:\n    print(f\"{chunk.text:20} root={chunk.root.text:8} head={chunk.root.head.text}\")\n# Dr. Lee              root=Lee      head=released\n# a new dataset        root=dataset  head=released\n# The striped bats     root=bats     head=love\n# ripe mangoes         root=mangoes  head=love\n\nfast = spacy.blank(\"en\")\nfast.add_pipe(\"sentencizer\")                 # rule-based, no model\nprint(len(list(fast(\"One. Two? Three!\").sents)))   # 3",
+   "code_lang": "python",
+   "takeaways": [
+    "doc.sents yields sentence Spans; in core pipelines the parser sets them",
+    "Use the sentencizer or senter when you need only sentences, faster",
+    "doc.noun_chunks gives base noun phrases from the parse",
+    "chunk.root and chunk.root.head link a phrase to its verb"
+   ],
+   "pitfalls": [
+    "Indexing doc.sents directly (doc.sents[0]); it's a generator, so use list(doc.sents)."
+   ],
+   "quiz": [
+    {
+     "q": "Which component sets sentence boundaries in en_core_web_sm by default?",
+     "options": [
+      "The tagger",
+      "The NER",
+      "The lemmatizer",
+      "The dependency parser"
+     ],
+     "answer": 3,
+     "explain": "Core English pipelines derive sentence boundaries from the dependency parse."
+    }
+   ],
+   "docs": "https://spacy.io/usage/linguistic-features#sbd",
+   "requires": [
+    "spacy.doc-token-span"
+   ]
+  },
+  {
+   "id": "spacy.named-entities",
+   "name": "Named entity recognition",
+   "module": "linguistics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Extract people, organisations, places, dates and money with doc.ents, read labels, and set entities yourself.",
+   "why": "Entities are the most common thing teams pull out of text: names, companies, amounts, dates and locations.",
+   "body": "The **NER** component predicts **entity spans**. `doc.ents` is a tuple of `Span` objects, each with `ent.text`, `ent.label_`, `ent.start_char` and `ent.end_char`.\n\nThe English core pipelines use the OntoNotes label scheme, including:\n\n- `PERSON`, `ORG`, `GPE` (countries, cities, states), `LOC` (non-GPE locations), `NORP` (nationalities, religious or political groups)\n- `DATE`, `TIME`, `MONEY`, `PERCENT`, `QUANTITY`, `CARDINAL`, `ORDINAL`\n- `PRODUCT`, `EVENT`, `WORK_OF_ART`, `LAW`, `LANGUAGE`, `FAC`\n\n`spacy.explain(\"NORP\")` describes a label, and `nlp.get_pipe(\"ner\").labels` lists everything the model knows.\n\nAt the token level, `token.ent_type_` gives the entity label and `token.ent_iob_` the IOB position (`B` begin, `I` inside, `O` outside).\n\nEntities are predictions: accuracy depends on the model size and how similar your text is to the training data (news and web text). Lowercased or domain-specific text such as product codes or drug names often needs rules or fine-tuning.\n\nYou can overwrite entities with `doc.ents = [...]` using spans you create, for example `Span(doc, start, end, label=\"PRODUCT\")`, or use `doc.set_ents` for finer control. Entities can't overlap; for overlapping or nested spans use `doc.spans` groups instead. `displacy.render(doc, style=\"ent\")` visualises entities as highlighted HTML.",
+   "code": "import spacy\nfrom spacy.tokens import Span\n\nnlp = spacy.load(\"en_core_web_sm\")\ndoc = nlp(\"Apple paid $2 billion for a London startup on 5 May 2024, Tim Cook said.\")\n\nfor ent in doc.ents:\n    print(f\"{ent.text:15} {ent.label_:6} {ent.start_char}-{ent.end_char}\")\n# Apple           ORG    0-5\n# $2 billion      MONEY  11-21\n# London          GPE    28-34\n# 5 May 2024      DATE   46-56\n# Tim Cook        PERSON 58-66\n\nprint(spacy.explain(\"GPE\"))                  # Countries, cities, states\nprint(doc[0].ent_type_, doc[0].ent_iob_)     # ORG B\nprint(doc[1].ent_iob_)                       # O\n\ndoc.ents = list(doc.ents) + [Span(doc, 8, 9, label=\"PRODUCT\")]   # \"startup\"\nprint([(e.text, e.label_) for e in doc.ents][2:4])\n# [('London', 'GPE'), ('startup', 'PRODUCT')]",
+   "code_lang": "python",
+   "takeaways": [
+    "doc.ents holds entity Spans with label_ and character offsets",
+    "Core English labels follow OntoNotes: PERSON, ORG, GPE, DATE, MONEY...",
+    "token.ent_type_ and ent_iob_ give token-level views",
+    "Set doc.ents yourself; use doc.spans for overlapping spans"
+   ],
+   "pitfalls": [
+    "Assuming the pretrained NER recognises domain terms like drug names or SKUs without rules or training."
+   ],
+   "quiz": [
+    {
+     "q": "Which label does the English model use for 'France' in 'He moved to France'?",
+     "options": [
+      "LOC",
+      "GPE",
+      "NORP",
+      "ORG"
+     ],
+     "answer": 1,
+     "explain": "Countries, cities and states are geo-political entities (GPE); LOC is for mountains, rivers and similar."
+    },
+    {
+     "q": "Why can't you put two overlapping spans into doc.ents?",
+     "options": [
+      "Entities are stored as a non-overlapping IOB annotation on tokens",
+      "doc.ents is read-only",
+      "Spans must be one token long",
+      "Only the NER component may set them"
+     ],
+     "answer": 0,
+     "explain": "Each token has one entity tag, so overlapping entities are impossible; use doc.spans instead."
+    }
+   ],
+   "docs": "https://spacy.io/usage/linguistic-features#named-entities",
+   "requires": [
+    "spacy.doc-token-span"
+   ]
+  },
+  {
+   "id": "spacy.dependency-parse",
+   "name": "Dependency parsing",
+   "module": "linguistics",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Navigate the syntactic tree with dep_, head, children and subtree to find who did what to whom.",
+   "why": "Dependency relations let you extract subjects, objects and modifiers, which flat tokens and entities cannot express.",
+   "body": "The **dependency parser** links every token to a **head** token with a labelled relation, forming a tree whose root is usually the main verb.\n\n- `token.dep_`: the relation to its head, such as `nsubj` (nominal subject), `dobj` (direct object), `amod` (adjective modifier), `prep`/`pobj` (preposition and its object), `ROOT`\n- `token.head`: the parent token (the root is its own head)\n- `token.children`, `token.lefts`, `token.rights`: direct dependents\n- `token.subtree`: the token and everything below it, in order; `token.ancestors` walks up\n\nThis structure answers questions regular expressions can't. To find **who did what**, look for verbs and collect their `nsubj` and `dobj` children. To get the full phrase a word heads, take its subtree: `doc[t.left_edge.i : t.right_edge.i + 1]`.\n\nLabels follow the ClearNLP scheme in the English models (`spacy.explain` describes each). Passive sentences use `nsubjpass` and `agent`, so handle both voices when extracting relations.\n\n`displacy.render(doc, style=\"dep\")` draws the tree in a notebook or browser, and `displacy.serve` runs a small web server; looking at real parses is the fastest way to write correct extraction rules.\n\nParses are predictions and degrade on long, informal or ungrammatical text. Write extraction rules defensively and test them on real data; the `DependencyMatcher` lets you express tree patterns declaratively.",
+   "code": "import spacy\n\nnlp = spacy.load(\"en_core_web_sm\")\ndoc = nlp(\"The new manager quickly approved the large budget.\")\n\nfor t in doc:\n    print(f\"{t.text:9} {t.dep_:7} <- {t.head.text}\")\n# The       det     <- manager\n# new       amod    <- manager\n# manager   nsubj   <- approved\n# quickly   advmod  <- approved\n# approved  ROOT    <- approved\n# ...       budget is dobj <- approved\n\ndef svo(doc):\n    for verb in (t for t in doc if t.pos_ == \"VERB\"):\n        subj = [c for c in verb.children if c.dep_ in (\"nsubj\", \"nsubjpass\")]\n        obj = [c for c in verb.children if c.dep_ in (\"dobj\", \"attr\")]\n        if subj and obj:\n            phrase = lambda t: doc[t.left_edge.i : t.right_edge.i + 1].text\n            yield phrase(subj[0]), verb.lemma_, phrase(obj[0])\n\nprint(list(svo(doc)))\n# [('The new manager', 'approve', 'the large budget')]",
+   "code_lang": "python",
+   "takeaways": [
+    "Every token has a head and a dep_ label; the root heads the sentence",
+    "children, subtree, left_edge/right_edge navigate the tree",
+    "Combine nsubj/dobj children of verbs to extract relations",
+    "Visualise with displacy to design rules"
+   ],
+   "pitfalls": [
+    "Extracting only nsubj and missing passive sentences, which use nsubjpass."
+   ],
+   "quiz": [
+    {
+     "q": "In 'The dog chased the cat', what is the head of 'cat'?",
+     "options": [
+      "dog",
+      "the",
+      "chased",
+      "cat itself"
+     ],
+     "answer": 2,
+     "explain": "'cat' is the direct object (dobj) of the verb 'chased'."
+    },
+    {
+     "q": "How do you get the whole phrase headed by a token t?",
+     "options": [
+      "t.text",
+      "t.head.text",
+      "list(t.ancestors)",
+      "doc[t.left_edge.i : t.right_edge.i + 1]"
+     ],
+     "answer": 3,
+     "explain": "left_edge and right_edge bound the token's subtree, so the slice is the full phrase."
+    }
+   ],
+   "docs": "https://spacy.io/usage/linguistic-features#dependency-parse",
+   "requires": [
+    "spacy.token-attributes",
+    "spacy.sentences-noun-chunks",
+    "python.functions"
+   ]
+  },
+  {
+   "id": "spacy.matcher",
+   "name": "Rule-based matching: Matcher and PhraseMatcher",
+   "module": "rules",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Find token patterns with the Matcher using attributes and operators, and large term lists with the PhraseMatcher.",
+   "why": "Rules give precise, explainable extraction for things models miss, and are often all you need.",
+   "body": "The **`Matcher`** finds sequences of tokens described by **patterns**: a list of dicts, one per token, each mapping attributes to required values.\n\n```python\n[{\"LOWER\": \"machine\"}, {\"LOWER\": \"learning\"}]\n[{\"POS\": \"ADJ\", \"OP\": \"*\"}, {\"POS\": \"NOUN\"}]\n[{\"LIKE_NUM\": True}, {\"LOWER\": {\"IN\": [\"kg\", \"g\"]}}]\n```\n\nAttributes include `TEXT`, `LOWER`, `LEMMA`, `POS`, `TAG`, `DEP`, `ENT_TYPE`, `IS_PUNCT`, `LIKE_NUM`, `SHAPE`, `LENGTH`. Values can be exact or use `IN`, `NOT_IN`, `REGEX`, and comparisons such as `{\">=\": 3}`. `\"OP\"` adds quantifiers: `?` optional, `*` zero or more, `+` one or more, `!` negation, `{n,m}` ranges.\n\n`matcher = Matcher(nlp.vocab)`, `matcher.add(\"LABEL\", [pattern1, pattern2])`, then `matcher(doc)` returns `(match_id, start, end)` tuples; `nlp.vocab.strings[match_id]` gives the label. With operators, overlapping matches appear; `greedy=\"LONGEST\"` when adding, or `spacy.util.filter_spans`, keeps the longest.\n\nThe **`PhraseMatcher`** is built for long term lists such as product catalogues or gazetteers. Patterns are Docs: `matcher.add(\"DRUG\", [nlp.make_doc(t) for t in terms])`. It scales to hundreds of thousands of terms. Pass `attr=\"LOWER\"` for case-insensitive matching.\n\nPatterns relying on `POS`, `LEMMA` or `DEP` need the corresponding trained components; `LOWER` and `TEXT` work even with `spacy.blank`. `as_spans=True` returns Span objects directly.",
+   "code": "import spacy\nfrom spacy.matcher import Matcher, PhraseMatcher\n\nnlp = spacy.load(\"en_core_web_sm\")\ndoc = nlp(\"Order 3 kg of Green Tea and 250 g of green tea leaves. Ship 2 boxes.\")\n\nmatcher = Matcher(nlp.vocab)\nmatcher.add(\"WEIGHT\", [[{\"LIKE_NUM\": True}, {\"LOWER\": {\"IN\": [\"kg\", \"g\"]}}]])\nmatcher.add(\"ADJ_NOUN\", [[{\"POS\": \"ADJ\", \"OP\": \"+\"}, {\"POS\": \"NOUN\"}]], greedy=\"LONGEST\")\nfor match_id, start, end in matcher(doc):\n    print(nlp.vocab.strings[match_id], doc[start:end].text)\n# WEIGHT 3 kg\n# WEIGHT 250 g\n# ADJ_NOUN green tea   (relies on the tagger's POS predictions)\n\nterms = [\"green tea\", \"black tea\", \"oolong\"]\npm = PhraseMatcher(nlp.vocab, attr=\"LOWER\")         # case-insensitive\npm.add(\"TEA\", [nlp.make_doc(t) for t in terms])\nprint([s.text for s in pm(doc, as_spans=True)])\n# ['Green Tea', 'green tea']",
+   "code_lang": "python",
+   "takeaways": [
+    "Matcher patterns are lists of per-token attribute dicts",
+    "OP quantifiers (?, *, +, !) and IN/REGEX/comparisons add flexibility",
+    "PhraseMatcher matches large term lists efficiently; attr='LOWER' ignores case",
+    "Use greedy='LONGEST' or filter_spans to drop overlapping matches"
+   ],
+   "pitfalls": [
+    "Writing POS- or LEMMA-based patterns and running them with spacy.blank, where those attributes are empty."
+   ],
+   "quiz": [
+    {
+     "q": "Which pattern matches 'very big' and 'big' before 'house' (tagged ADV ADJ NOUN / ADJ NOUN)?",
+     "options": [
+      "[{'POS': 'ADV'}, {'POS': 'ADJ'}, {'POS': 'NOUN'}]",
+      "[{'POS': 'ADV', 'OP': '?'}, {'POS': 'ADJ'}, {'POS': 'NOUN'}]",
+      "[{'POS': 'ADJ', 'OP': '!'}, {'POS': 'NOUN'}]",
+      "[{'LOWER': 'very big house'}]"
+     ],
+     "answer": 1,
+     "explain": "The optional ADV token makes the pattern match with or without 'very'."
+    },
+    {
+     "q": "You need to tag 200,000 product names in text. Which tool fits?",
+     "options": [
+      "PhraseMatcher with Doc patterns",
+      "A Matcher pattern per product",
+      "A regex over doc.text",
+      "The NER component"
+     ],
+     "answer": 0,
+     "explain": "PhraseMatcher is designed for very large exact-term lists."
+    }
+   ],
+   "docs": "https://spacy.io/usage/rule-based-matching",
+   "requires": [
+    "spacy.token-attributes"
+   ]
+  },
+  {
+   "id": "spacy.entity-ruler",
+   "name": "EntityRuler and span rulers",
+   "module": "rules",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Add rule-based entities to the pipeline with the entity_ruler, combine it with the statistical NER, and manage overlaps.",
+   "why": "Rules plus a model is the standard way to recognise domain entities the pretrained NER doesn't know.",
+   "body": "The **`entity_ruler`** is a pipeline component that turns patterns into entities in `doc.ents`. Patterns are dicts with a `label` and either a phrase string or a token pattern:\n\n```python\n{\"label\": \"ORG\", \"pattern\": \"Acme Corp\"}\n{\"label\": \"TICKET\", \"pattern\": [{\"TEXT\": {\"REGEX\": \"^[A-Z]{2,5}-\\\\d+$\"}}]}\n```\n\nAdd it with `ruler = nlp.add_pipe(\"entity_ruler\", before=\"ner\")` and `ruler.add_patterns(patterns)`. **Placement** decides who wins:\n\n- `before=\"ner\"`: rule entities are set first and the statistical NER respects them, predicting around them. Use this when rules are trustworthy.\n- after `ner` (the default end of the pipeline): rules only fill gaps, unless you set `config={\"overwrite_ents\": True}`.\n\nAn `id` field in a pattern sets `ent.ent_id_`, which lets several surface forms (such as \"NYC\" and \"New York City\") resolve to one canonical entity. Phrase patterns are tokenized, so they only match text that tokenizes the same way; check odd strings such as product codes with `nlp.make_doc`.\n\nPatterns can be saved and loaded as JSONL with `ruler.to_disk(\"patterns.jsonl\")` and `ruler.from_disk(...)`, and they are saved with the pipeline by `nlp.to_disk`. Phrase patterns use the PhraseMatcher internally, so thousands of names stay fast; set `phrase_matcher_attr=\"LOWER\"` in the config for case-insensitive matching.\n\nFor overlapping or nested annotations that shouldn't go into `doc.ents`, the **`span_ruler`** writes to `doc.spans[\"ruler\"]` instead.",
+   "code": "import spacy\n\nnlp = spacy.load(\"en_core_web_sm\")\nruler = nlp.add_pipe(\"entity_ruler\", before=\"ner\",\n                     config={\"phrase_matcher_attr\": \"LOWER\"})\nruler.add_patterns([\n    {\"label\": \"PRODUCT\", \"pattern\": \"widgetpro 3000\", \"id\": \"wp3000\"},\n    {\"label\": \"PRODUCT\", \"pattern\": \"widget pro\", \"id\": \"wp3000\"},\n    {\"label\": \"TICKET\", \"pattern\": [{\"TEXT\": {\"REGEX\": r\"^[A-Z]{2,5}-\\d+$\"}}]},\n])\nprint(nlp.pipe_names[-2:])          # ['entity_ruler', 'ner']\n\ndoc = nlp(\"Sarah from Acme reported OPS-1432 about the WidgetPro 3000 and the Widget Pro.\")\nfor e in doc.ents:\n    print(f\"{e.text:15} {e.label_:8} {e.ent_id_}\")\n# Sarah           PERSON\n# Acme            GPE       (statistical NER: wrong here, add a rule!)\n# OPS-1432        TICKET\n# WidgetPro 3000  PRODUCT  wp3000\n# Widget Pro      PRODUCT  wp3000",
+   "code_lang": "python",
+   "takeaways": [
+    "entity_ruler adds pattern-based entities to doc.ents",
+    "Put it before 'ner' to have rules take priority; after it to fill gaps",
+    "Pattern ids map several spellings to one canonical entity",
+    "span_ruler writes overlapping spans to doc.spans"
+   ],
+   "pitfalls": [
+    "Adding the ruler after 'ner' and wondering why rule matches that overlap model entities are ignored."
+   ],
+   "quiz": [
+    {
+     "q": "Your rules for product names must always win over the statistical NER. Where do you add the entity_ruler?",
+     "options": [
+      "After 'ner' with default settings",
+      "At the very start, before 'tok2vec'",
+      "Before 'ner'",
+      "It doesn't matter"
+     ],
+     "answer": 2,
+     "explain": "Entities set before the NER are kept, and the NER predicts around them."
+    }
+   ],
+   "docs": "https://spacy.io/api/entityruler",
+   "requires": [
+    "spacy.matcher",
+    "spacy.named-entities"
+   ]
+  },
+  {
+   "id": "spacy.pipeline-processing",
+   "name": "Pipelines: components and nlp.pipe",
+   "module": "pipelines",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Inspect and control pipeline components, disable what you don't need, and process many texts fast with nlp.pipe.",
+   "why": "Processing large volumes efficiently is mostly about batching and running only the components you use.",
+   "body": "`nlp.pipe_names` lists the components that run, in order, on every `nlp(text)` call: the tokenizer first (not listed), then for example `tok2vec`, `tagger`, `parser`, `attribute_ruler`, `lemmatizer`, `ner`. `nlp.get_pipe(\"ner\")` returns a component; `nlp.add_pipe`, `remove_pipe`, `replace_pipe` and `rename_pipe` edit the pipeline.\n\nRunning unnecessary components wastes time. Three ways to skip them:\n\n- `spacy.load(name, exclude=[\"parser\", \"ner\"])`: never loaded\n- `spacy.load(name, disable=[...])`: loaded but switched off; re-enable with `nlp.enable_pipe`\n- `with nlp.select_pipes(enable=[\"tagger\"]):` temporarily, for one block\n\nWatch dependencies: the lemmatizer needs POS from the tagger and attribute ruler, sentence boundaries come from the parser, and components that listen to a shared `tok2vec` need it enabled.\n\nFor many texts, never loop over `nlp(text)`. **`nlp.pipe(texts, batch_size=...)`** streams Docs while batching internally, which is much faster, especially for transformer and GPU pipelines. Pass `as_tuples=True` with `(text, context)` pairs to carry ids or metadata through. `n_process=2` or more uses multiprocessing on CPU, though each process loads its own copy of the model, so it pays off only for large jobs.\n\nIf you only need tokens, `nlp.make_doc(text)` runs just the tokenizer. `nlp.analyze_pipes(pretty=True)` reports what each component sets and requires.",
+   "code": "import time\nimport spacy\n\nnlp = spacy.load(\"en_core_web_sm\", exclude=[\"parser\"])\nprint(nlp.pipe_names)      # ['tok2vec', 'tagger', 'attribute_ruler', 'lemmatizer', 'ner']\n\ntexts = [f\"Order {i} was shipped to Berlin on Monday.\" for i in range(2000)]\n\nt = time.perf_counter()\ndocs = [nlp(t_) for t_ in texts[:500]]\nloop = time.perf_counter() - t\n\nt = time.perf_counter()\ndocs = list(nlp.pipe(texts[:500], batch_size=256))\nbatched = time.perf_counter() - t\nprint(batched < loop)       # True: batching is faster\n\nwith nlp.select_pipes(enable=[\"tok2vec\", \"ner\"]):   # only what NER needs\n    ents = [d.ents for d in nlp.pipe(texts[:3])]\nprint(ents[0])              # (Order 0, Berlin, Monday)\n\nrecords = [(\"Paris is lovely.\", {\"id\": 1}), (\"I met Ana Lopez.\", {\"id\": 2})]\nfor doc, ctx in nlp.pipe(records, as_tuples=True):\n    print(ctx[\"id\"], [e.text for e in doc.ents])    # 1 ['Paris'] / 2 ['Ana Lopez']",
+   "code_lang": "python",
+   "takeaways": [
+    "pipe_names shows the components run on each call",
+    "exclude/disable/select_pipes skip components you don't need",
+    "nlp.pipe batches many texts and is much faster than a loop",
+    "as_tuples carries metadata; n_process parallelises big CPU jobs"
+   ],
+   "pitfalls": [
+    "Calling nlp(text) in a loop over millions of texts instead of nlp.pipe."
+   ],
+   "quiz": [
+    {
+     "q": "What is the difference between exclude and disable in spacy.load?",
+     "options": [
+      "None",
+      "disable removes the component from disk",
+      "exclude is only for the tokenizer",
+      "excluded components are not loaded at all; disabled ones are loaded but don't run and can be enabled later"
+     ],
+     "answer": 3,
+     "explain": "exclude saves loading time and memory, disable keeps the option to re-enable."
+    },
+    {
+     "q": "Why does nlp.pipe outperform calling nlp() per text?",
+     "options": [
+      "It skips the tokenizer",
+      "It processes texts in batches, making better use of vectorised model computation",
+      "It disables NER",
+      "It caches results across runs"
+     ],
+     "answer": 1,
+     "explain": "Batching amortises overhead and lets the neural components work on many docs at once."
+    }
+   ],
+   "docs": "https://spacy.io/usage/processing-pipelines",
+   "requires": [
+    "spacy.install-models",
+    "spacy.named-entities",
+    "python.iterators-generators"
+   ]
+  },
+  {
+   "id": "spacy.vectors-similarity",
+   "name": "Word vectors and similarity",
+   "module": "linguistics",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Use the word vectors in md and lg pipelines for token, span and document similarity, and know their limits.",
+   "why": "Vector similarity powers quick semantic search, deduplication and clustering without training anything.",
+   "body": "The `md` and `lg` pipelines include static **word vectors**: 300-dimensional embeddings. `lg` stores several hundred thousand distinct vectors; `md` keeps a pruned table of 20,000 that many words share, so its similarities are coarse (even unrelated words can end up with identical vectors). `token.vector` returns it as a NumPy array, `token.has_vector` and `token.is_oov` report coverage, and `nlp.vocab.vectors.shape` shows the table size.\n\n`Doc.vector` and `Span.vector` default to the **average** of their token vectors. `.similarity(other)` computes cosine similarity between vectors, available on tokens, spans and docs.\n\nUseful, but know the limits:\n\n- Averaging blurs meaning. Word order is lost, and long docs drift towards a generic average. \"The dog bit the man\" and \"The man bit the dog\" score as identical.\n- Static vectors give one vector per word, mixing senses (\"bank\" of a river and of money).\n- Similar is not synonymous: \"good\" and \"bad\", or \"cat\" and \"dog\", are close because they appear in similar contexts.\n- The `sm` models have no real vectors; similarity there falls back to context tensors, with a warning, and is unreliable.\n\nFor serious semantic similarity and search, sentence-embedding models (via `sentence-transformers` or a transformer pipeline) are far better. spaCy's vectors remain handy as cheap features, for quick prototypes and for finding related terms with `nlp.vocab.vectors.most_similar`.",
+   "code": "import numpy as np\nimport spacy\n\nnlp = spacy.load(\"en_core_web_lg\")           # lg: full table of word vectors\nprint(nlp.vocab.vectors.shape[1])            # 300 dimensions\n\ncat, dog, car = nlp(\"cat dog car\")\nprint(cat.vector.shape, cat.has_vector)      # (300,) True\nprint(round(cat.similarity(dog), 2), round(cat.similarity(car), 2))\n# cat-dog clearly higher than cat-car\n\na = nlp(\"The dog bit the man.\")\nb = nlp(\"The man bit the dog.\")\nprint(round(a.similarity(b), 3))             # 1.0  word order ignored!\n\nprint(round(nlp(\"good\").similarity(nlp(\"bad\")), 2))   # high: related, not synonyms\n\nkeys, _, scores = nlp.vocab.vectors.most_similar(\n    np.asarray([nlp.vocab[\"coffee\"].vector]), n=4)\nprint([nlp.vocab.strings[k] for k in keys[0]])   # e.g. coffee-related words",
+   "code_lang": "python",
+   "takeaways": [
+    "lg ships a full static vector table, md a pruned one, sm none",
+    "Doc and Span vectors average token vectors; similarity is cosine",
+    "Averages ignore word order and conflate senses",
+    "Use sentence-embedding models for serious semantic search"
+   ],
+   "pitfalls": [
+    "Computing similarity with en_core_web_sm and trusting the numbers."
+   ],
+   "quiz": [
+    {
+     "q": "Why do 'The dog bit the man' and 'The man bit the dog' get similarity 1.0?",
+     "options": [
+      "Doc vectors are averages of the same word vectors, so word order is lost",
+      "spaCy caches results",
+      "The parser merged them",
+      "Similarity is always 1.0 for sentences"
+     ],
+     "answer": 0,
+     "explain": "Both docs contain the same tokens, and averaging is order-independent."
+    }
+   ],
+   "docs": "https://spacy.io/usage/linguistic-features#vectors-similarity",
+   "requires": [
+    "spacy.token-attributes"
+   ]
+  },
+  {
+   "id": "spacy.custom-components",
+   "name": "Custom components and extension attributes",
+   "module": "pipelines",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Write your own pipeline components with @Language.component or factories, and attach custom data via ._ extensions.",
+   "why": "Custom components let you package business logic as part of the pipeline so every Doc comes out fully annotated.",
+   "body": "A **component** is any callable that takes a Doc and returns a Doc. Register it so spaCy can add it by name and save it with the pipeline:\n\n```python\n@Language.component(\"flag_urgent\")\ndef flag_urgent(doc):\n    doc._.urgent = any(t.lower_ in {\"asap\", \"urgent\"} for t in doc)\n    return doc\n\nnlp.add_pipe(\"flag_urgent\", last=True)\n```\n\nFor components with settings or state (a lookup table, a model), use **`@Language.factory(\"name\", default_config={...})`** on a function that receives `nlp`, `name` and the config values and returns the component object. Config values can then be set in `add_pipe(..., config={...})` or a training config file.\n\n**Extension attributes** add your own fields to `Doc`, `Token` and `Span` under the `._` namespace, keeping them apart from built-in attributes:\n\n- **attribute**: `Doc.set_extension(\"urgent\", default=False)`, writable per object\n- **getter**: `Token.set_extension(\"is_color\", getter=lambda t: t.lower_ in COLORS)`, computed on access\n- **method**: `Span.set_extension(\"count\", method=lambda span, w: ...)`\n\nRegister extensions once at import time; `force=True` overwrites an existing one (useful in notebooks).\n\nComponents should only add information, be deterministic and avoid heavy work at import. Place them relative to others with `before=`/`after=` and remember dependencies: a component reading `ent_type_` must run after `ner`. Extension values are stored in `doc.user_data` and serialised with the Doc when using `DocBin(store_user_data=True)`.",
+   "code": "import spacy\nfrom spacy.language import Language\nfrom spacy.tokens import Doc, Span\nDoc.set_extension(\"urgent\", default=False, force=True)\nSpan.set_extension(\"is_money_big\", force=True,\n                   getter=lambda s: s.label_ == \"MONEY\" and \"million\" in s.text)\n\n@Language.component(\"flag_urgent\")\ndef flag_urgent(doc):\n    doc._.urgent = any(t.lower_ in {\"asap\", \"urgent\"} for t in doc)\n    return doc\n\n@Language.factory(\"keyword_tagger\", default_config={\"keywords\": [\"refund\"]})\ndef make_keyword_tagger(nlp, name, keywords):\n    kw = set(keywords)\n    def tagger(doc):\n        doc.user_data[\"keywords\"] = [t.text for t in doc if t.lower_ in kw]\n        return doc\n    return tagger\nnlp = spacy.load(\"en_core_web_sm\")\nnlp.add_pipe(\"flag_urgent\", after=\"ner\")\nnlp.add_pipe(\"keyword_tagger\", config={\"keywords\": [\"refund\", \"invoice\"]})\ndoc = nlp(\"URGENT: refund the $3 million invoice ASAP.\")\nprint(doc._.urgent, doc.user_data[\"keywords\"])          # True ['refund', 'invoice']\nprint([(e.text, e._.is_money_big) for e in doc.ents])   # [('$3 million', True), ('ASAP', False)]",
+   "code_lang": "python",
+   "takeaways": [
+    "A component is a Doc -> Doc callable registered with @Language.component",
+    "Use @Language.factory for configurable or stateful components",
+    "Extensions on Doc/Token/Span live under ._ (attribute, getter, method)",
+    "Mind component order and dependencies with before=/after="
+   ],
+   "pitfalls": [
+    "Registering extensions inside the component function, which runs on every Doc; register once at import."
+   ],
+   "quiz": [
+    {
+     "q": "When should you use @Language.factory instead of @Language.component?",
+     "options": [
+      "Never; they are aliases",
+      "Only for components that modify tokens",
+      "When the component needs configuration or state such as a lookup table",
+      "When the component runs before the tokenizer"
+     ],
+     "answer": 2,
+     "explain": "Factories receive config values and nlp, and build a component object from them."
+    },
+    {
+     "q": "Which extension type computes its value on each access?",
+     "options": [
+      "default attribute",
+      "method",
+      "force",
+      "getter"
+     ],
+     "answer": 3,
+     "explain": "Getter extensions call the function whenever the attribute is read."
+    }
+   ],
+   "docs": "https://spacy.io/usage/processing-pipelines#custom-components",
+   "requires": [
+    "spacy.pipeline-processing",
+    "python.decorators"
+   ]
+  },
+  {
+   "id": "spacy.tokenizer-customization",
+   "name": "Customising the tokenizer",
+   "module": "pipelines",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Add special cases and change prefix, suffix and infix rules so domain text such as code, units or hashtags tokenizes correctly.",
+   "why": "Bad token boundaries break every later step: matchers, tags and entities all operate on tokens.",
+   "body": "spaCy's tokenizer first splits on whitespace, then processes each substring:\n\n- **special cases** (exceptions): exact strings with a fixed tokenization, like \"don't\" to \"do\" + \"n't\"\n- **prefixes** split off the start (quotes, brackets, currency), **suffixes** off the end (punctuation, units like \"km\"), repeatedly\n- **infixes** split inside the string (hyphens between letters, \"/\" between words)\n- `token_match` and `url_match` protect strings that must stay whole\n\nSpecial cases are the simplest fix: `nlp.tokenizer.add_special_case(\"gimme\", [{ORTH: \"gim\"}, {ORTH: \"me\"}])`. The pieces' `ORTH` values must concatenate to the original string. They're also the way to keep a term together, such as \"C++\" or \"e.g.\".\n\nTo change the regex rules, start from the language defaults and compile new ones:\n\n```python\ninfixes = [p for p in nlp.Defaults.infixes if \"-\" not in p]\nnlp.tokenizer.infix_finditer = compile_infix_regex(infixes).finditer\n```\n\n`compile_prefix_regex` and `compile_suffix_regex` do the same for prefixes and suffixes. `nlp.tokenizer.explain(text)` shows which rule produced each token, invaluable for debugging.\n\nChanging tokenization after training means trained components see token boundaries they never learned, which can hurt accuracy; ideally customise before training. Custom tokenizer settings are saved with `nlp.to_disk`, but a completely custom tokenizer class needs registering to be loadable.",
+   "code": "import spacy\nfrom spacy.attrs import ORTH\nfrom spacy.util import compile_infix_regex\n\nnlp = spacy.blank(\"en\")\nprint([t.text for t in nlp(\"We use C++ and state-of-the-art 5km runs, gimme!\")])\n# ['We', 'use', 'C++', 'and', 'state', '-', 'of', '-', 'the', '-', 'art', '5', 'km', 'runs', ',', 'gimme', '!']\n\nnlp.tokenizer.add_special_case(\"gimme\", [{ORTH: \"gim\"}, {ORTH: \"me\"}])\n\ninfixes = [p for p in nlp.Defaults.infixes if \"-|–|—\" not in p]   # keep hyphenated words\nnlp.tokenizer.infix_finditer = compile_infix_regex(infixes).finditer\n\ndoc = nlp(\"We use C++ and state-of-the-art 5km runs, gimme!\")\nprint([t.text for t in doc])\n# [..., 'state-of-the-art', '5', 'km', 'runs', ',', 'gim', 'me', '!']\n\nfor rule, text in nlp.tokenizer.explain(\"(5km)\"):\n    print(rule, text)\n# PREFIX (  /  TOKEN 5  /  SUFFIX km  /  SUFFIX )",
+   "code_lang": "python",
+   "takeaways": [
+    "Tokenization = whitespace split + special cases + prefix/suffix/infix rules",
+    "add_special_case fixes specific strings; ORTH pieces must rebuild the text",
+    "Recompile Defaults.prefixes/suffixes/infixes to change regex rules",
+    "tokenizer.explain shows which rule made each token"
+   ],
+   "pitfalls": [
+    "Customising tokenization of a trained pipeline and expecting the model to keep its accuracy on the new boundaries."
+   ],
+   "quiz": [
+    {
+     "q": "Which tool tells you why the tokenizer split '(5km)' the way it did?",
+     "options": [
+      "nlp.pipe_names",
+      "nlp.tokenizer.explain",
+      "spacy.explain",
+      "doc.to_json"
+     ],
+     "answer": 1,
+     "explain": "tokenizer.explain lists the rule (PREFIX, SUFFIX, INFIX, SPECIAL...) behind each token."
+    }
+   ],
+   "docs": "https://spacy.io/usage/linguistic-features#tokenization",
+   "requires": [
+    "spacy.doc-token-span",
+    "spacy.matcher"
+   ]
+  },
+  {
+   "id": "spacy.training",
+   "name": "Training pipelines with configs and DocBin",
+   "module": "training",
+   "level": 3,
+   "minutes": 20,
+   "summary": "Prepare annotated data as DocBin files, generate a config, and train and evaluate a pipeline with the spacy train CLI.",
+   "why": "Fine-tuning NER or text classification on your own data is how spaCy goes from generic to domain-accurate.",
+   "body": "spaCy v3 trains from a **config file** that fully describes the pipeline, model architectures and hyperparameters, so experiments are reproducible.\n\n**1. Data.** Training examples are `Doc` objects carrying the gold annotations (entities, categories, tags), stored in the binary **`DocBin`** format: build Docs, add them to `DocBin()`, and `to_disk(\"train.spacy\")`. `python -m spacy convert` turns CoNLL, IOB and JSON formats into `.spacy` files. Create a separate `dev.spacy` for evaluation.\n\n**2. Config.** `python -m spacy init config config.cfg --lang en --pipeline ner --optimize efficiency` writes a complete config. Its sections cover `[paths]`, `[nlp]` (language and pipeline), `[components]` (each component's model architecture), `[training]` (optimizer, batching, dropout, patience) and `[initialize]`. Values can be overridden on the command line: `--paths.train train.spacy`. Use `--optimize accuracy` or `--gpu` for transformer-based configs.\n\n**3. Train.** `python -m spacy train config.cfg --output ./out --paths.train train.spacy --paths.dev dev.spacy`. It prints losses and scores each evaluation step and saves `model-best` and `model-last`.\n\n**4. Evaluate and use.** `python -m spacy evaluate out/model-best dev.spacy` reports precision, recall and F-score per label; `spacy.load(\"out/model-best\")` loads it.\n\n`python -m spacy debug data config.cfg` catches data problems early: misaligned entity spans, unseen labels, class imbalance. To update an existing pipeline instead of training from scratch, source components from it in the config. A few hundred good examples per label is a reasonable start.",
+   "code": "import spacy\nfrom spacy.tokens import DocBin\n\nnlp = spacy.blank(\"en\")\nTRAIN = [\n    (\"Order a WidgetPro for Ana\", [(8, 17, \"PRODUCT\"), (22, 25, \"PERSON\")]),\n    (\"The GizmoMax broke again\", [(4, 12, \"PRODUCT\")]),\n]\ndb = DocBin()\nfor text, spans in TRAIN:\n    doc = nlp.make_doc(text)\n    ents = [doc.char_span(s, e, label=l) for s, e, l in spans]\n    assert None not in ents, \"span not aligned to tokens\"\n    doc.ents = ents\n    db.add(doc)\ndb.to_disk(\"train.spacy\")\nprint(len(DocBin().from_disk(\"train.spacy\")))   # 2\n\n# Then, in a shell:\n#   python -m spacy init config config.cfg --lang en --pipeline ner --optimize efficiency\n#   python -m spacy debug data config.cfg --paths.train train.spacy --paths.dev dev.spacy\n#   python -m spacy train config.cfg --output ./out \\\n#          --paths.train train.spacy --paths.dev dev.spacy\n#   python -m spacy evaluate out/model-best dev.spacy\n# nlp = spacy.load(\"out/model-best\")",
+   "code_lang": "python",
+   "takeaways": [
+    "Gold annotations live on Docs saved in DocBin (.spacy) files",
+    "spacy init config generates a complete, reproducible config",
+    "spacy train saves model-best and model-last; spacy evaluate scores them",
+    "spacy debug data catches misaligned spans and label problems"
+   ],
+   "pitfalls": [
+    "Creating entity spans whose character offsets don't align with token boundaries: char_span returns None and the example is broken."
+   ],
+   "quiz": [
+    {
+     "q": "Which file format does spacy train expect for training data?",
+     "options": [
+      "Binary DocBin files (.spacy)",
+      "CSV with text and labels",
+      "Pickled Doc lists",
+      "Plain text with inline tags"
+     ],
+     "answer": 0,
+     "explain": "Training data is serialized Docs in DocBin format; spacy convert creates them from other formats."
+    },
+    {
+     "q": "After training, which directory should you usually load?",
+     "options": [
+      "out/model-last",
+      "out/config",
+      "out/model-best",
+      "out/vocab"
+     ],
+     "answer": 2,
+     "explain": "model-best holds the checkpoint with the best dev score."
+    }
+   ],
+   "docs": "https://spacy.io/usage/training",
+   "requires": [
+    "spacy.named-entities",
+    "spacy.pipeline-processing"
+   ]
+  },
+  {
+   "id": "spacy.transformers-llm",
+   "name": "Transformer and LLM pipelines",
+   "module": "training",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Use transformer-based pipelines such as en_core_web_trf, fine-tune with spacy-transformers, and know where spacy-llm fits.",
+   "why": "Transformers give state-of-the-art accuracy inside the same spaCy API, at a real cost in speed and hardware.",
+   "body": "The `trf` pipelines replace the small CNN `tok2vec` with a **transformer** (RoBERTa-base for English) via the `spacy-transformers` package. The API stays the same: `nlp = spacy.load(\"en_core_web_trf\")`, then `doc.ents`, `token.dep_` and so on, with noticeably better accuracy on parsing and entities.\n\nCosts to plan for:\n\n- Much slower on CPU; a GPU helps a lot. Call `spacy.prefer_gpu()` (or `require_gpu()`) before loading, with a CUDA-enabled install such as `pip install spacy[cuda12x]`.\n- More memory. Use `nlp.pipe` with a moderate `batch_size` and process texts in streams.\n- Transformers see a limited window; spaCy splits long docs into overlapping spans and recombines the outputs.\n- No static word vectors: `similarity` isn't meaningful with these pipelines.\n\nTo **train** your own transformer-backed pipeline, generate a config with `spacy init config ... --optimize accuracy --gpu`. The `[components.transformer]` section names any Hugging Face model, for example `bert-base-multilingual-cased` or a domain model. Downstream components connect to it through a **listener** layer so they share one transformer pass.\n\n**`spacy-llm`** is a separate package that adds components powered by large language models via prompts, for NER, text classification and more, without training data. It's useful for prototyping and bootstrapping annotations; costs, latency and output consistency usually push production towards a trained model.",
+   "code": "import spacy\n\nusing_gpu = spacy.prefer_gpu()          # False on CPU-only machines\nprint(\"GPU:\", using_gpu)\n\ntry:\n    nlp = spacy.load(\"en_core_web_trf\")  # pip: spacy-transformers + the package\n    print(nlp.pipe_names)\n    # ['transformer', 'tagger', 'parser', 'attribute_ruler', 'lemmatizer', 'ner']\n    texts = [\"Ada Lovelace worked with Charles Babbage in London.\"] * 8\n    for doc in nlp.pipe(texts, batch_size=4):\n        pass\n    print([(e.text, e.label_) for e in doc.ents])\n    # [('Ada Lovelace', 'PERSON'), ('Charles Babbage', 'PERSON'), ('London', 'GPE')]\nexcept OSError:\n    print(\"install with: python -m spacy download en_core_web_trf\")\n\n# Training config for a transformer pipeline:\n#   python -m spacy init config cfg.cfg --lang en --pipeline ner --optimize accuracy --gpu\n# [components.transformer.model]\n# name = \"roberta-base\"            <- any Hugging Face model name",
+   "code_lang": "python",
+   "takeaways": [
+    "trf pipelines use a transformer backbone with the same spaCy API",
+    "Expect slower CPU speed and more memory; prefer_gpu() helps",
+    "Downstream components share one transformer via listeners",
+    "spacy-llm adds prompt-based components for prototyping"
+   ],
+   "pitfalls": [
+    "Calling .similarity() with a trf pipeline, which has no static vectors."
+   ],
+   "quiz": [
+    {
+     "q": "You call spacy.prefer_gpu() after spacy.load('en_core_web_trf'). What happens?",
+     "options": [
+      "It moves the loaded model to the GPU",
+      "It raises an error",
+      "It halves memory use",
+      "The model stays on CPU because GPU allocation must be chosen before loading"
+     ],
+     "answer": 3,
+     "explain": "prefer_gpu sets the device for models created afterwards, so call it before loading."
+    }
+   ],
+   "docs": "https://spacy.io/usage/embeddings-transformers",
+   "requires": [
+    "spacy.pipeline-processing",
+    "spacy.training"
+   ]
+  },
+  {
+   "id": "spacy.config-registries",
+   "name": "The config system, registries and architectures",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Read and extend spaCy's config: interpolation, registered functions, model architectures and the tok2vec listener pattern.",
+   "why": "Every trained pipeline is defined by its config, and custom functions or architectures plug in through registries.",
+   "body": "A spaCy pipeline is fully described by its **config** (Thinc's config system, an extended INI format). `nlp.config` shows it for any loaded pipeline, and it is saved as `config.cfg` with the model. Sections nest with dots, such as `[components.ner.model]`, and values are JSON-like.\n\nTwo mechanisms make it powerful:\n\n- **Interpolation**: `${section.key}` refers to another value, so a setting like a width or a path is defined once.\n- **Registered functions**: a block containing `@architectures = \"spacy.Tok2Vec.v2\"`, `@misc = ...` or `@readers = ...` is replaced, when the config is resolved, by the result of calling that registered function with the block's other keys as arguments. Registries include `architectures`, `misc`, `readers`, `loggers`, `optimizers`, `schedules` and more.\n\nRegister your own with a decorator such as `@spacy.registry.misc(\"name.v1\")` or `@spacy.registry.architectures(...)` for a custom Thinc model. Version names (`.v1`, `.v2`) so old configs keep resolving after you change code. For `spacy train`, pass `--code my_functions.py` so the registrations are imported first.\n\nReading the config of `en_core_web_sm` shows the **listener** pattern: the shared `tok2vec` component computes token embeddings once, and the tagger and parser use `spacy.Tok2VecListener.v1` to reuse them, while the NER has its own internal `Tok2Vec`. That's why disabling `tok2vec` breaks the tagger but not the NER, and why fine-tuning a shared tok2vec for one task can affect the others. Training configs can replace listeners with independent copies when components must not interfere.",
+   "code": "import spacy\nfrom thinc.api import Config\n\n@spacy.registry.misc(\"keyword_set.v1\")\ndef keyword_set(words: list, lower: bool = True) -> set:\n    return {w.lower() if lower else w for w in words}\n\ncfg = Config().from_str('''\n[settings]\nbatch = 128\nsize = ${settings.batch}\n\n[keywords]\n@misc = \"keyword_set.v1\"\nwords = [\"Refund\", \"Invoice\"]\n''')\nprint(cfg[\"settings\"][\"size\"])                           # 128  (interpolated)\nprint(sorted(spacy.registry.resolve(cfg)[\"keywords\"]))   # ['invoice', 'refund']\n\nnlp = spacy.load(\"en_core_web_sm\")\ncomps = nlp.config[\"components\"]\nprint(comps[\"tagger\"][\"model\"][\"tok2vec\"][\"@architectures\"])   # spacy.Tok2VecListener.v1\nprint(comps[\"ner\"][\"model\"][\"tok2vec\"][\"@architectures\"])      # spacy.Tok2Vec.v2 (own copy)\nprint(comps[\"ner\"][\"model\"][\"@architectures\"])                 # spacy.TransitionBasedParser.v2",
+   "code_lang": "python",
+   "takeaways": [
+    "The config fully defines a pipeline; nlp.config shows it",
+    "${section.key} interpolates values; @registry blocks call registered functions",
+    "Register custom functions and architectures with versioned names; use --code in training",
+    "Listeners let components share one tok2vec; NER in core pipelines has its own"
+   ],
+   "pitfalls": [
+    "Renaming or changing a registered function without bumping its version, breaking older configs that reference it."
+   ],
+   "quiz": [
+    {
+     "q": "In a config, what does a block with `@architectures = 'spacy.Tok2Vec.v2'` become when resolved?",
+     "options": [
+      "A string",
+      "The object returned by calling the registered function with the block's other values",
+      "A file path",
+      "A component name"
+     ],
+     "answer": 1,
+     "explain": "Resolution looks up the registered function and calls it with the block's arguments."
+    },
+    {
+     "q": "Why does disabling `tok2vec` in en_core_web_sm break the tagger but not the NER?",
+     "options": [
+      "The tagger listens to the shared tok2vec, while the NER has its own internal Tok2Vec",
+      "The NER doesn't use embeddings",
+      "The NER runs first",
+      "The tagger is rule-based"
+     ],
+     "answer": 0,
+     "explain": "The config shows a Tok2VecListener in the tagger and a full Tok2Vec inside the NER model."
+    }
+   ],
+   "docs": "https://spacy.io/usage/training#config",
+   "requires": [
+    "spacy.training",
+    "spacy.custom-components"
+   ]
+  },
+  {
+   "id": "spacy.vocab-stringstore",
+   "name": "Vocab, StringStore and hashes",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Understand how spaCy stores strings as 64-bit hashes, what lives in the Vocab and Lexemes, and how this affects memory.",
+   "why": "Hashes explain the int-versus-string attributes, shared memory between Docs and why the vocab grows in long-running services.",
+   "body": "spaCy never stores the same string twice. The **`StringStore`** (`nlp.vocab.strings`) maps every string to a **64-bit hash** and back: `strings[\"coffee\"]` gives the hash, `strings[hash]` the text. Hashes are deterministic, so the same word has the same id in every process and pipeline, which lets data be exchanged as plain integers.\n\nThe **`Vocab`** holds the StringStore, the vectors table, morphology and **Lexemes**. A `Lexeme` is the context-independent entry for a word type, with flags like `is_stop`, `is_alpha`, `like_num`, `lower_`, `shape_` that are the same wherever the word appears. A Token points to its Lexeme for these attributes and adds context-dependent ones (tag, dependency, entity).\n\nBecause Docs store token data as compact C structs holding hashes and pointers, they're memory-efficient and `doc.to_array([LOWER, POS, ENT_TYPE])` exports attributes as a NumPy `uint64` array in one call. `doc.count_by(attr)` counts values quickly.\n\nA consequence: to decode a hash you need a StringStore that has seen the string. Docs deserialised from bytes in another process need the strings shipped too, which `DocBin` handles.\n\nIn a long-running service, every new string (typos, ids, URLs) is added to the StringStore and stays there, so memory grows slowly. Mitigate by periodically reloading the pipeline, or process with a fresh `nlp` in worker processes that are recycled.",
+   "code": "import spacy\nfrom spacy.attrs import IS_ALPHA, LOWER, POS\n\nnlp = spacy.load(\"en_core_web_sm\")\nstrings = nlp.vocab.strings\n\nh = strings[\"coffee\"]\nprint(h)                              # 3197928453018144401\nprint(strings[h])                     # coffee\nprint(spacy.blank(\"de\").vocab.strings[\"coffee\"] == h)   # True: same hash anywhere\n\ndoc = nlp(\"I love coffee and coffee loves me\")\nprint(doc[2].orth == doc[4].orth == h)                  # True\nlex = nlp.vocab[\"coffee\"]\nprint(type(lex).__name__, lex.is_alpha, lex.shape_)    # Lexeme True xxxx\n\narr = doc.to_array([LOWER, POS, IS_ALPHA])\nprint(arr.shape, arr.dtype)           # (7, 3) uint64\ncounts = doc.count_by(LOWER)\nprint(counts[h])                      # 2\n\nn = len(strings)\nnlp(\"zxqv-unique-id-91\")\nprint(len(strings) > n)               # True: new strings accumulate",
+   "code_lang": "python",
+   "takeaways": [
+    "StringStore maps strings to deterministic 64-bit hashes and back",
+    "Lexemes hold context-free word attributes; Tokens add context",
+    "doc.to_array and count_by export attributes efficiently",
+    "The StringStore grows with every new string in long-running services"
+   ],
+   "pitfalls": [
+    "Sending hashes to another process and trying to decode them with a StringStore that never saw those strings."
+   ],
+   "quiz": [
+    {
+     "q": "Why is the hash of 'coffee' the same in two unrelated spaCy pipelines?",
+     "options": [
+      "They share a global database",
+      "Both use the same model file",
+      "Hashes are computed deterministically from the string itself",
+      "spaCy assigns ids alphabetically"
+     ],
+     "answer": 2,
+     "explain": "The hash is a pure function of the string, so any StringStore produces the same id."
+    },
+    {
+     "q": "Which attribute is stored on the Lexeme rather than the Token?",
+     "options": [
+      "dep_",
+      "ent_type_",
+      "tag_",
+      "is_stop"
+     ],
+     "answer": 3,
+     "explain": "is_stop doesn't depend on context, so it lives on the shared Lexeme."
+    }
+   ],
+   "docs": "https://spacy.io/api/stringstore",
+   "requires": [
+    "spacy.token-attributes",
+    "spacy.pipeline-processing",
+    "python.memory-gc"
+   ]
+  },
+  {
+   "id": "spacy.serialization-scale",
+   "name": "Serialization and scaling out",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Save pipelines and Docs efficiently, ship Docs between processes with DocBin, and run spaCy at scale with multiprocessing.",
+   "why": "Production NLP processes millions of documents; storing results and parallelising correctly matter as much as the model.",
+   "body": "**Pipelines**: `nlp.to_disk(path)` writes a directory with `config.cfg`, `meta.json`, the vocab, tokenizer settings and each component's weights; `spacy.load(path)` restores it. `spacy package` turns that directory into an installable Python package for deployment. Custom components and factories must be importable when loading, or `spacy.load` fails with an unknown factory error.\n\n**Docs**: avoid pickling individual Docs. Each pickle includes vocab strings, so pickling many Docs is large and slow. `DocBin(attrs=[...], store_user_data=True)` stores many Docs compactly, sharing strings: `db.add(doc)`, then `db.to_bytes()` or `to_disk()`, and later `list(db.get_docs(nlp.vocab))`. With `store_user_data`, custom `._` values stored as attributes travel too.\n\nOften you don't need the Doc at all: extract what you need (entity tuples, lemmas, JSON via `doc.to_json()`) inside the worker and return plain data. That is the cheapest thing to move between processes.\n\n**Scaling**:\n\n- `nlp.pipe(texts, n_process=4, batch_size=...)` uses multiprocessing; each process loads its own model copy, so memory multiplies.\n- Disable components you don't need before forking.\n- Set thread counts for underlying math libraries to 1 per process to avoid oversubscription.\n- On a GPU, use a single process with a larger batch.\n- For clusters, run the same function in Spark, Ray or Dask workers, loading `nlp` once per worker rather than per task.",
+   "code": "import spacy\nfrom spacy.tokens import DocBin, Doc\n\nDoc.set_extension(\"source\", default=None, force=True)\nnlp = spacy.load(\"en_core_web_sm\", exclude=[\"parser\"])\n\ntexts = [\"Ada met Alan in London.\", \"Grace worked at Harvard.\", \"Paris in May.\"]\ndb = DocBin(store_user_data=True)\nfor i, doc in enumerate(nlp.pipe(texts)):\n    doc._.source = f\"doc-{i}\"\n    db.add(doc)\ndata = db.to_bytes()                          # compact, shared strings\nprint(len(data) < 10_000)                     # True\n\nrestored = list(DocBin().from_bytes(data).get_docs(nlp.vocab))\nprint(restored[1]._.source, [e.text for e in restored[1].ents])   # doc-1 ['Grace', 'Harvard']\n\ndef extract(texts):                           # return plain data, not Docs\n    return [[(e.text, e.label_) for e in d.ents]\n            for d in nlp.pipe(texts, n_process=2, batch_size=64)]\n\nif __name__ == \"__main__\":\n    print(extract(texts * 2)[0])              # [('Ada', 'PERSON'), ('Alan', 'PERSON'), ('London', 'GPE')]\n    nlp.to_disk(\"my_pipeline\")\n    print(spacy.load(\"my_pipeline\").pipe_names[-1])   # ner",
+   "code_lang": "python",
+   "takeaways": [
+    "nlp.to_disk / spacy.load(path) save and restore whole pipelines",
+    "DocBin stores many Docs compactly with shared strings; avoid pickling Docs",
+    "Return plain extracted data from workers when you can",
+    "n_process multiplies model memory; use one process with big batches on GPU"
+   ],
+   "pitfalls": [
+    "Loading the spaCy model inside the per-item function of a parallel job, reloading it thousands of times."
+   ],
+   "quiz": [
+    {
+     "q": "Why prefer DocBin over pickling a list of Docs?",
+     "options": [
+      "Pickle cannot handle Docs",
+      "DocBin stores the strings once for all Docs and only the chosen attributes, so it is much smaller and faster",
+      "DocBin compresses text with gzip",
+      "DocBin keeps the model weights"
+     ],
+     "answer": 1,
+     "explain": "Pickled Docs each carry vocab data, while DocBin shares one string table."
+    },
+    {
+     "q": "A spacy.load of your saved pipeline fails with an unknown factory error. What is missing?",
+     "options": [
+      "The module defining the custom component wasn't imported before loading",
+      "The vocab",
+      "GPU support",
+      "A DocBin file"
+     ],
+     "answer": 0,
+     "explain": "Custom factories are registered at import time, so the code must be imported first."
+    }
+   ],
+   "docs": "https://spacy.io/usage/saving-loading",
+   "requires": [
+    "spacy.custom-components",
+    "spacy.vocab-stringstore",
+    "python.threads-processes"
+   ]
+  }
+ ]
+}

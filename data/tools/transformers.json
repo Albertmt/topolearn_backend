@@ -1,0 +1,957 @@
+{
+ "tool": {
+  "id": "transformers",
+  "name": "Hugging Face Transformers",
+  "category": "library",
+  "tagline": "Pretrained transformer models for text, vision and audio, plus training and generation",
+  "description": "Transformers is Hugging Face's library of pretrained model architectures (BERT, Llama, Qwen, Whisper, ViT and hundreds more) with a uniform API to download, run, fine-tune and share them. It covers quick inference with pipelines, tokenization, the Trainer training loop, text generation for LLMs, and integrations for LoRA fine-tuning and quantization. It is the default entry point to open-weight models on the Hugging Face Hub.",
+  "icon": "HF",
+  "color": "#C2410C",
+  "official_docs": "https://huggingface.co/docs/transformers/index",
+  "version": "5.x",
+  "aliases": [
+   "hugging face",
+   "huggingface",
+   "hf transformers",
+   "transformers library"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 2
+   },
+   {
+    "tool": "pytorch",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "inference",
+   "name": "Pipelines and inference"
+  },
+  {
+   "id": "models",
+   "name": "Tokenizers and models"
+  },
+  {
+   "id": "llm",
+   "name": "Generation and chat"
+  },
+  {
+   "id": "finetune",
+   "name": "Fine-tuning with Trainer"
+  },
+  {
+   "id": "efficient",
+   "name": "Efficient fine-tuning and quantization"
+  },
+  {
+   "id": "internals",
+   "name": "Scaling and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "transformers.pipelines",
+   "name": "Pipelines: inference in three lines",
+   "module": "inference",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Run a pretrained model on raw text, images or audio with pipeline(), which handles preprocessing and postprocessing.",
+   "why": "Pipelines are the fastest way to try a model or ship a simple inference feature.",
+   "body": "A **pipeline** bundles three steps: a preprocessor (tokenizer, image processor or feature extractor) that turns raw input into tensors, the model forward pass, and postprocessing that turns logits into readable results such as labels and scores.\n\n```python\nclf = pipeline(\"text-classification\", model=\"distilbert/distilbert-base-uncased-finetuned-sst-2-english\")\n```\n\nThe first argument is a **task** name. Always pass `model=` explicitly: without it the pipeline picks a default checkpoint, which can change between releases and logs a warning.\n\nUseful arguments:\n\n- `device=0` (first GPU), `device=\"cpu\"`, or `device_map=\"auto\"` to let Accelerate place large models.\n- `dtype=\"auto\"` (the v5 default) loads weights in the precision they were saved in; pass `torch.bfloat16` to force half precision.\n- Pass a **list** of inputs and `batch_size=` to process many items efficiently.\n\nPipelines accept a string, a list of strings, or for vision/audio tasks a file path, URL or PIL image. The model weights are downloaded once to the local cache (`~/.cache/huggingface/hub`) and reused afterwards.\n\nPipelines trade control for convenience. When you need custom batching, access to hidden states, or training, drop down to the tokenizer and model classes covered next. Note that in v5 several legacy tasks such as `summarization` and `translation` were removed from pipelines; use a chat model through `text-generation` for those.",
+   "code": "from transformers import pipeline\n\nclf = pipeline(\n    \"text-classification\",\n    model=\"distilbert/distilbert-base-uncased-finetuned-sst-2-english\",\n)\nprint(clf(\"I love this library!\"))\n# [{'label': 'POSITIVE', 'score': 0.999...}]\n\nreviews = [\"Terrible support.\", \"Works great, fast shipping.\"]\nfor r in clf(reviews, batch_size=2):\n    print(r[\"label\"], round(r[\"score\"], 3))\n# NEGATIVE 0.999...\n# POSITIVE 0.999...\n\nasr = pipeline(\"automatic-speech-recognition\", model=\"openai/whisper-tiny\")\n# asr(\"meeting.wav\") -> {'text': ' Hello everyone, ...'}",
+   "code_lang": "python",
+   "takeaways": [
+    "`pipeline(task, model=...)` = preprocess + forward + postprocess",
+    "Always pin `model=` instead of relying on the task default",
+    "Pass lists with `batch_size` for throughput; use `device`/`device_map` for GPUs"
+   ],
+   "pitfalls": [
+    "Calling a pipeline inside a loop one string at a time on GPU, which wastes most of its throughput."
+   ],
+   "quiz": [
+    {
+     "q": "Why should you pass model= when creating a pipeline?",
+     "options": [
+      "The default checkpoint for a task may change between versions, making results irreproducible",
+      "It is required to use a GPU",
+      "It disables downloading from the Hub",
+      "Pipelines cannot run without it"
+     ],
+     "answer": 0,
+     "explain": "Without model= the task default is used, which can change and is only meant for quick experiments."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/pipeline_tutorial",
+   "requires": []
+  },
+  {
+   "id": "transformers.hub-models",
+   "name": "The Hub, checkpoints and caching",
+   "module": "inference",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Find models on the Hugging Face Hub, pin revisions, understand the cache and safetensors, and treat remote code with care.",
+   "why": "Every from_pretrained call goes through the Hub; knowing how it resolves files avoids broken deploys and security mistakes.",
+   "body": "A **checkpoint** on the Hub is a Git repository identified as `owner/name`, e.g. `Qwen/Qwen2.5-0.5B-Instruct`. It typically contains `config.json` (architecture hyperparameters), weights in `model.safetensors` (sharded for large models, with an index file), tokenizer files, a `generation_config.json` and a model card describing intended use, license and limitations.\n\n`from_pretrained(\"owner/name\")` downloads the files to the local cache (`~/.cache/huggingface/hub`, configurable with `HF_HOME`) and reuses them afterwards. Practical knobs:\n\n- `revision=\"a1b2c3d\"` pins a commit, branch or tag. Pin in production so an upstream push cannot change your model.\n- `token=` or `hf auth login` gives access to gated or private repos; accept the license on the model page first.\n- `HF_HUB_OFFLINE=1` forces cache-only loading on air-gapped machines.\n- A local directory path works anywhere a repo id does.\n\n**safetensors** is the default weight format: it loads fast via memory mapping and cannot execute code, unlike pickled `.bin` files.\n\n`trust_remote_code=True` lets a repo run its own Python modeling code on your machine. Only enable it for repos you trust, and pin the revision when you do. Most popular architectures are built into Transformers and need no remote code.\n\nCheck the license and model card before using a model commercially; open weights does not always mean unrestricted use.",
+   "code": "from huggingface_hub import list_repo_files, snapshot_download\nfrom transformers import AutoConfig\n\nrepo = \"Qwen/Qwen2.5-0.5B-Instruct\"\nprint(list_repo_files(repo)[:5])\n# ['.gitattributes', 'LICENSE', 'README.md', 'config.json', ...]\n\nconfig = AutoConfig.from_pretrained(repo)      # downloads only config.json\nprint(config.model_type, config.num_hidden_layers)   # qwen2 24\n\n# pin a revision for reproducibility (a branch, tag or commit hash)\nconfig = AutoConfig.from_pretrained(repo, revision=\"main\")\n\n# download a whole repo once, then load from the local path\npath = snapshot_download(repo, allow_patterns=[\"*.json\", \"*.safetensors\"])\nprint(path)   # ~/.cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct/...",
+   "code_lang": "python",
+   "takeaways": [
+    "Checkpoints are Hub repos with config, safetensors weights and tokenizer files",
+    "Pin `revision` in production; files are cached under HF_HOME",
+    "Only use `trust_remote_code=True` for trusted, pinned repos"
+   ],
+   "pitfalls": [
+    "Loading a model with trust_remote_code=True from an unknown repo, which runs arbitrary code on your machine."
+   ],
+   "quiz": [
+    {
+     "q": "What does trust_remote_code=True allow?",
+     "options": [
+      "Loading pickled .bin weights",
+      "Skipping license checks",
+      "Downloading private repositories",
+      "Executing Python modeling code shipped in the model repo"
+     ],
+     "answer": 3,
+     "explain": "It permits custom code from the repo to run locally, which is why it should only be used with trusted sources."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/hub/models",
+   "requires": []
+  },
+  {
+   "id": "transformers.tokenizers",
+   "name": "Tokenizers: text to input IDs",
+   "module": "models",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Convert text into token IDs and attention masks with AutoTokenizer, including padding, truncation and decoding.",
+   "why": "Models only see integers; wrong tokenization or padding silently ruins results.",
+   "body": "A **tokenizer** splits text into subword tokens and maps them to integer IDs from the model's vocabulary. Always load the tokenizer that matches the checkpoint: `AutoTokenizer.from_pretrained(repo)`. Mixing tokenizers and models produces garbage without any error.\n\nCalling the tokenizer returns a dict-like `BatchEncoding`:\n\n- `input_ids`: token IDs, including special tokens such as `[CLS]`/`[SEP]` for BERT or a BOS token for many LLMs.\n- `attention_mask`: 1 for real tokens, 0 for padding, so the model ignores pads.\n- Some models also return `token_type_ids`.\n\nFor batches, sequences must have the same length:\n\n- `padding=True` pads to the longest sequence in the batch; `padding=\"max_length\"` pads to `max_length`.\n- `truncation=True` cuts sequences longer than `max_length` (or the model's limit).\n- `return_tensors=\"pt\"` returns PyTorch tensors instead of lists.\n\n`tokenizer.tokenize(text)` shows the subword strings, and `tokenizer.decode(ids, skip_special_tokens=True)` turns IDs back into text. Rare words split into several pieces (`tokenization` becomes `token` + `##ization` in BERT's WordPiece), which is how a fixed vocabulary of about 30k to 150k entries covers any text.\n\nTokenizers in Transformers are backed by the Rust `tokenizers` library, so batch tokenization is fast. Token counts, not characters, determine context limits and API costs.",
+   "code": "from transformers import AutoTokenizer\n\ntok = AutoTokenizer.from_pretrained(\"google-bert/bert-base-uncased\")\n\nenc = tok(\"Hello world!\")\nprint(enc[\"input_ids\"])          # [101, 7592, 2088, 999, 102]\nprint(tok.convert_ids_to_tokens(enc[\"input_ids\"]))\n# ['[CLS]', 'hello', 'world', '!', '[SEP]']\nprint(tok.tokenize(\"tokenization\"))   # ['token', '##ization']\n\nbatch = tok([\"short one\", \"a somewhat longer sentence here\"],\n            padding=True, truncation=True, max_length=16, return_tensors=\"pt\")\nprint(batch[\"input_ids\"].shape)  # torch.Size([2, 7])\nprint(batch[\"attention_mask\"][0])  # tensor([1, 1, 1, 1, 0, 0, 0])\n\nprint(tok.decode(batch[\"input_ids\"][0], skip_special_tokens=True))  # short one",
+   "code_lang": "python",
+   "takeaways": [
+    "Always load the tokenizer from the same checkpoint as the model",
+    "Batches need `padding` and usually `truncation`; the attention mask marks real tokens",
+    "Use `return_tensors=\"pt\"` to feed the model directly"
+   ],
+   "pitfalls": [
+    "Forgetting truncation, so long inputs exceed the model's maximum length and raise an index error."
+   ],
+   "quiz": [
+    {
+     "q": "What is the attention_mask for?",
+     "options": [
+      "It hides special tokens from the output",
+      "It stores token type IDs",
+      "It marks which tokens are real and which are padding",
+      "It lists which layers use attention"
+     ],
+     "answer": 2,
+     "explain": "The mask is 1 for real tokens and 0 for padding so attention ignores the pad positions."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/fast_tokenizers",
+   "requires": [
+    "transformers.hub-models",
+    "python.strings"
+   ]
+  },
+  {
+   "id": "transformers.auto-models",
+   "name": "Auto classes and task heads",
+   "module": "models",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Load the right architecture and task head with AutoModel and AutoModelFor... classes and from_pretrained.",
+   "why": "Auto classes let the same code load BERT, Qwen or Llama; choosing the right head determines what the model outputs.",
+   "body": "`from_pretrained` reads `config.json`, picks the matching architecture and loads weights. **Auto classes** do the picking for you, so code works across model families:\n\n- `AutoModel`: the bare backbone, returning hidden states (embeddings).\n- `AutoModelForSequenceClassification`: a classification head on top, returning `logits` per label.\n- `AutoModelForTokenClassification` (NER), `AutoModelForQuestionAnswering`, `AutoModelForCausalLM` (text generation), `AutoModelForSeq2SeqLM`, `AutoModelForImageClassification`, and more.\n\nLoading a backbone with a **new head** is the start of fine-tuning: `AutoModelForSequenceClassification.from_pretrained(\"bert-base-uncased\", num_labels=3)` initialises the head randomly and logs a warning listing the newly initialised weights. That warning is expected before training, but alarming if you meant to load a fine-tuned classifier.\n\nCommon loading options:\n\n- `dtype=\"auto\"` (default in v5) keeps the checkpoint's precision; `dtype=torch.bfloat16` halves memory versus float32.\n- `device_map=\"auto\"` places layers across available GPUs and CPU via Accelerate, needed for models larger than one GPU.\n- `id2label`/`label2id` attach readable label names to the config.\n\nThe model is a regular `torch.nn.Module`: call `.to(\"cuda\")`, `.eval()`, inspect `.config`, or count parameters with `model.num_parameters()`.",
+   "code": "import torch\nfrom transformers import AutoModel, AutoModelForSequenceClassification, AutoTokenizer\n\nname = \"google-bert/bert-base-uncased\"\ntok = AutoTokenizer.from_pretrained(name)\n\nbackbone = AutoModel.from_pretrained(name)\nout = backbone(**tok(\"hello\", return_tensors=\"pt\"))\nprint(out.last_hidden_state.shape)     # torch.Size([1, 3, 768])\n\nclf = AutoModelForSequenceClassification.from_pretrained(\n    name, num_labels=3,\n    id2label={0: \"neg\", 1: \"neu\", 2: \"pos\"}, label2id={\"neg\": 0, \"neu\": 1, \"pos\": 2},\n)   # logs: Some weights ... are newly initialized: ['classifier.bias', 'classifier.weight']\nprint(clf.config.id2label[2])          # pos\nprint(f\"{clf.num_parameters():,}\")     # 109,484,547\n\nhalf = AutoModel.from_pretrained(name, dtype=torch.bfloat16)\nprint(next(half.parameters()).dtype)   # torch.bfloat16",
+   "code_lang": "python",
+   "takeaways": [
+    "Auto classes pick the architecture from config.json",
+    "The `...For<Task>` class decides the head and the outputs",
+    "A 'newly initialized' warning means the head still needs training"
+   ],
+   "pitfalls": [
+    "Loading a base checkpoint with AutoModelForSequenceClassification and using it for predictions without fine-tuning; the head is random."
+   ],
+   "quiz": [
+    {
+     "q": "You load bert-base-uncased with AutoModelForSequenceClassification(num_labels=2) and immediately predict. What do you get?",
+     "options": [
+      "Accurate sentiment predictions",
+      "Essentially random predictions, because the classification head is untrained",
+      "An error: the checkpoint has no classifier",
+      "The hidden states instead of logits"
+     ],
+     "answer": 1,
+     "explain": "The base checkpoint has no classifier weights, so the head is randomly initialised and must be fine-tuned."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/model_doc/auto",
+   "requires": [
+    "transformers.tokenizers",
+    "python.classes",
+    "pytorch.nn-module"
+   ]
+  },
+  {
+   "id": "transformers.model-inference",
+   "name": "Running a model by hand",
+   "module": "models",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Tokenize, run the forward pass under inference mode, and turn logits into probabilities and labels yourself.",
+   "why": "Doing what a pipeline does manually gives you batching control, hidden states and custom postprocessing.",
+   "body": "A manual inference loop has four steps:\n\n1. Tokenize a batch with `padding=True, truncation=True, return_tensors=\"pt\"` and move tensors to the model's device: `inputs = inputs.to(model.device)`.\n2. Put the model in evaluation mode with `model.eval()` (disables dropout; `from_pretrained` already does this, but it matters after training).\n3. Run the forward pass inside `torch.inference_mode()` (or `torch.no_grad()`) so no autograd graph is built, saving memory and time.\n4. Postprocess: outputs are a `ModelOutput` object with attributes like `.logits`, `.hidden_states` (with `output_hidden_states=True`) or `.loss` (when you pass `labels`).\n\nFor classification, `logits.softmax(-1)` gives probabilities, and `logits.argmax(-1)` the predicted class index; map it through `model.config.id2label`.\n\nFor sentence embeddings with an `AutoModel`, a common approach is **mean pooling**: average `last_hidden_state` over real tokens using the attention mask, so padding does not dilute the result. Dedicated embedding models (sentence-transformers checkpoints) are trained for this and work much better than raw BERT.\n\nProcess data in batches sized to your memory; sort by length to reduce padding when throughput matters.",
+   "code": "import torch\nfrom transformers import AutoModelForSequenceClassification, AutoTokenizer\n\nname = \"distilbert/distilbert-base-uncased-finetuned-sst-2-english\"\ntok = AutoTokenizer.from_pretrained(name)\nmodel = AutoModelForSequenceClassification.from_pretrained(name).eval()\n\ntexts = [\"What a fantastic movie\", \"Boring and far too long\"]\ninputs = tok(texts, padding=True, truncation=True, return_tensors=\"pt\").to(model.device)\n\nwith torch.inference_mode():\n    logits = model(**inputs).logits          # shape (2, 2)\n\nprobs = logits.softmax(dim=-1)\nfor text, p in zip(texts, probs):\n    label = model.config.id2label[int(p.argmax())]\n    print(f\"{label:8} {p.max():.3f}  {text}\")\n# POSITIVE 1.000  What a fantastic movie\n# NEGATIVE 1.000  Boring and far too long",
+   "code_lang": "python",
+   "takeaways": [
+    "Tokenize a batch, move it to `model.device`, run under `torch.inference_mode()`",
+    "Outputs are ModelOutput objects: use `.logits`, `.hidden_states`, `.loss`",
+    "Mask-aware mean pooling turns hidden states into sentence embeddings"
+   ],
+   "pitfalls": [
+    "Leaving inputs on the CPU while the model is on the GPU, which raises a device mismatch error."
+   ],
+   "quiz": [
+    {
+     "q": "Why wrap inference in torch.inference_mode()?",
+     "options": [
+      "It avoids building the autograd graph, saving memory and time",
+      "It switches the model to evaluation mode",
+      "It moves tensors to the GPU",
+      "It is required for softmax to work"
+     ],
+     "answer": 0,
+     "explain": "Gradient tracking is unnecessary for inference; disabling it reduces memory and overhead. eval() is separate."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/main_classes/output",
+   "requires": [
+    "transformers.auto-models",
+    "pytorch.dtypes-devices"
+   ]
+  },
+  {
+   "id": "transformers.pipeline-tasks",
+   "name": "Choosing pipeline tasks",
+   "module": "inference",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Use zero-shot classification, NER, fill-mask, embeddings and vision or audio tasks, and tune their key options.",
+   "why": "Picking the right task and options often solves a problem without any training.",
+   "body": "Beyond plain classification, pipelines cover many everyday tasks. A few with options worth knowing:\n\n- `zero-shot-classification`: classify text into labels you name at call time, using an NLI model such as `facebook/bart-large-mnli`. Pass `candidate_labels=[...]`; set `multi_label=True` when several labels can apply.\n- `token-classification` (alias `ner`): finds entities. Use `aggregation_strategy=\"simple\"` to merge subword pieces into whole entities like `\"New York\"` instead of `\"New\"`, `\"##York\"`.\n- `fill-mask`: predicts a masked token; useful for probing what a model learned.\n- `feature-extraction`: returns hidden states, a quick route to embeddings.\n- `text-generation`: LLM completion or chat (covered in the generation module).\n- Vision and audio: `image-classification`, `object-detection`, `image-text-to-text` for vision-language models, `automatic-speech-recognition` with Whisper.\n\nEach task returns its own result structure (lists of dicts with `label`/`score`, `entity_group`/`start`/`end`, `sequence`/`token_str`...). Read the task section in the pipelines reference to know what to expect.\n\nPick a model that was fine-tuned for the task: the Hub's task filters list compatible checkpoints. A general base model under a task pipeline will run but give meaningless results.",
+   "code": "from transformers import pipeline\n\nzs = pipeline(\"zero-shot-classification\", model=\"facebook/bart-large-mnli\")\nres = zs(\"The battery dies after two hours.\",\n         candidate_labels=[\"battery\", \"screen\", \"price\"])\nprint(res[\"labels\"][0])          # battery\n\nner = pipeline(\"ner\", model=\"dslim/bert-base-NER\", aggregation_strategy=\"simple\")\nfor ent in ner(\"Ada Lovelace was born in London.\"):\n    print(ent[\"entity_group\"], ent[\"word\"])\n# PER Ada Lovelace\n# LOC London\n\nfill = pipeline(\"fill-mask\", model=\"google-bert/bert-base-uncased\")\nprint(fill(\"Paris is the [MASK] of France.\")[0][\"token_str\"])   # capital",
+   "code_lang": "python",
+   "takeaways": [
+    "Zero-shot classification handles labels chosen at run time",
+    "Use `aggregation_strategy=\"simple\"` to get whole entities from NER",
+    "Choose a checkpoint fine-tuned for the task you run"
+   ],
+   "pitfalls": [
+    "Running NER without an aggregation strategy and then trying to stitch '##' subword pieces back together by hand."
+   ],
+   "quiz": [
+    {
+     "q": "You need to tag support tickets with categories that change every week, with no training data. Which task fits?",
+     "options": [
+      "fill-mask",
+      "feature-extraction",
+      "text-classification with a sentiment model",
+      "zero-shot-classification"
+     ],
+     "answer": 3,
+     "explain": "Zero-shot classification takes the candidate labels at call time, so no retraining is needed."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/main_classes/pipelines",
+   "requires": [
+    "transformers.pipelines"
+   ]
+  },
+  {
+   "id": "transformers.datasets-basics",
+   "name": "Loading data with Datasets",
+   "module": "finetune",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Load, inspect, split and transform datasets with the Hugging Face datasets library.",
+   "why": "Trainer and most examples expect datasets.Dataset objects; map and splits are the daily tools.",
+   "body": "The companion **datasets** library (`pip install datasets`) loads data from the Hub or local files into Arrow-backed tables that are memory-mapped from disk, so even large datasets do not need to fit in RAM.\n\n- `load_dataset(\"stanfordnlp/imdb\")` returns a `DatasetDict` of splits (`train`, `test`).\n- `load_dataset(\"csv\", data_files=\"reviews.csv\")` (or `\"json\"`, `\"parquet\"`) loads local files.\n- `Dataset.from_dict({...})` or `Dataset.from_pandas(df)` builds one in memory.\n\nEach row is a dict; columns have typed **features** (e.g. `ClassLabel` with names). Inspect with `ds[0]`, `ds.features`, `ds.column_names`, `ds.num_rows`.\n\nThe core transformation is `ds.map(fn, batched=True)`: `fn` receives a dict of column lists and returns new or changed columns. Results are cached on disk, so re-running a script skips finished work.\n\nOther everyday methods:\n\n- `filter(fn)`, `select(range(1000))` for a quick subset, `shuffle(seed=42)`.\n- `train_test_split(test_size=0.1, seed=42)` to create a validation split.\n- `remove_columns`, `rename_column`, `cast_column`.\n- `set_format(\"torch\")` or `with_format(\"torch\")` to return tensors.\n\nFor data too large to download, `load_dataset(..., streaming=True)` returns an `IterableDataset` that reads examples on the fly.",
+   "code": "from datasets import Dataset\n\nds = Dataset.from_dict({\n    \"text\": [\"great film\", \"awful plot\", \"loved it\", \"meh\", \"superb cast\", \"boring\"],\n    \"label\": [1, 0, 1, 0, 1, 0],\n})\nprint(ds)               # Dataset({features: ['text', 'label'], num_rows: 6})\nprint(ds[0])            # {'text': 'great film', 'label': 1}\n\ndef add_length(batch):  # batched: gets lists, returns new columns\n    return {\"n_words\": [len(t.split()) for t in batch[\"text\"]]}\n\nds = ds.map(add_length, batched=True)\nshort = ds.filter(lambda ex: ex[\"n_words\"] == 1)\nprint(list(short[\"text\"]))  # ['meh', 'boring']\n\nsplits = ds.train_test_split(test_size=0.33, seed=42)\nprint(splits[\"train\"].num_rows, splits[\"test\"].num_rows)   # 4 2\n# from datasets import load_dataset; imdb = load_dataset(\"stanfordnlp/imdb\")",
+   "code_lang": "python",
+   "takeaways": [
+    "`load_dataset` returns Arrow-backed, memory-mapped splits",
+    "`map(fn, batched=True)` is the main, cached transformation",
+    "Use `train_test_split`, `select` and `filter` to shape data"
+   ],
+   "pitfalls": [
+    "Using batched=True but writing fn as if it received a single example, so it operates on lists by mistake."
+   ],
+   "quiz": [
+    {
+     "q": "With ds.map(fn, batched=True), what does fn receive?",
+     "options": [
+      "A PyTorch tensor",
+      "One example as a dict of scalars",
+      "A dict mapping each column to a list of values for a batch of rows",
+      "A pandas DataFrame"
+     ],
+     "answer": 2,
+     "explain": "Batched map passes a dict of column lists and expects lists back, which is much faster than per-row calls."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/datasets/process",
+   "requires": [
+    "python.dicts",
+    "python.functions"
+   ]
+  },
+  {
+   "id": "transformers.llm-generation",
+   "name": "Generating text with causal LMs",
+   "module": "llm",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Load a decoder-only LLM with AutoModelForCausalLM and generate continuations with model.generate.",
+   "why": "Text generation is the core of chatbots, assistants and most modern LLM use.",
+   "body": "A **causal language model** predicts the next token given the previous ones. Generation repeats that step: predict a distribution, pick a token, append it, and continue until an end-of-sequence token or a length limit.\n\nThe typical setup:\n\n```python\nmodel = AutoModelForCausalLM.from_pretrained(repo, dtype=\"auto\", device_map=\"auto\")\n```\n\nThen tokenize a prompt, call `model.generate(**inputs, max_new_tokens=50)`, and decode. Key points:\n\n- **Always set `max_new_tokens`.** The default generation length is short (often 20 tokens) and limits the output silently.\n- `generate` returns prompt plus continuation. Slice off the prompt (`out[:, inputs[\"input_ids\"].shape[1]:]`) before decoding if you only want new text.\n- By default decoding is greedy unless the checkpoint's `generation_config.json` enables sampling; many instruct models ship with `do_sample=True` and a temperature.\n- For batched generation with decoder-only models, set `tokenizer.padding_side = \"left\"` so all prompts end at the same position, and make sure a pad token exists (`tok.pad_token = tok.eos_token` if missing).\n\nSmall models like `HuggingFaceTB/SmolLM2-135M-Instruct` or `Qwen/Qwen2.5-0.5B-Instruct` run on a laptop CPU and are ideal for learning. The `text-generation` pipeline wraps all of this, including chat formatting, when you just need outputs.",
+   "code": "from transformers import AutoModelForCausalLM, AutoTokenizer\n\nrepo = \"HuggingFaceTB/SmolLM2-135M\"\ntok = AutoTokenizer.from_pretrained(repo)\nmodel = AutoModelForCausalLM.from_pretrained(repo, dtype=\"auto\")\n\ninputs = tok(\"The three primary colors are\", return_tensors=\"pt\").to(model.device)\nout = model.generate(**inputs, max_new_tokens=20, do_sample=False)\n\nnew_tokens = out[0, inputs[\"input_ids\"].shape[1]:]   # drop the prompt\nprint(tok.decode(new_tokens, skip_special_tokens=True))\n# e.g. \" red, yellow and blue. ...\"\n\n# batched prompts need left padding for decoder-only models\ntok.padding_side = \"left\"\nif tok.pad_token is None:\n    tok.pad_token = tok.eos_token\nbatch = tok([\"Hello, my name is\", \"Python is\"], return_tensors=\"pt\", padding=True)\nouts = model.generate(**batch, max_new_tokens=10)\nprint(len(tok.batch_decode(outs, skip_special_tokens=True)))   # 2",
+   "code_lang": "python",
+   "takeaways": [
+    "`AutoModelForCausalLM` + `generate` produces text token by token",
+    "Always set `max_new_tokens`, and strip the prompt before decoding",
+    "Use left padding and a pad token for batched generation"
+   ],
+   "pitfalls": [
+    "Using right padding for batched decoder-only generation, which makes the model continue after pad tokens and produce junk."
+   ],
+   "quiz": [
+    {
+     "q": "Your batched generation outputs garbage for shorter prompts only. What is the likely cause?",
+     "options": [
+      "max_new_tokens is too large",
+      "The tokenizer pads on the right instead of the left",
+      "Sampling is disabled",
+      "The model is in bfloat16"
+     ],
+     "answer": 1,
+     "explain": "Decoder-only models generate after the last position, so shorter prompts must be left-padded."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/llm_tutorial",
+   "requires": [
+    "transformers.auto-models"
+   ]
+  },
+  {
+   "id": "transformers.preprocessing-collators",
+   "name": "Preprocessing and data collators",
+   "module": "finetune",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Tokenize a dataset with map and let a data collator pad each batch dynamically.",
+   "why": "Efficient, correct batching is half the work of fine-tuning and a common source of shape errors.",
+   "body": "Before training, turn text columns into model inputs. The idiom is a batched `map` with the tokenizer:\n\n```python\ndef tokenize(batch):\n    return tok(batch[\"text\"], truncation=True, max_length=256)\nds = ds.map(tokenize, batched=True, remove_columns=[\"text\"])\n```\n\nNotice there is **no padding** here. Padding every example to a global maximum wastes compute. Instead, a **data collator** pads each batch to its own longest sequence at load time (**dynamic padding**):\n\n- `DataCollatorWithPadding(tok)` for classification and similar tasks.\n- `DataCollatorForTokenClassification(tok)` also pads `labels` with `-100`.\n- `DataCollatorForLanguageModeling(tok, mlm=False)` builds causal LM labels from `input_ids` (set `mlm=True` for masked LM with random masking).\n- `DataCollatorForSeq2Seq(tok, model=model)` for encoder-decoder models.\n\nThe label value **-100** is special: PyTorch's cross-entropy (and Transformers' loss functions) ignore it, so padding positions and prompt tokens do not contribute to the loss.\n\nName the target column `labels` (or `label`, which collators rename) because models compute the loss when they receive `labels`. Remove raw string columns; the Trainer drops unused columns automatically, but explicit removal avoids surprises.\n\nGroup similar lengths together (`train_sampling_strategy=\"group_by_length\"` in `TrainingArguments`) to reduce padding further.",
+   "code": "from datasets import Dataset\nfrom transformers import AutoTokenizer, DataCollatorWithPadding\n\ntok = AutoTokenizer.from_pretrained(\"google-bert/bert-base-uncased\")\nds = Dataset.from_dict({\"text\": [\"short\", \"a much longer example sentence\"],\n                        \"label\": [0, 1]})\n\ndef tokenize(batch):\n    return tok(batch[\"text\"], truncation=True, max_length=128)\n\nds = ds.map(tokenize, batched=True, remove_columns=[\"text\"])\nprint([len(x) for x in ds[\"input_ids\"]])   # [3, 7]  (no padding yet)\n\ncollator = DataCollatorWithPadding(tok)\nbatch = collator([ds[0], ds[1]])\nprint(batch[\"input_ids\"].shape)            # torch.Size([2, 7])  padded per batch\nprint(batch[\"labels\"])                     # tensor([0, 1])  'label' renamed",
+   "code_lang": "python",
+   "takeaways": [
+    "Tokenize with a batched `map` and truncation, but do not pad there",
+    "Data collators pad each batch dynamically to its longest sequence",
+    "Label -100 is ignored by the loss (padding, prompt tokens)"
+   ],
+   "pitfalls": [
+    "Padding everything to max_length in map, which makes training far slower than dynamic padding."
+   ],
+   "quiz": [
+    {
+     "q": "Why do token-classification collators pad labels with -100?",
+     "options": [
+      "It is the ID of the pad token",
+      "The loss function ignores -100, so padded positions do not affect training",
+      "It marks the start of a sequence",
+      "It signals the end-of-sequence token"
+     ],
+     "answer": 1,
+     "explain": "Cross-entropy uses ignore_index=-100, so padded or masked positions contribute nothing to the loss."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/data_collators",
+   "requires": [
+    "transformers.tokenizers",
+    "transformers.datasets-basics"
+   ]
+  },
+  {
+   "id": "transformers.trainer-basics",
+   "name": "Fine-tuning with Trainer",
+   "module": "finetune",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Configure TrainingArguments and run a complete fine-tuning loop with Trainer, including evaluation and checkpoints.",
+   "why": "Trainer gives you a correct, feature-rich training loop (mixed precision, multi-GPU, logging) without writing one.",
+   "body": "`Trainer` implements the full PyTorch training loop for Transformers models: batching, forward and backward passes, optimizer and LR schedule (AdamW with linear decay by default), evaluation, checkpointing, logging and multi-device support.\n\nYou configure it with `TrainingArguments`:\n\n- `output_dir`: where checkpoints go.\n- `learning_rate` (2e-5 to 5e-5 is typical for full fine-tuning), `num_train_epochs`, `per_device_train_batch_size`, `weight_decay`, `warmup_steps`.\n- `eval_strategy=\"epoch\"` or `\"steps\"` and a matching `save_strategy`; `load_best_model_at_end=True` with `metric_for_best_model`.\n- `logging_steps`, `report_to=\"none\"` or `\"tensorboard\"`, `\"wandb\"`, `\"mlflow\"`.\n- `bf16=True` on recent GPUs for mixed precision.\n\nThen:\n\n```python\ntrainer = Trainer(model=model, args=args, train_dataset=train, eval_dataset=val,\n                  processing_class=tok, data_collator=collator)\ntrainer.train()\n```\n\n`processing_class` (the tokenizer or processor) is saved alongside checkpoints so they load as complete models. `trainer.evaluate()` returns a dict of metrics such as `eval_loss`; `trainer.predict(ds)` returns predictions, label ids and metrics.\n\nResume an interrupted run with `trainer.train(resume_from_checkpoint=True)`. The model must return a loss when given `labels`, which all `AutoModelFor...` heads do.",
+   "code": "from datasets import load_dataset\nfrom transformers import (AutoModelForSequenceClassification, AutoTokenizer,\n                          DataCollatorWithPadding, Trainer, TrainingArguments)\n\nname = \"distilbert/distilbert-base-uncased\"\ntok = AutoTokenizer.from_pretrained(name)\nmodel = AutoModelForSequenceClassification.from_pretrained(name, num_labels=2)\n\nds = load_dataset(\"stanfordnlp/imdb\")\nds = ds.map(lambda b: tok(b[\"text\"], truncation=True, max_length=256), batched=True)\ntrain = ds[\"train\"].shuffle(seed=42).select(range(2000))\nval = ds[\"test\"].shuffle(seed=42).select(range(500))\n\nargs = TrainingArguments(\n    output_dir=\"imdb-distilbert\", learning_rate=2e-5, num_train_epochs=2,\n    per_device_train_batch_size=16, eval_strategy=\"epoch\", save_strategy=\"epoch\",\n    load_best_model_at_end=True, logging_steps=50, report_to=\"none\",\n)\ntrainer = Trainer(model=model, args=args, train_dataset=train, eval_dataset=val,\n                  processing_class=tok, data_collator=DataCollatorWithPadding(tok))\ntrainer.train()\nprint(trainer.evaluate())   # {'eval_loss': 0.3..., 'epoch': 2.0, ...}",
+   "code_lang": "python",
+   "takeaways": [
+    "TrainingArguments configures; Trainer runs the loop",
+    "Pass `processing_class=tokenizer` so checkpoints include it",
+    "Match `eval_strategy` and `save_strategy` when using `load_best_model_at_end`"
+   ],
+   "pitfalls": [
+    "Using the removed argument name evaluation_strategy; current versions only accept eval_strategy."
+   ],
+   "quiz": [
+    {
+     "q": "You set load_best_model_at_end=True with eval_strategy='epoch' and save_strategy='steps'. What happens?",
+     "options": [
+      "Trainer raises an error because the strategies must match",
+      "Evaluation is skipped",
+      "Only the last checkpoint is kept",
+      "Training works and keeps the best step"
+     ],
+     "answer": 0,
+     "explain": "The best model can only be restored if evaluation and saving happen on the same schedule."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/training",
+   "requires": [
+    "transformers.preprocessing-collators",
+    "transformers.auto-models",
+    "pytorch.training-loop"
+   ]
+  },
+  {
+   "id": "transformers.compute-metrics",
+   "name": "Evaluation metrics",
+   "module": "finetune",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Report accuracy, F1 and other metrics during training with a compute_metrics function.",
+   "why": "Loss alone hides whether a model is useful; task metrics drive model selection and early stopping.",
+   "body": "By default `Trainer.evaluate()` reports only `eval_loss`. Pass a `compute_metrics` function to get task metrics. It receives an `EvalPrediction` with:\n\n- `predictions`: the model's logits as NumPy arrays (for classification, shape `(n, num_labels)`),\n- `label_ids`: the true labels.\n\nIt returns a dict of floats; the Trainer prefixes keys with `eval_`, so `{\"f1\": 0.9}` is logged as `eval_f1`. That is the name to use in `metric_for_best_model=\"f1\"` (with `greater_is_better=True`).\n\nYou can compute metrics with scikit-learn or NumPy directly, or with Hugging Face's `evaluate` library (`evaluate.load(\"accuracy\")`).\n\nTips:\n\n- For generation or token-level tasks, logits can be huge. `preprocess_logits_for_metrics` lets you reduce them (e.g. `argmax`) on the device before they are accumulated, saving a lot of memory.\n- For token classification, drop positions whose label is -100 before scoring.\n- Choose metrics that match the goal: macro F1 for imbalanced classes, not plain accuracy.\n\nThe same function works with `trainer.predict(test_ds)`, which returns predictions, labels and metrics (prefixed `test_`) for a final held-out evaluation.",
+   "code": "import numpy as np\nfrom sklearn.metrics import accuracy_score, f1_score\nfrom transformers import EvalPrediction\n\ndef compute_metrics(eval_pred: EvalPrediction):\n    logits, labels = eval_pred.predictions, eval_pred.label_ids\n    preds = np.argmax(logits, axis=-1)\n    return {\"accuracy\": accuracy_score(labels, preds),\n            \"f1\": f1_score(labels, preds, average=\"macro\")}\n\n# what Trainer would pass in after evaluation:\nfake = EvalPrediction(predictions=np.array([[2.0, -1.0], [0.1, 0.3], [1.5, 0.2]]),\n                      label_ids=np.array([0, 1, 1]))\nprint(compute_metrics(fake))   # {'accuracy': 0.666..., 'f1': 0.666...}\n\n# Trainer(..., compute_metrics=compute_metrics) with\n# TrainingArguments(metric_for_best_model=\"f1\", greater_is_better=True, ...)",
+   "code_lang": "python",
+   "takeaways": [
+    "`compute_metrics` gets logits and labels and returns a dict of floats",
+    "Logged keys get an `eval_` prefix; refer to them without it in `metric_for_best_model`",
+    "Use `preprocess_logits_for_metrics` to shrink large logits"
+   ],
+   "pitfalls": [
+    "Returning tensors or arrays instead of plain floats, which breaks logging."
+   ],
+   "quiz": [
+    {
+     "q": "compute_metrics returns {'f1': 0.91}. Under which key does Trainer.evaluate() report it?",
+     "options": [
+      "metrics/f1",
+      "test_f1",
+      "f1",
+      "eval_f1"
+     ],
+     "answer": 3,
+     "explain": "Evaluation metrics get the eval_ prefix; predict() would use test_."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/main_classes/trainer",
+   "requires": [
+    "transformers.trainer-basics"
+   ]
+  },
+  {
+   "id": "transformers.save-share",
+   "name": "Saving, loading and pushing to the Hub",
+   "module": "finetune",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Save fine-tuned models and tokenizers, reload them, and publish them to the Hub with a model card.",
+   "why": "A model you cannot reload or share reproducibly is not finished.",
+   "body": "Every model, tokenizer and config has `save_pretrained(dir)` and `from_pretrained(dir)`. A saved directory contains `config.json`, `model.safetensors` (sharded with an index above a size threshold), tokenizer files and the generation config. Always save the **tokenizer with the model**; a model directory without its tokenizer is a common deployment bug.\n\nWith `Trainer`:\n\n- `trainer.save_model(\"final\")` writes the model plus the `processing_class`.\n- Intermediate checkpoints (`checkpoint-500/`) also include optimizer, scheduler and RNG state for resuming; `save_total_limit=2` keeps disk usage bounded.\n\nSharing on the Hub:\n\n- Log in with `hf auth login` (or set `HF_TOKEN`).\n- `model.push_to_hub(\"you/my-model\")` and `tok.push_to_hub(\"you/my-model\")` upload to a repo, creating it if needed; `private=True` keeps it private.\n- `TrainingArguments(push_to_hub=True, hub_model_id=...)` pushes checkpoints during training, and `trainer.push_to_hub()` uploads the final model with an auto-generated model card listing hyperparameters and metrics.\n\nEdit the model card (`README.md`) to describe the training data, intended use and limitations. Set `id2label` in the config before saving so pipelines show readable labels.\n\nTo reload, point any `from_pretrained` or `pipeline(model=...)` at the local path or repo id.",
+   "code": "from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline\n\nname = \"distilbert/distilbert-base-uncased-finetuned-sst-2-english\"\nmodel = AutoModelForSequenceClassification.from_pretrained(name)\ntok = AutoTokenizer.from_pretrained(name)\n\nmodel.save_pretrained(\"my-sentiment\")\ntok.save_pretrained(\"my-sentiment\")       # keep tokenizer next to weights\n# my-sentiment/: config.json, model.safetensors, tokenizer.json, ...\n\nclf = pipeline(\"text-classification\", model=\"my-sentiment\")\nprint(clf(\"Reloaded fine.\")[0][\"label\"])  # POSITIVE\n\n# after `hf auth login`:\n# model.push_to_hub(\"your-name/my-sentiment\", private=True)\n# tok.push_to_hub(\"your-name/my-sentiment\", private=True)",
+   "code_lang": "python",
+   "takeaways": [
+    "`save_pretrained`/`from_pretrained` round-trip models, tokenizers and configs",
+    "Checkpoints include optimizer state for resuming; final saves need only the model and tokenizer",
+    "`push_to_hub` publishes to a repo; document it in the model card"
+   ],
+   "pitfalls": [
+    "Saving only the model and later loading a different tokenizer, which silently produces wrong token IDs."
+   ],
+   "quiz": [
+    {
+     "q": "What does a Trainer checkpoint-1000/ folder contain that a plain save_pretrained folder does not?",
+     "options": [
+      "The safetensors weights",
+      "The tokenizer",
+      "Optimizer, scheduler and RNG state for resuming training",
+      "The model config"
+     ],
+     "answer": 2,
+     "explain": "Checkpoints add training state so train(resume_from_checkpoint=...) can continue exactly."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/model_sharing",
+   "requires": [
+    "transformers.trainer-basics"
+   ]
+  },
+  {
+   "id": "transformers.chat-templates",
+   "name": "Chat models and chat templates",
+   "module": "llm",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Format conversations with apply_chat_template so instruct models see exactly the prompt format they were trained on.",
+   "why": "Hand-built prompts for chat models degrade quality badly; templates make prompting correct and portable.",
+   "body": "Instruct and chat models were fine-tuned on conversations rendered in a specific format with special tokens, such as `<|im_start|>user ... <|im_end|>`. Each model's tokenizer ships a **chat template** (a Jinja template) that renders a list of messages into that format.\n\n```python\nmessages = [{\"role\": \"system\", \"content\": \"You are concise.\"},\n            {\"role\": \"user\", \"content\": \"What is a tensor?\"}]\ninputs = tok.apply_chat_template(messages, add_generation_prompt=True, return_tensors=\"pt\")\n```\n\n- `add_generation_prompt=True` appends the header for the assistant's turn, so the model answers instead of continuing the user's message.\n- `tokenize=False` returns the rendered string so you can inspect it.\n- In v5, the tokenized result is a dict (`input_ids`, `attention_mask`) by default, so pass it with `model.generate(**inputs)`.\n- `tools=[...]` passes function schemas to models trained for tool calling; `continue_final_message=True` lets the model continue a prefilled assistant message.\n\nThe `text-generation` pipeline applies the template automatically when you pass a list of messages, and returns the conversation with the new assistant message appended.\n\nDo not add the template's special tokens yourself and then tokenize with `add_special_tokens=True`; you would duplicate BOS tokens. When fine-tuning a chat model, render training data with the same template.",
+   "code": "from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline\n\nrepo = \"HuggingFaceTB/SmolLM2-135M-Instruct\"\ntok = AutoTokenizer.from_pretrained(repo)\nmessages = [{\"role\": \"system\", \"content\": \"Answer in one sentence.\"},\n            {\"role\": \"user\", \"content\": \"What is gravity?\"}]\n\nprint(tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True))\n# <|im_start|>system\n# Answer in one sentence.<|im_end|>\n# <|im_start|>user ... <|im_start|>assistant\n\nmodel = AutoModelForCausalLM.from_pretrained(repo)\ninputs = tok.apply_chat_template(messages, add_generation_prompt=True, return_tensors=\"pt\")\nout = model.generate(**inputs, max_new_tokens=40)\nprint(tok.decode(out[0, inputs[\"input_ids\"].shape[1]:], skip_special_tokens=True))\n\nchat = pipeline(\"text-generation\", model=repo)\nreply = chat(messages, max_new_tokens=40)[0][\"generated_text\"][-1]\nprint(reply[\"role\"])   # assistant",
+   "code_lang": "python",
+   "takeaways": [
+    "Chat models need their own template; render messages with `apply_chat_template`",
+    "Use `add_generation_prompt=True` before generating a reply",
+    "Pipelines accept message lists and apply the template for you"
+   ],
+   "pitfalls": [
+    "Formatting prompts as plain 'User: ... Assistant:' text for an instruct model, which ignores its trained special tokens."
+   ],
+   "quiz": [
+    {
+     "q": "What does add_generation_prompt=True do?",
+     "options": [
+      "Adds a system prompt",
+      "Appends the tokens that start an assistant turn so the model replies",
+      "Enables sampling",
+      "Truncates the conversation history"
+     ],
+     "answer": 1,
+     "explain": "It ends the rendered prompt with the assistant header, signalling the model to answer as the assistant."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/chat_templating",
+   "requires": [
+    "transformers.tokenizers",
+    "transformers.llm-generation"
+   ]
+  },
+  {
+   "id": "transformers.decoding-strategies",
+   "name": "Decoding strategies and GenerationConfig",
+   "module": "llm",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Control output quality and diversity with greedy, sampling, temperature, top-p, beam search and stopping criteria.",
+   "why": "The same model gives repetitive, creative or nonsensical text depending on decoding settings.",
+   "body": "At each step the model outputs a distribution over the vocabulary; the **decoding strategy** decides which token to take.\n\n- **Greedy** (`do_sample=False`, `num_beams=1`): always the most likely token. Deterministic, good for short factual answers, prone to repetition in long text.\n- **Sampling** (`do_sample=True`): draw from the distribution. `temperature` below 1 sharpens it, above 1 flattens it. `top_p=0.9` (nucleus) samples only from the smallest set of tokens covering 90% of probability; `top_k=50` limits to the 50 most likely; `min_p` keeps tokens above a fraction of the top probability.\n- **Beam search** (`num_beams=4`): keeps several candidate sequences, useful for constrained outputs like translation, rarely for open chat.\n\nOther useful knobs: `repetition_penalty` (e.g. 1.1), `no_repeat_ngram_size`, `stop_strings=[\"\\n\\n\"]` (requires passing `tokenizer=tok` to `generate`), `eos_token_id`, and `num_return_sequences`.\n\nSettings live in a `GenerationConfig`. The checkpoint's `generation_config.json` provides defaults (many instruct models default to sampling with a specific temperature), arguments to `generate` override them, and you can save your own with `model.generation_config.save_pretrained(dir)`.\n\nSeed with `transformers.set_seed(0)` for reproducible sampling. For evaluations, prefer greedy or fixed seeds so differences come from the model, not luck.",
+   "code": "from transformers import AutoModelForCausalLM, AutoTokenizer, GenerationConfig, set_seed\n\nrepo = \"HuggingFaceTB/SmolLM2-135M\"\ntok = AutoTokenizer.from_pretrained(repo)\nmodel = AutoModelForCausalLM.from_pretrained(repo)\ninputs = tok(\"Once upon a time\", return_tensors=\"pt\")\n\ngreedy = model.generate(**inputs, max_new_tokens=30, do_sample=False)\n\nset_seed(0)\ncreative = model.generate(**inputs, max_new_tokens=30, do_sample=True,\n                          temperature=0.8, top_p=0.9, repetition_penalty=1.1)\n\nstop = model.generate(**inputs, max_new_tokens=60, stop_strings=[\".\"], tokenizer=tok)\nprint(tok.decode(stop[0], skip_special_tokens=True))   # ends at the first period\n\ncfg = GenerationConfig(max_new_tokens=50, do_sample=True, temperature=0.7, top_p=0.95)\nout = model.generate(**inputs, generation_config=cfg)\nprint(model.generation_config.eos_token_id)   # checkpoint default, e.g. 0",
+   "code_lang": "python",
+   "takeaways": [
+    "Greedy is deterministic; sampling with temperature/top-p adds diversity",
+    "Checkpoint generation_config.json sets defaults that generate() arguments override",
+    "Use `stop_strings` (with `tokenizer=`) and repetition controls to shape outputs"
+   ],
+   "pitfalls": [
+    "Setting temperature without do_sample=True, which has no effect under greedy decoding (and logs a warning)."
+   ],
+   "quiz": [
+    {
+     "q": "You set temperature=0.3 but leave do_sample=False. What happens?",
+     "options": [
+      "Temperature is ignored because greedy decoding does not sample",
+      "Generation raises an error",
+      "Beam search is enabled",
+      "Outputs become more conservative"
+     ],
+     "answer": 0,
+     "explain": "Temperature only reshapes the sampling distribution; with sampling off, the argmax token is always taken."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/generation_strategies",
+   "requires": [
+    "transformers.llm-generation"
+   ]
+  },
+  {
+   "id": "transformers.lora-peft",
+   "name": "LoRA fine-tuning with PEFT",
+   "module": "efficient",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Fine-tune large models cheaply by training small low-rank adapters with the PEFT library.",
+   "why": "LoRA cuts trainable parameters by 100x or more, making LLM fine-tuning feasible on a single GPU.",
+   "body": "Full fine-tuning updates every weight and needs memory for gradients and optimizer state for all of them. **LoRA** (Low-Rank Adaptation) freezes the original weights and learns a small update for selected linear layers: `W + (alpha / r) * B @ A`, where `A` and `B` have a small rank `r` (8 to 64). Only `A` and `B` are trained, usually well under 1% of parameters.\n\nWith the **PEFT** library (`pip install peft`):\n\n```python\nconfig = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05,\n                    target_modules=[\"q_proj\", \"v_proj\"], task_type=\"CAUSAL_LM\")\nmodel = get_peft_model(model, config)\nmodel.print_trainable_parameters()\n```\n\n- `target_modules` names the layers to adapt; module names differ per architecture (`q_proj`/`v_proj` in Llama-style models, `query`/`value` in BERT). `\"all-linear\"` targets every linear layer and often works best.\n- Use a higher learning rate than full fine-tuning (around 1e-4 to 2e-4).\n- The wrapped model works with `Trainer` unchanged.\n\n`model.save_pretrained(dir)` saves only the **adapter** (a few MB). Load it later with `PeftModel.from_pretrained(base_model, dir)`, or call `merge_and_unload()` to fold the adapter into the base weights for deployment without the PEFT dependency. Several adapters can be loaded onto one base model and switched per request.",
+   "code": "from peft import LoraConfig, PeftModel, get_peft_model\nfrom transformers import AutoModelForCausalLM\n\nbase = AutoModelForCausalLM.from_pretrained(\"HuggingFaceTB/SmolLM2-135M\")\nconfig = LoraConfig(\n    r=16, lora_alpha=32, lora_dropout=0.05,\n    target_modules=[\"q_proj\", \"v_proj\"], task_type=\"CAUSAL_LM\",\n)\nmodel = get_peft_model(base, config)\nmodel.print_trainable_parameters()\n# trainable params: ... || all params: ... || trainable%: well under 1%\n\n# ... train with Trainer(model=model, ...) as usual, lr around 2e-4 ...\n\nmodel.save_pretrained(\"smol-lora\")            # adapter only: a few MB\n\nbase = AutoModelForCausalLM.from_pretrained(\"HuggingFaceTB/SmolLM2-135M\")\ntuned = PeftModel.from_pretrained(base, \"smol-lora\")\nmerged = tuned.merge_and_unload()             # plain model, adapter folded in\nmerged.save_pretrained(\"smol-merged\")",
+   "code_lang": "python",
+   "takeaways": [
+    "LoRA freezes base weights and trains small low-rank matrices",
+    "`target_modules` must match the architecture's layer names (or use `all-linear`)",
+    "Adapters save in MBs; `merge_and_unload` folds them in for deployment"
+   ],
+   "pitfalls": [
+    "Copying target_modules=['q_proj', 'v_proj'] to a BERT model, where those layer names do not exist, which raises an error."
+   ],
+   "quiz": [
+    {
+     "q": "After get_peft_model with LoRA, which weights receive gradient updates?",
+     "options": [
+      "Only the embedding layer",
+      "Only the final language-model head",
+      "All model weights",
+      "Only the low-rank adapter matrices (plus any modules you mark trainable)"
+     ],
+     "answer": 3,
+     "explain": "The base model is frozen; only adapter parameters (and explicitly listed modules) are trained."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/peft",
+   "requires": [
+    "transformers.trainer-basics"
+   ]
+  },
+  {
+   "id": "transformers.quantization",
+   "name": "Quantized loading",
+   "module": "efficient",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Load models in 8-bit or 4-bit with bitsandbytes and know when other methods such as GPTQ, AWQ or torchao fit better.",
+   "why": "Quantization lets a 7B-parameter model run in about 5 GB instead of 14 GB of GPU memory.",
+   "body": "Weights normally take 2 bytes each in bf16, so a 7B model needs about 14 GB just for weights. **Quantization** stores weights in fewer bits: 8-bit halves that, 4-bit quarters it, at a modest accuracy cost.\n\nTransformers loads quantized models through a `quantization_config`:\n\n```python\nbnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type=\"nf4\",\n                         bnb_4bit_compute_dtype=torch.bfloat16,\n                         bnb_4bit_use_double_quant=True)\nmodel = AutoModelForCausalLM.from_pretrained(repo, quantization_config=bnb, device_map=\"auto\")\n```\n\n**bitsandbytes** quantizes on the fly at load time, needs no calibration, and is the basis of QLoRA. `nf4` is a 4-bit type designed for normally distributed weights; the compute dtype is what matmuls run in after dequantization.\n\nOther families:\n\n- **Pre-quantized checkpoints** (GPTQ, AWQ, compressed-tensors, FP8, MXFP4) load directly from repos that ship them; the config is read from the checkpoint. They are often faster for inference than bitsandbytes.\n- **torchao** offers int8/int4 and float8 quantization integrated with `torch.compile`.\n\nTrade-offs: lower bits mean less memory but some quality loss; speed depends on kernels and hardware, and quantized inference is not always faster than bf16. Evaluate on your task. Note the old `load_in_8bit=True` keyword on `from_pretrained` is gone; always use a config object.",
+   "code": "import torch\nfrom transformers import AutoModelForCausalLM, BitsAndBytesConfig\n\nrepo = \"Qwen/Qwen2.5-7B-Instruct\"\n\nbnb4 = BitsAndBytesConfig(\n    load_in_4bit=True,\n    bnb_4bit_quant_type=\"nf4\",\n    bnb_4bit_compute_dtype=torch.bfloat16,\n    bnb_4bit_use_double_quant=True,\n)\nmodel = AutoModelForCausalLM.from_pretrained(\n    repo, quantization_config=bnb4, device_map=\"auto\")   # needs a CUDA GPU\n\nprint(f\"{model.get_memory_footprint() / 1e9:.1f} GB\")    # roughly 5 GB vs ~15 GB in bf16\n\nbnb8 = BitsAndBytesConfig(load_in_8bit=True)\n# model8 = AutoModelForCausalLM.from_pretrained(repo, quantization_config=bnb8, device_map=\"auto\")\n\n# pre-quantized checkpoints carry their own config:\n# AutoModelForCausalLM.from_pretrained(\"Qwen/Qwen2.5-7B-Instruct-AWQ\", device_map=\"auto\")",
+   "code_lang": "python",
+   "takeaways": [
+    "Pass a `quantization_config` (e.g. `BitsAndBytesConfig`) to `from_pretrained`",
+    "4-bit NF4 with bf16 compute is the common QLoRA setup",
+    "Pre-quantized GPTQ/AWQ/FP8 checkpoints load directly and are often faster"
+   ],
+   "pitfalls": [
+    "Expecting quantization to always speed up inference; it mainly saves memory and speed depends on kernels."
+   ],
+   "quiz": [
+    {
+     "q": "Roughly how much GPU memory do the weights of an 8B-parameter model take in 4-bit?",
+     "options": [
+      "About 16 GB",
+      "About 32 GB",
+      "About 2 GB",
+      "About 4 to 5 GB"
+     ],
+     "answer": 3,
+     "explain": "4 bits is half a byte per parameter: about 4 GB, plus some overhead for scales and unquantized layers."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/quantization/overview",
+   "requires": [
+    "transformers.auto-models",
+    "transformers.llm-generation"
+   ]
+  },
+  {
+   "id": "transformers.qlora",
+   "name": "QLoRA: LoRA on a 4-bit base",
+   "module": "efficient",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Combine 4-bit quantized base weights with LoRA adapters to fine-tune large models on a single GPU.",
+   "why": "QLoRA is the standard recipe for fine-tuning 7B to 70B models on modest hardware.",
+   "body": "**QLoRA** loads the base model in 4-bit NF4 with bitsandbytes and trains LoRA adapters in higher precision on top. The frozen base costs a quarter of its bf16 memory, and gradients flow only into the small adapters, so a 7B model fine-tunes comfortably on a 24 GB GPU.\n\nThe recipe:\n\n1. Load the base with a 4-bit `BitsAndBytesConfig` (`nf4`, bf16 compute, double quantization).\n2. Call `prepare_model_for_kbit_training(model)` from PEFT. It enables gradient checkpointing, makes inputs require gradients so checkpointing works with a frozen base, and casts layer norms to float32 for stability.\n3. Apply `LoraConfig` with `target_modules=\"all-linear\"`; adapting every linear layer recovers most of full fine-tuning quality.\n4. Train with `Trainer` using `bf16=True`, an optimizer such as `optim=\"paged_adamw_8bit\"` to cut optimizer memory, and a learning rate around 2e-4.\n\nFor deployment you cannot directly merge an adapter into 4-bit weights without precision loss. The usual approach is to reload the base model in bf16, load the adapter, `merge_and_unload()`, and then optionally quantize the merged model again with a method suited to inference.\n\nFor supervised instruction tuning, the companion **TRL** library's `SFTTrainer` wraps this recipe: it accepts a `peft_config`, applies chat templates and packs sequences.",
+   "code": "import torch\nfrom peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training\nfrom transformers import AutoModelForCausalLM, BitsAndBytesConfig, TrainingArguments\n\nbnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type=\"nf4\",\n                         bnb_4bit_compute_dtype=torch.bfloat16,\n                         bnb_4bit_use_double_quant=True)\nmodel = AutoModelForCausalLM.from_pretrained(\n    \"Qwen/Qwen2.5-7B\", quantization_config=bnb, device_map=\"auto\")\n\nmodel = prepare_model_for_kbit_training(model)   # grad checkpointing, fp32 norms\nmodel = get_peft_model(model, LoraConfig(\n    r=16, lora_alpha=32, lora_dropout=0.05,\n    target_modules=\"all-linear\", task_type=\"CAUSAL_LM\"))\n\nargs = TrainingArguments(\n    output_dir=\"qwen-qlora\", per_device_train_batch_size=4,\n    gradient_accumulation_steps=4, learning_rate=2e-4, num_train_epochs=1,\n    bf16=True, optim=\"paged_adamw_8bit\", logging_steps=10, report_to=\"none\",\n)\n# Trainer(model=model, args=args, train_dataset=..., data_collator=...).train()",
+   "code_lang": "python",
+   "takeaways": [
+    "QLoRA = frozen 4-bit NF4 base + LoRA adapters trained in bf16",
+    "Call `prepare_model_for_kbit_training` before adding adapters",
+    "Merge adapters into a bf16 reload of the base, not into 4-bit weights"
+   ],
+   "pitfalls": [
+    "Merging an adapter directly into the 4-bit base and shipping it, which loses precision compared with merging into bf16 weights."
+   ],
+   "quiz": [
+    {
+     "q": "Why does QLoRA use NF4 for the base but bf16 for the adapters?",
+     "options": [
+      "bf16 uses less memory than NF4",
+      "NF4 is faster to train",
+      "The frozen base only needs compact storage, while trainable adapters need precise gradients",
+      "Adapters cannot be quantized at all"
+     ],
+     "answer": 2,
+     "explain": "The base is never updated, so aggressive compression is fine; the small trained parameters stay in higher precision."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/quantization/bitsandbytes",
+   "requires": [
+    "transformers.quantization",
+    "transformers.lora-peft"
+   ]
+  },
+  {
+   "id": "transformers.training-efficiency",
+   "name": "Memory and speed in training",
+   "module": "internals",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Fit bigger models and batches with mixed precision, gradient accumulation, gradient checkpointing and better optimizers.",
+   "why": "Out-of-memory errors and slow epochs are the main practical obstacles in fine-tuning.",
+   "body": "Training memory has four parts: weights, gradients, optimizer state (AdamW keeps two extra values per parameter) and activations. `TrainingArguments` exposes the standard levers:\n\n- **Mixed precision**: `bf16=True` (Ampere or newer GPUs) runs most math in bfloat16; faster and lighter. `fp16=True` for older GPUs uses loss scaling automatically.\n- **Gradient accumulation**: `gradient_accumulation_steps=8` with `per_device_train_batch_size=2` gives an effective batch of 16 per device without the activation memory of 16.\n- **Gradient checkpointing**: `gradient_checkpointing=True` recomputes activations in the backward pass, cutting activation memory substantially for roughly 20 to 30% more compute.\n- **Optimizers**: `optim=\"adamw_torch_fused\"` is faster; `\"adamw_bnb_8bit\"` or `\"paged_adamw_8bit\"` shrink optimizer state; `\"adafactor\"` uses even less.\n- **Throughput**: `train_sampling_strategy=\"group_by_length\"`, `dataloader_num_workers`, `torch_compile=True`, and padding-free packing for LLM training remove wasted compute on pad tokens.\n\nA practical OOM checklist: enable bf16, halve the batch and double accumulation, turn on gradient checkpointing, shorten `max_length`, switch to an 8-bit optimizer, then move to LoRA or QLoRA.\n\nUse `auto_find_batch_size=True` to let Trainer retry with smaller batches on OOM. Remember that the effective batch size changes the best learning rate.",
+   "code": "from transformers import TrainingArguments\n\nargs = TrainingArguments(\n    output_dir=\"out\",\n    per_device_train_batch_size=4,\n    gradient_accumulation_steps=8,      # effective batch 32 per device\n    bf16=True,                          # mixed precision (Ampere+ GPUs)\n    gradient_checkpointing=True,        # trade compute for activation memory\n    optim=\"adamw_torch_fused\",\n    learning_rate=2e-5,\n    warmup_steps=100,\n    lr_scheduler_type=\"cosine\",\n    train_sampling_strategy=\"group_by_length\",  # less padding per batch\n    dataloader_num_workers=4,\n    report_to=\"none\",\n)\neff = args.per_device_train_batch_size * args.gradient_accumulation_steps\nprint(eff)   # 32",
+   "code_lang": "python",
+   "takeaways": [
+    "Weights, gradients, optimizer state and activations all consume memory",
+    "Gradient accumulation raises effective batch size without more activation memory",
+    "Gradient checkpointing and 8-bit optimizers are the next levers after bf16"
+   ],
+   "pitfalls": [
+    "Raising gradient_accumulation_steps without adjusting the learning rate, then wondering why training dynamics changed."
+   ],
+   "quiz": [
+    {
+     "q": "per_device_train_batch_size=2, gradient_accumulation_steps=16, 4 GPUs. What is the effective global batch size?",
+     "options": [
+      "32",
+      "128",
+      "8",
+      "64"
+     ],
+     "answer": 1,
+     "explain": "2 per device x 16 accumulation steps x 4 devices = 128 examples per optimizer step."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/grad_checkpointing",
+   "requires": [
+    "transformers.trainer-basics"
+   ]
+  },
+  {
+   "id": "transformers.trainer-customization",
+   "name": "Callbacks and custom training logic",
+   "module": "finetune",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Extend Trainer with callbacks, early stopping, a custom loss and your own optimizer without rewriting the loop.",
+   "why": "Real projects need class weights, special losses or extra logging; Trainer has hooks for each.",
+   "body": "`Trainer` is designed to be extended rather than replaced.\n\n**Callbacks** observe and steer training. Subclass `TrainerCallback` and implement events like `on_log`, `on_evaluate`, `on_epoch_end` or `on_step_end`. They receive `args`, `state` (step, epoch, log history, best metric) and `control`, whose flags such as `control.should_stop = True` change behaviour. Built-ins include `EarlyStoppingCallback(early_stopping_patience=3)`, which requires `load_best_model_at_end=True` and a `metric_for_best_model`. Integration callbacks for TensorBoard, Weights & Biases or MLflow are added via `report_to`.\n\n**Custom loss**: subclass `Trainer` and override `compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None)`, for example to apply class weights. Pop the labels, run the model, compute the loss, and return `(loss, outputs)` when `return_outputs` is true. Alternatively pass `compute_loss_func=` to the constructor.\n\n**Custom optimizer and scheduler**: pass `optimizers=(optimizer, scheduler)`, or override `create_optimizer`, e.g. to use different learning rates for the backbone and the head.\n\nCallbacks should not mutate the model or data; keep them for logging and control flow. For anything requiring a fundamentally different loop (reinforcement learning, GANs), look at TRL or write a plain PyTorch loop with Accelerate.",
+   "code": "import torch\nfrom transformers import EarlyStoppingCallback, Trainer, TrainerCallback\n\nclass WeightedLossTrainer(Trainer):\n    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):\n        labels = inputs.pop(\"labels\")\n        outputs = model(**inputs)\n        weights = torch.tensor([1.0, 4.0], device=outputs.logits.device)  # rare class x4\n        loss = torch.nn.functional.cross_entropy(outputs.logits, labels, weight=weights)\n        return (loss, outputs) if return_outputs else loss\n\nclass PrintEval(TrainerCallback):\n    def on_evaluate(self, args, state, control, metrics=None, **kwargs):\n        print(f\"epoch {state.epoch}: {metrics.get('eval_f1')}\")\n\n# trainer = WeightedLossTrainer(\n#     model=model, args=args,  # args: load_best_model_at_end=True, metric_for_best_model=\"f1\"\n#     train_dataset=train, eval_dataset=val, compute_metrics=compute_metrics,\n#     callbacks=[EarlyStoppingCallback(early_stopping_patience=2), PrintEval()],\n# )",
+   "code_lang": "python",
+   "takeaways": [
+    "Callbacks observe events and can stop or redirect training via `control`",
+    "Override `compute_loss` (or pass `compute_loss_func`) for custom losses",
+    "EarlyStoppingCallback needs `load_best_model_at_end` and `metric_for_best_model`"
+   ],
+   "pitfalls": [
+    "Forgetting to return (loss, outputs) when return_outputs=True, which breaks evaluation and prediction."
+   ],
+   "quiz": [
+    {
+     "q": "What must be configured for EarlyStoppingCallback to work?",
+     "options": [
+      "load_best_model_at_end=True and a metric_for_best_model, with periodic evaluation",
+      "gradient_checkpointing=True",
+      "report_to='tensorboard'",
+      "A custom compute_loss"
+     ],
+     "answer": 0,
+     "explain": "Early stopping tracks an evaluation metric across evaluations and needs the best-model machinery enabled."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/trainer_callbacks",
+   "requires": [
+    "transformers.compute-metrics",
+    "python.inheritance"
+   ]
+  },
+  {
+   "id": "transformers.kv-cache-streaming",
+   "name": "KV cache and streaming output",
+   "module": "llm",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Understand the key-value cache that makes generation fast, choose cache types, and stream tokens as they are produced.",
+   "why": "Generation latency and memory are dominated by the KV cache; streaming is essential for responsive UIs.",
+   "body": "During generation, each new token attends to all previous tokens. Recomputing their keys and values every step would be quadratic, so models store them in a **KV cache**: the first forward pass (**prefill**) processes the prompt and fills the cache; each **decode** step then processes just one new token and appends its keys and values.\n\nThe cache grows with layers x heads x sequence length x batch size, and for long contexts it can exceed the weights in memory. Transformers offers several cache classes:\n\n- `DynamicCache` (default): grows as needed.\n- `StaticCache` (`cache_implementation=\"static\"`): preallocates a fixed maximum length so shapes never change, which enables `torch.compile` to produce a much faster decode step.\n- Offloaded and quantized caches trade speed for memory on long contexts; sliding-window models keep only recent tokens.\n\nYou can reuse a cache across calls: pass `past_key_values=` to continue from a shared prefix such as a long system prompt instead of reprocessing it.\n\n**Streaming** shows tokens as they are generated. `TextStreamer(tok)` prints to stdout; `TextIteratorStreamer` yields text chunks in your code, but `generate` blocks, so run it in a background thread and iterate the streamer in the main thread, for example to send server-sent events.\n\nFor high-throughput serving with many users, dedicated engines (vLLM, TGI, SGLang) or `transformers serve` with continuous batching and paged attention are more efficient than calling `generate` per request.",
+   "code": "from threading import Thread\nfrom transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer\n\nrepo = \"HuggingFaceTB/SmolLM2-135M-Instruct\"\ntok = AutoTokenizer.from_pretrained(repo)\nmodel = AutoModelForCausalLM.from_pretrained(repo)\nmsgs = [{\"role\": \"user\", \"content\": \"Name three planets.\"}]\ninputs = tok.apply_chat_template(msgs, add_generation_prompt=True, return_tensors=\"pt\")\n\nstreamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True)\nthread = Thread(target=model.generate,\n                kwargs=dict(**inputs, max_new_tokens=40, streamer=streamer))\nthread.start()\nfor chunk in streamer:          # text arrives as it is generated\n    print(chunk, end=\"\", flush=True)\nthread.join()\n\n# static cache: fixed shapes, compile-friendly decode step\nout = model.generate(**inputs, max_new_tokens=40, cache_implementation=\"static\")",
+   "code_lang": "python",
+   "takeaways": [
+    "Prefill fills the KV cache; each decode step adds one token's keys and values",
+    "StaticCache gives fixed shapes for torch.compile; DynamicCache is the flexible default",
+    "Stream with TextIteratorStreamer and generate in a background thread"
+   ],
+   "pitfalls": [
+    "Iterating a TextIteratorStreamer in the same thread that calls generate, which blocks until generation is over."
+   ],
+   "quiz": [
+    {
+     "q": "Why does generation slow down and use more memory for very long conversations?",
+     "options": [
+      "Sampling becomes more expensive",
+      "Weights are reloaded each step",
+      "The tokenizer gets slower",
+      "The KV cache grows with sequence length and every new token attends over it"
+     ],
+     "answer": 3,
+     "explain": "Cache memory and attention cost per step both scale with the number of cached tokens."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/cache_explanation",
+   "requires": [
+    "transformers.decoding-strategies",
+    "transformers.chat-templates"
+   ]
+  },
+  {
+   "id": "transformers.attention-backends",
+   "name": "Attention backends and device placement",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Select SDPA, FlashAttention or custom attention kernels, and control multi-device placement and offloading.",
+   "why": "Attention kernels and placement decide whether a long-context model is fast, slow or fits at all.",
+   "body": "Attention is the most expensive operation in a transformer. Transformers decouples the model code from the **attention implementation**, selected with `attn_implementation` at load time:\n\n- `\"sdpa\"` (default when supported): PyTorch's `scaled_dot_product_attention`, which dispatches to fused FlashAttention-style or memory-efficient kernels automatically.\n- `\"flash_attention_2\"` / `\"flash_attention_3\"`: the FlashAttention packages; very fast on supported NVIDIA GPUs, require fp16/bf16, and enable **padding-free** training where sequences are packed without pad tokens.\n- `\"flex_attention\"`: PyTorch's programmable attention for custom masks.\n- `\"eager\"`: the reference Python implementation, slow but needed to return attention weights (`output_attentions=True`) or for debugging.\n\nThrough the **attention interface** you can register your own function (`AttentionInterface.register`) or load kernels from the Hub, and switch an existing model with `model.set_attn_implementation(...)`.\n\n**Placement**: `device_map=\"auto\"` uses Accelerate to fill GPUs in order, then CPU RAM, then disk; `max_memory={0: \"20GiB\", \"cpu\": \"60GiB\"}` sets budgets. Offloaded layers work but are slow, because weights stream over PCIe every forward pass. `model.hf_device_map` shows the result. `device_map=\"auto\"` splits layers across GPUs sequentially (pipeline-style, one GPU busy at a time); real tensor parallelism uses `tp_plan=\"auto\"` under `torchrun`.\n\nBenchmark before switching: gains depend on sequence length, batch size, dtype and GPU generation.",
+   "code": "import torch\nfrom transformers import AutoModelForCausalLM\n\nrepo = \"Qwen/Qwen2.5-1.5B-Instruct\"\n\nmodel = AutoModelForCausalLM.from_pretrained(\n    repo, dtype=torch.bfloat16, attn_implementation=\"sdpa\", device_map=\"auto\",\n    max_memory={0: \"6GiB\", \"cpu\": \"24GiB\"},   # spill to CPU beyond 6 GiB of GPU 0\n)\nprint(model.config._attn_implementation)   # sdpa\nprint(set(model.hf_device_map.values()))   # e.g. {0} or {0, 'cpu'}\n\n# eager attention is required to inspect attention weights\neager = AutoModelForCausalLM.from_pretrained(repo, attn_implementation=\"eager\")\nids = torch.tensor([[1, 2, 3]])\natt = eager(ids, output_attentions=True).attentions\nprint(len(att), att[0].shape)   # num_layers, (batch, heads, seq, seq)\n\n# FlashAttention (needs the flash-attn package, fp16/bf16, supported GPU):\n# AutoModelForCausalLM.from_pretrained(repo, dtype=torch.bfloat16,\n#                                      attn_implementation=\"flash_attention_2\")",
+   "code_lang": "python",
+   "takeaways": [
+    "`attn_implementation` selects sdpa, flash_attention_2/3, flex_attention or eager",
+    "Only eager returns attention weights; fused kernels never materialize them",
+    "`device_map=\"auto\"` with `max_memory` places layers across GPUs, CPU and disk"
+   ],
+   "pitfalls": [
+    "Assuming device_map='auto' across two GPUs doubles speed; it splits layers sequentially, so only one GPU works at a time."
+   ],
+   "quiz": [
+    {
+     "q": "You need output_attentions=True for an interpretability study. Which implementation should you load?",
+     "options": [
+      "flex_attention",
+      "sdpa",
+      "flash_attention_2",
+      "eager"
+     ],
+     "answer": 3,
+     "explain": "Fused kernels never materialize the attention matrix, so only the eager implementation can return it."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/attention_interface",
+   "requires": [
+    "transformers.training-efficiency",
+    "transformers.kv-cache-streaming"
+   ]
+  },
+  {
+   "id": "transformers.distributed-training",
+   "name": "Multi-GPU training: DDP, FSDP, DeepSpeed",
+   "module": "internals",
+   "level": 4,
+   "minutes": 16,
+   "summary": "Scale Trainer runs across GPUs and nodes with torchrun or accelerate, using data parallelism, FSDP or DeepSpeed ZeRO.",
+   "why": "Models that do not fit, or runs that take days on one GPU, need sharded or parallel training.",
+   "body": "`Trainer` runs distributed with no code changes; you change **how you launch** it.\n\n- **DDP** (DistributedDataParallel): `torchrun --nproc_per_node=4 train.py`. Each GPU holds a full model copy, processes a different slice of each batch, and gradients are all-reduced. Simple and fast, but the model plus optimizer state must fit on one GPU.\n- **FSDP** (Fully Sharded Data Parallel): shards parameters, gradients and optimizer state across GPUs and gathers each layer just in time. Enable it with `TrainingArguments(fsdp=\"full_shard auto_wrap\", fsdp_config={...})` or an `accelerate config` file. Memory per GPU drops roughly by the number of GPUs.\n- **DeepSpeed ZeRO**: `TrainingArguments(deepspeed=\"ds_config.json\")`. Stage 1 shards optimizer state, stage 2 also gradients, stage 3 also parameters; it can offload to CPU or NVMe.\n\nThings that change in distributed runs:\n\n- `per_device_train_batch_size` is per GPU; the global batch multiplies by the world size.\n- Only rank 0 should write files or print; Trainer handles this, your own code should check `trainer.is_world_process_zero()`.\n- Saving a sharded model needs a full state dict gathered on rank 0 (FSDP's state dict settings handle this).\n- Data loading must be sharded; Trainer's sampler does it.\n\n`accelerate launch` reads a saved config and works for both single-node and multi-node jobs. Start with DDP, move to FSDP or ZeRO-3 only when memory requires it.",
+   "code": "# train.py stays the same Trainer script; the launch and args change.\nfrom transformers import TrainingArguments\n\nfsdp_args = TrainingArguments(\n    output_dir=\"out-fsdp\",\n    per_device_train_batch_size=2,       # global batch = 2 x world size x accumulation\n    gradient_accumulation_steps=4,\n    bf16=True,\n    fsdp=\"full_shard auto_wrap\",\n    fsdp_config={\"transformer_layer_cls_to_wrap\": [\"Qwen2DecoderLayer\"]},\n    report_to=\"none\",\n)\n# DeepSpeed alternative: TrainingArguments(..., deepspeed=\"ds_zero3.json\")\n\n# Launch commands (shell):\n#   torchrun --nproc_per_node=4 train.py              # DDP or FSDP on 4 GPUs\n#   accelerate config && accelerate launch train.py   # saved launch config\n#   torchrun --nnodes=2 --nproc_per_node=8 --rdzv_backend=c10d \\\n#            --rdzv_endpoint=host0:29500 train.py     # 2 nodes x 8 GPUs",
+   "code_lang": "python",
+   "takeaways": [
+    "Trainer code is unchanged; launch with torchrun or accelerate",
+    "DDP replicates the model; FSDP and ZeRO-3 shard parameters, gradients and optimizer state",
+    "Batch size arguments are per device; the global batch scales with world size"
+   ],
+   "pitfalls": [
+    "Writing files or logs from every rank, which produces corrupted or duplicated outputs."
+   ],
+   "quiz": [
+    {
+     "q": "A model plus Adam state needs 60 GB; you have 4 GPUs with 24 GB each. Which approach can train it?",
+     "options": [
+      "device_map='auto' in a DDP launch",
+      "DDP",
+      "FSDP full sharding or DeepSpeed ZeRO-3",
+      "Larger per_device_train_batch_size"
+     ],
+     "answer": 2,
+     "explain": "DDP needs everything on each GPU; sharding parameters, gradients and optimizer state spreads 60 GB over 96 GB."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/trainer",
+   "requires": [
+    "transformers.training-efficiency"
+   ]
+  },
+  {
+   "id": "transformers.tokenizer-internals",
+   "name": "Tokenizer internals and training",
+   "module": "models",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Learn the tokenization pipeline (normalize, pre-tokenize, model, post-process), BPE vs WordPiece vs Unigram, and train a new tokenizer.",
+   "why": "Domain-specific text, offsets for span tasks and multilingual quirks all require looking inside the tokenizer.",
+   "body": "A Rust-backed tokenizer runs four stages:\n\n1. **Normalization**: Unicode normalization, lowercasing or accent stripping (BERT-uncased lowercases; most LLMs do not).\n2. **Pre-tokenization**: splitting into words or byte-level chunks (GPT-style byte-level BPE maps every byte to a symbol, so no input is ever unknown).\n3. **Model**: the subword algorithm. **BPE** merges the most frequent symbol pairs (GPT, Llama, Qwen); **WordPiece** is similar but chooses merges by likelihood and marks continuations with `##` (BERT); **Unigram** starts from a large vocabulary and prunes it probabilistically (T5, via SentencePiece).\n4. **Post-processing**: adds special tokens such as `[CLS]`/`[SEP]` or BOS.\n\n`tok.backend_tokenizer` exposes these components. `return_offsets_mapping=True` returns character spans per token, essential for mapping predictions back to text in NER or extractive QA; `enc.word_ids()` maps tokens to words.\n\nFor a new domain (code, chemistry, a new language), `tok.train_new_from_iterator(texts, vocab_size=...)` trains a tokenizer **with the same pipeline and special tokens** on your corpus. A new tokenizer means new token IDs, so the model's embeddings no longer match; this is useful when pretraining from scratch. To keep a pretrained model, instead add a few tokens with `tok.add_tokens([...])` and `model.resize_token_embeddings(len(tok))`.\n\nWatch for whitespace handling: byte-level BPE encodes leading spaces into tokens, so `\"hello\"` and `\" hello\"` get different IDs.",
+   "code": "from tokenizers import Tokenizer, models, normalizers, pre_tokenizers, trainers\nfrom transformers import PreTrainedTokenizerFast\n\ncorpus = [\"the cat sat on the mat\", \"the cats sat\", \"a matter of cats\"] * 50\n\nraw = Tokenizer(models.WordPiece(unk_token=\"[UNK]\"))\nraw.normalizer = normalizers.Lowercase()\nraw.pre_tokenizer = pre_tokenizers.Whitespace()\nraw.train_from_iterator(corpus, trainers.WordPieceTrainer(\n    vocab_size=60, special_tokens=[\"[UNK]\", \"[PAD]\"]))\n\ntok = PreTrainedTokenizerFast(tokenizer_object=raw, unk_token=\"[UNK]\", pad_token=\"[PAD]\")\nenc = tok(\"The Cats sat\", return_offsets_mapping=True)\nprint(tok.convert_ids_to_tokens(enc[\"input_ids\"]))  # ['the', 'cats', 'sat']\nprint(enc[\"offset_mapping\"])          # [(0, 3), (4, 8), (9, 12)]\nprint(enc.word_ids())                 # [0, 1, 2]\nprint(tok.tokenize(\"matters\"))        # ['matter', '##s']\n# pretrained = AutoTokenizer.from_pretrained(\"gpt2\")\n# new_tok = pretrained.train_new_from_iterator(my_texts, vocab_size=32000)",
+   "code_lang": "python",
+   "takeaways": [
+    "Pipeline: normalize, pre-tokenize, subword model (BPE/WordPiece/Unigram), post-process",
+    "Offsets and word_ids map tokens back to character spans and words",
+    "A newly trained tokenizer needs a newly trained model; add tokens to extend an existing one"
+   ],
+   "pitfalls": [
+    "Training a new tokenizer for an existing pretrained model, which scrambles the mapping between token IDs and learned embeddings."
+   ],
+   "quiz": [
+    {
+     "q": "You add 50 domain terms with tok.add_tokens(...). What else must you do before fine-tuning?",
+     "options": [
+      "Retrain the tokenizer from scratch",
+      "Call model.resize_token_embeddings(len(tok))",
+      "Switch to a slow tokenizer",
+      "Nothing, the model adapts automatically"
+     ],
+     "answer": 1,
+     "explain": "New token IDs need rows in the embedding matrix; resizing adds them (initialised, then learned during fine-tuning)."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/tokenizer_summary",
+   "requires": [
+    "transformers.tokenizers",
+    "transformers.datasets-basics"
+   ]
+  },
+  {
+   "id": "transformers.model-internals",
+   "name": "Model classes, configs and custom models",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "See how PreTrainedConfig, PreTrainedModel and task heads fit together, and register your own architecture with the Auto classes.",
+   "why": "Debugging odd model behaviour, adding a custom head, or shipping a new architecture requires knowing these building blocks.",
+   "body": "Every architecture in Transformers is built from three pieces:\n\n- A **config** class (subclass of `PreTrainedConfig`) holding hyperparameters such as hidden size, layers, heads and vocabulary size; it is what `config.json` serializes.\n- A **base model** (`LlamaModel`, `BertModel`) subclassing `PreTrainedModel`, which supplies `from_pretrained`, `save_pretrained`, weight initialisation, embedding resizing, gradient checkpointing and Hub integration on top of `torch.nn.Module`.\n- **Heads** (`LlamaForCausalLM`, `BertForSequenceClassification`) wrapping the base model and returning `ModelOutput` dataclasses with `loss` when labels are provided.\n\nThe library deliberately repeats code per model (\"single model, single file\") so each modeling file is readable on its own; in the source repo, **modular** files let new models inherit from existing ones and are expanded into standalone files.\n\nTo build your own:\n\n1. Subclass `PreTrainedConfig` with a unique `model_type`.\n2. Subclass `PreTrainedModel`, set `config_class`, and implement `forward`.\n3. Register: `AutoConfig.register(\"my-model\", MyConfig)` and `AutoModel.register(MyConfig, MyModel)`.\n\nNow `save_pretrained` and `from_pretrained` work, and with `register_for_auto_class()` plus `push_to_hub` others can load it via `trust_remote_code=True`.\n\nReading a model's modeling file is the fastest way to answer questions like \"where is the RoPE scaling applied\" or \"which layer names should LoRA target\".",
+   "code": "import torch\nfrom torch import nn\nfrom transformers import AutoConfig, AutoModel, PreTrainedConfig, PreTrainedModel\n\nclass TinyConfig(PreTrainedConfig):\n    model_type = \"tiny-mlp\"\n    def __init__(self, in_dim=4, hidden=8, num_labels=2, **kwargs):\n        self.in_dim, self.hidden = in_dim, hidden\n        super().__init__(num_labels=num_labels, **kwargs)\n\nclass TinyModel(PreTrainedModel):\n    config_class = TinyConfig\n    def __init__(self, config):\n        super().__init__(config)\n        self.net = nn.Sequential(nn.Linear(config.in_dim, config.hidden), nn.ReLU(),\n                                 nn.Linear(config.hidden, config.num_labels))\n        self.post_init()\n    def forward(self, x):\n        return {\"logits\": self.net(x)}\n\nAutoConfig.register(\"tiny-mlp\", TinyConfig)\nAutoModel.register(TinyConfig, TinyModel)\nTinyModel(TinyConfig()).save_pretrained(\"tiny\")\nmodel = AutoModel.from_pretrained(\"tiny\")\nprint(type(model).__name__, model(torch.ones(1, 4))[\"logits\"].shape)  # TinyModel torch.Size([1, 2])",
+   "code_lang": "python",
+   "takeaways": [
+    "Config + PreTrainedModel base + task heads make up every architecture",
+    "Register custom configs and models with the Auto classes to get save/load for free",
+    "Modeling files are intentionally self-contained; read them to debug behaviour"
+   ],
+   "pitfalls": [
+    "Forgetting to call post_init() in a custom PreTrainedModel, which skips weight initialisation and setup hooks."
+   ],
+   "quiz": [
+    {
+     "q": "What do you need so that AutoModel.from_pretrained('tiny') loads your custom class?",
+     "options": [
+      "Register the config's model_type with AutoConfig and map the config to the model with AutoModel.register",
+      "Set trust_remote_code=False",
+      "Save the model as a pickle",
+      "Nothing, Auto classes detect any nn.Module"
+     ],
+     "answer": 0,
+     "explain": "Auto classes dispatch on config.model_type, so both registrations are needed for local custom models."
+    }
+   ],
+   "docs": "https://huggingface.co/docs/transformers/custom_models",
+   "requires": [
+    "transformers.save-share",
+    "transformers.model-inference"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,789 @@
+{
+ "tool": {
+  "id": "pytest",
+  "name": "pytest",
+  "category": "library",
+  "tagline": "Python's de facto test framework: plain asserts, fixtures and plugins",
+  "description": "pytest is the most widely used testing framework for Python. It discovers tests automatically, turns plain assert statements into detailed failure reports, and manages setup through composable fixtures. A rich plugin ecosystem adds parallel runs, coverage, async support and framework integrations, which makes it the backbone of testing in most Python projects.",
+  "icon": "Pt",
+  "color": "#0A7BBB",
+  "official_docs": "https://docs.pytest.org/en/stable/",
+  "version": "9.1",
+  "aliases": [
+   "py.test",
+   "pytest fixtures",
+   "python testing",
+   "unit tests python"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 2
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Writing tests"
+  },
+  {
+   "id": "running",
+   "name": "Running and selecting"
+  },
+  {
+   "id": "fixtures",
+   "name": "Fixtures"
+  },
+  {
+   "id": "techniques",
+   "name": "Mocks, warnings and logs"
+  },
+  {
+   "id": "organizing",
+   "name": "Organizing and extending the suite"
+  },
+  {
+   "id": "internals",
+   "name": "Internals and plugins"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "pytest.first-test",
+   "name": "Writing and running your first tests",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Write test functions with plain assert in test_*.py files and run them with the pytest command.",
+   "why": "pytest is the standard Python test runner, and its zero-boilerplate style is why most projects actually write tests.",
+   "body": "**pytest** finds and runs tests with almost no ceremony. Install it in your virtual environment (`pip install pytest`) and write a file whose name starts with `test_` (or ends with `_test.py`). Inside, any function whose name starts with `test` is a test. You check results with the plain `assert` statement; no `self.assertEqual` needed.\n\nRun `pytest` in the project root. It **discovers** test files recursively, imports them, runs every test function and prints a dot per pass, `F` per failure and `E` per error (an exception outside the assert, e.g. in setup). The summary line says how many passed and failed, and the exit code is non-zero on failure, so CI can rely on it.\n\nTests can also be methods on classes named `Test...` (without an `__init__`), which is just a way to group related tests; no base class is required.\n\nGood first habits:\n\n- One behavior per test, named for that behavior: `test_total_includes_tax`.\n- Arrange, act, assert: set up inputs, call the code, check the outcome.\n- Tests must not depend on each other or on execution order.\n\nKeep tests in a `tests/` directory next to your package, and import the code under test like any user would. Use `pytest -q` for quiet output or `-v` to see each test name.",
+   "code": "# test_cart.py\ndef cart_total(prices, tax=0.2):\n    return round(sum(prices) * (1 + tax), 2)\n\ndef test_empty_cart_is_zero():\n    assert cart_total([]) == 0\n\ndef test_total_includes_tax():\n    assert cart_total([10, 5]) == 18.0\n\nclass TestDiscounts:\n    def test_zero_tax(self):\n        assert cart_total([3, 4], tax=0) == 7\n\n# $ pytest -q\n# ...                                     [100%]\n# 3 passed in 0.01s",
+   "code_lang": "python",
+   "takeaways": [
+    "Files test_*.py, functions test_*, classes Test*",
+    "Use plain assert for checks",
+    "Run pytest; non-zero exit code on failure",
+    "Tests must be independent of each other and of order"
+   ],
+   "pitfalls": [
+    "Naming a file tests.py or a function check_total, so pytest never collects it."
+   ],
+   "quiz": [
+    {
+     "q": "Which function will pytest collect from test_math.py by default?",
+     "options": [
+      "def test_add():",
+      "def add_test():",
+      "def Test_add():",
+      "def check_add():"
+     ],
+     "answer": 0,
+     "explain": "Default discovery collects functions whose names start with test."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/getting-started.html",
+   "requires": [
+    "python.functions",
+    "python.modules-imports"
+   ]
+  },
+  {
+   "id": "pytest.assertions",
+   "name": "Assertions and approx",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Get detailed failure messages from plain asserts and compare floats safely with pytest.approx.",
+   "why": "Clear failure output is what makes a failing test quick to fix, and float comparison is a classic source of flaky tests.",
+   "body": "pytest **rewrites assert statements** in test modules so that a failing assert shows the values involved. `assert result == expected` on two dicts prints which keys differ; on lists, the first differing index; on long strings, a diff. You get this from a bare `assert`, so there's no need for special assertion methods.\n\nYou can add a message as the second operand, `assert x > 0, \"balance must be positive\"`, shown alongside the introspection.\n\n**Floating point** arithmetic is inexact: `0.1 + 0.2 == 0.3` is `False`. Use `pytest.approx`:\n\n- `assert 0.1 + 0.2 == pytest.approx(0.3)` uses a relative tolerance of 1e-6 by default.\n- `approx(value, rel=1e-3)` or `abs=0.01` sets the tolerance.\n- It works on lists, tuples, dicts and NumPy arrays: `assert result == approx([0.33, 0.67], abs=0.01)`.\n\nSome patterns to avoid:\n\n- `assert (x, \"message\")` with parentheses: that's a non-empty tuple, always true. pytest warns about it.\n- Very long boolean expressions: split them into several asserts so the failure points at the actual problem.\n- Comparing against `True` with `==`; just `assert is_valid(x)`.\n\nAssertion rewriting only applies to test modules and conftest files by default; helper modules need registration, as covered in the internals lesson.",
+   "code": "# test_stats.py\nimport pytest\n\ndef mean(xs):\n    return sum(xs) / len(xs)\n\ndef test_mean_float():\n    assert mean([0.1, 0.2]) == pytest.approx(0.15)\n\ndef test_split():\n    assert [x / 3 for x in (1, 2)] == pytest.approx([0.333, 0.667], abs=1e-3)\n\ndef test_report():\n    got = {\"n\": 3, \"mean\": 2.0, \"max\": 4}\n    assert got == {\"n\": 3, \"mean\": 2.0, \"max\": 5}\n\n# $ pytest -q\n# E   AssertionError: assert {'n': 3, 'mean': 2.0, 'max': 4} == {'n': 3, 'mean': 2.0, 'max': 5}\n# E     Omitting 2 identical items, use -vv to show\n# E     Differing items:\n# E     {'max': 4} != {'max': 5}\n# 1 failed, 2 passed",
+   "code_lang": "python",
+   "takeaways": [
+    "Plain assert gives rich failure diffs thanks to assertion rewriting",
+    "Use pytest.approx for floats, with rel= or abs= tolerances",
+    "approx works on sequences and dicts too",
+    "Never wrap assert and its message in parentheses"
+   ],
+   "pitfalls": [
+    "Writing assert (a == b, 'msg'), which always passes."
+   ],
+   "quiz": [
+    {
+     "q": "Why does `assert 0.1 + 0.2 == 0.3` fail?",
+     "options": [
+      "pytest disables float math",
+      "Binary floating point can't represent these exactly, so the sum is 0.30000000000000004",
+      "assert only works on integers",
+      "0.3 is rounded by pytest"
+     ],
+     "answer": 1,
+     "explain": "The tiny representation error makes exact equality fail; approx compares within a tolerance."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/how-to/assert.html",
+   "requires": [
+    "pytest.first-test"
+   ]
+  },
+  {
+   "id": "pytest.raises",
+   "name": "Testing exceptions with pytest.raises",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Assert that code raises the right exception, check its message with match=, and inspect it via the ExceptionInfo.",
+   "why": "Error paths are behavior too, and untested validation code is where bugs hide.",
+   "body": "To test that code fails correctly, use `pytest.raises` as a context manager:\n\n`with pytest.raises(ValueError):` followed by the call. The test passes only if that exception type (or a subclass) is raised inside the block. If nothing is raised, the test fails with \"DID NOT RAISE\".\n\nCheck the message with `match=`, a regular expression searched in `str(exception)`: `pytest.raises(ValueError, match=\"must be positive\")`. Escape special characters with `re.escape` when matching literal text containing `.`, `(` or `[`.\n\nBind the result with `as excinfo` to inspect the exception after the block: `excinfo.value` is the exception object (check custom attributes like an error code), and `excinfo.type` its class.\n\nRules of thumb:\n\n- Put **only the call that should raise** inside the block. Any earlier line that raises the same type would make the test pass for the wrong reason.\n- Be specific: `pytest.raises(Exception)` passes for almost any bug, including typos that cause `NameError`.\n- For exception groups (Python 3.11+), use `pytest.RaisesGroup` in recent pytest versions.\n\nFor warnings there's an analogous `pytest.warns`, covered later.",
+   "code": "# test_account.py\nimport pytest\n\nclass InsufficientFunds(Exception):\n    def __init__(self, missing):\n        super().__init__(f\"missing {missing:.2f}\")\n        self.missing = missing\n\ndef withdraw(balance, amount):\n    if amount <= 0:\n        raise ValueError(\"amount must be positive\")\n    if amount > balance:\n        raise InsufficientFunds(amount - balance)\n    return balance - amount\n\ndef test_rejects_negative():\n    with pytest.raises(ValueError, match=\"must be positive\"):\n        withdraw(100, -5)\n\ndef test_insufficient_funds_reports_missing():\n    with pytest.raises(InsufficientFunds) as excinfo:\n        withdraw(10, 25)\n    assert excinfo.value.missing == 15\n    assert str(excinfo.value) == \"missing 15.00\"",
+   "code_lang": "python",
+   "takeaways": [
+    "with pytest.raises(Type): wraps the call that must raise",
+    "match= is a regex searched in the exception message",
+    "excinfo.value is the exception object for further asserts",
+    "Keep only the raising call inside the block and be specific about the type"
+   ],
+   "pitfalls": [
+    "Using pytest.raises(Exception), which also passes on unrelated bugs like a NameError."
+   ],
+   "quiz": [
+    {
+     "q": "What happens if the code inside `with pytest.raises(KeyError):` raises nothing?",
+     "options": [
+      "The test passes",
+      "The test fails with DID NOT RAISE",
+      "The test is skipped",
+      "pytest raises KeyError itself"
+     ],
+     "answer": 1,
+     "explain": "raises() requires the exception; no exception is a failure."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/how-to/assert.html#assertions-about-expected-exceptions",
+   "requires": [
+    "pytest.assertions",
+    "python.exceptions"
+   ]
+  },
+  {
+   "id": "pytest.cli-selection",
+   "name": "Running and selecting tests",
+   "module": "running",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Run subsets of tests with node ids and -k, stop early with -x, rerun failures with --lf, and see output with -s.",
+   "why": "In a suite of thousands of tests, running exactly the ones you're working on is what keeps the feedback loop fast.",
+   "body": "The pytest command line is your daily tool:\n\n- **Node ids** select precisely: `pytest tests/test_cart.py`, `pytest tests/test_cart.py::test_total`, `pytest tests/test_cart.py::TestDiscounts::test_zero_tax`.\n- `-k \"expr\"` selects by name substring with `and`, `or`, `not`: `pytest -k \"cart and not slow\"`.\n- `-m marker` selects by marker (see markers).\n- `-x` stops at the first failure; `--maxfail=3` after three.\n- `--lf` (last failed) reruns only the tests that failed last time; `--ff` runs them first, then the rest. pytest remembers results in the `.pytest_cache` directory.\n- `-v` shows each test; `-q` is quieter; `-r` chooses the short summary (`-ra` lists everything that didn't pass).\n- `-s` disables output capturing so `print()` shows up immediately; normally output is shown only for failing tests.\n- `--pdb` drops into the debugger on failure; `-l` shows local variables in tracebacks.\n- `--durations=10` lists the slowest tests.\n\n`pytest --collect-only -q` lists what would run without running it, handy to check that discovery and `-k` expressions do what you expect.\n\nA typical loop while fixing a bug: `pytest -x --lf`, then the full suite before committing.",
+   "code": "# Run one file, one test, one method\npytest tests/test_cart.py\npytest \"tests/test_cart.py::test_total_includes_tax\"\npytest \"tests/test_cart.py::TestDiscounts::test_zero_tax\"\n\n# Select by name expression, stop at first failure\npytest -k \"cart and not slow\" -x\n\n# Rerun only last failures, show prints, debug on failure\npytest --lf -s --pdb\n\n# See what would run, and the 5 slowest tests\npytest --collect-only -q\npytest --durations=5",
+   "code_lang": "bash",
+   "takeaways": [
+    "Node ids (file::class::test) select exact tests",
+    "-k matches names with and/or/not; -m selects markers",
+    "-x stops early, --lf reruns failures, -s shows print output",
+    "--collect-only -q previews selection"
+   ],
+   "pitfalls": [
+    "Debugging with print() and not seeing any output because capture is on (use -s or look at the failure report)."
+   ],
+   "quiz": [
+    {
+     "q": "You fixed two failing tests out of 800. What reruns just those two?",
+     "options": [
+      "pytest -s",
+      "pytest --durations=2",
+      "pytest -x",
+      "pytest --lf"
+     ],
+     "answer": 3,
+     "explain": "--lf uses the cache of last results to rerun only the failed tests."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/how-to/usage.html",
+   "requires": [
+    "pytest.first-test"
+   ]
+  },
+  {
+   "id": "pytest.fixtures",
+   "name": "Fixtures: setup through arguments",
+   "module": "fixtures",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Define reusable test setup with @pytest.fixture and receive it by naming it as a test argument.",
+   "why": "Fixtures are pytest's central idea: they replace setUp methods with composable, explicit dependencies.",
+   "body": "A **fixture** is a function decorated with `@pytest.fixture` that prepares something a test needs: an object, a temporary file, a database session. A test asks for it simply by having a **parameter with the fixture's name**. pytest calls the fixture, passes its return value, and the test uses it.\n\nWhy this is better than shared setup methods:\n\n- Each test declares exactly what it depends on, visible in its signature.\n- Fixtures can use **other fixtures** the same way, building small layers: a `user` fixture can depend on a `db` fixture.\n- Each test gets a **fresh** value by default (function scope), so tests don't leak state into each other.\n- The same fixture is reused across many tests and files.\n\nA fixture runs only when some test requests it. If several fixtures in one test's dependency graph request the same fixture, it's created once for that test and shared.\n\nName fixtures for what they provide (`client`, `admin_user`, `sample_order`), not for the action (`setup_stuff`). Keep them small and compose them, rather than building one giant fixture that sets up the world.\n\nWhen a fixture needs cleanup, it uses `yield` instead of `return`, covered in the next practical lesson.",
+   "code": "# test_orders.py\nimport pytest\nclass Order:\n    def __init__(self, customer):\n        self.customer, self.items = customer, []\n    def add(self, name, price):\n        self.items.append((name, price))\n    def total(self):\n        return sum(p for _, p in self.items)\n\n@pytest.fixture\ndef customer():\n    return {\"name\": \"Ada\", \"vip\": True}\n@pytest.fixture\ndef order(customer):                  # fixtures can use fixtures\n    o = Order(customer)\n    o.add(\"book\", 12)\n    return o\n\ndef test_total(order):\n    assert order.total() == 12\n\ndef test_fresh_order_each_test(order):\n    order.add(\"pen\", 3)\n    assert order.total() == 15         # not affected by other tests",
+   "code_lang": "python",
+   "takeaways": [
+    "@pytest.fixture defines setup; tests request it by parameter name",
+    "Fixtures can depend on other fixtures",
+    "Default scope is per test: each test gets a fresh value",
+    "Fixtures run only when requested"
+   ],
+   "pitfalls": [
+    "Calling a fixture function directly from a test instead of requesting it as an argument (pytest raises an error)."
+   ],
+   "quiz": [
+    {
+     "q": "How does a test function get the value of a fixture named db?",
+     "options": [
+      "By importing it from conftest",
+      "By decorating the test with @db",
+      "By calling db()",
+      "By declaring a parameter named db"
+     ],
+     "answer": 3,
+     "explain": "pytest matches parameter names to fixture names and injects the fixture's value."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/how-to/fixtures.html",
+   "requires": [
+    "pytest.first-test"
+   ]
+  },
+  {
+   "id": "pytest.parametrize",
+   "name": "Parametrizing tests",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Run one test function over many inputs with @pytest.mark.parametrize, with readable ids for each case.",
+   "why": "Table-driven tests cover edge cases cheaply and show exactly which input failed.",
+   "body": "`@pytest.mark.parametrize(\"argnames\", argvalues)` runs a test once per set of values. Each run is a separate test with its own pass or fail and its own node id, like `test_slugify[Hello World-hello-world]`.\n\n- Several arguments: `@pytest.mark.parametrize(\"text, expected\", [(\"Hello\", \"hello\"), (\"A B\", \"a-b\")])`.\n- Readable ids: `ids=[\"simple\", \"space\"]`, or wrap a case with `pytest.param(..., id=\"unicode\")`.\n- Per-case marks: `pytest.param(\"x\", marks=pytest.mark.xfail(reason=\"bug #12\"))`.\n- Stacking two parametrize decorators produces the **cartesian product** of their values.\n\nParametrize is ideal when the logic of the test is identical and only the data changes. When cases need different setup or assertions, write separate tests instead of adding `if` statements inside one.\n\nChoose cases deliberately: typical values, boundaries (empty, zero, one, maximum), and invalid input. A dozen well-chosen cases beat a hundred random ones.\n\nParametrized values are created at **collection time**, when pytest imports the module. Expensive objects belong in fixtures, not in parametrize lists. Also avoid mutable objects shared between cases, since the same object is passed to every run that lists it.",
+   "code": "# test_slugify.py\nimport re\nimport pytest\n\ndef slugify(text):\n    return re.sub(r\"[^a-z0-9]+\", \"-\", text.lower()).strip(\"-\")\n\n@pytest.mark.parametrize(\"text, expected\", [\n    (\"Hello World\", \"hello-world\"),\n    (\"  trim  \", \"trim\"),\n    (\"C++ & Python!\", \"c-python\"),\n    pytest.param(\"\", \"\", id=\"empty\"),\n])\ndef test_slugify(text, expected):\n    assert slugify(text) == expected\n\n@pytest.mark.parametrize(\"a\", [1, 2])\n@pytest.mark.parametrize(\"b\", [10, 20])\ndef test_product(a, b):              # 4 tests: cartesian product\n    assert a * b > 0\n\n# $ pytest -q   ->  8 passed",
+   "code_lang": "python",
+   "takeaways": [
+    "parametrize(\"a, b\", [(1, 2), ...]) runs one test per tuple",
+    "Each case is a separate test with its own id",
+    "pytest.param adds ids and marks to a single case",
+    "Stacked parametrize decorators multiply cases"
+   ],
+   "pitfalls": [
+    "Branching inside a parametrized test because cases need different assertions."
+   ],
+   "quiz": [
+    {
+     "q": "Two stacked parametrize decorators with 3 and 4 values create how many tests?",
+     "options": [
+      "3",
+      "4",
+      "7",
+      "12"
+     ],
+     "answer": 3,
+     "explain": "Stacked parametrizations combine as a cartesian product: 3 x 4 = 12."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/how-to/parametrize.html",
+   "requires": [
+    "pytest.assertions"
+   ]
+  },
+  {
+   "id": "pytest.fixture-scope-teardown",
+   "name": "Fixture scope and yield teardown",
+   "module": "fixtures",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Clean up after tests with yield fixtures and share expensive resources across tests with scope='module' or 'session'.",
+   "why": "Databases, servers and temp resources need reliable cleanup and shouldn't be recreated for every single test.",
+   "body": "A fixture that needs cleanup uses **`yield`**: code before `yield` is setup, the yielded value goes to the test, and code after `yield` is teardown. Teardown runs whether the test passed or failed. If setup raises before the yield, teardown doesn't run, so acquire resources in an order that keeps that safe. Using a `with` block around the yield is a neat way to reuse existing context managers.\n\n**Scope** controls how often a fixture is created:\n\n- `function` (default): once per test.\n- `class`, `module`, `package`: once per class, file or package.\n- `session`: once for the whole run.\n\nUse broader scopes for expensive, effectively read-only resources: starting a database container, loading a big model, creating an app instance. Then combine them with narrow-scoped fixtures for the mutable part, for example a session-scoped database engine and a function-scoped transaction that's rolled back after each test.\n\nThe rule: a fixture can only depend on fixtures of the **same or broader scope**. A session fixture can't use a function fixture (pytest reports a ScopeMismatch).\n\nTeardown order is the reverse of setup, so dependent resources are torn down before what they depend on. For complex cleanup, `request.addfinalizer(fn)` registers additional teardown callbacks.",
+   "code": "# test_scope.py\nimport pytest\n\nlog = []\n\n@pytest.fixture(scope=\"module\")\ndef database():\n    log.append(\"connect\")              # expensive: once per module\n    yield {\"rows\": []}\n    log.append(\"disconnect\")\n\n@pytest.fixture\ndef transaction(database):\n    log.append(\"begin\")\n    yield database\n    database[\"rows\"].clear()           # rollback after every test\n    log.append(\"rollback\")\n\ndef test_insert(transaction):\n    transaction[\"rows\"].append(1)\n    assert transaction[\"rows\"] == [1]\n\ndef test_isolated(transaction):\n    assert transaction[\"rows\"] == []\n    assert log == [\"connect\", \"begin\", \"rollback\", \"begin\"]",
+   "code_lang": "python",
+   "takeaways": [
+    "yield splits a fixture into setup and teardown",
+    "Teardown runs even when the test fails",
+    "Scopes: function, class, module, package, session",
+    "Fixtures may only depend on same or broader scope"
+   ],
+   "pitfalls": [
+    "Making a mutable fixture session-scoped, so one test's changes leak into others."
+   ],
+   "quiz": [
+    {
+     "q": "A session-scoped fixture requests a function-scoped one. What happens?",
+     "options": [
+      "The session fixture is recreated per test",
+      "The function fixture is ignored",
+      "It works; the function fixture becomes session-scoped",
+      "pytest raises a ScopeMismatch error"
+     ],
+     "answer": 3,
+     "explain": "A longer-lived fixture can't depend on a shorter-lived one, so pytest reports ScopeMismatch."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/how-to/fixtures.html#scope-sharing-fixtures-across-classes-modules-packages-or-session",
+   "requires": [
+    "pytest.fixtures",
+    "python.context-managers"
+   ]
+  },
+  {
+   "id": "pytest.builtin-fixtures",
+   "name": "Built-in fixtures: tmp_path, capsys, monkeypatch",
+   "module": "fixtures",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Use pytest's built-in fixtures for temporary files, captured output, environment changes and patching.",
+   "why": "These built-ins cover most everyday test needs and are safer than hand-rolled temp dirs or global patches.",
+   "body": "pytest ships fixtures you can request by name anywhere:\n\n- **`tmp_path`**: a unique, empty `pathlib.Path` directory per test. Write files there instead of the working directory. `tmp_path_factory` is the session-scoped variant. Old directories are cleaned up automatically, keeping the last few runs for inspection.\n- **`capsys`**: captures `stdout` and `stderr`; `capsys.readouterr()` returns an object with `.out` and `.err` and resets the buffer. `capfd` does the same at file descriptor level, catching output from subprocesses and C extensions.\n- **`monkeypatch`**: temporarily changes things and undoes them after the test: `setattr(obj, \"name\", value)`, `setenv(\"API_KEY\", \"x\")`, `delenv`, `setitem(dict, key, value)`, `chdir(path)`, `syspath_prepend`.\n- **`caplog`**: captures log records (covered later).\n- **`request`**: information about the requesting test, used inside fixtures.\n\nBecause every change made through `monkeypatch` is reverted at teardown, tests can't leak modified environment variables or patched functions into each other, which is the main danger of patching by hand.\n\n`pytest --fixtures` lists every available fixture, including those from plugins and your conftest files, with their docstrings.",
+   "code": "# test_builtins.py\nimport os\n\ndef save_report(path, lines):\n    path.write_text(\"\\n\".join(lines))\n    print(f\"saved {len(lines)} lines\")\n\ndef api_url():\n    return os.environ.get(\"API_URL\", \"https://api.example.com\")\n\ndef test_save_report(tmp_path, capsys):\n    target = tmp_path / \"report.txt\"\n    save_report(target, [\"a\", \"b\"])\n    assert target.read_text() == \"a\\nb\"\n    assert capsys.readouterr().out == \"saved 2 lines\\n\"\n\ndef test_api_url_override(monkeypatch):\n    monkeypatch.setenv(\"API_URL\", \"http://localhost:8000\")\n    assert api_url() == \"http://localhost:8000\"\n\ndef test_api_url_default(monkeypatch):\n    monkeypatch.delenv(\"API_URL\", raising=False)\n    assert api_url() == \"https://api.example.com\"",
+   "code_lang": "python",
+   "takeaways": [
+    "tmp_path: fresh temp directory per test",
+    "capsys.readouterr() returns captured .out and .err",
+    "monkeypatch changes env, attributes and dicts and undoes them",
+    "pytest --fixtures lists everything available"
+   ],
+   "pitfalls": [
+    "Setting os.environ directly in a test and breaking later tests that expect the default."
+   ],
+   "quiz": [
+    {
+     "q": "Why prefer monkeypatch.setenv over assigning os.environ['X'] in a test?",
+     "options": [
+      "os.environ is read-only in tests",
+      "It also sets the variable for the shell",
+      "It is faster",
+      "It is automatically undone after the test"
+     ],
+     "answer": 3,
+     "explain": "monkeypatch records the change and restores the original value at teardown."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/reference/fixtures.html",
+   "requires": [
+    "pytest.fixtures",
+    "python.pathlib"
+   ]
+  },
+  {
+   "id": "pytest.conftest",
+   "name": "conftest.py and sharing fixtures",
+   "module": "organizing",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Share fixtures across files with conftest.py, understand its directory scoping, and lay out a test suite.",
+   "why": "As a suite grows, fixtures must live in one place and be visible exactly where they're needed.",
+   "body": "A **`conftest.py`** file holds fixtures (and hooks) shared by all tests in its directory and subdirectories. You never import it: pytest loads it automatically during collection, and fixtures defined there become available by name.\n\nConftest files are hierarchical. A typical layout:\n\n- `tests/conftest.py`: project-wide fixtures like `app`, `client`, `db`.\n- `tests/api/conftest.py`: fixtures only API tests need.\n- `tests/unit/...`: tests that don't see the API fixtures.\n\nWhen two levels define a fixture with the same name, the one **closest to the test** wins. That allows a subdirectory to override a general fixture, for example replacing `user` with an admin user for admin tests. An overriding fixture can even request the fixture it overrides by the same name to extend it.\n\nGuidelines:\n\n- Don't put tests in conftest.py, and don't import from it; if you need shared helper functions, put them in a regular module or expose them as fixtures.\n- Keep the root conftest small; big setup belongs near the tests that use it.\n- Use `pytest --fixtures-per-test path` to see which fixture a test actually got.\n\nFor layout, prefer a `src/` package layout with tests outside the package, installed with `pip install -e .`, so tests import your code the way users do.",
+   "code": "# tests/conftest.py   (visible to every test under tests/)\nimport pytest\n\n@pytest.fixture\ndef user():\n    return {\"name\": \"ada\", \"role\": \"member\"}\n\n# tests/admin/conftest.py   (overrides user for tests/admin/ only)\nimport pytest\n\n@pytest.fixture\ndef user(user):                       # extends the parent fixture\n    return {**user, \"role\": \"admin\"}\n\n# tests/admin/test_panel.py\ndef test_admin_sees_panel(user):\n    assert user[\"role\"] == \"admin\"\n\n# tests/test_profile.py\ndef test_member_profile(user):\n    assert user[\"role\"] == \"member\"",
+   "code_lang": "python",
+   "takeaways": [
+    "conftest.py fixtures are available to tests in its directory tree",
+    "Never import conftest; pytest loads it",
+    "The closest definition of a fixture name wins",
+    "An override can request the parent fixture by the same name"
+   ],
+   "pitfalls": [
+    "Importing fixtures from conftest.py with `from conftest import ...`."
+   ],
+   "quiz": [
+    {
+     "q": "tests/conftest.py and tests/api/conftest.py both define client. Which does tests/api/test_x.py get?",
+     "options": [
+      "Whichever was loaded last at random",
+      "tests/conftest.py's",
+      "tests/api/conftest.py's",
+      "An error for the duplicate"
+     ],
+     "answer": 2,
+     "explain": "The fixture closest to the test overrides the outer definition."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/reference/fixtures.html#conftest-py-sharing-fixtures-across-multiple-files",
+   "requires": [
+    "pytest.fixture-scope-teardown"
+   ]
+  },
+  {
+   "id": "pytest.markers",
+   "name": "Markers: skip, xfail and custom marks",
+   "module": "running",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Skip tests conditionally, mark expected failures with xfail, and tag tests with custom markers you can select with -m.",
+   "why": "Markers let one suite run on every platform and in every pipeline stage, from quick checks to slow integration runs.",
+   "body": "**Markers** attach metadata to tests with `@pytest.mark.<name>`.\n\nBuilt-in ones:\n\n- `@pytest.mark.skip(reason=\"...\")` always skips.\n- `@pytest.mark.skipif(sys.platform == \"win32\", reason=\"POSIX only\")` skips on a condition. Inside a test or fixture, `pytest.skip(\"reason\")` skips imperatively, and `pytest.importorskip(\"numpy\")` skips when an optional dependency is missing.\n- `@pytest.mark.xfail(reason=\"bug #42\")` marks a known failure: a failure is reported as `x` (xfailed) and doesn't fail the run; an unexpected pass is `X` (xpassed). With `strict=True` an unexpected pass fails the run, so you notice when the bug is fixed.\n- `@pytest.mark.usefixtures(\"db\")` applies fixtures without needing their values.\n\n**Custom markers** tag tests by category: `@pytest.mark.slow`, `@pytest.mark.integration`. Select with `-m`: `pytest -m \"not slow\"` for a fast local run, `pytest -m integration` in a later CI stage.\n\nRegister custom markers in your configuration (`markers = [...]`) and enable `strict_markers`, so a typo like `@pytest.mark.slwo` is an error instead of a silently unselected test.\n\nApply a marker to every test in a module with `pytestmark = pytest.mark.slow` at module level, or to a class by decorating it.",
+   "code": "# test_markers.py\nimport sys\nimport pytest\n\n@pytest.mark.skipif(sys.platform == \"win32\", reason=\"uses POSIX paths\")\ndef test_posix_paths():\n    assert \"/\".join([\"a\", \"b\"]) == \"a/b\"\n\n@pytest.mark.xfail(reason=\"rounding bug #42\", strict=True)\ndef test_known_bug():\n    assert round(2.675, 2) == 2.68     # floats: actually 2.67\n\n@pytest.mark.slow\ndef test_big_computation():\n    assert sum(range(10**6)) == 499999500000\n\ndef test_optional_dep():\n    yaml = pytest.importorskip(\"yaml\")   # skipped if PyYAML is missing\n    assert yaml.safe_load(\"a: 1\") == {\"a\": 1}\n\n# $ pytest -m \"not slow\" -q\n# 2 passed, 1 deselected, 1 xfailed   (yaml test skips without PyYAML)",
+   "code_lang": "python",
+   "takeaways": [
+    "skip/skipif for tests that can't run here; importorskip for optional deps",
+    "xfail for known failures; strict=True flags unexpected passes",
+    "Custom markers + -m select categories like slow or integration",
+    "Register markers and enable strict_markers to catch typos"
+   ],
+   "pitfalls": [
+    "Leaving xfail non-strict so a fixed bug goes unnoticed for months."
+   ],
+   "quiz": [
+    {
+     "q": "A test marked xfail(strict=True) passes. What is the result?",
+     "options": [
+      "XPASS, run still succeeds",
+      "The run fails because the test unexpectedly passed",
+      "The test is skipped",
+      "It is reported as a normal pass"
+     ],
+     "answer": 1,
+     "explain": "Strict xfail turns an unexpected pass into a failure, signalling that the marker should be removed."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/how-to/skipping.html",
+   "requires": [
+    "pytest.cli-selection",
+    "pytest.parametrize"
+   ]
+  },
+  {
+   "id": "pytest.configuration",
+   "name": "Configuring pytest in pyproject.toml",
+   "module": "organizing",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Set testpaths, addopts, markers and strictness in pyproject.toml (or pytest.toml) so every run behaves the same.",
+   "why": "Shared configuration means local runs and CI use identical options, paths and rules.",
+   "body": "pytest reads configuration from the first of `pytest.toml`, `pytest.ini`, `pyproject.toml`, `tox.ini` or `setup.cfg` that has a pytest section, searching from the common ancestor of the given paths upward. Its directory becomes the **rootdir**, used for node ids and the cache.\n\nIn `pyproject.toml`, pytest 9 reads a native `[tool.pytest]` table with real TOML types; the older `[tool.pytest.ini_options]` table with ini-style values still works and is what you'll see in most existing projects.\n\nOptions worth setting in every project:\n\n- `testpaths = [\"tests\"]`: where to look when you run bare `pytest`, which speeds up collection.\n- `addopts`: default flags, e.g. `[\"-ra\", \"--strict-markers\"]`.\n- `markers`: register custom markers with descriptions.\n- `strict = true` (pytest 9): turns on strict config, strict markers, strict xfail and strict parametrize ids together.\n- `filterwarnings = [\"error\"]`: turn warnings into errors, with exceptions for noisy third-party ones.\n- `minversion` / `required_plugins` to fail fast in a misconfigured environment.\n- `pythonpath = [\"src\"]` if you don't install the package.\n\nAny option can be overridden for a single run with `-o name=value`. `pytest --help` lists every configuration key, including those added by plugins, at the bottom.",
+   "code": "# pyproject.toml  (pytest 9 native TOML table)\n[tool.pytest]\nminversion = \"9.0\"\ntestpaths = [\"tests\"]\naddopts = [\"-ra\"]\nstrict = true\nmarkers = [\n    \"slow: long-running tests (deselect with -m 'not slow')\",\n    \"integration: needs external services\",\n]\nfilterwarnings = [\n    \"error\",\n    \"ignore::DeprecationWarning:somelib.*\",\n]\n\n# Older equivalent, still supported:\n# [tool.pytest.ini_options]\n# testpaths = [\"tests\"]\n# addopts = \"-ra --strict-markers\"",
+   "code_lang": "toml",
+   "takeaways": [
+    "Configuration lives in pytest.toml, pytest.ini or pyproject.toml",
+    "pytest 9 supports a native [tool.pytest] table; ini_options still works",
+    "Set testpaths, addopts, markers and strictness",
+    "filterwarnings = ['error'] catches deprecations early"
+   ],
+   "pitfalls": [
+    "Having both pytest.ini and a pyproject section and editing the one pytest ignores."
+   ],
+   "quiz": [
+    {
+     "q": "What does testpaths = ['tests'] change?",
+     "options": [
+      "Only tests marked 'tests' run",
+      "Bare `pytest` searches only the tests directory",
+      "Test files must be named tests.py",
+      "It sets the rootdir"
+     ],
+     "answer": 1,
+     "explain": "testpaths gives the default directories to collect from when no paths are passed on the command line."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/reference/customize.html",
+   "requires": [
+    "pytest.markers",
+    "pytest.conftest"
+   ]
+  },
+  {
+   "id": "pytest.mocking",
+   "name": "Mocking with monkeypatch and unittest.mock",
+   "module": "techniques",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Replace slow or external dependencies in tests with monkeypatch and Mock objects, and assert how they were called.",
+   "why": "Tests must not call real payment APIs or wait on networks, and mocks let you test the logic around them.",
+   "body": "**Mocking** replaces a dependency with a stand-in you control. pytest works with the standard library's `unittest.mock`:\n\n- `Mock()` / `MagicMock()` accept any call or attribute. Set `return_value` or `side_effect` (an exception to raise, or a function or list of values).\n- After the call, assert on usage: `m.assert_called_once_with(...)`, `m.call_count`, `m.call_args`.\n- `create_autospec(func)` or `Mock(spec=Cls)` restrict the mock to the real signature, so calls with wrong arguments fail instead of silently passing.\n\nTo install a mock, either use `monkeypatch.setattr(module, \"name\", fake)` or `unittest.mock.patch(\"pkg.module.name\")` as a context manager. The pytest-mock plugin wraps the latter as a `mocker` fixture.\n\nThe key rule: **patch where the name is looked up**, not where it's defined. If `shop/checkout.py` does `from shop.payments import charge`, patch `shop.checkout.charge`; patching `shop.payments.charge` leaves checkout's own reference untouched.\n\nMock at boundaries (HTTP, clock, filesystem, third-party SDKs), not your own internal functions. Over-mocking produces tests that pass while the real integration is broken, and that break on every refactor. For HTTP specifically, libraries like `responses` or `respx` fake the transport more realistically.",
+   "code": "# test_checkout.py\nfrom unittest.mock import Mock\nclass PaymentError(Exception): pass\n\ndef checkout(cart_total, gateway):\n    try:\n        return gateway.charge(amount=cart_total, currency=\"EUR\")[\"id\"]\n    except PaymentError:\n        return None\n\ndef test_checkout_charges_total():\n    gateway = Mock()\n    gateway.charge.return_value = {\"id\": \"ch_1\"}\n    assert checkout(42, gateway) == \"ch_1\"\n    gateway.charge.assert_called_once_with(amount=42, currency=\"EUR\")\n\ndef test_checkout_handles_decline():\n    gateway = Mock()\n    gateway.charge.side_effect = PaymentError(\"declined\")\n    assert checkout(42, gateway) is None\n\ndef test_patch_module_attr(monkeypatch):\n    import time\n    monkeypatch.setattr(time, \"time\", lambda: 1_700_000_000.0)\n    assert time.time() == 1_700_000_000.0",
+   "code_lang": "python",
+   "takeaways": [
+    "Mock with return_value / side_effect, then assert calls",
+    "Use spec/autospec so mocks enforce real signatures",
+    "Patch the name where it is looked up, not where it's defined",
+    "Mock at system boundaries, not your own internals"
+   ],
+   "pitfalls": [
+    "Patching pkg.payments.charge while the code under test imported it with from-import into pkg.checkout."
+   ],
+   "quiz": [
+    {
+     "q": "checkout.py does `from payments import charge`. Which target should patch() use?",
+     "options": [
+      "builtins.charge",
+      "payments.charge",
+      "checkout.charge",
+      "charge"
+     ],
+     "answer": 2,
+     "explain": "checkout holds its own reference named charge, so that's the name to replace."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/how-to/monkeypatch.html",
+   "requires": [
+    "pytest.builtin-fixtures"
+   ]
+  },
+  {
+   "id": "pytest.parametrized-fixtures",
+   "name": "Parametrized and factory fixtures",
+   "module": "fixtures",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Run every dependent test against several fixture variants with params=, use indirect parametrization, and build factory fixtures.",
+   "why": "Testing against several backends or configurations, and creating many custom objects per test, needs more than a fixed fixture.",
+   "body": "A fixture can be **parametrized**: `@pytest.fixture(params=[\"sqlite\", \"postgres\"])`. Inside, `request.param` holds the current value, and every test that uses the fixture runs once per param. This is how you run a whole suite against several databases, serializers or configurations without touching the tests. Add `ids=` for readable test names.\n\n**Indirect parametrization** routes `@pytest.mark.parametrize` values through a fixture: `@pytest.mark.parametrize(\"user\", [\"admin\", \"guest\"], indirect=True)` passes each value to the `user` fixture as `request.param`, so the fixture can build the object from a short description. Useful when the test wants variations but the construction logic belongs in a fixture.\n\nA **factory fixture** returns a function instead of an object: `make_user(name=\"x\", role=\"admin\")`. Tests call it as many times as they need, with different arguments, and the fixture can track created objects to clean them up after the test. Factories solve the \"I need three slightly different users\" problem without a fixture per variant.\n\nCombine with care: parametrized fixtures multiply with test parametrization and with each other, so test counts can explode. Use them for genuinely important dimensions.",
+   "code": "# test_param_fixtures.py\nimport json, pickle\nimport pytest\n\n@pytest.fixture(params=[json, pickle], ids=[\"json\", \"pickle\"])\ndef codec(request):\n    return request.param\n\ndef test_roundtrip(codec):                     # runs twice\n    assert codec.loads(codec.dumps({\"a\": 1})) == {\"a\": 1}\n\n@pytest.fixture\ndef make_user():\n    created = []\n    def _make(name, role=\"member\"):\n        user = {\"name\": name, \"role\": role}\n        created.append(user)\n        return user\n    yield _make\n    created.clear()                            # cleanup all created users\n\ndef test_roles(make_user):\n    admin, guest = make_user(\"ada\", \"admin\"), make_user(\"bob\")\n    assert (admin[\"role\"], guest[\"role\"]) == (\"admin\", \"member\")\n# $ pytest -v  ->  test_roundtrip[json], test_roundtrip[pickle], test_roles",
+   "code_lang": "python",
+   "takeaways": [
+    "params= on a fixture multiplies every test that uses it",
+    "request.param holds the current parameter",
+    "indirect=True routes parametrize values through a fixture",
+    "Factory fixtures return a function to create many custom objects"
+   ],
+   "pitfalls": [
+    "Stacking several parametrized fixtures and accidentally creating hundreds of slow tests."
+   ],
+   "quiz": [
+    {
+     "q": "A fixture has params=[1, 2, 3] and two tests use it. How many test runs result?",
+     "options": [
+      "5",
+      "2",
+      "3",
+      "6"
+     ],
+     "answer": 3,
+     "explain": "Each of the two tests runs once per param: 2 x 3 = 6."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/how-to/fixtures.html#parametrizing-fixtures",
+   "requires": [
+    "pytest.parametrize",
+    "pytest.fixture-scope-teardown"
+   ]
+  },
+  {
+   "id": "pytest.autouse-overrides",
+   "name": "autouse fixtures and fixture resolution",
+   "module": "fixtures",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Apply fixtures automatically with autouse, understand instantiation order, and override fixtures per module or with parametrize.",
+   "why": "Global safety nets (no network, frozen settings) and predictable setup order depend on how pytest resolves fixtures.",
+   "body": "**`autouse=True`** makes a fixture apply to every test in its scope without being requested: in a conftest it covers that directory tree, in a module that module, in a class that class. Typical uses are guards and resets: blocking network access, resetting a global cache, setting a test settings object. Use them sparingly, since hidden setup makes tests harder to understand.\n\nHow pytest orders fixtures for a test:\n\n- Higher scopes first: session fixtures are set up before module ones, before function ones.\n- Autouse fixtures before explicitly requested ones within the same scope.\n- Dependencies before dependents; otherwise, the order in the test's signature.\n\nDon't rely on signature order for correctness; express real dependencies by having one fixture request the other.\n\n**Overriding** fixtures happens at several levels: a conftest closer to the test, a fixture of the same name in the test module, or a class. And `@pytest.mark.parametrize(\"name\", [...])` with the name of a fixture overrides the fixture's value directly for that test.\n\n`pytest --setup-show` prints each fixture's SETUP and TEARDOWN with its scope as tests run, the fastest way to debug ordering and scoping surprises.",
+   "code": "# test_autouse.py\nimport pytest\n\nCACHE = {}\n@pytest.fixture(autouse=True)\ndef clear_cache():                     # runs for every test in this module\n    CACHE.clear()\n    yield\n    CACHE.clear()\n\n@pytest.fixture(scope=\"module\")\ndef config():\n    return {\"debug\": False}\n@pytest.fixture\ndef user():\n    return \"ada\"\n\ndef test_cache_starts_empty(config):\n    CACHE[\"x\"] = 1\n    assert config[\"debug\"] is False\n\n@pytest.mark.parametrize(\"user\", [\"override\"])   # replaces the fixture's value\ndef test_override(user):\n    assert user == \"override\" and CACHE == {}\n# $ pytest --setup-show -q   -> shows SETUP/TEARDOWN order per fixture",
+   "code_lang": "python",
+   "takeaways": [
+    "autouse fixtures apply to every test in their scope",
+    "Order: higher scope first, autouse first, then dependencies",
+    "Express ordering through fixture dependencies, not signature order",
+    "--setup-show reveals fixture setup and teardown"
+   ],
+   "pitfalls": [
+    "Putting heavy autouse fixtures in the root conftest so every unit test pays for them."
+   ],
+   "quiz": [
+    {
+     "q": "What does `pytest --setup-show` help you diagnose?",
+     "options": [
+      "Slow imports",
+      "Which fixtures are set up and torn down, in what order and scope",
+      "Coverage gaps",
+      "Flaky assertions"
+     ],
+     "answer": 1,
+     "explain": "It prints fixture SETUP and TEARDOWN events per test with their scopes."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/how-to/fixtures.html#autouse-fixtures-fixtures-you-don-t-have-to-request",
+   "requires": [
+    "pytest.conftest",
+    "pytest.fixture-scope-teardown"
+   ]
+  },
+  {
+   "id": "pytest.warnings-logs",
+   "name": "Testing warnings and log output",
+   "module": "techniques",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Assert on warnings with pytest.warns, on log records with caplog, and turn unexpected warnings into errors.",
+   "why": "Deprecations and log messages are part of a library's contract, and silent warnings hide upcoming breakage.",
+   "body": "**Warnings**: `with pytest.warns(DeprecationWarning, match=\"use new_api\"):` asserts that the block emits a matching warning, like `pytest.raises` for exceptions. The context object records all warnings for further checks. pytest also collects warnings raised anywhere during tests and shows a summary at the end.\n\nControl them with the `filterwarnings` configuration or the `@pytest.mark.filterwarnings(\"ignore:...\")` marker. A strong policy is `filterwarnings = [\"error\"]` in configuration: every unexpected warning fails the test, so you upgrade dependencies with deprecations fixed rather than discovering them when the feature is removed. Add targeted `ignore` entries for warnings you can't fix.\n\n**Logs**: the `caplog` fixture captures `logging` records:\n\n- `caplog.records` is a list of `LogRecord`s (`.levelname`, `.getMessage()`, `.name`).\n- `caplog.messages` gives just the formatted messages; `caplog.text` the full formatted output.\n- `caplog.set_level(logging.DEBUG, logger=\"app\")` or `with caplog.at_level(...)` changes the level, which is necessary when the logger would otherwise filter out lower-level records.\n\nTest logs only where they're a real requirement (an audit message, an error report). Asserting on every debug line makes tests brittle.",
+   "code": "# test_warn_log.py\nimport logging, warnings\nimport pytest\n\nlog = logging.getLogger(\"billing\")\n\ndef old_total(xs):\n    warnings.warn(\"old_total is deprecated; use total\", DeprecationWarning)\n    return sum(xs)\n\ndef refund(amount):\n    if amount > 1000:\n        log.warning(\"large refund: %s\", amount)\n    return -amount\n\ndef test_deprecation():\n    with pytest.warns(DeprecationWarning, match=\"use total\"):\n        assert old_total([1, 2]) == 3\n\ndef test_large_refund_logged(caplog):\n    caplog.set_level(logging.INFO, logger=\"billing\")\n    refund(5000)\n    assert caplog.messages == [\"large refund: 5000\"]\n    assert caplog.records[0].levelname == \"WARNING\"",
+   "code_lang": "python",
+   "takeaways": [
+    "pytest.warns(Category, match=...) asserts a warning is emitted",
+    "filterwarnings = ['error'] turns unexpected warnings into failures",
+    "caplog.records / caplog.messages capture logging output",
+    "Set the capture level when the logger would filter records out"
+   ],
+   "pitfalls": [
+    "Asserting on debug log text in many tests, so every wording change breaks the suite."
+   ],
+   "quiz": [
+    {
+     "q": "Why configure filterwarnings = ['error']?",
+     "options": [
+      "To hide warnings from the output",
+      "To fail tests on unexpected warnings so deprecations are fixed early",
+      "To speed up the test run",
+      "To capture logs"
+     ],
+     "answer": 1,
+     "explain": "Treating warnings as errors surfaces deprecations while they're still easy to fix."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+   "requires": [
+    "pytest.builtin-fixtures",
+    "pytest.raises"
+   ]
+  },
+  {
+   "id": "pytest.plugins",
+   "name": "Plugins: xdist, coverage and asyncio",
+   "module": "organizing",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Extend pytest with popular plugins: pytest-xdist for parallel runs, pytest-cov for coverage, pytest-asyncio for async tests.",
+   "why": "Plugins turn pytest into a full testing platform, and a few of them are in almost every serious project.",
+   "body": "Installing a plugin package is usually enough: plugins register through the `pytest11` entry point and pytest loads them automatically. `pytest --trace-config` or the header of the run lists active plugins; `-p no:name` disables one.\n\nThe plugins nearly every project meets:\n\n- **pytest-xdist**: `pytest -n auto` distributes tests across one worker process per CPU. Tests must be independent and must not share files, ports or database names; use `worker_id` or `tmp_path` to isolate them. Session fixtures run once **per worker**.\n- **pytest-cov**: `pytest --cov=mypkg --cov-report=term-missing` measures line (and with `--cov-branch`, branch) coverage and shows uncovered lines. `--cov-fail-under=90` enforces a threshold in CI.\n- **pytest-asyncio**: runs `async def` tests. Mark them with `@pytest.mark.asyncio`, or set `asyncio_mode = \"auto\"` in configuration to treat every async test and fixture as asyncio. Async fixtures use `@pytest_asyncio.fixture` in strict mode.\n- **pytest-mock** (`mocker` fixture), **pytest-randomly** (random order, exposes hidden dependencies between tests), **pytest-timeout**, **pytest-django** and **anyio**'s plugin for trio/asyncio are other common picks.\n\nPin plugin versions alongside pytest, and use `required_plugins` in configuration so a missing plugin fails loudly instead of silently skipping behavior.",
+   "code": "# test_async.py   (pip install pytest-asyncio pytest-xdist pytest-cov)\nimport asyncio\nimport pytest\n\nasync def fetch_price(symbol):\n    await asyncio.sleep(0.01)                  # pretend network call\n    return {\"ACME\": 12.5}.get(symbol)\n\n@pytest.mark.asyncio\nasync def test_fetch_price():\n    assert await fetch_price(\"ACME\") == 12.5\n\n@pytest.mark.asyncio\nasync def test_concurrent_fetches():\n    prices = await asyncio.gather(fetch_price(\"ACME\"), fetch_price(\"NOPE\"))\n    assert prices == [12.5, None]\n\n# $ pytest -n auto                       # parallel across CPUs\n# $ pytest --cov=shop --cov-report=term-missing --cov-fail-under=90",
+   "code_lang": "python",
+   "takeaways": [
+    "Installed plugins load automatically via entry points",
+    "pytest-xdist -n auto runs tests in parallel; isolate shared resources",
+    "pytest-cov measures coverage and can enforce a minimum",
+    "pytest-asyncio runs async def tests (marker or asyncio_mode=auto)"
+   ],
+   "pitfalls": [
+    "Turning on -n auto with tests that share a fixed database name or temp file and getting random failures."
+   ],
+   "quiz": [
+    {
+     "q": "With pytest-xdist, how often does a session-scoped fixture run?",
+     "options": [
+      "Once per test",
+      "Never",
+      "Once for the whole run",
+      "Once per worker process"
+     ],
+     "answer": 3,
+     "explain": "Each xdist worker is a separate pytest session, so session fixtures are created per worker."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/how-to/plugins.html",
+   "requires": [
+    "pytest.configuration",
+    "python.async-await"
+   ]
+  },
+  {
+   "id": "pytest.hooks",
+   "name": "Writing hooks and local plugins",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Customize pytest itself with hook functions in conftest.py: add options, modify collected items and inspect test reports.",
+   "why": "Teams with large suites need custom behavior (opt-in slow tests, failure artifacts, ordering) that only hooks provide.",
+   "body": "pytest is built from plugins communicating through **hooks**, implemented with the `pluggy` library. Any `conftest.py` is a local plugin: define a function with a hook's name (all start with `pytest_`) and pytest calls it at the right moment.\n\nFrequently used hooks:\n\n- `pytest_addoption(parser)`: add command-line flags and ini options, read later via `config.getoption()`.\n- `pytest_configure(config)`: one-time setup, e.g. registering markers with `config.addinivalue_line(\"markers\", ...)`.\n- `pytest_collection_modifyitems(config, items)`: reorder, deselect or mark collected tests. The classic recipe skips `slow` tests unless `--runslow` is given.\n- `pytest_runtest_makereport(item, call)`: build or inspect the report for each phase (setup, call, teardown). As a **hook wrapper** (`@pytest.hookimpl(wrapper=True)` and `report = yield`), you can attach the outcome to the item and save screenshots or logs on failure.\n- `pytest_sessionfinish(session, exitstatus)`: summarize after the run.\n\nHook functions only receive the arguments they name, so you can declare a subset. Results of `firstresult` hooks stop at the first non-None return.\n\nWhen local hooks are useful across projects, package them as a plugin module with a `pytest11` entry point. `pytester`, a built-in fixture (enable with `pytest_plugins = [\"pytester\"]`), runs pytest in a temp directory to test your plugin.",
+   "code": "# conftest.py\nimport pytest\n\ndef pytest_addoption(parser):\n    parser.addoption(\"--runslow\", action=\"store_true\", help=\"run slow tests\")\n\ndef pytest_configure(config):\n    config.addinivalue_line(\"markers\", \"slow: mark test as slow\")\n\ndef pytest_collection_modifyitems(config, items):\n    if config.getoption(\"--runslow\"):\n        return\n    skip_slow = pytest.mark.skip(reason=\"need --runslow\")\n    for item in items:\n        if \"slow\" in item.keywords:\n            item.add_marker(skip_slow)\n\n@pytest.hookimpl(wrapper=True)\ndef pytest_runtest_makereport(item, call):\n    report = yield\n    if report.when == \"call\" and report.failed:\n        print(f\"\\nFAILED {item.nodeid}: save artifacts here\")\n    return report",
+   "code_lang": "python",
+   "takeaways": [
+    "conftest.py is a local plugin; define pytest_* hook functions",
+    "pytest_addoption + config.getoption for custom flags",
+    "pytest_collection_modifyitems to skip, mark or reorder tests",
+    "Hook wrappers (wrapper=True, yield) see the result of other hooks"
+   ],
+   "pitfalls": [
+    "Defining pytest_addoption in a nested conftest: options must be added in the rootdir conftest or a plugin loaded at startup."
+   ],
+   "quiz": [
+    {
+     "q": "Which hook implements 'skip tests marked slow unless --runslow is given'?",
+     "options": [
+      "pytest_collection_modifyitems, adding a skip marker to matching items",
+      "pytest_sessionfinish",
+      "pytest_report_header",
+      "pytest_runtest_setup only"
+     ],
+     "answer": 0,
+     "explain": "After collection, the hook can inspect each item's keywords and add a skip marker."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/how-to/writing_hook_functions.html",
+   "requires": [
+    "pytest.configuration",
+    "pytest.autouse-overrides"
+   ]
+  },
+  {
+   "id": "pytest.assertion-rewriting",
+   "name": "How assertion rewriting works",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "How pytest rewrites assert statements at import time through an import hook, and when you must register helper modules.",
+   "why": "Understanding the rewriting hook explains missing failure details in helpers, odd caching issues and plugin requirements.",
+   "body": "Python's `assert` just raises `AssertionError` with no information about the values involved. pytest gets its detailed messages by **rewriting the AST** of test modules before they're compiled.\n\nAt startup pytest installs a **PEP 302 import hook** (a meta path finder). When a test module or `conftest.py` is imported, the hook parses the source, replaces each `assert` with code that evaluates every sub-expression into temporary variables, and on failure builds an explanation from them, calling `pytest_assertrepr_compare` hooks for type-specific diffs (sets, dicts, dataclasses, long strings). The rewritten bytecode is cached in `__pycache__` with a pytest-specific tag, so it only happens when sources change.\n\nConsequences:\n\n- Only modules matched by test discovery, conftest files and **registered** modules are rewritten. A shared helper module with asserts (say `tests/helpers.py` with `assert_valid_order`) gives bare `AssertionError`s unless you call `pytest.register_assert_rewrite(\"tests.helpers\")` before it's imported, typically in the root conftest.\n- Plugins in installed packages are rewritten automatically when loaded through entry points.\n- Modules imported before the hook is installed can't be rewritten; pytest warns about this.\n- `--assert=plain` disables rewriting, and a module docstring containing `PYTEST_DONT_REWRITE` opts a module out.\n\nYou can extend explanations for your own types by implementing `pytest_assertrepr_compare(config, op, left, right)` in conftest.",
+   "code": "# conftest.py\nimport pytest\n\n# Must run before tests.helpers is imported anywhere\npytest.register_assert_rewrite(\"tests.helpers\")\n\nclass Money:\n    def __init__(self, cents): self.cents = cents\n    def __eq__(self, other): return self.cents == other.cents\n\ndef pytest_assertrepr_compare(config, op, left, right):\n    if isinstance(left, Money) and isinstance(right, Money) and op == \"==\":\n        return [\"Comparing Money:\",\n                f\"   {left.cents / 100:.2f} != {right.cents / 100:.2f}\"]\n\n# tests/test_money.py\n# def test_total():\n#     assert Money(1050) == Money(1000)\n# E  assert Comparing Money:\n# E       10.50 != 10.00",
+   "code_lang": "python",
+   "takeaways": [
+    "pytest rewrites asserts via an import hook at import time",
+    "Only test modules, conftest files and registered modules are rewritten",
+    "register_assert_rewrite() for helper modules, before they're imported",
+    "pytest_assertrepr_compare customizes failure explanations"
+   ],
+   "pitfalls": [
+    "Importing a helper module in conftest before calling register_assert_rewrite for it."
+   ],
+   "quiz": [
+    {
+     "q": "A shared helper in tests/helpers.py fails with a bare AssertionError and no values. Why?",
+     "options": [
+      "The helper isn't a test module, so its asserts weren't rewritten",
+      "pytest was run with -q",
+      "assert is disabled by -O in pytest",
+      "Helpers can't use assert"
+     ],
+     "answer": 0,
+     "explain": "Only collected test modules and conftest files are rewritten unless the module is registered."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/how-to/writing_plugins.html#assertion-rewriting",
+   "requires": [
+    "pytest.assertions",
+    "pytest.hooks",
+    "python.import-system"
+   ]
+  },
+  {
+   "id": "pytest.collection-runtest",
+   "name": "Collection, nodes and the runtest protocol",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "How pytest builds a tree of collector and item nodes, then runs each item through setup, call and teardown with fixture finalization.",
+   "why": "Knowing the run protocol explains import errors at collection, fixture teardown timing and how plugins and custom items fit in.",
+   "body": "A pytest run has two phases. **Collection** walks the given paths starting at the **Session** node: `Dir`/`Package` collectors yield `Module` collectors for matching files, which import the module and yield `Class` collectors and `Function` **items**. Each node has a `nodeid` (`tests/test_a.py::TestX::test_y`) and keywords (markers, names) used by `-k` and `-m`. Parametrization expands one function into several items at this stage. An exception while importing a module is a **collection error**, reported as `ERROR` before any test runs.\n\nYou can add your own collectors via `pytest_collect_file`, for example turning YAML files into test items with a custom `Item` subclass implementing `runtest()`.\n\nThen **runtestloop** executes each item through the **runtest protocol**, three phases each producing a `TestReport`:\n\n- **setup**: create the item's fixtures, highest scope first, reusing cached higher-scope ones.\n- **call**: run the test function.\n- **teardown**: finalize fixtures no longer needed. Function-scoped fixtures end now; module or session fixtures are torn down when the next item no longer needs them (the **SetupState** stack), which is why teardown of a module fixture appears after that module's last test.\n\nAn error during setup or teardown is reported as `E` (error), distinct from a failure in the call phase. pytest uses item order to minimize fixture setup, so higher-scoped parametrized fixtures may reorder tests to group by parameter.",
+   "code": "# conftest.py: collect *.yaml files as tests (custom collector + item)\nimport pytest, yaml\n\ndef pytest_collect_file(parent, file_path):\n    if file_path.suffix == \".yaml\" and file_path.name.startswith(\"test\"):\n        return YamlFile.from_parent(parent, path=file_path)\n\nclass YamlFile(pytest.File):\n    def collect(self):\n        for name, spec in yaml.safe_load(self.path.read_text()).items():\n            yield YamlItem.from_parent(self, name=name, spec=spec)\n\nclass YamlItem(pytest.Item):\n    def __init__(self, *, spec, **kwargs):\n        super().__init__(**kwargs)\n        self.spec = spec\n    def runtest(self):\n        if eval(self.spec[\"expr\"]) != self.spec[\"equals\"]:\n            raise AssertionError(f\"{self.spec['expr']} != {self.spec['equals']}\")\n    def reportinfo(self):\n        return self.path, 0, f\"yaml: {self.name}\"\n\n# test_math.yaml:   add: {expr: \"1 + 1\", equals: 2}\n# $ pytest -v  ->  test_math.yaml::add PASSED",
+   "code_lang": "python",
+   "takeaways": [
+    "Collection builds a node tree: Session, Dir/Package, Module, Class, Function items",
+    "Each item runs setup, call and teardown, each producing a report",
+    "Errors in setup/teardown show as E, failures in call as F",
+    "Custom collectors and Items extend pytest to new test formats"
+   ],
+   "pitfalls": [
+    "Doing expensive work at module import time, which runs during collection even for deselected tests."
+   ],
+   "quiz": [
+    {
+     "q": "A test module raises ImportError at the top. When does pytest report it?",
+     "options": [
+      "Only with -v",
+      "During teardown",
+      "During the call phase of its first test",
+      "As a collection error before tests run"
+     ],
+     "answer": 3,
+     "explain": "Modules are imported while collecting, so failures there are collection errors."
+    }
+   ],
+   "docs": "https://docs.pytest.org/en/stable/example/nonpython.html",
+   "requires": [
+    "pytest.hooks",
+    "pytest.fixture-scope-teardown"
+   ]
+  }
+ ]
+}

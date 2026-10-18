@@ -1,0 +1,729 @@
+{
+ "tool": {
+  "id": "nginx",
+  "name": "NGINX",
+  "category": "tool",
+  "tagline": "High-performance web server, reverse proxy, load balancer and cache",
+  "description": "NGINX is an event-driven web server that serves static files, terminates TLS and proxies requests to application servers. It sits in front of a large share of the world's websites as a reverse proxy, load balancer and HTTP cache. Knowing how to configure it is a core skill for deploying any web application.",
+  "icon": "NX",
+  "color": "#009639",
+  "official_docs": "https://nginx.org/en/docs/",
+  "version": "1.30",
+  "aliases": [
+   "nginx",
+   "engine x",
+   "nginx reverse proxy",
+   "nginx.conf"
+  ],
+  "requires": [
+   {
+    "tool": "linux",
+    "level": 1
+   },
+   {
+    "tool": "curl",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Getting started"
+  },
+  {
+   "id": "serving",
+   "name": "Serving sites"
+  },
+  {
+   "id": "proxy",
+   "name": "Reverse proxy and load balancing"
+  },
+  {
+   "id": "security",
+   "name": "TLS and access control"
+  },
+  {
+   "id": "traffic",
+   "name": "Caching and traffic control"
+  },
+  {
+   "id": "internals",
+   "name": "Internals and tuning"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "nginx.what-is",
+   "name": "What NGINX does",
+   "module": "basics",
+   "level": 1,
+   "minutes": 6,
+   "summary": "NGINX as web server, reverse proxy, load balancer and cache, and why its event-driven design handles many connections cheaply.",
+   "why": "Almost every production web stack has NGINX or something like it in front; knowing its role tells you what to configure there.",
+   "body": "**NGINX** (pronounced \"engine x\") is an HTTP server and proxy. In practice it plays four roles, often at once:\n\n- **Web server**: serves static files (HTML, JavaScript, images) straight from disk, very efficiently.\n- **Reverse proxy**: accepts client requests and forwards them to application servers such as Node.js, Gunicorn or a Java service, then relays the responses. Clients only ever talk to NGINX.\n- **Load balancer**: spreads requests across several application instances and stops sending traffic to failed ones.\n- **TLS terminator and cache**: handles HTTPS so applications don't have to, and caches responses to reduce load.\n\nIts architecture is what made it popular: a small number of **worker processes**, each running an **event loop** that handles thousands of connections without a thread per connection. Slow clients and idle keep-alive connections cost little memory, so NGINX shields application servers from them.\n\nThere are two main editions: open-source NGINX from nginx.org (with stable and mainline branches) and the commercial NGINX Plus with extra features like an API and active health checks. Most distributions and the official Docker image ship open-source NGINX. Everything in this course uses open-source NGINX configuration.",
+   "code": "# One NGINX in front of everything\n# client --HTTPS--> NGINX :443\n#                    |-- /          -> static files in /var/www/site\n#                    |-- /api/      -> app servers 10.0.0.11:8000, 10.0.0.12:8000\n#                    `-- /ws/       -> websocket service :9000\ncurl -sI https://example.com | grep -i '^server'\n# server: nginx",
+   "code_lang": "bash",
+   "takeaways": [
+    "NGINX serves files, proxies, load balances and terminates TLS",
+    "A few event-loop workers handle many thousands of connections",
+    "Applications sit behind it and never face clients directly"
+   ],
+   "pitfalls": [],
+   "quiz": [
+    {
+     "q": "Why is NGINX good at handling many slow or idle connections?",
+     "options": [
+      "It starts a thread per connection",
+      "It closes idle connections immediately",
+      "Each worker uses an event loop, so idle connections cost little",
+      "It caches all responses"
+     ],
+     "answer": 2,
+     "explain": "The event-driven model multiplexes many connections per worker process."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/beginners_guide.html",
+   "requires": []
+  },
+  {
+   "id": "nginx.install-control",
+   "name": "Installing, testing and reloading",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Install NGINX, find its files, validate configuration with nginx -t and apply it with a graceful reload.",
+   "why": "Knowing the test-then-reload routine prevents taking a site down with a typo.",
+   "body": "Install from your distribution (`apt install nginx`), from nginx.org's own package repositories for newer versions, or run the official `nginx` Docker image. Typical file locations on Linux:\n\n- `/etc/nginx/nginx.conf`: the main configuration file.\n- `/etc/nginx/conf.d/*.conf` (and on Debian/Ubuntu `sites-enabled/`): per-site files included from the main file.\n- `/var/log/nginx/access.log` and `error.log`: logs.\n- `/usr/share/nginx/html` or `/var/www/html`: default content.\n\nThe command-line tool controls everything:\n\n- `nginx -t`: test the configuration syntax and referenced files without touching the running server. **Always run it before reloading.**\n- `nginx -T`: test and print the full effective configuration, includes expanded. Great for debugging.\n- `nginx -s reload` (or `systemctl reload nginx`): graceful reload. The master process re-reads the configuration, starts new workers, and old workers finish their current requests before exiting. No connections are dropped.\n- `nginx -s quit` for graceful shutdown, `nginx -V` for the version and compiled-in modules.\n\nIf the new configuration is invalid, a reload keeps the old configuration running and logs the error, but a full restart would fail to start at all. That's one more reason to prefer reload and to test first.",
+   "code": "sudo apt install nginx\nnginx -v                      # nginx version: nginx/1.30.6\nsudo nginx -t\n# nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\n# nginx: configuration file /etc/nginx/nginx.conf test is successful\nsudo nginx -T | grep -n server_name      # see the effective config\nsudo nginx -t && sudo systemctl reload nginx\ncurl -sI http://localhost/ | head -2\n# HTTP/1.1 200 OK\n# Server: nginx/1.30.6\ntail -f /var/log/nginx/error.log",
+   "code_lang": "bash",
+   "takeaways": [
+    "nginx -t tests, nginx -T tests and prints the merged config",
+    "reload is graceful: new workers start, old ones drain",
+    "Logs live in /var/log/nginx by default"
+   ],
+   "pitfalls": [
+    "Restarting instead of reloading: a broken config then leaves no server running."
+   ],
+   "quiz": [
+    {
+     "q": "You reload NGINX with a configuration that has a syntax error. What happens?",
+     "options": [
+      "The old configuration keeps serving and the error is logged",
+      "NGINX stops",
+      "NGINX serves a 500 for every request",
+      "The broken directive is skipped"
+     ],
+     "answer": 0,
+     "explain": "The master validates the new config; if it fails, the old workers keep running."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/beginners_guide.html#control",
+   "requires": [
+    "nginx.what-is",
+    "curl.first-request"
+   ]
+  },
+  {
+   "id": "nginx.config-structure",
+   "name": "Configuration structure: directives and contexts",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Read nginx.conf: simple and block directives, the main, events, http, server and location contexts, includes and inheritance.",
+   "why": "Every NGINX feature is a directive in some context; knowing the structure tells you where each line belongs.",
+   "body": "NGINX configuration consists of **directives**. A simple directive is a name, parameters and a semicolon: `worker_processes auto;`. A **block directive** contains others in braces and forms a **context**:\n\n- **main**: top level; process settings such as `user`, `worker_processes`, `error_log`.\n- `events { }`: connection handling, such as `worker_connections`.\n- `http { }`: everything about HTTP: MIME types, logging, gzip, and the virtual servers.\n- `server { }`: one virtual server, defined by `listen` and `server_name`.\n- `location { }`: settings for a set of request URIs inside a server.\n- `upstream { }`: a group of backend servers (inside `http`).\n- `stream { }`: TCP/UDP proxying, separate from HTTP.\n\nEach directive is only allowed in specific contexts, listed in its documentation.\n\nSettings are **inherited** downwards: a directive set in `http` applies to every `server` and `location` unless overridden there. The important exception to remember: array-like directives such as `add_header` and `proxy_set_header` are inherited **only if the inner level defines none of its own**. Adding a single `add_header` in a location silently drops all the headers defined at the server level.\n\n`include` pulls in other files and accepts globs, which is how per-site configuration files and shared snippets are organized. Comments start with `#`.",
+   "code": "user  nginx;\nworker_processes  auto;              # main context\nerror_log  /var/log/nginx/error.log warn;\n\nevents {\n    worker_connections  1024;\n}\n\nhttp {\n    include       /etc/nginx/mime.types;\n    default_type  application/octet-stream;\n    sendfile      on;\n    add_header    X-Frame-Options DENY;          # inherited by servers...\n\n    server {\n        listen 80;\n        location / {\n            root /usr/share/nginx/html;          # ...and by this location\n        }\n    }\n    include /etc/nginx/conf.d/*.conf;            # more server blocks\n}",
+   "code_lang": "nginx",
+   "takeaways": [
+    "Directives end with ;, blocks create contexts",
+    "main > events / http > server > location",
+    "Inner contexts inherit settings, but add_header-like lists are replaced if redefined"
+   ],
+   "pitfalls": [
+    "Adding one add_header in a location and losing all server-level security headers."
+   ],
+   "quiz": [
+    {
+     "q": "The server block sets two add_header lines; a location inside it sets one different add_header. Which headers does that location send?",
+     "options": [
+      "All three",
+      "None",
+      "Only the server's two",
+      "Only the location's one"
+     ],
+     "answer": 3,
+     "explain": "add_header is inherited only when the current level defines no add_header of its own."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/beginners_guide.html#conf_structure",
+   "requires": [
+    "nginx.what-is"
+   ]
+  },
+  {
+   "id": "nginx.server-blocks",
+   "name": "Server blocks: listen and server_name",
+   "module": "serving",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Host several sites on one NGINX with server blocks, and understand how a request is matched by port, name and default_server.",
+   "why": "Picking the wrong server block is the classic reason a site shows another site's content.",
+   "body": "A `server` block is a **virtual server**. NGINX chooses one for each request in two steps:\n\n- First by **address and port**: only servers whose `listen` matches the connection are candidates.\n- Then by the **Host header** compared with `server_name`.\n\n`server_name` accepts several forms, checked in this priority order:\n\n- exact names: `example.com www.example.com`\n- the longest wildcard starting with `*`: `*.example.com`\n- the longest wildcard ending with `*`: `mail.*`\n- the first matching regular expression, in file order: `~^(?<sub>.+)\\.example\\.com$`\n\nIf no name matches, the request goes to the **default server** for that address and port: the one marked `listen 80 default_server`, or otherwise simply the first server block defined for it. That's why requests for unknown hosts, or for a bare IP address, sometimes land on a random site.\n\nA good practice is an explicit catch-all that rejects unknown hosts. `return 444` is an NGINX-specific code that closes the connection without a response.\n\nThe special name `.example.com` matches both `example.com` and all its subdomains.",
+   "code": "server {\n    listen 80 default_server;        # catch-all for unknown Host headers\n    server_name _;\n    return 444;                      # close the connection, send nothing\n}\n\nserver {\n    listen 80;\n    server_name example.com www.example.com;\n    root /var/www/example;\n}\n\nserver {\n    listen 80;\n    server_name *.shop.example.com;   # any subdomain of shop.example.com\n    root /var/www/shop;\n}\n# curl -H 'Host: www.example.com' http://127.0.0.1/  -> /var/www/example\n# curl -H 'Host: other.org' http://127.0.0.1/        -> connection closed",
+   "code_lang": "nginx",
+   "takeaways": [
+    "Servers are matched by listen address/port, then by server_name",
+    "Exact names beat wildcards, which beat regexes",
+    "No match goes to default_server, or the first server for that port"
+   ],
+   "pitfalls": [
+    "Relying on file order for the default server; mark it explicitly with default_server."
+   ],
+   "quiz": [
+    {
+     "q": "No server_name matches the Host header and no server is marked default_server. Which block handles the request?",
+     "options": [
+      "None, NGINX returns 404",
+      "The first server block listening on that address and port",
+      "The last one",
+      "A random one each time"
+     ],
+     "answer": 1,
+     "explain": "Without an explicit default_server, the first server for that listen socket is the default."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/http/request_processing.html",
+   "requires": [
+    "nginx.config-structure"
+   ]
+  },
+  {
+   "id": "nginx.static-files",
+   "name": "Static files: root, alias and try_files",
+   "module": "serving",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Map URLs to files with root and alias, choose index files, and use try_files for fallbacks such as single-page apps.",
+   "why": "Serving front-end builds and assets from NGINX is fast and common, and root vs alias mistakes cause most 404s.",
+   "body": "`root` sets the directory that the **full URI** is appended to: with `root /var/www/site;`, a request for `/img/logo.png` reads `/var/www/site/img/logo.png`.\n\n`alias` **replaces** the matched location prefix instead: in `location /static/ { alias /srv/assets/; }`, `/static/app.js` reads `/srv/assets/app.js`. Keep the trailing slashes consistent on both, or paths get glued together wrongly.\n\n`index index.html;` names the file served for a request ending in `/`.\n\n`try_files` checks alternatives in order and uses the first that exists; the last parameter is a fallback URI (or `=404`):\n\n- `try_files $uri $uri/ =404;`: the file, then a directory with an index, otherwise 404.\n- `try_files $uri /index.html;`: the classic **single-page application** setup: unknown paths serve `index.html` so the client-side router can handle them.\n\nOther useful directives for static content:\n\n- `expires 30d;` or `add_header Cache-Control ...` for browser caching of fingerprinted assets.\n- `autoindex on;` for a directory listing (rarely wanted in production).\n- MIME types come from `mime.types`; a wrong `Content-Type` usually means it isn't included.\n\nNGINX uses the `sendfile` system call to send files without copying them through user space, which makes static serving very cheap.",
+   "code": "server {\n    listen 80;\n    server_name app.example.com;\n    root /var/www/app/dist;             # /about -> /var/www/app/dist/about\n    index index.html;\n\n    location / {\n        try_files $uri $uri/ /index.html;   # SPA fallback\n    }\n\n    location /assets/ {\n        expires 1y;                     # fingerprinted, safe to cache long\n        access_log off;\n    }\n\n    location /downloads/ {\n        alias /srv/files/;              # /downloads/a.zip -> /srv/files/a.zip\n    }\n}",
+   "code_lang": "nginx",
+   "takeaways": [
+    "root appends the full URI; alias replaces the location prefix",
+    "try_files tries files in order, then falls back",
+    "try_files $uri /index.html serves single-page apps"
+   ],
+   "pitfalls": [
+    "Using root where alias was meant: /downloads/a.zip becomes /srv/files/downloads/a.zip."
+   ],
+   "quiz": [
+    {
+     "q": "With location /img/ { root /data; }, which file serves /img/a.png?",
+     "options": [
+      "/data/a.png",
+      "/data/img/a.png",
+      "/img/data/a.png",
+      "/data/img/img/a.png"
+     ],
+     "answer": 1,
+     "explain": "root appends the whole URI, including the /img/ prefix."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/http/ngx_http_core_module.html#try_files",
+   "requires": [
+    "nginx.server-blocks"
+   ]
+  },
+  {
+   "id": "nginx.location-matching",
+   "name": "How location blocks are matched",
+   "module": "serving",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Learn the exact order NGINX uses to pick a location: exact match, longest prefix, ^~, then regular expressions in file order.",
+   "why": "Most confusing NGINX behaviour comes from a different location matching than the one you expected.",
+   "body": "A server usually contains several `location` blocks, and **exactly one** handles each request. The modifiers are:\n\n- `location = /path`: exact match.\n- `location /prefix`: prefix match.\n- `location ^~ /prefix`: prefix match that, if it is the longest, disables regex checking.\n- `location ~ regex` (case-sensitive) and `location ~* regex` (case-insensitive).\n\nThe algorithm, which does **not** simply follow file order:\n\n- If an `=` location matches exactly, use it and stop.\n- Find the **longest matching prefix** location and remember it. If it has `^~`, use it and stop.\n- Check regular expression locations **in the order they appear**; the first match wins.\n- If no regex matches, use the remembered longest prefix.\n\nSo a regex like `~ \\.php$` beats the prefix `/uploads/` for `/uploads/x.php`, unless that prefix is written `^~ /uploads/`. Order matters only among regexes.\n\nMatching uses the normalized URI path, without the query string. Locations can be nested, and named locations (`location @fallback`) are used only as targets of `try_files` or `error_page`, never matched directly.",
+   "code": "server {\n    listen 80;\n    location = / { return 200 \"exact root\\n\"; }\n    location / { return 200 \"prefix /\\n\"; }\n    location /images/ { return 200 \"prefix images\\n\"; }\n    location ^~ /static/ { return 200 \"static, no regex\\n\"; }\n    location ~* \\.(png|jpg)$ { return 200 \"regex image\\n\"; }\n}\n# GET /              -> exact root\n# GET /about         -> prefix /\n# GET /images/a.png  -> regex image   (regex beats a normal prefix)\n# GET /static/a.png  -> static, no regex   (^~ stops regex search)\n# GET /images/a.txt  -> prefix images",
+   "code_lang": "nginx",
+   "takeaways": [
+    "= exact wins immediately; ^~ longest prefix skips regexes",
+    "Otherwise the first matching regex in file order beats prefixes",
+    "Only one location handles a request"
+   ],
+   "pitfalls": [
+    "Expecting the longest prefix to win over a regex; regexes are checked after prefixes and win if they match."
+   ],
+   "quiz": [
+    {
+     "q": "Locations /docs/ (prefix) and ~ \\.pdf$ (regex) exist. Which handles /docs/guide.pdf?",
+     "options": [
+      "/docs/ because it is longer",
+      "Both, merged",
+      "Whichever comes first in the file",
+      "The regex"
+     ],
+     "answer": 3,
+     "explain": "After remembering the longest prefix, NGINX checks regexes; a matching regex wins unless the prefix used ^~."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/http/ngx_http_core_module.html#location",
+   "requires": [
+    "nginx.server-blocks"
+   ]
+  },
+  {
+   "id": "nginx.reverse-proxy",
+   "name": "Reverse proxy with proxy_pass",
+   "module": "proxy",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Forward requests to an application server with proxy_pass, pass the right headers, and get the trailing-slash URI rules right.",
+   "why": "Putting NGINX in front of an application is the most common NGINX job, and header or path mistakes break apps subtly.",
+   "body": "`proxy_pass` forwards a request to a backend and returns its response. The URI sent upstream follows a precise rule:\n\n- **Without a URI part** (`proxy_pass http://127.0.0.1:8000;`) the original request URI is passed unchanged: `/api/users` stays `/api/users`.\n- **With a URI part**, even just `/` (`proxy_pass http://127.0.0.1:8000/;`), the part matching the location prefix is **replaced** by it: in `location /api/`, `/api/users` becomes `/users`.\n\nBy default NGINX sends `Host` as the upstream address and adds nothing about the client, so the app sees NGINX as the client. Pass the original information explicitly:\n\n- `proxy_set_header Host $host;`\n- `proxy_set_header X-Real-IP $remote_addr;`\n- `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`\n- `proxy_set_header X-Forwarded-Proto $scheme;` so apps generate `https` URLs.\n\nThe application must be configured to trust these headers only from the proxy. Timeouts (`proxy_connect_timeout`, `proxy_read_timeout`, default 60s) govern how long NGINX waits; when the backend is down or times out the client gets a **502** or **504**. Upstream errors and their reasons appear in the error log.",
+   "code": "server {\n    listen 80;\n    server_name example.com;\n\n    location /api/ {\n        proxy_pass http://127.0.0.1:8000/;      # /api/users -> /users\n        proxy_set_header Host              $host;\n        proxy_set_header X-Real-IP         $remote_addr;\n        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_read_timeout 30s;\n    }\n\n    location /admin/ {\n        proxy_pass http://127.0.0.1:9000;       # /admin/x -> /admin/x\n    }\n}\n# curl -i http://example.com/api/health\n# HTTP/1.1 502 Bad Gateway   <- when nothing listens on :8000",
+   "code_lang": "nginx",
+   "takeaways": [
+    "proxy_pass without URI keeps the path; with a URI it replaces the location prefix",
+    "Forward Host, X-Forwarded-For and X-Forwarded-Proto explicitly",
+    "502 = backend unreachable, 504 = backend timeout"
+   ],
+   "pitfalls": [
+    "Adding or forgetting a trailing slash in proxy_pass and getting doubled or missing path prefixes."
+   ],
+   "quiz": [
+    {
+     "q": "In location /app/ { proxy_pass http://b:3000/; }, what path does the backend see for /app/login?",
+     "options": [
+      "/login",
+      "/app/login",
+      "/app//login",
+      "/3000/login"
+     ],
+     "answer": 0,
+     "explain": "With a URI in proxy_pass, the matched prefix /app/ is replaced by /."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_pass",
+   "requires": [
+    "nginx.location-matching",
+    "curl.headers-inspect"
+   ]
+  },
+  {
+   "id": "nginx.logging",
+   "name": "Access and error logs",
+   "module": "serving",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Configure access_log and error_log, define log formats including JSON and upstream timings, and read logs to debug.",
+   "why": "Logs are the first place to look for every 4xx, 5xx or slow request, and custom formats make them far more useful.",
+   "body": "NGINX writes two logs.\n\nThe **error log** (`error_log path level;`) records problems: missing files, upstream failures, configuration warnings. Levels go from `debug` through `info`, `notice`, `warn`, `error` up to `emerg`; the default is `error`. Upstream errors show the exact cause, such as `connect() failed (111: Connection refused) while connecting to upstream`.\n\nThe **access log** records every request using a **log_format**. The predefined `combined` format contains client address, time, request line, status, body size, referer and user agent. Define your own with variables:\n\n- `$request_time`: total time NGINX spent on the request.\n- `$upstream_response_time`, `$upstream_addr`, `$upstream_status`: what the backend did, essential for latency debugging.\n- `$request_id`: a unique ID you can also forward to the backend as a header for tracing.\n\n`log_format name escape=json '{...}'` produces JSON lines that log shippers parse without regexes.\n\n`access_log off;` disables logging for noisy locations like health checks; `access_log ... buffer=32k flush=5s;` reduces disk writes on busy servers; a conditional `if=$loggable` parameter logs only some requests. In containers, the official image links these logs to stdout and stderr.",
+   "code": "http {\n    log_format json escape=json '{'\n        '\"time\":\"$time_iso8601\",\"ip\":\"$remote_addr\",'\n        '\"req\":\"$request\",\"status\":$status,\"bytes\":$body_bytes_sent,'\n        '\"rt\":$request_time,\"urt\":\"$upstream_response_time\",'\n        '\"upstream\":\"$upstream_addr\",\"id\":\"$request_id\"}';\n\n    access_log /var/log/nginx/access.json json buffer=32k flush=5s;\n    error_log  /var/log/nginx/error.log warn;\n\n    server {\n        listen 80;\n        location = /healthz { access_log off; return 200 \"ok\\n\"; }\n        location / {\n            proxy_set_header X-Request-ID $request_id;\n            proxy_pass http://127.0.0.1:8000;\n        }\n    }\n}",
+   "code_lang": "nginx",
+   "takeaways": [
+    "error_log for problems, access_log for every request",
+    "Log $request_time and $upstream_response_time to find slowness",
+    "escape=json gives machine-readable logs"
+   ],
+   "pitfalls": [
+    "Debugging 502s from the access log alone; the error log says why the upstream failed."
+   ],
+   "quiz": [
+    {
+     "q": "A request took 3 s according to $request_time but $upstream_response_time is 2.9 s. Where is the time spent?",
+     "options": [
+      "In NGINX itself",
+      "In DNS",
+      "Mostly in the backend application",
+      "In the client's browser"
+     ],
+     "answer": 2,
+     "explain": "Upstream response time measures the backend; it accounts for almost all of the total."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/http/ngx_http_log_module.html",
+   "requires": [
+    "nginx.install-control",
+    "nginx.static-files"
+   ]
+  },
+  {
+   "id": "nginx.https-tls",
+   "name": "HTTPS and TLS termination",
+   "module": "security",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Serve HTTPS with certificates, enable HTTP/2, redirect HTTP to HTTPS and choose sane TLS settings.",
+   "why": "Every public site must use HTTPS, and NGINX is usually where TLS is terminated.",
+   "body": "A TLS server needs `listen 443 ssl;`, a certificate chain and its private key:\n\n- `ssl_certificate` must contain the server certificate **followed by intermediate certificates** (a \"fullchain\" file). Missing intermediates work in some browsers and fail in others and in curl.\n- `ssl_certificate_key` is the private key; keep it readable only by root.\n\nSince NGINX 1.25.1, HTTP/2 is enabled with the separate directive `http2 on;` (the old `listen ... http2` parameter is deprecated). HTTP/3 uses `listen 443 quic;` and needs a build with QUIC support.\n\nRecommended settings:\n\n- `ssl_protocols TLSv1.2 TLSv1.3;` (the modern default).\n- `ssl_session_cache shared:SSL:10m;` to resume sessions cheaply.\n- An `add_header Strict-Transport-Security \"max-age=31536000\" always;` header (HSTS) once you are sure HTTPS works everywhere.\n\nRedirect plain HTTP with a small server: `return 301 https://$host$request_uri;`. Keep a `location /.well-known/acme-challenge/` on port 80 if you use **Let's Encrypt** with the HTTP challenge; `certbot` can edit NGINX configuration and renew certificates automatically, after which NGINX needs a reload to pick up the new files.\n\nTest with `curl -vI https://...` and an external scanner such as SSL Labs.",
+   "code": "server {\n    listen 80;\n    server_name example.com;\n    location /.well-known/acme-challenge/ { root /var/www/certbot; }\n    location / { return 301 https://$host$request_uri; }\n}\n\nserver {\n    listen 443 ssl;\n    http2 on;\n    server_name example.com;\n\n    ssl_certificate     /etc/letsencrypt/live/example.com/fullchain.pem;\n    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;\n    ssl_protocols       TLSv1.2 TLSv1.3;\n    ssl_session_cache   shared:SSL:10m;\n    add_header Strict-Transport-Security \"max-age=31536000\" always;\n\n    location / { proxy_pass http://127.0.0.1:8000; }\n}",
+   "code_lang": "nginx",
+   "takeaways": [
+    "listen 443 ssl plus a fullchain certificate and key",
+    "http2 on; enables HTTP/2 since 1.25.1",
+    "Redirect port 80 with return 301 https://$host$request_uri"
+   ],
+   "pitfalls": [
+    "Configuring only the leaf certificate without intermediates; some clients then fail verification."
+   ],
+   "quiz": [
+    {
+     "q": "Browsers accept your site but curl reports 'unable to get local issuer certificate'. Most likely cause?",
+     "options": [
+      "HTTP/2 is disabled",
+      "HSTS is missing",
+      "The key is too long",
+      "ssl_certificate lacks the intermediate certificates"
+     ],
+     "answer": 3,
+     "explain": "Browsers may fetch or cache intermediates; curl needs the server to send the full chain."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/http/configuring_https_servers.html",
+   "requires": [
+    "nginx.server-blocks",
+    "nginx.reverse-proxy"
+   ]
+  },
+  {
+   "id": "nginx.redirects-rewrites",
+   "name": "Redirects, rewrites and variables",
+   "module": "serving",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Redirect with return, rewrite URIs with regex captures, and use built-in variables like $host, $uri and $args.",
+   "why": "Site migrations, canonical domains and clean URLs all need redirects, and return is simpler and safer than rewrite.",
+   "body": "`return` stops processing and sends a response:\n\n- `return 301 https://example.com$request_uri;`: permanent redirect (308 also preserves the method and body).\n- `return 302 /maintenance.html;`: temporary redirect.\n- `return 403;` or `return 200 \"ok\";` for a direct response.\n\n`rewrite regex replacement [flag];` changes the URI using regex captures:\n\n- With no flag, NGINX continues with the next rewrite and then re-searches locations for the new URI.\n- `last`: stop rewrites here and search locations again with the new URI.\n- `break`: stop rewrites and keep processing in the current location.\n- `redirect` (302) and `permanent` (301): send a redirect to the client. A replacement starting with `http://` or `https://` also redirects.\n\nPrefer `return` whenever the target doesn't need a regex; it is clearer and cheaper.\n\nCommon variables: `$host` (Host header or server name), `$request_uri` (original URI with query string), `$uri` (normalized, possibly rewritten, without query string), `$args` and `$arg_name` for the query string, `$scheme`, `$remote_addr` and `$http_<header>` for any request header.\n\nThe `map` directive computes one variable from another and is the clean way to handle many redirects: keep a table of old to new paths instead of dozens of rewrites.",
+   "code": "map $uri $new_uri {                       # in http context\n    /old-pricing   /pricing;\n    /blog/2023     /blog/archive/2023;\n}\n\nserver {\n    listen 80;\n    server_name www.example.com;\n    return 301 https://example.com$request_uri;    # canonical host\n}\n\nserver {\n    listen 80;\n    server_name example.com;\n    if ($new_uri) { return 301 $new_uri; }         # table-driven redirects\n    rewrite ^/users/(\\d+)$ /profile?id=$1 last;    # internal rewrite\n    location = /profile { return 200 \"profile $arg_id\\n\"; }\n}\n# GET /users/42 -> profile 42",
+   "code_lang": "nginx",
+   "takeaways": [
+    "return for redirects and direct responses; rewrite only when you need regexes",
+    "last re-searches locations; break stays in the current one",
+    "$request_uri keeps the query string; $uri doesn't"
+   ],
+   "pitfalls": [
+    "Redirecting with $uri instead of $request_uri and losing the query string."
+   ],
+   "quiz": [
+    {
+     "q": "Which variable keeps the original path and query string for a redirect?",
+     "options": [
+      "$uri",
+      "$request_uri",
+      "$args",
+      "$host"
+     ],
+     "answer": 1,
+     "explain": "$request_uri is the original request URI including arguments; $uri is the normalized path only."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/http/ngx_http_rewrite_module.html",
+   "requires": [
+    "nginx.location-matching"
+   ]
+  },
+  {
+   "id": "nginx.load-balancing",
+   "name": "Load balancing with upstream",
+   "module": "proxy",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Spread traffic across backends with upstream groups, choose a balancing method, and handle failures and keepalive connections.",
+   "why": "Running more than one application instance needs a balancer that also routes around failures.",
+   "body": "An `upstream` block names a group of servers; `proxy_pass http://name;` sends requests to it.\n\nBalancing methods:\n\n- **round robin** (default), optionally with `weight=`.\n- `least_conn;`: the server with the fewest active connections; good when request durations vary.\n- `ip_hash;` or `hash $key consistent;`: sticky mapping of clients or keys to servers.\n- `random two least_conn;`: pick two at random, take the less busy.\n\n**Passive health checks**: with `max_fails=3 fail_timeout=30s` a server that fails 3 times within 30 seconds is marked unavailable for 30 seconds. What counts as a failure, and whether the request is **retried on the next server**, is set by `proxy_next_upstream` (by default `error timeout`). Retries are only done for non-idempotent methods like POST if you explicitly allow it. A server marked `backup` only receives traffic when the others are down. Active health checks (probing a URL) are an NGINX Plus feature.\n\n**Keepalive to upstreams** avoids a new TCP connection per request: add `keepalive 32;` to the upstream, plus `proxy_http_version 1.1;` and `proxy_set_header Connection \"\";` in the location. Without those two, NGINX uses HTTP/1.0 with `Connection: close` to the backends.",
+   "code": "upstream app {\n    least_conn;\n    server 10.0.0.11:8000 max_fails=3 fail_timeout=30s;\n    server 10.0.0.12:8000 max_fails=3 fail_timeout=30s;\n    server 10.0.0.13:8000 backup;          # only when both are down\n    keepalive 32;                          # idle connections kept per worker\n}\n\nserver {\n    listen 80;\n    location / {\n        proxy_pass http://app;\n        proxy_http_version 1.1;            # needed for upstream keepalive\n        proxy_set_header Connection \"\";\n        proxy_set_header Host $host;\n        proxy_next_upstream error timeout http_502;\n        proxy_next_upstream_tries 2;\n    }\n}",
+   "code_lang": "nginx",
+   "takeaways": [
+    "upstream groups servers; round robin by default, least_conn and hash available",
+    "max_fails/fail_timeout are passive health checks; backup is for failover",
+    "Upstream keepalive needs HTTP/1.1 and an empty Connection header"
+   ],
+   "pitfalls": [
+    "Adding keepalive in upstream but not proxy_http_version 1.1, so connections are still closed."
+   ],
+   "quiz": [
+    {
+     "q": "Which method keeps sending the same client IP to the same backend?",
+     "options": [
+      "ip_hash",
+      "least_conn",
+      "round robin",
+      "backup"
+     ],
+     "answer": 0,
+     "explain": "ip_hash maps clients by address to a consistent server."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/http/load_balancing.html",
+   "requires": [
+    "nginx.reverse-proxy"
+   ]
+  },
+  {
+   "id": "nginx.access-control",
+   "name": "Access control and security headers",
+   "module": "security",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Restrict locations by IP with allow/deny, add basic authentication, set security headers and hide version details.",
+   "why": "Admin panels, metrics endpoints and staging sites need protection at the edge, and headers harden every page.",
+   "body": "NGINX has several simple access controls:\n\n- `allow` and `deny` (access module) check the client address in order; the first match wins. End with `deny all;`.\n- `auth_basic \"Restricted\";` with `auth_basic_user_file` asks for a username and password, stored in an htpasswd file (create it with `htpasswd` from apache2-utils or `openssl passwd`). Only use it over HTTPS.\n- `satisfy any;` lets either an allowed IP or valid credentials through; the default `satisfy all` requires both.\n- `auth_request /auth;` delegates the decision to a subrequest, letting an external service (SSO proxy) authorize each request.\n\nResponse headers that harden browsers, added with `add_header ... always;` so they appear on error pages too:\n\n- `Strict-Transport-Security` (HSTS), `X-Content-Type-Options nosniff`, `Content-Security-Policy`, `Referrer-Policy`, and `X-Frame-Options` or CSP `frame-ancestors` against clickjacking.\n\n`server_tokens off;` removes the version number from the `Server` header and error pages. Remember the `add_header` inheritance rule: put shared headers in an included snippet and include it wherever a location adds its own headers.\n\nAlso limit request size with `client_max_body_size` (default 1m) so uploads can't exhaust disk.",
+   "code": "http {\n    server_tokens off;\n    server {\n        listen 80;\n        client_max_body_size 10m;\n        add_header X-Content-Type-Options nosniff always;\n        add_header Referrer-Policy strict-origin-when-cross-origin always;\n\n        location /admin/ {\n            satisfy any;                       # office IP OR password\n            allow 203.0.113.0/24;\n            deny  all;\n            auth_basic           \"Admin\";\n            auth_basic_user_file /etc/nginx/.htpasswd;\n            proxy_pass http://127.0.0.1:8000;\n        }\n        location = /metrics {\n            allow 10.0.0.0/8;                  # internal scrapers only\n            deny  all;\n            proxy_pass http://127.0.0.1:9100;\n        }\n    }\n}",
+   "code_lang": "nginx",
+   "takeaways": [
+    "allow/deny are checked in order; finish with deny all",
+    "auth_basic needs HTTPS; satisfy any combines IP and password",
+    "Add security headers with always; server_tokens off hides the version"
+   ],
+   "pitfalls": [
+    "Forgetting always on add_header, so headers are missing from 4xx and 5xx responses."
+   ],
+   "quiz": [
+    {
+     "q": "With satisfy any, allow 10.0.0.0/8, deny all and auth_basic, who gets in?",
+     "options": [
+      "Only internal IPs with a password",
+      "Everyone",
+      "Internal IPs, or anyone with valid credentials",
+      "Nobody"
+     ],
+     "answer": 2,
+     "explain": "satisfy any grants access if either the access module or the auth module allows it."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/http/ngx_http_access_module.html",
+   "requires": [
+    "nginx.https-tls",
+    "nginx.redirects-rewrites"
+   ]
+  },
+  {
+   "id": "nginx.caching",
+   "name": "Proxy caching",
+   "module": "traffic",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Cache backend responses with proxy_cache_path and proxy_cache, control validity, serve stale content and debug with cache status.",
+   "why": "A well-configured cache can absorb most traffic and keep a site up while the backend is struggling.",
+   "body": "Proxy caching takes two pieces:\n\n- `proxy_cache_path` (in `http`) defines the storage: a directory, `levels` for subdirectories, a shared memory **keys_zone** for metadata (1 MB holds about 8,000 keys), `max_size` and `inactive` (remove items not accessed for that long).\n- `proxy_cache zone_name;` in a server or location enables it.\n\nWhat gets cached and for how long:\n\n- By default NGINX respects the backend's `Cache-Control`, `Expires` and `Set-Cookie` headers; responses with `Set-Cookie` or `private`/`no-store` are not cached.\n- `proxy_cache_valid 200 301 10m;` sets lifetimes when the backend gives none.\n- `proxy_cache_key` defaults to `$scheme$proxy_host$request_uri`; add cookies or headers carefully if responses vary by them.\n- Only GET and HEAD are cached by default.\n\nResilience features:\n\n- `proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;` serves expired content when the backend fails.\n- `proxy_cache_background_update on;` refreshes stale items in the background.\n- `proxy_cache_lock on;` lets only one request populate a missing item (no stampede).\n\nAdd `add_header X-Cache-Status $upstream_cache_status;` to see `MISS`, `HIT`, `EXPIRED`, `STALE` or `BYPASS` while testing.",
+   "code": "http {\n    proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=app_cache:10m\n                     max_size=1g inactive=60m use_temp_path=off;\n    server {\n        listen 80;\n        location / {\n            proxy_pass http://127.0.0.1:8000;\n            proxy_cache app_cache;\n            proxy_cache_valid 200 301 10m;\n            proxy_cache_valid 404 1m;\n            proxy_cache_use_stale error timeout updating http_502 http_503;\n            proxy_cache_background_update on;\n            proxy_cache_lock on;\n            proxy_cache_bypass $cookie_session;    # logged-in users skip cache\n            proxy_no_cache     $cookie_session;\n            add_header X-Cache-Status $upstream_cache_status;\n        }\n    }\n}\n# curl -sI localhost/products | grep X-Cache   -> MISS, then HIT",
+   "code_lang": "nginx",
+   "takeaways": [
+    "proxy_cache_path defines storage; proxy_cache enables it per location",
+    "use_stale and background_update keep serving when the backend fails",
+    "$upstream_cache_status shows HIT, MISS, STALE and more"
+   ],
+   "pitfalls": [
+    "Caching personalised pages under a shared key; bypass the cache for logged-in users or vary the key."
+   ],
+   "quiz": [
+    {
+     "q": "The backend is down but an expired copy exists. Which directive lets NGINX return it?",
+     "options": [
+      "proxy_cache_valid",
+      "proxy_cache_lock",
+      "proxy_cache_use_stale",
+      "proxy_no_cache"
+     ],
+     "answer": 2,
+     "explain": "proxy_cache_use_stale lists the conditions under which stale content may be served."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_cache",
+   "requires": [
+    "nginx.load-balancing",
+    "nginx.logging"
+   ]
+  },
+  {
+   "id": "nginx.rate-limiting",
+   "name": "Rate and connection limiting",
+   "module": "traffic",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Throttle clients with limit_req_zone and limit_req, understand burst and nodelay, and cap concurrent connections.",
+   "why": "Rate limits protect login endpoints and APIs from abuse and keep one client from starving the others.",
+   "body": "Request rate limiting uses the **leaky bucket** algorithm.\n\n`limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;` (in `http`) defines a shared zone keyed by client address. `$binary_remote_addr` is compact: a 10 MB zone tracks around 160,000 addresses. The key can be any variable, such as an API key header.\n\n`limit_req zone=api;` in a location applies it. Without other parameters, requests arriving faster than the rate (here one per 100 ms) are **rejected immediately**, even short bursts. Two parameters fix that:\n\n- `burst=20`: queue up to 20 excess requests; they are released at the configured rate, so they are delayed.\n- `nodelay`: process queued burst requests immediately, while still counting them; requests beyond the burst are rejected. This is usually what APIs want: bursts are allowed, sustained abuse is not.\n- `delay=8` (instead of nodelay): first 8 excess requests go without delay, the rest are delayed.\n\nRejected requests get `503` by default; set `limit_req_status 429;` for the correct \"Too Many Requests\". `limit_req_dry_run on;` logs what would be limited without enforcing it, ideal for tuning.\n\n`limit_conn_zone` and `limit_conn` cap **concurrent** connections per key, for example to stop one client from opening hundreds of downloads.",
+   "code": "http {\n    limit_req_zone  $binary_remote_addr zone=api:10m   rate=10r/s;\n    limit_req_zone  $binary_remote_addr zone=login:10m rate=5r/m;\n    limit_conn_zone $binary_remote_addr zone=perip:10m;\n    limit_req_status 429;\n\n    server {\n        listen 80;\n        location /api/ {\n            limit_req zone=api burst=20 nodelay;   # bursts OK, abuse rejected\n            proxy_pass http://127.0.0.1:8000;\n        }\n        location = /login {\n            limit_req zone=login burst=3;          # excess queued, then 429\n            proxy_pass http://127.0.0.1:8000;\n        }\n        location /downloads/ {\n            limit_conn perip 2;                    # 2 concurrent downloads\n        }\n    }\n}",
+   "code_lang": "nginx",
+   "takeaways": [
+    "limit_req_zone defines key, size and rate; limit_req applies it",
+    "burst queues excess; nodelay serves the burst at once",
+    "Use limit_req_status 429 and dry-run mode while tuning"
+   ],
+   "pitfalls": [
+    "Rate limiting by $remote_addr behind a load balancer: every client shares the balancer's IP; use the real_ip module first."
+   ],
+   "quiz": [
+    {
+     "q": "rate=10r/s with burst=20 nodelay. A client sends 25 requests at once. What happens?",
+     "options": [
+      "21 are served immediately and 4 are rejected",
+      "All 25 are delayed",
+      "10 are served, 15 rejected",
+      "All 25 are served"
+     ],
+     "answer": 0,
+     "explain": "One request fits the rate plus 20 burst slots served without delay; the remaining 4 exceed the burst."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/http/ngx_http_limit_req_module.html",
+   "requires": [
+    "nginx.reverse-proxy",
+    "nginx.logging"
+   ]
+  },
+  {
+   "id": "nginx.websockets-buffering",
+   "name": "WebSockets, timeouts and buffering",
+   "module": "proxy",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Proxy WebSocket and long-lived connections with the Upgrade headers, tune timeouts, and know when to turn proxy buffering off.",
+   "why": "Real-time features and streaming responses break behind a default proxy configuration.",
+   "body": "**WebSockets** start as an HTTP request with `Upgrade: websocket` and `Connection: Upgrade`. These are hop-by-hop headers, so NGINX doesn't forward them unless told to. You need HTTP/1.1 to the backend and the two headers set explicitly. A `map` makes `Connection` correct for both WebSocket and normal requests.\n\n**Timeouts**: `proxy_read_timeout` (default 60s) is the maximum time between two reads from the backend. An idle WebSocket or a long-polling request is closed after it, so raise it for those locations, or have the application send pings. `proxy_send_timeout` is the write equivalent; `proxy_connect_timeout` limits connection setup.\n\n**Buffering**: by default NGINX reads the backend's response into memory buffers (and temporary files if large), then sends it to the client. That frees the backend quickly even for slow clients, which is usually what you want. But it delays **streaming** responses such as Server-Sent Events, LLM token streams or progress output. Options:\n\n- `proxy_buffering off;` in that location.\n- The backend can send `X-Accel-Buffering: no` for individual responses.\n\nRequest bodies are also buffered fully by default; `proxy_request_buffering off;` streams uploads directly to the backend.",
+   "code": "map $http_upgrade $connection_upgrade {      # http context\n    default upgrade;\n    ''      close;\n}\n\nserver {\n    listen 80;\n    location /ws/ {\n        proxy_pass http://127.0.0.1:9000;\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection $connection_upgrade;\n        proxy_read_timeout 1h;                 # idle sockets stay open\n    }\n    location /events {                         # Server-Sent Events\n        proxy_pass http://127.0.0.1:8000;\n        proxy_buffering off;                   # flush each event immediately\n        proxy_read_timeout 10m;\n    }\n}",
+   "code_lang": "nginx",
+   "takeaways": [
+    "WebSockets need proxy_http_version 1.1 plus Upgrade and Connection headers",
+    "proxy_read_timeout closes idle upstream connections (60s default)",
+    "Turn proxy_buffering off for streaming responses"
+   ],
+   "pitfalls": [
+    "WebSocket connections dropping every 60 seconds because proxy_read_timeout was left at the default."
+   ],
+   "quiz": [
+    {
+     "q": "A streaming endpoint delivers all its output at once at the end, only when behind NGINX. Likely fix?",
+     "options": [
+      "Increase worker_connections",
+      "Use ip_hash",
+      "Enable gzip",
+      "proxy_buffering off for that location"
+     ],
+     "answer": 3,
+     "explain": "Proxy buffering collects the response before sending it; disabling it streams data as it arrives."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/http/websocket.html",
+   "requires": [
+    "nginx.load-balancing"
+   ]
+  },
+  {
+   "id": "nginx.architecture",
+   "name": "Master, workers and the event loop",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "How the master and worker processes divide work, how many connections NGINX can hold, and what really happens during reload and upgrade.",
+   "why": "Capacity planning, file descriptor limits and zero-downtime operations all follow from the process model.",
+   "body": "NGINX runs one **master process** (as root, to bind ports and read certificates) and several **worker processes** (as an unprivileged user) that handle all traffic. Optional cache manager and cache loader processes maintain the disk cache.\n\n- `worker_processes auto;` starts one worker per CPU core. Workers are single-threaded event loops using `epoll` (Linux) or `kqueue`; they never block on network I/O.\n- `worker_connections` caps simultaneous connections **per worker**, counting both client and upstream connections. So a proxy with 4 workers and 1024 connections each handles about 2,000 proxied clients, not 4,096.\n- Each connection is a file descriptor, so raise `worker_rlimit_nofile` and system limits accordingly.\n- Blocking disk reads can stall a worker; `aio threads` offloads them to a thread pool.\n\nBy default the kernel wakes workers to accept connections; `listen ... reuseport` gives each worker its own socket so the kernel spreads connections evenly.\n\nOn **reload** (SIGHUP) the master validates the new configuration, opens new sockets if needed, starts new workers and asks old ones to shut down gracefully; old workers stop accepting and finish their in-flight requests, which for long WebSockets can take a long time (`worker_shutdown_timeout` bounds it). A **binary upgrade** (SIGUSR2) starts a new master with the new executable alongside the old one, so even upgrades lose no connections.",
+   "code": "worker_processes auto;            # one per core\nworker_rlimit_nofile 65535;       # fd limit per worker\nworker_shutdown_timeout 30s;      # cap graceful shutdown on reload\n\nevents {\n    worker_connections 16384;     # clients + upstream connections, per worker\n}\n\nhttp {\n    server {\n        listen 80 reuseport;      # per-worker listening sockets\n        location / { return 200 \"ok\\n\"; }\n    }\n}\n# ps -o pid,user,cmd -C nginx\n#   PID USER   CMD\n#   812 root   nginx: master process /usr/sbin/nginx\n#   813 nginx  nginx: worker process\n#   814 nginx  nginx: worker process",
+   "code_lang": "nginx",
+   "takeaways": [
+    "Master (root) manages; workers (unprivileged) run event loops",
+    "worker_connections counts client and upstream connections per worker",
+    "Reload starts new workers and drains old ones; SIGUSR2 upgrades the binary live"
+   ],
+   "pitfalls": [
+    "Sizing capacity as workers x worker_connections clients for a proxy; each proxied request uses two connections."
+   ],
+   "quiz": [
+    {
+     "q": "4 workers, worker_connections 1024, every request proxied upstream. Roughly how many concurrent clients?",
+     "options": [
+      "4096",
+      "About 2048",
+      "1024",
+      "Unlimited"
+     ],
+     "answer": 1,
+     "explain": "Each proxied client uses one client and one upstream connection, halving capacity."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/ngx_core_module.html#worker_connections",
+   "requires": [
+    "nginx.install-control",
+    "nginx.load-balancing"
+   ]
+  },
+  {
+   "id": "nginx.request-phases",
+   "name": "Request phases, if and map",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Follow a request through NGINX's processing phases and understand why if inside location is dangerous and map is preferred.",
+   "why": "Phase order explains why directives that look sequential aren't, and avoids the infamous if pitfalls.",
+   "body": "NGINX configuration is **declarative**, not a script. Each HTTP request passes through fixed **phases**, and each module's directives run in the phase it registered for, regardless of the order you wrote them:\n\n- `server_rewrite` (rewrite directives at server level), `find_config` (choose the location), `rewrite` (rewrite directives in the location), `post_rewrite` (restart location search if the URI changed),\n- `preaccess` (limit_req, limit_conn), `access` (allow/deny, auth_basic, auth_request), `post_access` (`satisfy`),\n- `precontent` (`try_files`), `content` (proxy_pass, static files, `return` is actually in rewrite), and `log`.\n\nSo `return` runs in the rewrite phase, before `allow`/`deny`: a `return 200` in a location is served even to denied clients.\n\n`if` belongs to the rewrite module. Inside a `location`, a true `if` creates a hidden nested location and the request is handled by **that** configuration, which inherits some directives and silently drops others such as `try_files`. The only fully safe things inside `if` in a location are `return` and `rewrite ... last`.\n\n**`map`** is the idiomatic alternative: it defines a variable computed from others, evaluated lazily only when used, so unused maps cost nothing. Variables like `$limit_key` from a map can then feed limit zones, logging conditions or proxy headers without any `if`.",
+   "code": "map $http_x_api_key $limit_key {        # http context\n    default         $binary_remote_addr;  # anonymous: limit by IP\n    \"~^key_\"        $http_x_api_key;      # API clients: limit by key\n}\nmap $status $loggable {                   # don't log 2xx/3xx\n    ~^[23]  0;\n    default 1;\n}\nlimit_req_zone $limit_key zone=api:10m rate=20r/s;\n\nserver {\n    listen 80;\n    access_log /var/log/nginx/errors.log combined if=$loggable;\n    location /api/ {\n        limit_req zone=api burst=40 nodelay;\n        deny all;\n        return 200 \"ok\\n\";     # still served: return runs before access checks\n    }\n}",
+   "code_lang": "nginx",
+   "takeaways": [
+    "Directives run in their phase, not in file order",
+    "return and rewrite run before access checks",
+    "Inside location, use if only for return or rewrite ... last; prefer map"
+   ],
+   "pitfalls": [
+    "Putting proxy_pass or try_files logic inside if blocks and getting inexplicable behaviour."
+   ],
+   "quiz": [
+    {
+     "q": "A location contains deny all; and return 200 \"ok\";. What does a client get?",
+     "options": [
+      "403 Forbidden",
+      "200 ok, because return runs in the rewrite phase before access",
+      "A configuration error",
+      "404"
+     ],
+     "answer": 1,
+     "explain": "The rewrite phase, where return executes, comes before the access phase."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/dev/development_guide.html#http_phases",
+   "requires": [
+    "nginx.access-control",
+    "nginx.rate-limiting"
+   ]
+  },
+  {
+   "id": "nginx.performance-tuning",
+   "name": "Tuning compression, files and keepalive",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Tune gzip, sendfile, open_file_cache, keepalive and buffers, and know which settings actually matter.",
+   "why": "Default settings are conservative; a few targeted changes give large gains, while cargo-cult tuning wastes time.",
+   "body": "Start by measuring (`$request_time`, `$upstream_response_time`, a load-testing tool). Then the settings that usually matter:\n\n**Compression**: `gzip on;` with `gzip_types` for text formats (HTML is always included) and `gzip_min_length 1024`. Level 4 to 6 is the sweet spot; higher costs CPU for little gain. Don't gzip images or video, which are already compressed. `gzip_static on;` serves precompressed `.gz` files from the build, costing no CPU. Brotli needs a third-party module.\n\n**Static files**: `sendfile on;` sends file data inside the kernel; `tcp_nopush on;` sends headers and the file start together; `tcp_nodelay on;` (default) avoids delays for small keepalive writes. `open_file_cache max=10000 inactive=30s;` caches file descriptors and metadata for sites with many small files.\n\n**Connections**: client `keepalive_timeout` (default 75s) and `keepalive_requests` (default 1000) control reuse; upstream `keepalive` avoids TCP and TLS setup to backends, often the biggest win for proxies. TLS session caching and HTTP/2 reduce handshakes.\n\n**Buffers**: `proxy_buffers` and `proxy_buffer_size` sized for typical responses avoid writing to temp files; the error log warns \"an upstream response is buffered to a temporary file\" when they're too small. `client_body_buffer_size` does the same for uploads.",
+   "code": "http {\n    sendfile    on;\n    tcp_nopush  on;\n    keepalive_timeout 30s;\n    open_file_cache          max=10000 inactive=30s;\n    open_file_cache_valid    60s;\n\n    gzip            on;\n    gzip_comp_level 5;\n    gzip_min_length 1024;\n    gzip_types      text/css application/javascript application/json image/svg+xml;\n    gzip_vary       on;                 # Vary: Accept-Encoding for caches\n\n    proxy_buffer_size 16k;              # response headers\n    proxy_buffers     16 16k;           # body buffers per connection\n\n    server {\n        listen 80;\n        location /assets/ { root /var/www; gzip_static on; expires 1y; }\n    }\n}",
+   "code_lang": "nginx",
+   "takeaways": [
+    "gzip text at level 4-6; gzip_static serves prebuilt .gz files",
+    "sendfile, tcp_nopush and open_file_cache speed static serving",
+    "Upstream keepalive and buffer sizing matter most for proxies"
+   ],
+   "pitfalls": [
+    "Gzipping already-compressed images, burning CPU for no size gain."
+   ],
+   "quiz": [
+    {
+     "q": "The error log keeps saying an upstream response is buffered to a temporary file. What should you consider?",
+     "options": [
+      "Disable sendfile",
+      "Turn on gzip",
+      "Lower worker_processes",
+      "Increase proxy_buffers or proxy_buffer_size"
+     ],
+     "answer": 3,
+     "explain": "Responses larger than the memory buffers spill to disk; bigger buffers keep them in memory."
+    }
+   ],
+   "docs": "https://nginx.org/en/docs/http/ngx_http_gzip_module.html",
+   "requires": [
+    "nginx.architecture",
+    "nginx.caching"
+   ]
+  }
+ ]
+}

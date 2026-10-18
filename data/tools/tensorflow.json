@@ -1,0 +1,966 @@
+{
+ "tool": {
+  "id": "tensorflow",
+  "name": "TensorFlow",
+  "category": "library",
+  "tagline": "Google's end-to-end platform for training and deploying ML models",
+  "description": "TensorFlow is an open-source machine learning platform with tensors, automatic differentiation, graph compilation and a mature deployment story: SavedModel, TF Serving, LiteRT (TFLite) for mobile and TPU support. Since 2.16 its high-level API is Keras 3. Learning it matters for maintaining the large body of production TF code and for its serving and on-device tooling.",
+  "icon": "TF",
+  "color": "#E65100",
+  "official_docs": "https://www.tensorflow.org/api_docs/python/tf",
+  "version": "2.20",
+  "aliases": [
+   "tf",
+   "tensorflow 2"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 2
+   },
+   {
+    "tool": "numpy",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "tensors",
+   "name": "Tensors & variables"
+  },
+  {
+   "id": "autodiff",
+   "name": "Automatic differentiation"
+  },
+  {
+   "id": "models",
+   "name": "Models & training"
+  },
+  {
+   "id": "data",
+   "name": "Input pipelines"
+  },
+  {
+   "id": "graphs",
+   "name": "Graphs & tf.function"
+  },
+  {
+   "id": "scaling",
+   "name": "Hardware & scaling"
+  },
+  {
+   "id": "deployment",
+   "name": "Saving & deployment"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "tensorflow.tensors-basics",
+   "name": "Tensors and eager execution",
+   "module": "tensors",
+   "level": 1,
+   "minutes": 8,
+   "summary": "tf.Tensor is an immutable, typed n-dimensional array; in TF 2 operations run eagerly and convert to NumPy with .numpy().",
+   "why": "Every value flowing through a TensorFlow program is a tensor, so this is the vocabulary for everything else.",
+   "body": "A **`tf.Tensor`** is an n-dimensional array with a `shape` and a `dtype`, much like a NumPy array. Create one with `tf.constant(value)` or from factories like `tf.zeros`, `tf.ones`, `tf.range` and `tf.random.normal`.\n\nSince TensorFlow 2, code runs **eagerly**: each operation executes immediately and returns a concrete result, so you can print tensors and debug with normal Python tools. (Graphs still exist, but you opt into them with `tf.function`.)\n\nThings that differ from NumPy:\n\n- Tensors are **immutable**. You cannot assign to `t[0, 0]`; you create a new tensor instead. Mutable state lives in `tf.Variable`.\n- Python ints become `int32` and Python floats `float32` by default; NumPy arrays keep their dtype (often `int64` or `float64`).\n- `t.numpy()` returns a NumPy array, and most NumPy functions accept tensors directly.\n\nInspect a tensor with `t.shape` (a `TensorShape`, which may contain `None` for unknown dimensions in graphs), `t.dtype`, `tf.rank(t)` and `tf.size(t)`.\n\nOperations are placed on a GPU automatically when one is available, so the same code runs on CPU and GPU without changes.",
+   "code": "import tensorflow as tf\n\nt = tf.constant([[1, 2, 3], [4, 5, 6]])\nprint(t.shape, t.dtype)            # (2, 3) <dtype: 'int32'>\nprint(t.numpy())                   # [[1 2 3]\n                                   #  [4 5 6]]\nf = tf.constant([1.0, 2.0])\nprint(f.dtype)                     # <dtype: 'float32'>\n\nprint(t[1, 2].numpy())             # 6\nprint(tf.rank(t).numpy(), tf.size(t).numpy())   # 2 6\nprint(tf.zeros([2, 2]).shape)      # (2, 2)\n\n# t[0, 0] = 9  -> TypeError: tensors are immutable; use tf.Variable for state",
+   "code_lang": "python",
+   "takeaways": [
+    "Tensors are typed, immutable n-d arrays",
+    "TF 2 runs eagerly; `.numpy()` gets the values",
+    "Python ints default to int32 and floats to float32"
+   ],
+   "pitfalls": [
+    "Trying to assign into a tensor; build a new one or use a `tf.Variable`."
+   ],
+   "quiz": [
+    {
+     "q": "What is the dtype of tf.constant([1, 2, 3])?",
+     "options": [
+      "tf.int64",
+      "tf.int32",
+      "tf.float32",
+      "tf.int16"
+     ],
+     "answer": 1,
+     "explain": "TensorFlow converts Python integers to int32 by default, unlike NumPy's int64."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/tensor",
+   "requires": [
+    "numpy.ndarray-basics",
+    "python.lists"
+   ]
+  },
+  {
+   "id": "tensorflow.tensor-ops",
+   "name": "Tensor math and broadcasting",
+   "module": "tensors",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Element-wise math, matmul, reductions along an axis, broadcasting and explicit dtype casting with tf.cast.",
+   "why": "Models are compositions of these ops; reading TF code means reading them fluently.",
+   "body": "Arithmetic operators work **element-wise** and follow NumPy **broadcasting** rules: shapes are aligned from the right and each dimension must match or be 1. Math functions live in `tf.math` (many also at top level): `tf.exp`, `tf.sqrt`, `tf.nn.relu`, `tf.nn.softmax`.\n\n`a @ b` or `tf.matmul(a, b)` multiplies matrices, batching over leading dimensions.\n\nReductions are named `tf.reduce_*`: `reduce_sum`, `reduce_mean`, `reduce_max`, `reduce_any`. They take `axis` and `keepdims` arguments; without `axis` they reduce everything to a scalar. `tf.argmax(x, axis)` gives indices.\n\nThe biggest surprise for NumPy users: **TensorFlow does not promote dtypes implicitly**. Adding an `int32` tensor to a `float32` tensor raises an error instead of converting. Use `tf.cast(x, tf.float32)` explicitly. Python scalars are fine: `x * 2` adapts the literal to the tensor's dtype. This strictness catches precision bugs early, at the price of some casting noise.\n\nShape helpers you will reach for constantly: `tf.reshape(x, [-1, 4])`, `tf.transpose`, `tf.expand_dims`, `tf.squeeze`, `tf.concat` and `tf.stack`.",
+   "code": "import tensorflow as tf\n\na = tf.constant([[1.0, 2.0], [3.0, 4.0]])\nb = tf.constant([10.0, 20.0])\n\nprint((a + b).numpy())                    # [[11. 22.] [13. 24.]]  broadcast\nprint((a @ a).numpy())                    # [[ 7. 10.] [15. 22.]]\nprint(tf.reduce_sum(a, axis=0).numpy())   # [4. 6.]\nprint(tf.reduce_mean(a).numpy())          # 2.5\nprint(tf.argmax(a, axis=1).numpy())       # [1 1]\nprint(tf.nn.softmax([0.0, 0.0]).numpy())  # [0.5 0.5]\n\ni = tf.constant([1, 2])                   # int32\n# a[0] + i  -> error: no implicit int32 -> float32 promotion\nprint((a[0] + tf.cast(i, tf.float32)).numpy())   # [2. 4.]\nprint((a * 2).numpy())                    # Python scalars adapt: [[2. 4.] [6. 8.]]",
+   "code_lang": "python",
+   "takeaways": [
+    "Element-wise ops broadcast like NumPy; `@` is matmul",
+    "Reductions are `tf.reduce_*` with `axis` and `keepdims`",
+    "No implicit dtype promotion: use `tf.cast`"
+   ],
+   "pitfalls": [
+    "Mixing int and float tensors and getting an InvalidArgumentError; cast explicitly."
+   ],
+   "quiz": [
+    {
+     "q": "x is a float32 tensor and n is an int32 tensor. What does x * n do?",
+     "options": [
+      "Promotes n to float32",
+      "Truncates x to int32",
+      "Returns a float64 tensor",
+      "Raises an error because dtypes differ"
+     ],
+     "answer": 3,
+     "explain": "TensorFlow requires matching dtypes for tensor operands; convert one side with tf.cast."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/basics",
+   "requires": [
+    "tensorflow.tensors-basics",
+    "numpy.vectorized-arithmetic"
+   ]
+  },
+  {
+   "id": "tensorflow.indexing-reshaping",
+   "name": "Indexing, gathering and reshaping",
+   "module": "tensors",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Slice tensors, select with tf.gather, tf.boolean_mask and tf.where, and change shapes with reshape, expand_dims, concat and stack.",
+   "why": "Preparing inputs, picking predictions and building masks are all indexing and reshaping tasks.",
+   "body": "Basic **slicing** follows Python and NumPy: `x[1]`, `x[:, 1]`, `x[1:, ::2]`, `x[..., 0]`, and `tf.newaxis` (alias for None) to insert a dimension.\n\nWhat NumPy does with fancy indexing, TF does with functions:\n\n- `tf.gather(x, indices, axis=0)` picks slices by index, e.g. rows 2 and 0.\n- `tf.gather_nd(x, [[0, 1], [2, 3]])` picks individual elements by full coordinates.\n- `tf.boolean_mask(x, mask)` keeps elements where a boolean mask is true (returns a flat result when the mask covers all dims).\n- `tf.where(cond, a, b)` chooses element-wise between two tensors, with broadcasting.\n\nBecause tensors are immutable, \"updating\" a slice means building a new tensor, for example with `tf.where` or `tf.tensor_scatter_nd_update`.\n\nReshaping:\n\n- `tf.reshape(x, [3, -1])` regroups elements (one `-1` is inferred).\n- `tf.expand_dims(x, 0)` and `tf.squeeze(x)` add or remove size-1 dimensions.\n- `tf.transpose(x, perm=[0, 2, 1])` reorders dimensions.\n- `tf.concat(list, axis)` joins along an existing axis; `tf.stack(list, axis)` adds a new one.\n\nTensorFlow's image layers use **channels-last** layout `(batch, height, width, channels)` by default, unlike PyTorch.",
+   "code": "import tensorflow as tf\n\nx = tf.reshape(tf.range(12), [3, 4])\nprint(x[:, 1].numpy())                        # [1 5 9]\nprint(x[1:, ::2].numpy())                     # [[ 4  6] [ 8 10]]\nprint(tf.gather(x, [2, 0])[:, 0].numpy())     # [8 0]   rows 2 and 0\nprint(tf.boolean_mask(x, x > 8).numpy())      # [ 9 10 11]\nprint(tf.where(x > 8, x, 0)[2].numpy())       # [ 0  9 10 11]\n\nprint(tf.expand_dims(x, 0).shape)             # (1, 3, 4)\nprint(tf.transpose(x).shape)                  # (4, 3)\nprint(tf.concat([x, x], axis=0).shape)        # (6, 4)\nprint(tf.stack([x, x]).shape)                 # (2, 3, 4)\nprint(tf.squeeze(tf.zeros([1, 3, 1])).shape)  # (3,)",
+   "code_lang": "python",
+   "takeaways": [
+    "Slicing like NumPy; `tf.gather`/`boolean_mask`/`where` for fancy selection",
+    "Updates create new tensors (`tf.where`, `tensor_scatter_nd_update`)",
+    "Images are channels-last: (N, H, W, C)"
+   ],
+   "pitfalls": [
+    "Expecting `x[[2, 0]]` to gather rows as in NumPy; use `tf.gather`."
+   ],
+   "quiz": [
+    {
+     "q": "Which call picks rows 3 and 1 (in that order) of a 2-d tensor x?",
+     "options": [
+      "tf.gather(x, [3, 1])",
+      "x[3, 1]",
+      "tf.boolean_mask(x, [3, 1])",
+      "tf.where(x, 3, 1)"
+     ],
+     "answer": 0,
+     "explain": "tf.gather selects slices along an axis by index; x[3, 1] would be a single element."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/tensor_slicing",
+   "requires": [
+    "tensorflow.tensor-ops",
+    "numpy.indexing-slicing"
+   ]
+  },
+  {
+   "id": "tensorflow.variables",
+   "name": "Variables",
+   "module": "tensors",
+   "level": 1,
+   "minutes": 8,
+   "summary": "tf.Variable holds mutable state such as weights; update it with assign, assign_add and assign_sub.",
+   "why": "Model weights, optimizer slots and counters are variables, and gradients are taken with respect to them.",
+   "body": "Because tensors are immutable, TensorFlow keeps changing state in **`tf.Variable`** objects. A variable wraps a tensor with a fixed dtype and (by default) fixed shape, and lets you update it in place:\n\n- `v.assign(new_value)`, `v.assign_add(delta)`, `v.assign_sub(delta)`.\n- Slices of a variable can be assigned too: `v[0].assign(0.0)`.\n\nUsing a variable in an expression, like `v * 2`, reads its current value and returns an ordinary tensor.\n\nVariables matter for three reasons:\n\n- **Gradients**: `tf.GradientTape` automatically watches trainable variables, so gradients of a loss with respect to weights just work.\n- **Tracking**: Keras layers, `tf.Module` objects and checkpoints find variables assigned as attributes, which is how saving and `trainable_variables` work.\n- **Placement**: a variable lives on one device and is updated there, avoiding copies.\n\nSet `trainable=False` for state that should not receive gradients, like step counters or batch-norm moving averages.\n\nYou rarely create variables by hand in Keras code (layers do it in `build`), but you will meet them in custom training loops, optimizers and low-level modules.",
+   "code": "import tensorflow as tf\n\nw = tf.Variable([1.0, 2.0], name=\"w\")\nprint(w.numpy())                      # [1. 2.]\n\nw.assign([3.0, 4.0])\nw.assign_add([1.0, 1.0])\nprint(w.numpy())                      # [4. 5.]\n\nw[0].assign(0.0)                      # sliced assignment\nprint(w.numpy())                      # [0. 5.]\nprint((w * 2).numpy())                # [ 0. 10.]  reads give plain tensors\n\nstep = tf.Variable(0, trainable=False)\nstep.assign_add(1)\nprint(step.numpy(), w.trainable, step.trainable)   # 1 True False",
+   "code_lang": "python",
+   "takeaways": [
+    "`tf.Variable` = mutable state with fixed dtype and shape",
+    "Update with `assign`, `assign_add`, `assign_sub`",
+    "Trainable variables are watched by GradientTape automatically"
+   ],
+   "pitfalls": [
+    "Rebinding `w = w + 1`, which replaces the variable with a tensor instead of updating it; use `w.assign_add(1)`."
+   ],
+   "quiz": [
+    {
+     "q": "After w = tf.Variable(1.0); w = w + 1.0, what is w?",
+     "options": [
+      "The same Variable holding 2.0",
+      "An error",
+      "A new tf.Tensor holding 2.0",
+      "A new Variable holding 2.0"
+     ],
+     "answer": 2,
+     "explain": "w + 1.0 returns a tensor and the name w is rebound to it; the variable itself is not updated."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/variable",
+   "requires": [
+    "tensorflow.tensors-basics"
+   ]
+  },
+  {
+   "id": "tensorflow.gradient-tape",
+   "name": "Gradients with GradientTape",
+   "module": "autodiff",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Record operations inside tf.GradientTape and call tape.gradient to differentiate a loss with respect to variables.",
+   "why": "Every custom training step, and much research code, is built around the gradient tape.",
+   "body": "TensorFlow computes gradients by **recording** operations. Inside a `with tf.GradientTape() as tape:` block, operations on watched values are written to the tape; afterwards `tape.gradient(target, sources)` plays them backwards to get d(target)/d(source).\n\nWhat gets watched:\n\n- Trainable `tf.Variable`s are watched automatically.\n- Constant tensors are not; call `tape.watch(t)` for them.\n\n`sources` can be a single variable, a list, or a nested structure (such as `model.trainable_variables`), and the result has the same structure. If a source did not influence the target, its gradient is `None`, which usually means a bug such as using a tensor copy instead of the variable, or a non-differentiable step like casting to int.\n\nA tape is released after one `gradient` call. Pass `persistent=True` to compute several gradients from the same recording (and `del tape` afterwards).\n\nApplying gradients is up to you: either update variables with `assign_sub`, or hand `zip(grads, variables)` to an optimizer's `apply_gradients`. When the target is not a scalar, `tape.gradient` returns the gradient of its sum; for full Jacobians use `tape.jacobian`.",
+   "code": "import tensorflow as tf\n\nx = tf.Variable(3.0)\nwith tf.GradientTape() as tape:\n    y = x ** 2 + 2 * x\nprint(tape.gradient(y, x).numpy())        # 8.0  (2x + 2)\n\nc = tf.constant(3.0)\nwith tf.GradientTape() as tape:\n    tape.watch(c)                         # constants need an explicit watch\n    y = c ** 3\nprint(tape.gradient(y, c).numpy())        # 27.0\n\nw = tf.Variable([1.0, -2.0])\nb = tf.Variable(0.5)\nwith tf.GradientTape() as tape:\n    loss = tf.reduce_sum(w * [3.0, 4.0]) + b\ndw, db = tape.gradient(loss, [w, b])\nprint(dw.numpy(), db.numpy())             # [3. 4.] 1.0\nw.assign_sub(0.1 * dw)                    # one gradient-descent step\nprint(w.numpy())                          # [ 0.7 -2.4]",
+   "code_lang": "python",
+   "takeaways": [
+    "Record inside `tf.GradientTape`, then `tape.gradient(target, sources)`",
+    "Variables are watched automatically; constants need `tape.watch`",
+    "A `None` gradient means the source did not affect the target"
+   ],
+   "pitfalls": [
+    "Calling `tape.gradient` twice on a non-persistent tape, which raises an error."
+   ],
+   "quiz": [
+    {
+     "q": "tape.gradient(loss, v) returns None. What is the most likely cause?",
+     "options": [
+      "The learning rate is zero",
+      "v was not used to compute loss inside the tape (or the path is non-differentiable)",
+      "The loss is a scalar",
+      "The tape was persistent"
+     ],
+     "answer": 1,
+     "explain": "None means no recorded differentiable path connects v to the loss."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/autodiff",
+   "requires": [
+    "tensorflow.variables",
+    "tensorflow.tensor-ops"
+   ]
+  },
+  {
+   "id": "tensorflow.keras-models",
+   "name": "Building models with tf.keras",
+   "module": "models",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Define, compile and fit a model with tf.keras, which in TF 2.16+ is Keras 3, TensorFlow's high-level API.",
+   "why": "Most TensorFlow models are defined and trained through Keras; you need it even when writing custom loops.",
+   "body": "TensorFlow's high-level modelling API is **Keras**. Since TensorFlow 2.16, `tf.keras` refers to **Keras 3**, the multi-backend version (the separate Keras curriculum covers it in depth). Code written against Keras 2 can keep working by installing the `tf_keras` package and setting `TF_USE_LEGACY_KERAS=1`.\n\nThe basic workflow:\n\n- **Define** a model: `tf.keras.Sequential([...])` for a stack of layers, or the functional API for graphs of layers.\n- **Compile** it with an optimizer, a loss and metrics.\n- **Fit** it on NumPy arrays or a `tf.data.Dataset`, then `evaluate` and `predict`.\n\nUnder the hood, Keras layers hold `tf.Variable`s, and `fit()` runs a compiled `tf.function` train step that uses a `GradientTape`, exactly the pieces you would assemble by hand.\n\nUse `from_logits=True` in classification losses when the last layer has no softmax; it is more numerically stable. `predict` returns NumPy arrays; apply `tf.nn.softmax` to logits if you need probabilities.\n\nKeras models also plug directly into TensorFlow tooling: `tf.data` input, distribution strategies, TensorBoard and export to SavedModel for serving.",
+   "code": "import numpy as np\nimport tensorflow as tf\n\nx = np.random.rand(1000, 4).astype(\"float32\")\ny = (x.sum(axis=1) > 2).astype(\"int32\")\n\nmodel = tf.keras.Sequential([\n    tf.keras.Input(shape=(4,)),\n    tf.keras.layers.Dense(16, activation=\"relu\"),\n    tf.keras.layers.Dense(2),                      # logits\n])\nmodel.compile(optimizer=\"adam\",\n              loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),\n              metrics=[\"accuracy\"])\nmodel.fit(x, y, epochs=20, batch_size=32, validation_split=0.2, verbose=0)\n\nloss, acc = model.evaluate(x, y, verbose=0)\nprint(f\"accuracy {acc:.2f}\")                       # typically above 0.9\nprobs = tf.nn.softmax(model.predict(x[:3], verbose=0))\nprint(probs.shape)                                 # (3, 2)",
+   "code_lang": "python",
+   "takeaways": [
+    "`tf.keras` is Keras 3 since TF 2.16",
+    "Define, compile, fit, evaluate, predict",
+    "Use `from_logits=True` when the model outputs raw scores"
+   ],
+   "pitfalls": [
+    "Following Keras 2 tutorials that import `keras.src` internals or `tensorflow.keras.layers.experimental`, which no longer exist."
+   ],
+   "quiz": [
+    {
+     "q": "In TensorFlow 2.16 and later, what does tf.keras refer to?",
+     "options": [
+      "Keras 2, frozen",
+      "A TensorFlow-only fork",
+      "Nothing; it was removed",
+      "Keras 3"
+     ],
+     "answer": 3,
+     "explain": "TF 2.16 switched tf.keras to Keras 3; legacy Keras 2 lives in the tf_keras package."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/keras",
+   "requires": [
+    "tensorflow.variables",
+    "tensorflow.tensor-ops"
+   ]
+  },
+  {
+   "id": "tensorflow.tf-data-basics",
+   "name": "tf.data input pipelines",
+   "module": "data",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Build input pipelines with tf.data.Dataset: from_tensor_slices, map, shuffle, batch, and iterate or pass them to fit.",
+   "why": "tf.data is how TensorFlow streams data into training efficiently, from in-memory arrays to terabytes of files.",
+   "body": "A **`tf.data.Dataset`** is a sequence of elements (tensors or tuples and dicts of tensors) with chainable transformations. Each method returns a new dataset:\n\n- `Dataset.from_tensor_slices((x, y))` slices arrays along the first axis into `(x_i, y_i)` pairs.\n- `.map(fn)` transforms each element; `fn` is traced into a graph, so use TF ops inside it.\n- `.shuffle(buffer_size)` shuffles using a buffer; a buffer at least as large as the dataset gives a full shuffle.\n- `.batch(n)` groups elements; the last batch may be smaller unless `drop_remainder=True`.\n- `.take(n)`, `.skip(n)`, `.filter(pred)`, `.repeat()` do what their names say.\n\nDatasets are Python iterables in eager mode, so `for xb, yb in ds:` works, and `model.fit(ds)` accepts them directly (do not also pass `batch_size`).\n\n`ds.element_spec` shows the structure, shapes and dtypes of each element, handy for debugging. Other sources include `tf.data.TextLineDataset`, `TFRecordDataset` and `Dataset.from_generator` for arbitrary Python generators.\n\nThe order of transformations matters: shuffle before batching to shuffle examples (not whole batches), and map before batching when the function processes single examples.",
+   "code": "import tensorflow as tf\n\nx = tf.range(10, dtype=tf.float32)\nds = tf.data.Dataset.from_tensor_slices((x, x ** 2))\nds = (ds.map(lambda a, b: (a / 10, b))      # per-example transform\n        .shuffle(buffer_size=10)            # full shuffle for 10 items\n        .batch(4))\n\nfor xb, yb in ds:\n    print(xb.shape, yb.shape)\n# (4,) (4,)\n# (4,) (4,)\n# (2,) (2,)\n\nprint(ds.element_spec[0])   # TensorSpec(shape=(None,), dtype=tf.float32, name=None)\nprint(len(list(ds.unbatch())))   # 10",
+   "code_lang": "python",
+   "takeaways": [
+    "`from_tensor_slices` + `map` + `shuffle` + `batch`",
+    "Shuffle before batch; map single examples before batch",
+    "Pass datasets straight to `model.fit`"
+   ],
+   "pitfalls": [
+    "Using a tiny shuffle buffer on sorted data, which barely shuffles at all."
+   ],
+   "quiz": [
+    {
+     "q": "ds = Dataset.from_tensor_slices(range(10)).batch(3). How many batches does it yield?",
+     "options": [
+      "4",
+      "3",
+      "10",
+      "30"
+     ],
+     "answer": 0,
+     "explain": "Three full batches of 3 plus a final batch of 1, since drop_remainder defaults to False."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/data",
+   "requires": [
+    "tensorflow.tensor-ops",
+    "python.loops"
+   ]
+  },
+  {
+   "id": "tensorflow.devices-gpu",
+   "name": "Devices and GPUs",
+   "module": "scaling",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Check for GPUs, understand automatic placement, pin ops with tf.device, and enable memory growth.",
+   "why": "Knowing where ops run, and stopping TF from grabbing all GPU memory, avoids the most common setup problems.",
+   "body": "TensorFlow places operations automatically: if a GPU is visible and the op has a GPU kernel, it runs there. Check what TF sees with `tf.config.list_physical_devices(\"GPU\")`.\n\nInstallation notes for current releases:\n\n- On Linux, `pip install \"tensorflow[and-cuda]\"` pulls matching CUDA and cuDNN libraries.\n- Native Windows GPU support ended after TF 2.10; use WSL2.\n- On Apple silicon, the `tensorflow-metal` plugin provides GPU acceleration.\n\nBy default TensorFlow **reserves nearly all GPU memory** when it first initialises a GPU. That is efficient for one job but blocks other processes. Call `tf.config.experimental.set_memory_growth(gpu, True)` at program start (before any op runs) to allocate on demand, or set a hard limit with a logical device configuration.\n\nForce placement with a context manager: `with tf.device(\"/CPU:0\"):` or `\"/GPU:1\"`. A tensor's `.device` attribute shows where it was produced, and `tf.debugging.set_log_device_placement(True)` logs every op's device.\n\nData-movement costs apply as in any GPU framework: keep the input pipeline fast (see tf.data performance) and avoid pulling values back to Python with `.numpy()` inside tight loops.",
+   "code": "import tensorflow as tf\n\ngpus = tf.config.list_physical_devices(\"GPU\")\nprint(gpus)                                  # [] on a CPU-only machine\nfor gpu in gpus:                             # must run before the GPU is used\n    tf.config.experimental.set_memory_growth(gpu, True)\n\na = tf.random.normal([1000, 1000])\nprint(a.device)          # .../device:GPU:0 if a GPU exists, else .../device:CPU:0\n\nwith tf.device(\"/CPU:0\"):\n    b = tf.matmul(a, a)                      # pinned to the CPU\nprint(b.device.endswith(\"CPU:0\"))            # True",
+   "code_lang": "python",
+   "takeaways": [
+    "Placement is automatic; check with `list_physical_devices`",
+    "Enable memory growth before any GPU op runs",
+    "Pin ops with `tf.device`; inspect `.device`"
+   ],
+   "pitfalls": [
+    "Calling `set_memory_growth` after tensors were created, which raises a RuntimeError."
+   ],
+   "quiz": [
+    {
+     "q": "Why might a second TensorFlow process fail to get GPU memory on the same card?",
+     "options": [
+      "TF only supports one process per GPU",
+      "Memory growth is on by default",
+      "The first process reserved almost all GPU memory by default",
+      "GPUs cannot be shared"
+     ],
+     "answer": 2,
+     "explain": "TF pre-allocates most GPU memory unless memory growth or a memory limit is configured."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/gpu",
+   "requires": [
+    "tensorflow.tensors-basics"
+   ]
+  },
+  {
+   "id": "tensorflow.tf-function",
+   "name": "tf.function and tracing",
+   "module": "graphs",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Compile Python functions into TensorFlow graphs with @tf.function, and understand tracing, retracing and Python side effects.",
+   "why": "tf.function is where TF's speed and exportability come from, and misunderstanding tracing causes its most confusing bugs.",
+   "body": "Decorating a function with **`@tf.function`** turns it into a callable that builds a **graph** the first time it sees a given input signature (**tracing**) and then runs that graph on later calls. Graphs allow optimisation, parallel op execution, XLA compilation and export to SavedModel.\n\nTracing runs your Python code once, with symbolic tensors. Consequences:\n\n- **Python side effects** (`print`, appending to a list, incrementing a Python counter) happen only while tracing, not on every call. Use `tf.print` for output that should happen each time.\n- **Retracing** happens when the signature changes: a new tensor shape or dtype, or a different Python value for a non-tensor argument. Passing Python numbers as arguments (e.g. a step count) triggers a retrace for every new value; pass tensors instead.\n- Control flow on tensors is converted to graph ops by AutoGraph, while control flow on Python values is unrolled at trace time.\n\nLimit retracing by giving an `input_signature` with `tf.TensorSpec([None], tf.float32)` (None = any size) or `reduce_retracing=True`. Check the count with `f.experimental_get_tracing_count()`.\n\nWhile debugging, `tf.config.run_functions_eagerly(True)` runs decorated functions as plain Python.",
+   "code": "import tensorflow as tf\n\n@tf.function\ndef f(x):\n    print(\"tracing with shape\", x.shape)   # Python side effect: tracing only\n    tf.print(\"running\")                     # graph op: every call\n    return x * 2\n\nf(tf.constant([1.0, 2.0]))          # tracing with shape (2,)  /  running\nf(tf.constant([3.0, 4.0]))          # running  (same signature, graph reused)\nf(tf.constant([1.0, 2.0, 3.0]))     # traces again for the new shape, then running\nprint(f.experimental_get_tracing_count())   # 2\n\n@tf.function(input_signature=[tf.TensorSpec([None], tf.float32)])\ndef total(x):\n    return tf.reduce_sum(x)\n\nprint(total(tf.constant([1.0, 2.0])).numpy())        # 3.0\nprint(total(tf.constant([1.0, 2.0, 3.0])).numpy())   # 6.0, no retrace",
+   "code_lang": "python",
+   "takeaways": [
+    "First call per signature traces a graph; later calls reuse it",
+    "Python side effects run only during tracing; use `tf.print`",
+    "Pass tensors, not Python numbers, to avoid retracing"
+   ],
+   "pitfalls": [
+    "Calling a tf.function in a loop with a Python int argument, which retraces every iteration."
+   ],
+   "quiz": [
+    {
+     "q": "A tf.function is called 100 times with step=tf.constant(i). How many times does it trace?",
+     "options": [
+      "100",
+      "Once",
+      "Twice",
+      "Never"
+     ],
+     "answer": 1,
+     "explain": "All calls share one signature (a scalar int32 tensor), so one trace serves them all; Python ints would trace 100 times."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/function",
+   "requires": [
+    "tensorflow.gradient-tape",
+    "python.first-class-functions"
+   ]
+  },
+  {
+   "id": "tensorflow.custom-training-loop",
+   "name": "Custom training loops",
+   "module": "models",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Write your own train step with GradientTape and optimizer.apply_gradients, compiled with tf.function.",
+   "why": "Custom loops are needed for GANs, reinforcement learning, unusual losses and research where fit() does not fit.",
+   "body": "`model.fit()` covers standard training. When you need control over each step, write the loop yourself from the pieces you already know:\n\n1. Forward pass inside a `tf.GradientTape`, calling the model with `training=True` so dropout and batch norm behave correctly.\n2. Compute the loss.\n3. `grads = tape.gradient(loss, model.trainable_variables)`.\n4. `optimizer.apply_gradients(zip(grads, model.trainable_variables))`.\n\nWrap the step in `@tf.function`. Eager execution is convenient for debugging but much slower for many small ops; the compiled step usually runs several times faster. Keep the Python epoch loop outside the function and iterate a `tf.data.Dataset` so every batch has the same signature (use `drop_remainder=True` if a smaller last batch would cause a retrace).\n\nTrack progress with Keras metrics (`tf.keras.metrics.Mean`, `SparseCategoricalAccuracy`), calling `update_state` per step and `result()` / `reset_state()` per epoch.\n\nA middle ground also exists: subclass `keras.Model` and override `train_step`, keeping `fit()`'s callbacks and progress bars while customising the step. That is often the best option when only the step logic differs.",
+   "code": "import tensorflow as tf\n\nmodel = tf.keras.Sequential([tf.keras.Input((4,)),\n                             tf.keras.layers.Dense(16, activation=\"relu\"),\n                             tf.keras.layers.Dense(1)])\noptimizer = tf.keras.optimizers.Adam(1e-2)\nloss_fn = tf.keras.losses.MeanSquaredError()\n\nx = tf.random.normal([256, 4])\ny = tf.reduce_sum(x, axis=1, keepdims=True)\nds = tf.data.Dataset.from_tensor_slices((x, y)).shuffle(256).batch(32)\n\n@tf.function\ndef train_step(xb, yb):\n    with tf.GradientTape() as tape:\n        pred = model(xb, training=True)\n        loss = loss_fn(yb, pred)\n    grads = tape.gradient(loss, model.trainable_variables)\n    optimizer.apply_gradients(zip(grads, model.trainable_variables))\n    return loss\n\nfor epoch in range(30):\n    for xb, yb in ds:\n        loss = train_step(xb, yb)\nprint(f\"last batch loss {loss.numpy():.3f}\")    # small, well under 0.1",
+   "code_lang": "python",
+   "takeaways": [
+    "Tape, loss, `tape.gradient`, `apply_gradients`",
+    "Call the model with `training=True` inside the step",
+    "Compile the step with `@tf.function`, keep the epoch loop in Python"
+   ],
+   "pitfalls": [
+    "Forgetting `training=True`, so dropout and batch norm run in inference mode during training."
+   ],
+   "quiz": [
+    {
+     "q": "Why put the epoch loop outside the @tf.function train_step instead of inside it?",
+     "options": [
+      "Graphs cannot contain loops",
+      "Datasets cannot be used inside tf.function",
+      "Optimizers only work eagerly",
+      "Keeping only the step compiled makes tracing cheap and lets Python handle logging and callbacks"
+     ],
+     "answer": 3,
+     "explain": "Graphs can contain loops, but a small compiled step plus a Python driver loop is simpler and just as fast."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/keras/writing_a_training_loop_from_scratch",
+   "requires": [
+    "tensorflow.gradient-tape",
+    "tensorflow.keras-models",
+    "tensorflow.tf-data-basics"
+   ]
+  },
+  {
+   "id": "tensorflow.tf-data-performance",
+   "name": "Fast input pipelines",
+   "module": "data",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Keep accelerators busy with parallel map, cache, prefetch and interleave, using tf.data.AUTOTUNE.",
+   "why": "A slow input pipeline leaves expensive GPUs idle; tuning tf.data is often the cheapest speedup available.",
+   "body": "Training steps on a GPU are fast; if loading and preprocessing the next batch takes longer, the accelerator waits. tf.data has built-in tools to overlap and parallelise that work:\n\n- `.map(fn, num_parallel_calls=tf.data.AUTOTUNE)` runs preprocessing on several CPU cores.\n- `.prefetch(tf.data.AUTOTUNE)` at the **end** of the pipeline prepares the next batches while the model trains on the current one. Almost every pipeline should end with it.\n- `.cache()` stores elements after the first epoch, in memory or in a file (`cache(\"path\")`). Put it after expensive deterministic work but before random augmentation and shuffling.\n- `.interleave(...)` reads from several files concurrently, essential for sharded **TFRecord** datasets on network storage.\n- Vectorise: batching first and then mapping a function that handles a whole batch is often faster than mapping per element.\n\n`AUTOTUNE` lets the runtime pick buffer sizes and parallelism dynamically.\n\nA typical order: list files, interleave reads, parse/decode with parallel map, cache, shuffle, batch, augment, prefetch. To diagnose, time an epoch of the dataset alone without the model, or use the TensorBoard profiler's input-pipeline analyser. If the dataset alone is slower than training, the pipeline is your bottleneck.",
+   "code": "import tensorflow as tf\n\nAUTOTUNE = tf.data.AUTOTUNE\n\ndef load(path):\n    img = tf.io.decode_jpeg(tf.io.read_file(path), channels=3)\n    return tf.image.resize(img, [224, 224]) / 255.0\n\ndef augment(batch):\n    return tf.image.random_flip_left_right(batch)\n\nfiles = tf.data.Dataset.list_files(\"images/*.jpg\", shuffle=True)\nds = (files\n      .map(load, num_parallel_calls=AUTOTUNE)    # decode on several cores\n      .cache(\"/tmp/img_cache\")                   # reuse decoded images after epoch 1\n      .shuffle(1000)\n      .batch(64)\n      .map(augment, num_parallel_calls=AUTOTUNE) # random work after the cache\n      .prefetch(AUTOTUNE))                       # overlap input with training\n# model.fit(ds, epochs=10)",
+   "code_lang": "python",
+   "takeaways": [
+    "Parallel `map` + final `prefetch(AUTOTUNE)` in almost every pipeline",
+    "Cache after expensive deterministic steps, before random ones",
+    "Time the dataset alone to find input bottlenecks"
+   ],
+   "pitfalls": [
+    "Caching after random augmentation, which freezes one set of augmentations for all epochs."
+   ],
+   "quiz": [
+    {
+     "q": "Where should .prefetch(tf.data.AUTOTUNE) usually go?",
+     "options": [
+      "At the end of the pipeline",
+      "At the very start",
+      "Right after shuffle",
+      "Before cache"
+     ],
+     "answer": 0,
+     "explain": "Prefetching the final batches overlaps the whole pipeline with the training step."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/data_performance",
+   "requires": [
+    "tensorflow.tf-data-basics"
+   ]
+  },
+  {
+   "id": "tensorflow.savedmodel",
+   "name": "SavedModel export",
+   "module": "deployment",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Export models as SavedModel with concrete signatures for serving, and reload them without the original Python code.",
+   "why": "SavedModel is the format TF Serving, LiteRT conversion and most Google Cloud tools consume.",
+   "body": "A **SavedModel** is a directory containing the computation graphs (as `tf.function` traces), the variable values and **signatures**: named entry points with fixed input specs, like `serving_default`. Loading it does not need the Python class that created it, which makes it the hand-off format for production.\n\nTwo ways to produce one:\n\n- For any `tf.Module`, call `tf.saved_model.save(obj, path)`. Methods decorated with `@tf.function(input_signature=...)` are saved; if exactly one exists, it becomes the default signature. You can pass `signatures=` explicitly.\n- For Keras 3 models, use `model.export(path)`, which writes an inference-only SavedModel with a `serve` endpoint. (Use `model.save(\"m.keras\")` for the Keras format if you want to keep training later.)\n\n`tf.saved_model.load(path)` returns an object whose saved functions and variables are restored, and `loaded.signatures[\"serving_default\"]` gives a function taking keyword tensors and returning a dict.\n\nInspect a SavedModel from the shell with `saved_model_cli show --dir path --all`, which lists signatures with input and output names, shapes and dtypes. Always check this before deploying, since clients must send exactly those inputs.",
+   "code": "import tensorflow as tf\n\nclass Scaler(tf.Module):\n    def __init__(self):\n        super().__init__()\n        self.w = tf.Variable(2.0)\n\n    @tf.function(input_signature=[tf.TensorSpec([None], tf.float32)])\n    def __call__(self, x):\n        return x * self.w\n\ntf.saved_model.save(Scaler(), \"scaler_model\")\n\nloaded = tf.saved_model.load(\"scaler_model\")     # no Scaler class needed\nprint(loaded(tf.constant([1.0, 3.0])).numpy())  # [2. 6.]\nprint(list(loaded.signatures.keys()))           # ['serving_default']\n\n# Keras 3 models:  model.export(\"export_dir\")  -> SavedModel for serving\n# Inspect from the shell:  saved_model_cli show --dir scaler_model --all",
+   "code_lang": "python",
+   "takeaways": [
+    "SavedModel = graphs + variables + signatures, no Python class needed",
+    "`tf.saved_model.save` for modules, `model.export` for Keras models",
+    "Check signatures with `saved_model_cli show`"
+   ],
+   "pitfalls": [
+    "Saving a tf.function without an input signature and finding no serving signature in the export."
+   ],
+   "quiz": [
+    {
+     "q": "What does a SavedModel signature define?",
+     "options": [
+      "The model's training hyperparameters",
+      "A cryptographic hash of the weights",
+      "A named entry point with fixed input and output specs",
+      "The Python class to rebuild"
+     ],
+     "answer": 2,
+     "explain": "Signatures are what servers call: named functions with declared input names, shapes and dtypes."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/saved_model",
+   "requires": [
+    "tensorflow.tf-function",
+    "tensorflow.variables"
+   ]
+  },
+  {
+   "id": "tensorflow.checkpoints",
+   "name": "Training checkpoints",
+   "module": "models",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Save and restore training state with tf.train.Checkpoint and CheckpointManager, or the Keras ModelCheckpoint callback.",
+   "why": "Long jobs are preempted and crash; checkpoints let you resume exactly where you stopped.",
+   "body": "A **checkpoint** stores variable values so training can resume. Unlike SavedModel, it contains no graphs: you need the code that builds the objects to restore into.\n\n`tf.train.Checkpoint(**objects)` saves any trackable objects you pass: models, optimizers, `tf.Variable`s such as step counters, even datasets' iterators. Matching is **object-based**: variables are found by their path in the object graph (`model/layer/kernel`), not by global names, so reordering code does not break restores.\n\n`tf.train.CheckpointManager(ckpt, directory, max_to_keep=3)` adds numbering, keeps the last N checkpoints, and exposes `latest_checkpoint`. A resumable loop:\n\n```python\nckpt.restore(manager.latest_checkpoint)   # no-op if None\n```\n\nthen train and call `manager.save()` every N steps.\n\nRestoration can be **deferred**: if a variable does not exist yet (e.g. optimizer slots created on the first step), its value is applied when it is created. Use `status.expect_partial()` to silence warnings when you deliberately restore only part of the state, such as weights for inference.\n\nWith `fit()`, the `keras.callbacks.ModelCheckpoint` callback (or `BackupAndRestore` for fault tolerance) is simpler and saves Keras-format files.",
+   "code": "import tensorflow as tf\n\nmodel = tf.keras.Sequential([tf.keras.Input((3,)), tf.keras.layers.Dense(1)])\nstep = tf.Variable(0, dtype=tf.int64)\nckpt = tf.train.Checkpoint(model=model, step=step)\nmanager = tf.train.CheckpointManager(ckpt, \"ckpts\", max_to_keep=3)\n\nfor _ in range(5):\n    step.assign_add(1)            # ... training would happen here ...\n    manager.save()\n\nprint(len(manager.checkpoints))   # 3  (older ones deleted)\nprint(manager.latest_checkpoint)  # ckpts/ckpt-5\n\nstep.assign(0)\nckpt.restore(manager.latest_checkpoint)\nprint(step.numpy())               # 5",
+   "code_lang": "python",
+   "takeaways": [
+    "Checkpoints hold variable values, matched by object path",
+    "CheckpointManager handles numbering and retention",
+    "Use `expect_partial()` when restoring only part of the state"
+   ],
+   "pitfalls": [
+    "Restoring before the model is built and assuming values are already loaded; restoration may be deferred until variables exist."
+   ],
+   "quiz": [
+    {
+     "q": "What is the key difference between a checkpoint and a SavedModel?",
+     "options": [
+      "Checkpoints are larger",
+      "Checkpoints store only variable values and need the original code; SavedModels also store the graphs",
+      "SavedModels cannot store variables",
+      "Checkpoints only work with Keras"
+     ],
+     "answer": 1,
+     "explain": "A checkpoint restores into objects your code builds; a SavedModel is self-contained."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/checkpoint",
+   "requires": [
+    "tensorflow.variables",
+    "tensorflow.keras-models"
+   ]
+  },
+  {
+   "id": "tensorflow.tensorboard",
+   "name": "TensorBoard",
+   "module": "models",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Log scalars, histograms and graphs with tf.summary or the Keras TensorBoard callback, and compare runs in the TensorBoard UI.",
+   "why": "Watching loss curves, learning rates and weight distributions across runs is how you debug and tune training.",
+   "body": "**TensorBoard** is TensorFlow's visualisation tool. Training code writes **event files** to a log directory, and `tensorboard --logdir logs` serves a web UI that plots them, comparing every run found under the directory.\n\nWith Keras, add the callback:\n\n```python\ntf.keras.callbacks.TensorBoard(log_dir=\"logs/run1\", histogram_freq=1)\n```\n\nIt logs losses and metrics per epoch, weight histograms, and can profile a range of batches with `profile_batch=(10, 20)`.\n\nIn custom loops, use the `tf.summary` API:\n\n- `writer = tf.summary.create_file_writer(\"logs/run1\")`\n- inside `with writer.as_default():`, call `tf.summary.scalar(name, value, step=step)`, `tf.summary.histogram`, `tf.summary.image` or `tf.summary.text`.\n\nAlways pass `step`, which becomes the x-axis. Summaries work inside `tf.function`, so you can log from the compiled train step.\n\nGive each experiment its own subdirectory (for example including a timestamp or hyperparameters in the name) so runs can be overlaid. TensorBoard also includes the **Profiler** plugin for step-time breakdowns, and the projector for embeddings. Other frameworks, including PyTorch, can write TensorBoard logs too.",
+   "code": "import tensorflow as tf\n\nwriter = tf.summary.create_file_writer(\"logs/run1\")\nw = tf.Variable(5.0)\nopt = tf.keras.optimizers.SGD(learning_rate=0.1)\n\nfor step in range(100):\n    with tf.GradientTape() as tape:\n        loss = (w - 2.0) ** 2\n    opt.apply_gradients([(tape.gradient(loss, w), w)])\n    with writer.as_default():\n        tf.summary.scalar(\"loss\", loss, step=step)\n        tf.summary.scalar(\"w\", w, step=step)\nwriter.flush()\n\n# With fit():\n#   model.fit(x, y, callbacks=[tf.keras.callbacks.TensorBoard(\"logs/run2\")])\n# Then in a shell:  tensorboard --logdir logs",
+   "code_lang": "python",
+   "takeaways": [
+    "Write event files, view with `tensorboard --logdir`",
+    "Keras: the TensorBoard callback; custom loops: `tf.summary.*` with a step",
+    "One subdirectory per run makes comparisons easy"
+   ],
+   "pitfalls": [
+    "Logging every run to the same directory, which tangles curves from different experiments."
+   ],
+   "quiz": [
+    {
+     "q": "In tf.summary.scalar('loss', loss, step=step), what is step used for?",
+     "options": [
+      "The smoothing window",
+      "The number of values to average",
+      "The log directory",
+      "The x-axis position of the logged value"
+     ],
+     "answer": 3,
+     "explain": "TensorBoard plots each value at its step, so steps must increase across a run."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/tensorboard/get_started",
+   "requires": [
+    "tensorflow.custom-training-loop"
+   ]
+  },
+  {
+   "id": "tensorflow.ragged-strings",
+   "name": "Strings, ragged tensors and text",
+   "module": "tensors",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Process text in TensorFlow with tf.strings, represent variable-length data with RaggedTensor, and vectorise with TextVectorization.",
+   "why": "Real inputs like sentences and event lists have different lengths; TF can handle them inside the graph and the served model.",
+   "body": "TensorFlow tensors can hold **strings** (`tf.string`, byte strings), and `tf.strings` provides vectorised ops: `lower`, `split`, `regex_replace`, `substr`, `to_number`, `unicode_decode`. Because they are graph ops, preprocessing can live inside a SavedModel and run identically in training and serving.\n\nVariable-length data does not fit a rectangular tensor. A **`tf.RaggedTensor`** stores rows of different lengths efficiently (values plus row boundaries). `tf.strings.split` returns one; you can also build them with `tf.ragged.constant`. Many ops support ragged inputs directly (`reduce_sum`, `concat`, `map_flat_values`), and `.to_tensor(default_value)` pads to a dense tensor when a layer needs it. `row_lengths()` gives each row's length.\n\nFor sparse data with mostly zeros (huge one-hot features), `tf.sparse.SparseTensor` stores only indices and values.\n\nFor text models, the **`TextVectorization`** layer standardises, splits and maps words to integer ids. Call `adapt(dataset)` to build the vocabulary; index 0 is padding and 1 is the out-of-vocabulary token. Use it inside a `tf.data` map for speed, or inside the model so raw strings can be served.",
+   "code": "import tensorflow as tf\n\nwords = tf.strings.split(tf.constant([\"The cat sat\", \"hi\"]))\nprint(words)                        # <tf.RaggedTensor [[b'The', b'cat', b'sat'], [b'hi']]>\nprint(words.row_lengths().numpy())  # [3 1]\nprint(words.to_tensor(default_value=\"\").shape)   # (2, 3)\nprint(tf.strings.lower(\"Hello\").numpy())         # b'hello'\n\nr = tf.ragged.constant([[1, 2, 3], [4]])\nprint(tf.reduce_sum(r, axis=1).numpy())          # [6 4]\n\nvec = tf.keras.layers.TextVectorization(max_tokens=100, output_sequence_length=4)\nvec.adapt([\"the cat sat\", \"the dog ran\"])\nprint(vec([\"the cat ran\"]).numpy())\n# [[2 x y 0]]: 'the' is id 2 (most frequent), 0 = padding, 1 = unknown words",
+   "code_lang": "python",
+   "takeaways": [
+    "`tf.strings` ops keep text preprocessing inside the graph",
+    "RaggedTensor holds rows of different lengths; `.to_tensor()` pads",
+    "TextVectorization: `adapt` builds the vocabulary; 0 = pad, 1 = OOV"
+   ],
+   "pitfalls": [
+    "Doing text preprocessing in Python for training but not in serving, so the two drift apart."
+   ],
+   "quiz": [
+    {
+     "q": "What does tf.strings.split(['a b c', 'd']) return?",
+     "options": [
+      "A RaggedTensor with rows of length 3 and 1",
+      "A dense (2, 3) tensor padded with ''",
+      "A Python list of lists",
+      "A SparseTensor"
+     ],
+     "answer": 0,
+     "explain": "Splitting produces variable-length rows, which TensorFlow represents as a RaggedTensor."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/ragged_tensor",
+   "requires": [
+    "tensorflow.tf-data-basics",
+    "tensorflow.indexing-reshaping"
+   ]
+  },
+  {
+   "id": "tensorflow.distribution-strategies",
+   "name": "Distribution strategies",
+   "module": "scaling",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Train on several GPUs, machines or TPUs with tf.distribute strategies: create variables under strategy.scope() and keep the rest of the code.",
+   "why": "tf.distribute scales Keras and custom training with few code changes, including on TPUs.",
+   "body": "A **`tf.distribute.Strategy`** decides how variables and computation are spread across devices. You create the model, optimizer and metrics inside `with strategy.scope():`, and the strategy takes care of replication and gradient aggregation.\n\nThe main strategies:\n\n- `MirroredStrategy`: synchronous data parallelism across GPUs on one machine. Each replica gets a slice of every batch; gradients are all-reduced.\n- `MultiWorkerMirroredStrategy`: the same across machines, configured through the `TF_CONFIG` environment variable.\n- `TPUStrategy`: data parallelism on TPU cores.\n- `ParameterServerStrategy`: asynchronous training with parameter servers, for very large clusters.\n\nWith Keras, `model.fit` works unchanged once the model was built in scope. The batch size you feed is the **global** batch, split across `strategy.num_replicas_in_sync` replicas, so scale it up (and usually the learning rate).\n\nIn custom loops, distribute the dataset with `strategy.experimental_distribute_dataset(ds)`, run the step with `strategy.run(step_fn, args=(batch,))`, and combine results with `strategy.reduce`. Compute per-example losses and divide by the global batch size (for example with `tf.nn.compute_average_loss`) so gradients are scaled correctly when summed across replicas.",
+   "code": "import tensorflow as tf\n\nstrategy = tf.distribute.MirroredStrategy()     # all local GPUs (or the CPU)\nprint(\"replicas:\", strategy.num_replicas_in_sync)\nglobal_batch = 64 * strategy.num_replicas_in_sync\n\nwith strategy.scope():                           # variables are mirrored\n    model = tf.keras.Sequential([\n        tf.keras.Input((20,)),\n        tf.keras.layers.Dense(64, activation=\"relu\"),\n        tf.keras.layers.Dense(1),\n    ])\n    model.compile(optimizer=\"adam\", loss=\"mse\")\n\nx = tf.random.normal([4096, 20])\ny = tf.reduce_sum(x, axis=1, keepdims=True)\nds = (tf.data.Dataset.from_tensor_slices((x, y))\n      .shuffle(4096).batch(global_batch).prefetch(tf.data.AUTOTUNE))\nmodel.fit(ds, epochs=3, verbose=0)    # each global batch is split across replicas",
+   "code_lang": "python",
+   "takeaways": [
+    "Build model, optimizer and metrics inside `strategy.scope()`",
+    "Batches are global and split across replicas",
+    "Custom loops: distribute the dataset, `strategy.run`, scale losses by global batch"
+   ],
+   "pitfalls": [
+    "Creating the optimizer outside the scope, which places its variables incorrectly."
+   ],
+   "quiz": [
+    {
+     "q": "With MirroredStrategy on 4 GPUs and a dataset batched at 256, how many examples does each GPU process per step?",
+     "options": [
+      "256",
+      "1024",
+      "64",
+      "It depends on the model"
+     ],
+     "answer": 2,
+     "explain": "The dataset batch is the global batch; it is split evenly across the 4 replicas."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/distributed_training",
+   "requires": [
+    "tensorflow.custom-training-loop",
+    "tensorflow.devices-gpu",
+    "tensorflow.tf-data-performance"
+   ]
+  },
+  {
+   "id": "tensorflow.mixed-precision",
+   "name": "Mixed precision",
+   "module": "scaling",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Speed up training with float16 or bfloat16 compute via the mixed_float16 / mixed_bfloat16 policy, keeping outputs and variables in float32.",
+   "why": "Mixed precision gives large speedups on GPUs with tensor cores and on TPUs, with minimal code changes.",
+   "body": "Mixed precision computes most layers in 16-bit floats while keeping **variables in float32** for accurate updates. In Keras you enable it with a global **dtype policy**:\n\n```python\nkeras.mixed_precision.set_global_policy(\"mixed_float16\")\n```\n\nEach layer then has `compute_dtype` float16 and `variable_dtype` float32. Use `\"mixed_bfloat16\"` on TPUs and recent GPUs; bfloat16's wide exponent range avoids underflow.\n\nRules of thumb:\n\n- Make the **last layer's output float32**, for example `Activation(\"softmax\", dtype=\"float32\")`, since softmax and losses are sensitive to precision.\n- With `mixed_float16`, gradients can underflow, so use **loss scaling**. `model.compile` wraps the optimizer in a `LossScaleOptimizer` automatically. In a custom loop, wrap it yourself and scale the loss with `optimizer.scale_loss(loss)` before computing gradients; `apply_gradients` unscales them.\n- Speedups need tensor cores (NVIDIA compute capability 7.0+) and dimensions that are multiples of 8.\n\nOn older GPUs or CPUs, mixed precision may run slower than float32, so measure.",
+   "code": "from tensorflow import keras\n\nkeras.mixed_precision.set_global_policy(\"mixed_float16\")\n\nmodel = keras.Sequential([\n    keras.Input((784,)),\n    keras.layers.Dense(1024, activation=\"relu\"),\n    keras.layers.Dense(10),\n    keras.layers.Activation(\"softmax\", dtype=\"float32\"),   # float32 outputs\n])\ndense = model.layers[0]\nprint(dense.compute_dtype, dense.variable_dtype)   # float16 float32\nprint(model.layers[-1].compute_dtype)              # float32\n\n# compile() wraps the optimizer in a LossScaleOptimizer for mixed_float16\nmodel.compile(optimizer=\"adam\", loss=\"sparse_categorical_crossentropy\")\nprint(type(model.optimizer).__name__)              # LossScaleOptimizer\n\nkeras.mixed_precision.set_global_policy(\"float32\") # reset for later code",
+   "code_lang": "python",
+   "takeaways": [
+    "Policy `mixed_float16`/`mixed_bfloat16`: 16-bit compute, float32 variables",
+    "Keep the final activation in float32",
+    "float16 needs loss scaling; compile adds it automatically"
+   ],
+   "pitfalls": [
+    "Leaving the softmax in float16, which can produce NaN losses."
+   ],
+   "quiz": [
+    {
+     "q": "Under the mixed_float16 policy, what dtype are a Dense layer's weights stored in?",
+     "options": [
+      "float16",
+      "float32",
+      "bfloat16",
+      "float64"
+     ],
+     "answer": 1,
+     "explain": "Variables stay float32 for accurate updates; they are cast to float16 for computation."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/mixed_precision",
+   "requires": [
+    "tensorflow.keras-models",
+    "tensorflow.custom-training-loop",
+    "tensorflow.devices-gpu"
+   ]
+  },
+  {
+   "id": "tensorflow.xla-jit",
+   "name": "XLA compilation",
+   "module": "graphs",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Compile functions with XLA via tf.function(jit_compile=True) to fuse operations into fewer, faster kernels.",
+   "why": "XLA can significantly speed up compute-heavy models and is required for TPUs.",
+   "body": "**XLA** (Accelerated Linear Algebra) is a compiler that takes a whole TensorFlow graph and produces optimised machine code for CPU, GPU or TPU. Its main win is **fusion**: chains of element-wise ops that TF would launch as separate kernels, each writing to memory, become one kernel.\n\nEnable it per function:\n\n```python\n@tf.function(jit_compile=True)\ndef train_step(x, y): ...\n```\n\nor for Keras with `model.compile(..., jit_compile=True)`. In Keras 3 the default `jit_compile=\"auto\"` already enables XLA where the model supports it.\n\nConstraints and costs:\n\n- XLA compiles for **static shapes**. Each new input shape triggers a new compilation, so pad or bucket variable-length inputs.\n- Some ops have no XLA kernel; compilation then fails with an error naming the op. Ops with data-dependent output shapes (such as `tf.unique`) are a common cause.\n- The first call pays compilation time.\n\nInspect what XLA produces with `f.experimental_get_compiler_ir(*args)(stage=\"hlo\")`. On TPUs everything is compiled through XLA, so the same constraints always apply there. XLA is also the compiler behind JAX, so the skills transfer.",
+   "code": "import tensorflow as tf\n\n@tf.function(jit_compile=True)\ndef dense_gelu(x, w, b):\n    y = tf.matmul(x, w) + b\n    # tanh-approximate GELU: several element-wise ops XLA fuses into one kernel\n    return 0.5 * y * (1.0 + tf.tanh(0.7978845608 * (y + 0.044715 * y ** 3)))\n\nx = tf.random.normal([256, 512])\nw = tf.random.normal([512, 512])\nb = tf.zeros([512])\nprint(dense_gelu(x, w, b).shape)          # (256, 512)\n\nhlo = dense_gelu.experimental_get_compiler_ir(x, w, b)(stage=\"hlo\")\nprint(hlo.splitlines()[0])                # HloModule ... (the compiled program)\n\ndense_gelu(tf.random.normal([128, 512]), w, b)   # new shape -> recompiles",
+   "code_lang": "python",
+   "takeaways": [
+    "`jit_compile=True` compiles a tf.function with XLA",
+    "Fusion of element-wise ops is the main speedup",
+    "Static shapes: new shapes recompile; some ops are unsupported"
+   ],
+   "pitfalls": [
+    "Feeding many different sequence lengths to an XLA function, recompiling constantly."
+   ],
+   "quiz": [
+    {
+     "q": "Why can XLA make a chain of element-wise ops much faster?",
+     "options": [
+      "It runs them in float16",
+      "It skips gradient computation",
+      "It caches results across calls",
+      "It fuses them into one kernel, avoiding intermediate memory writes"
+     ],
+     "answer": 3,
+     "explain": "Fusion removes per-op kernel launches and round trips through memory."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/xla",
+   "requires": [
+    "tensorflow.tf-function"
+   ]
+  },
+  {
+   "id": "tensorflow.tflite-litert",
+   "name": "On-device models with LiteRT",
+   "module": "deployment",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Convert models to the .tflite format for mobile and edge with the TFLite converter, quantise them, and run them with the interpreter.",
+   "why": "LiteRT (formerly TensorFlow Lite) runs models on billions of phones and microcontrollers.",
+   "body": "**LiteRT**, the new name of TensorFlow Lite, is Google's runtime for on-device inference on Android, iOS, embedded Linux and microcontrollers. Models use the compact `.tflite` flatbuffer format.\n\nConverting:\n\n- Start from a SavedModel: `tf.lite.TFLiteConverter.from_saved_model(path)`. For Keras 3 models, `model.export(path)` first.\n- `converter.optimizations = [tf.lite.Optimize.DEFAULT]` applies **dynamic-range quantisation**: weights stored as int8, roughly 4x smaller.\n- Full **integer quantisation** also quantises activations: provide a `representative_dataset` generator yielding sample inputs so the converter can calibrate ranges. Needed for many NPUs and microcontrollers.\n- `float16` quantisation halves size with minimal accuracy loss on GPU delegates.\n\nRun it with an interpreter: `allocate_tensors()`, set inputs by index, `invoke()`, read outputs. In TF 2.20, `tf.lite.Interpreter` is deprecated in favour of the standalone `ai-edge-litert` package, which has the same API. On devices, **delegates** (GPU, NNAPI, Core ML, Hexagon) accelerate supported ops.\n\nAlways compare the converted model's outputs and accuracy to the original on real data, especially after quantisation, and check that every op converted (unsupported ops fail conversion unless you allow select TF ops).",
+   "code": "import numpy as np\nimport tensorflow as tf\n\nmodel = tf.keras.Sequential([tf.keras.Input((4,)),\n                             tf.keras.layers.Dense(8, activation=\"relu\"),\n                             tf.keras.layers.Dense(2)])\nmodel.export(\"exported\")                                   # SavedModel\n\nconverter = tf.lite.TFLiteConverter.from_saved_model(\"exported\")\nconverter.optimizations = [tf.lite.Optimize.DEFAULT]       # int8 weights\ntflite_bytes = converter.convert()\nopen(\"model.tflite\", \"wb\").write(tflite_bytes)\n\ninterp = tf.lite.Interpreter(model_content=tflite_bytes)   # or ai_edge_litert\ninterp.allocate_tensors()\ninp = interp.get_input_details()[0]\nout = interp.get_output_details()[0]\ninterp.set_tensor(inp[\"index\"], np.random.rand(1, 4).astype(np.float32))\ninterp.invoke()\nprint(interp.get_tensor(out[\"index\"]).shape)               # (1, 2)",
+   "code_lang": "python",
+   "takeaways": [
+    "Convert from a SavedModel; `Optimize.DEFAULT` quantises weights",
+    "Full int8 needs a representative dataset",
+    "Validate converted outputs against the original model"
+   ],
+   "pitfalls": [
+    "Shipping a quantised model without measuring its accuracy on real data."
+   ],
+   "quiz": [
+    {
+     "q": "What is the representative_dataset used for in full integer quantisation?",
+     "options": [
+      "Calibrating activation ranges so they can be mapped to int8",
+      "Training the model further",
+      "Testing the converted model's accuracy",
+      "Choosing which ops to delete"
+     ],
+     "answer": 0,
+     "explain": "The converter runs sample inputs through the model to measure activation ranges for quantisation."
+    }
+   ],
+   "docs": "https://ai.google.dev/edge/litert",
+   "requires": [
+    "tensorflow.savedmodel"
+   ]
+  },
+  {
+   "id": "tensorflow.tf-serving",
+   "name": "Serving with TF Serving",
+   "module": "deployment",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Serve SavedModels over REST and gRPC with TensorFlow Serving, using versioned directories for zero-downtime updates.",
+   "why": "TF Serving is a battle-tested, high-throughput server that needs no Python in production.",
+   "body": "**TensorFlow Serving** is a C++ server that loads SavedModels and exposes them over gRPC (port 8500) and REST (port 8501). The easiest way to run it is the `tensorflow/serving` Docker image.\n\nIt expects a **versioned layout**: `models/<name>/<version>/saved_model.pb`, where versions are integers. The server watches the directory and by default serves the highest version, loading new versions and unloading old ones without downtime. Rollback is just removing the bad version's folder or pinning a version in a model config file.\n\nCalling it:\n\n- REST: `POST /v1/models/<name>:predict` with `{\"instances\": [...]}` (row format) or `{\"inputs\": ...}` (columnar). The `signature_name` field picks a non-default signature.\n- `GET /v1/models/<name>` reports version status; `.../versions/<n>:predict` targets a specific version.\n- gRPC with the `tensorflow-serving-api` package is faster for large tensors.\n\nFor throughput, enable **server-side batching** (`--enable_batching` with a batching parameters file), which groups concurrent requests into larger batches for the GPU.\n\nBefore deploying, inspect signatures with `saved_model_cli` and put preprocessing inside the model so clients send raw features.",
+   "code": "# 1. Export a versioned SavedModel (TF Serving loads numbered subfolders)\npython -c \"\nimport tensorflow as tf\nm = tf.keras.Sequential([tf.keras.Input((4,)), tf.keras.layers.Dense(2)])\nm.export('models/clf/1')\"\n\n# 2. Check the signature clients must match\nsaved_model_cli show --dir models/clf/1 --tag_set serve --signature_def serving_default\n\n# 3. Start the server\ndocker run -d -p 8501:8501 \\\n  -v \"$PWD/models/clf:/models/clf\" -e MODEL_NAME=clf tensorflow/serving\n\n# 4. Call the REST API\ncurl -X POST localhost:8501/v1/models/clf:predict \\\n  -d '{\"instances\": [[1.0, 2.0, 3.0, 4.0]]}'\n# {\"predictions\": [[...two numbers...]]}",
+   "code_lang": "bash",
+   "takeaways": [
+    "Layout `models/<name>/<version>/`; the highest version is served",
+    "REST on 8501 (`:predict`), gRPC on 8500",
+    "Enable batching for GPU throughput"
+   ],
+   "pitfalls": [
+    "Exporting into `models/clf/` directly instead of a numbered version folder, so nothing loads."
+   ],
+   "quiz": [
+    {
+     "q": "You copy a new SavedModel into models/clf/2 while version 1 is being served. What happens by default?",
+     "options": [
+      "Nothing until the server restarts",
+      "Both versions get half the traffic",
+      "TF Serving loads version 2 and switches traffic to it",
+      "The server crashes"
+     ],
+     "answer": 2,
+     "explain": "The server polls the base path and serves the latest version, transitioning without downtime."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/tfx/guide/serving",
+   "requires": [
+    "tensorflow.savedmodel"
+   ]
+  },
+  {
+   "id": "tensorflow.autograph-tracing",
+   "name": "AutoGraph and graph control flow",
+   "module": "graphs",
+   "level": 4,
+   "minutes": 15,
+   "summary": "How AutoGraph rewrites Python if/while/for into tf.cond and tf.while_loop, when loops are unrolled instead, and TensorArray for accumulating results.",
+   "why": "Knowing what AutoGraph converts explains slow traces, shape errors in loops and many tf.function surprises.",
+   "body": "When `tf.function` traces your code, **AutoGraph** first rewrites its Python source. Control-flow statements are converted to functions that decide at trace time what to do:\n\n- If the condition is a **tensor**, `if` becomes `tf.cond` and `while` becomes `tf.while_loop`: the graph contains the control flow, evaluated at run time.\n- If the condition is a **Python value**, the statement runs normally during tracing: an `if` picks one branch, and `for i in range(3)` is **unrolled** into three copies of the body.\n- `for x in tf.range(n)` or over a `tf.data.Dataset` becomes a graph loop.\n\nGraph loops impose rules. Variables modified in a loop must keep the same dtype and a compatible shape across iterations (use `tf.autograph.experimental.set_loop_options(shape_invariants=...)` when a shape legitimately changes). Both branches of a tensor `if` must define the same variables with compatible types.\n\nAppending to a Python list in a graph loop does not work; use **`tf.TensorArray`** and `stack()` it at the end.\n\nLarge Python-unrolled loops produce huge graphs and slow tracing, a common hidden cost. Use `tf.autograph.to_code(fn)` to see the generated code, and remember that `tf.Variable`s may only be created on the first trace.",
+   "code": "import tensorflow as tf\n@tf.function\ndef collatz_steps(n):\n    steps = tf.constant(0)\n    while n != 1:              # tensor condition -> tf.while_loop\n        if n % 2 == 0:         # tensor condition -> tf.cond\n            n = n // 2\n        else:\n            n = 3 * n + 1\n        steps += 1\n    return steps\n\nprint(collatz_steps(tf.constant(6)).numpy())    # 8\n@tf.function\ndef loops(x):\n    for _ in range(3):         # Python range: unrolled at trace time\n        x = x * 2\n    acc = tf.TensorArray(tf.float32, size=0, dynamic_size=True)\n    for i in tf.range(3):      # tensor range: a real graph loop\n        acc = acc.write(i, tf.cast(i, tf.float32) * x)\n    return acc.stack()\n\nprint(loops(tf.constant(1.0)).numpy())          # [ 0.  8. 16.]\nprint(tf.autograph.to_code(collatz_steps.python_function)[:60])",
+   "code_lang": "python",
+   "takeaways": [
+    "Tensor conditions become tf.cond / tf.while_loop; Python conditions run at trace time",
+    "`range()` loops unroll; `tf.range()` loops stay in the graph",
+    "Accumulate in loops with `tf.TensorArray`"
+   ],
+   "pitfalls": [
+    "Appending tensors to a Python list inside a `tf.range` loop, which fails or captures only the trace-time value."
+   ],
+   "quiz": [
+    {
+     "q": "Inside a tf.function, what happens to `for i in range(1000): x = x + 1`?",
+     "options": [
+      "It becomes one tf.while_loop",
+      "It is unrolled into 1000 add ops in the graph",
+      "It raises an error",
+      "It runs eagerly"
+     ],
+     "answer": 1,
+     "explain": "Python range is a Python value, so AutoGraph leaves the loop to Python, which unrolls it during tracing."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/function",
+   "requires": [
+    "tensorflow.tf-function"
+   ]
+  },
+  {
+   "id": "tensorflow.concrete-functions-graphs",
+   "name": "Concrete functions and graphs",
+   "module": "graphs",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Polymorphic tf.function versus ConcreteFunction, inspecting the underlying tf.Graph, and how Grappler optimises graphs before execution.",
+   "why": "This is the machinery behind SavedModel signatures, retracing and graph-level performance tuning.",
+   "body": "A `tf.function` is **polymorphic**: it keeps a cache of **ConcreteFunctions**, one per traced input signature. A ConcreteFunction wraps a single `FuncGraph` (a `tf.Graph`) with fixed input specs; calling it never retraces, and an incompatible input is an error.\n\nGet one with `f.get_concrete_function(tf.TensorSpec([None, 3], tf.float32), ...)`. From there you can inspect:\n\n- `cf.structured_input_signature` and `cf.structured_outputs`.\n- `cf.graph.get_operations()`: the ops (`Placeholder`, `MatMul`, `AddV2`, `Identity`...) and their tensors.\n- `cf.graph.as_graph_def()`: the protobuf serialised into SavedModels.\n\nSavedModel **signatures** are concrete functions, which is why serving requires fixed input specs.\n\nBefore execution, the runtime passes graphs through **Grappler**, TensorFlow's graph optimiser: constant folding, arithmetic simplification, common-subexpression elimination, layout optimisation (NHWC/NCHW), remapping op patterns to fused kernels, and pruning of unused ops. You can toggle passes with `tf.config.optimizer.set_experimental_options({...})`, mainly for debugging.\n\nGraph execution also runs independent ops in parallel and avoids Python overhead per op, which is where most of tf.function's speedup over eager mode comes from in models made of many small operations.",
+   "code": "import tensorflow as tf\n\n@tf.function\ndef f(x, y):\n    return tf.matmul(x, y) + 1.0\n\ncf = f.get_concrete_function(tf.TensorSpec([None, 3], tf.float32),\n                             tf.TensorSpec([3, 2], tf.float32))\nprint(cf.structured_input_signature[0])\n# (TensorSpec(shape=(None, 3), ...), TensorSpec(shape=(3, 2), ...))\nprint(cf.outputs[0].shape)                     # (None, 2)\nprint([op.type for op in cf.graph.get_operations()])\n# e.g. ['Placeholder', 'Placeholder', 'MatMul', 'Const', 'AddV2', 'Identity']\n\nprint(cf(tf.ones([4, 3]), tf.ones([3, 2])).numpy()[0])   # [4. 4.]\ntry:\n    cf(tf.ones([4, 5]), tf.ones([5, 2]))       # concrete functions never retrace\nexcept Exception as e:\n    print(\"incompatible input:\", type(e).__name__)\nf(tf.ones([4, 5]), tf.ones([5, 2]))            # the polymorphic f simply retraces",
+   "code_lang": "python",
+   "takeaways": [
+    "A tf.function caches one ConcreteFunction per input signature",
+    "ConcreteFunctions expose their tf.Graph and never retrace",
+    "Grappler rewrites graphs (folding, fusion, layout) before running them"
+   ],
+   "pitfalls": [
+    "Expecting a ConcreteFunction to accept new shapes; only the polymorphic tf.function retraces."
+   ],
+   "quiz": [
+    {
+     "q": "What is a SavedModel serving signature, in terms of tf.function machinery?",
+     "options": [
+      "A polymorphic tf.function",
+      "A Grappler pass",
+      "A checkpoint key",
+      "A ConcreteFunction with fixed input specs"
+     ],
+     "answer": 3,
+     "explain": "Signatures are concrete functions, which is why they need fully specified (or None-dimension) input specs."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/intro_to_graphs",
+   "requires": [
+    "tensorflow.autograph-tracing",
+    "tensorflow.savedmodel"
+   ]
+  },
+  {
+   "id": "tensorflow.custom-gradients",
+   "name": "Custom and higher-order gradients",
+   "module": "autodiff",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Override gradients with @tf.custom_gradient, stop them with tf.stop_gradient, and compute Jacobians and Hessians with nested tapes.",
+   "why": "Needed for numerically stable functions, straight-through estimators, gradient penalties and second-order methods.",
+   "body": "**`@tf.custom_gradient`** lets you define a function together with its gradient. The decorated function returns `(output, grad_fn)`, where `grad_fn(upstream)` returns the gradient with respect to each input. Uses:\n\n- **Numerical stability**: the textbook example is `log(1 + exp(x))`, whose automatic gradient is `exp(x) / (1 + exp(x))` and becomes `inf / inf = nan` for large x. A hand-written gradient `1 - 1 / (1 + exp(x))` stays finite.\n- **Straight-through estimators** and gradient clipping inside a layer.\n- Saving memory by recomputing instead of storing (see also `tf.recompute_grad`).\n\n`tf.stop_gradient(x)` passes values through but blocks gradients, used for target networks and some losses.\n\n**Higher-order gradients** come from nesting tapes: compute a gradient inside an outer tape, then differentiate it again with the outer tape. That gives second derivatives, Hessian-vector products and gradient penalties (as in WGAN-GP).\n\nFor full derivative matrices, `tape.jacobian(y, x)` returns the Jacobian, and `tape.batch_jacobian(y, x)` computes per-example Jacobians efficiently when examples are independent. Both use `pfor` vectorisation under the hood; pass `experimental_use_pfor=False` to fall back to a loop if an op is not supported.",
+   "code": "import tensorflow as tf\n\n@tf.custom_gradient\ndef log1pexp(x):\n    e = tf.exp(x)\n    def grad(upstream):\n        return upstream * (1 - 1 / (1 + e))    # stable even when e is inf\n    return tf.math.log(1 + e), grad\n\nx = tf.constant(100.0)\nwith tf.GradientTape() as tape:\n    tape.watch(x)\n    y = log1pexp(x)\nprint(tape.gradient(y, x).numpy())             # 1.0  (automatic gradient gives nan)\nv = tf.Variable(3.0)\nwith tf.GradientTape() as outer:\n    with tf.GradientTape() as inner:\n        y = v ** 3\n    dy = inner.gradient(y, v)                  # 3v^2 = 27\nd2y = outer.gradient(dy, v)                    # 6v = 18\nprint(dy.numpy(), d2y.numpy())                 # 27.0 18.0\nw = tf.Variable([1.0, 2.0])\nwith tf.GradientTape() as tape:\n    out = w ** 2\nprint(tape.jacobian(out, w).numpy())           # [[2. 0.] [0. 4.]]",
+   "code_lang": "python",
+   "takeaways": [
+    "`@tf.custom_gradient` returns (output, grad_fn)",
+    "Nest tapes for second derivatives; `jacobian`/`batch_jacobian` for matrices",
+    "`tf.stop_gradient` blocks gradient flow"
+   ],
+   "pitfalls": [
+    "Computing the inner gradient outside the outer tape's context, so the outer tape cannot differentiate it."
+   ],
+   "quiz": [
+    {
+     "q": "How do you compute a second derivative d2y/dx2 in TensorFlow?",
+     "options": [
+      "Compute the first gradient inside an outer tape and differentiate it with that outer tape",
+      "tape.gradient(y, x, order=2)",
+      "Use a persistent tape and call gradient twice on y",
+      "Use tf.stop_gradient"
+     ],
+     "answer": 0,
+     "explain": "The outer tape records the inner gradient computation, so it can differentiate it again."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/advanced_autodiff",
+   "requires": [
+    "tensorflow.gradient-tape",
+    "tensorflow.custom-training-loop"
+   ]
+  },
+  {
+   "id": "tensorflow.runtime-internals",
+   "name": "Runtime, kernels and threading",
+   "module": "graphs",
+   "level": 4,
+   "minutes": 14,
+   "summary": "How ops map to device kernels, the eager and graph executors, intra- and inter-op thread pools, raw ops, and custom C++ ops.",
+   "why": "Tuning CPU inference, debugging placement and writing custom kernels all require knowing how the runtime executes ops.",
+   "body": "Every TensorFlow operation is an **op** registered in a global registry with a name, typed inputs and attributes (`AddV2`, `MatMul`, `Conv2D`). Each op has one or more **kernels**: implementations for a device type and dtype. When an op runs, the placer chooses a device that has a kernel (preferring GPUs), and the executor dispatches to that kernel. The full low-level op set is exposed as `tf.raw_ops`, which is what high-level Python functions ultimately call.\n\nIn **eager mode**, each Python call executes one op immediately. In **graph mode** (`tf.function`), the graph is optimised by Grappler, partitioned across devices with send/receive ops inserted between them, and run by an executor that schedules ready ops in parallel.\n\nCPU parallelism uses two thread pools:\n\n- **intra-op**: threads used inside a single op (a big matmul);\n- **inter-op**: how many independent ops run concurrently.\n\nSet them with `tf.config.threading.set_intra_op_parallelism_threads(n)` and `set_inter_op_parallelism_threads(n)` before the runtime initialises; tuning them matters for CPU serving with many concurrent requests.\n\nWhen no op does what you need, you can write a **custom op** in C++ (`REGISTER_OP` plus kernels), build it into a shared library and load it with `tf.load_op_library`. Prefer composing existing ops first: custom ops complicate builds, XLA support and portability.",
+   "code": "import tensorflow as tf\n\n# Thread pools must be configured before the runtime starts executing ops.\ntf.config.threading.set_intra_op_parallelism_threads(4)   # threads inside one op\ntf.config.threading.set_inter_op_parallelism_threads(2)   # ops run concurrently\n\nprint(tf.raw_ops.AddV2(x=tf.constant(1.0), y=tf.constant(2.0)).numpy())   # 3.0\n\ntf.debugging.set_log_device_placement(True)      # log each op's chosen device\na = tf.constant([[1.0, 2.0]])\nb = tf.matmul(a, a, transpose_b=True)            # logs: Executing op MatMul in device ...\nprint(b.numpy())                                 # [[5.]]\ntf.debugging.set_log_device_placement(False)\n\nprint([d.device_type for d in tf.config.list_logical_devices()])   # e.g. ['CPU', 'GPU']\n\ntf.config.run_functions_eagerly(True)            # debugging: tf.functions run op by op\ntf.config.run_functions_eagerly(False)",
+   "code_lang": "python",
+   "takeaways": [
+    "Ops are registered interfaces; kernels implement them per device and dtype",
+    "Intra-op vs inter-op thread pools control CPU parallelism",
+    "`tf.raw_ops` exposes every op; custom C++ ops are a last resort"
+   ],
+   "pitfalls": [
+    "Setting thread-pool sizes after the first op has run, which raises a RuntimeError."
+   ],
+   "quiz": [
+    {
+     "q": "An op exists but has no GPU kernel for the requested dtype. What does TensorFlow typically do with soft placement on?",
+     "options": [
+      "Raises an error",
+      "Casts the input to float32 on the GPU",
+      "Runs that op on the CPU",
+      "Skips the op"
+     ],
+     "answer": 2,
+     "explain": "Soft device placement (the default) falls back to a device that has a kernel, usually the CPU."
+    }
+   ],
+   "docs": "https://www.tensorflow.org/guide/intro_to_graphs",
+   "requires": [
+    "tensorflow.devices-gpu",
+    "tensorflow.concrete-functions-graphs"
+   ]
+  }
+ ]
+}

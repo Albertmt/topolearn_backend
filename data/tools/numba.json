@@ -1,0 +1,586 @@
+{
+ "tool": {
+  "id": "numba",
+  "name": "Numba",
+  "category": "library",
+  "tagline": "JIT compiler that turns numeric Python and NumPy code into fast machine code",
+  "description": "Numba is a just-in-time compiler for Python that uses LLVM to compile functions working on numbers and NumPy arrays into native machine code. Adding a decorator such as @njit to a loop-heavy function often makes it run at C speed, with optional multithreading and custom ufuncs. It is used in scientific computing, simulation and data processing wherever a loop cannot be vectorized cleanly.",
+  "icon": "Nb",
+  "color": "#00A3E0",
+  "official_docs": "https://numba.readthedocs.io/en/stable/",
+  "version": "0.68",
+  "aliases": [
+   "numba jit",
+   "njit",
+   "llvm python"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 2
+   },
+   {
+    "tool": "numpy",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Getting started"
+  },
+  {
+   "id": "types",
+   "name": "Types and data"
+  },
+  {
+   "id": "ufuncs",
+   "name": "Ufuncs and vectorizing"
+  },
+  {
+   "id": "performance",
+   "name": "Parallelism and tuning"
+  },
+  {
+   "id": "internals",
+   "name": "Internals and extending"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "numba.jit-basics",
+   "name": "What Numba does: @njit",
+   "module": "basics",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Decorate a numeric Python function with @njit and Numba compiles it to machine code the first time it is called.",
+   "why": "It is the cheapest way to make a slow Python loop over numbers run at C speed without leaving Python.",
+   "body": "Pure Python loops are slow because every operation goes through the interpreter and works on boxed objects. **Numba** is a just-in-time (JIT) compiler: when you call a decorated function, it reads the function's bytecode, infers concrete types for every variable from the argument types, and uses LLVM to generate native machine code. Later calls with the same argument types jump straight into that compiled code.\n\nThe decorator you will use most is `@njit`, short for `@jit(nopython=True)`. In **nopython mode** the whole function is compiled without touching the Python interpreter, which is where the speed comes from. Since Numba 0.59, plain `@jit` also defaults to nopython mode, so the two behave the same; `@njit` is still the common spelling.\n\nNumba works best on code that:\n\n- loops over NumPy arrays or ranges of numbers,\n- uses scalars, tuples, NumPy arrays and a subset of Python and NumPy functions,\n- would be awkward or memory-hungry to express as vectorized NumPy.\n\nIt does not speed up code that calls pandas, does string-heavy work or uses arbitrary Python objects; such code fails to compile in nopython mode with a `TypingError`.\n\nThe function stays a normal Python callable: call it with arrays and numbers as usual. The original pure Python version is available as `func.py_func`, which is handy for testing that both agree.",
+   "code": "import numpy as np\nfrom numba import njit\n\n@njit\ndef sum_of_squares(a):\n    total = 0.0\n    for x in a:           # a plain loop, compiled to machine code\n        total += x * x\n    return total\n\na = np.arange(1_000_000, dtype=np.float64)\nprint(sum_of_squares(a))           # 3.3333283333312755e+17\nprint(sum_of_squares.py_func(a[:4]))  # 14.0 (the original Python function)\nprint(sum_of_squares(a[:4]))       # 14.0",
+   "code_lang": "python",
+   "takeaways": [
+    "@njit compiles a function to native code on its first call",
+    "Nopython mode means no interpreter in the loop: that is where speed comes from",
+    "func.py_func is the original Python function"
+   ],
+   "pitfalls": [
+    "Decorating code that uses pandas or arbitrary objects and expecting it to compile."
+   ],
+   "quiz": [
+    {
+     "q": "Why does a Numba-compiled loop run much faster than the same pure Python loop?",
+     "options": [
+      "It runs the loop on the GPU",
+      "It skips some iterations",
+      "Types are known so it runs native machine code instead of interpreting boxed objects",
+      "It caches the result of the previous call"
+     ],
+     "answer": 2,
+     "explain": "Type inference lets LLVM generate specialised machine code with unboxed numbers."
+    }
+   ],
+   "docs": "https://numba.readthedocs.io/en/stable/user/5minguide.html",
+   "requires": [
+    "numpy.ndarray-basics"
+   ]
+  },
+  {
+   "id": "numba.compile-on-first-call",
+   "name": "Compilation, warm-up and caching",
+   "module": "basics",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Understand why the first call is slow, how to benchmark correctly and how cache=True keeps compiled code on disk.",
+   "why": "Misreading compile time as run time is the most common reason people think Numba 'didn't help'.",
+   "body": "Compilation happens **lazily, on the first call** with a new combination of argument types. That call includes type inference and LLVM optimisation, which can take from a fraction of a second to several seconds for big functions. Every later call with the same types reuses the compiled machine code.\n\nSo benchmark correctly: call the function once to warm it up, then time later calls (for example with `timeit` or `time.perf_counter`). Timing the first call measures the compiler, not your code.\n\nEach distinct type signature gets its own compiled version. Calling with an `int64` array and later a `float32` array compiles twice. The dispatcher's `signatures` attribute lists what has been compiled so far.\n\nCompiled code lives in memory and disappears when the process exits. For scripts and command-line tools that start often, pass `cache=True`: Numba writes the compiled code to a `__pycache__` directory next to the source file and loads it in later processes, as long as the source and the Numba version are unchanged. Caching only works for functions defined in files (not in an interactive session or `exec`).\n\nIf compile time matters, also consider fewer, larger compiled functions rather than many tiny ones, and avoid recompiling by keeping input dtypes consistent.",
+   "code": "import time\nimport numpy as np\nfrom numba import njit\n\n@njit(cache=True)\ndef clip_sum(a, lo, hi):\n    s = 0.0\n    for x in a:\n        s += min(max(x, lo), hi)\n    return s\n\na = np.random.default_rng(0).normal(size=2_000_000)\n\nt = time.perf_counter(); clip_sum(a, -1.0, 1.0)\nprint(f\"first call:  {time.perf_counter() - t:.3f}s\")  # includes compiling (or loading the cache)\nt = time.perf_counter(); clip_sum(a, -1.0, 1.0)\nprint(f\"second call: {time.perf_counter() - t:.3f}s\")  # run time only, e.g. 0.002s\n\nclip_sum(a.astype(np.float32), -1.0, 1.0)   # new dtype -> compiles again\nprint(len(clip_sum.signatures))             # 2",
+   "code_lang": "python",
+   "takeaways": [
+    "The first call per type signature compiles; later calls are fast",
+    "Warm up before timing",
+    "cache=True stores compiled code on disk for later processes"
+   ],
+   "pitfalls": [
+    "Benchmarking only the first call and concluding Numba is slow."
+   ],
+   "quiz": [
+    {
+     "q": "A function is called with a float64 array, then an int32 array, then a float64 array again. How many compilations happen?",
+     "options": [
+      "2",
+      "1",
+      "3",
+      "0, compilation happens at import"
+     ],
+     "answer": 0,
+     "explain": "One compilation per distinct signature: float64 and int32. The third call reuses the float64 version."
+    }
+   ],
+   "docs": "https://numba.readthedocs.io/en/stable/user/jit.html",
+   "requires": [
+    "numba.jit-basics"
+   ]
+  },
+  {
+   "id": "numba.nopython-subset",
+   "name": "What nopython mode supports",
+   "module": "types",
+   "level": 1,
+   "minutes": 11,
+   "summary": "Know which Python features and NumPy functions compile in nopython mode, and what to do about the rest.",
+   "why": "Writing inside the supported subset from the start avoids fighting compile errors later.",
+   "body": "Numba compiles a **subset** of Python and NumPy. Inside an `@njit` function you can use:\n\n- numbers (`int`, `float`, `complex`, `bool`), `None`, tuples and named tuples,\n- `if`, `for`, `while`, `break`, `continue`, `range`, `enumerate`, `zip`,\n- NumPy arrays of numeric, boolean and some datetime dtypes, with indexing, slicing, views and most arithmetic,\n- a large part of the NumPy API: creation functions (`np.zeros`, `np.empty`, `np.arange`), math ufuncs, reductions (`sum`, `mean`, `argmax`), `np.sort`, `np.linalg` (via SciPy's LAPACK) and the `np.random` legacy functions,\n- the `math` and `cmath` modules, strings with basic operations, lists and dicts (typed, homogeneous), sets, simple classes via `@jitclass`, and calls to other `@njit` functions.\n\nWhat does **not** work: pandas, most of the standard library, arbitrary Python objects, `try` with arbitrary exception types beyond basics, generators that escape, dicts or lists mixing types, and many keyword arguments of NumPy functions (for example `dtype=` or `axis=` support varies by function).\n\nContainers must be **homogeneous**: a list of floats is fine; `[1, \"a\"]` is a typing error. Arrays are the preferred data structure, because they map directly to raw memory.\n\nWhen something is unsupported, the usual fix is to restructure: do I/O and pandas work outside, then pass plain NumPy arrays into a small compiled kernel. The reference pages list supported Python features and NumPy functions in detail.",
+   "code": "import math\nimport numpy as np\nfrom numba import njit\n\n@njit\ndef stats(a):\n    out = np.empty(3)\n    out[0] = a.mean()\n    out[1] = math.sqrt(((a - a.mean()) ** 2).sum() / a.size)\n    out[2] = np.argmax(a)\n    return out\n\nprint(stats(np.array([1.0, 2.0, 3.0, 10.0])))  # [4.         3.53553391 3.        ]\n\n@njit\ndef bad(xs):\n    return [x for x in xs] + [\"oops\"]   # mixes float and str\n\ntry:\n    bad(np.ones(2))\nexcept Exception as e:\n    print(type(e).__name__)             # TypingError",
+   "code_lang": "python",
+   "takeaways": [
+    "Numbers, tuples, loops, NumPy arrays and much of the NumPy API compile",
+    "Containers must hold a single type",
+    "Keep pandas, I/O and objects outside; pass arrays into compiled kernels"
+   ],
+   "pitfalls": [
+    "Assuming every keyword argument of a NumPy function is supported inside @njit."
+   ],
+   "quiz": [
+    {
+     "q": "Which of these will compile inside an @njit function?",
+     "options": [
+      "df.groupby('a').sum() on a pandas DataFrame",
+      "np.sqrt(a).sum() on a float array",
+      "A list holding both ints and strings",
+      "json.loads on a string"
+     ],
+     "answer": 1,
+     "explain": "NumPy ufuncs and reductions are supported; pandas, mixed-type lists and most of the stdlib are not."
+    }
+   ],
+   "docs": "https://numba.readthedocs.io/en/stable/reference/numpysupported.html",
+   "requires": [
+    "numba.jit-basics",
+    "numpy.dtypes"
+   ]
+  },
+  {
+   "id": "numba.loops-over-arrays",
+   "name": "Writing fast loops over arrays",
+   "module": "basics",
+   "level": 1,
+   "minutes": 11,
+   "summary": "Write explicit index loops over NumPy arrays, preallocate outputs and iterate in memory order for Numba speed.",
+   "why": "Explicit loops are Numba's strength, and a few habits decide whether they run at C speed.",
+   "body": "With Numba, the loop you would avoid in plain Python becomes the fastest option. A typical compiled kernel looks like C written in Python syntax: preallocate the output with `np.empty`, loop over indices, and write results element by element.\n\nHabits that keep loops fast:\n\n- **Preallocate** arrays once instead of appending to lists.\n- **Loop in memory order.** For a C-ordered 2D array, make the last index the inner loop: `for i in range(n): for j in range(m): a[i, j]`. Striding across rows in the inner loop wastes cache.\n- **Keep types stable.** Initialise accumulators with the right type (`0.0` for floats). A variable that is an int in one branch and a float in another forces type unification and can block optimisation.\n- **Avoid temporary arrays inside hot loops.** `a[i:i+3].sum()` inside a loop allocates a view and calls a function; a short inner loop is often faster.\n- **Fuse passes.** Compute several statistics in one loop instead of calling `mean`, then `std`, then `max`, each of which reads the whole array.\n\nLoops with data dependencies are where Numba shines over NumPy: running sums with resets, state machines, recurrences like `y[i] = a * y[i-1] + x[i]`, or algorithms with early exit. These are either impossible to vectorize or need several temporary arrays in NumPy.\n\nArrays passed in are not copied: writing to them inside the function modifies the caller's array, just as in Python.",
+   "code": "import numpy as np\nfrom numba import njit\n\n@njit\ndef ewma(x, alpha):\n    # y[i] depends on y[i-1]: hard to vectorize, easy to loop\n    y = np.empty_like(x)\n    y[0] = x[0]\n    for i in range(1, x.size):\n        y[i] = alpha * x[i] + (1 - alpha) * y[i - 1]\n    return y\n\n@njit\ndef row_sums(a):\n    out = np.zeros(a.shape[0])\n    for i in range(a.shape[0]):        # outer: rows\n        for j in range(a.shape[1]):    # inner: contiguous columns\n            out[i] += a[i, j]\n    return out\n\nprint(ewma(np.array([1.0, 2.0, 3.0, 4.0]), 0.5))  # [1.    1.5   2.25  3.125]\nprint(row_sums(np.arange(6.0).reshape(2, 3)))     # [ 3. 12.]",
+   "code_lang": "python",
+   "takeaways": [
+    "Preallocate outputs and write by index",
+    "Make the innermost loop walk contiguous memory",
+    "Recurrences and early exits are where loops beat vectorized NumPy"
+   ],
+   "pitfalls": [
+    "Iterating column-first over a C-ordered array in the inner loop."
+   ],
+   "quiz": [
+    {
+     "q": "For a C-ordered array a of shape (n, m), which loop order is faster in Numba?",
+     "options": [
+      "for j over columns outside, for i over rows inside",
+      "Both are always identical",
+      "Whichever loop is written with while",
+      "for i over rows outside, for j over columns inside"
+     ],
+     "answer": 3,
+     "explain": "In C order each row is contiguous, so the inner loop should walk along a row."
+    }
+   ],
+   "docs": "https://numba.readthedocs.io/en/stable/user/performance-tips.html",
+   "requires": [
+    "numba.jit-basics",
+    "numpy.indexing-slicing"
+   ]
+  },
+  {
+   "id": "numba.types-signatures",
+   "name": "Type inference and explicit signatures",
+   "module": "types",
+   "level": 2,
+   "minutes": 12,
+   "summary": "See how Numba infers types, read compiled signatures and give explicit ones for eager compilation.",
+   "why": "Most Numba errors and slowdowns are type problems, so you need to see what the compiler inferred.",
+   "body": "Numba's type system is richer than NumPy dtypes: an array type records **dtype, number of dimensions and layout**, written like `float64[:, ::1]` (2D, C-contiguous) or `int32[:]` (1D, any layout). Scalars are `int64`, `float64`, `boolean`, `complex128`, and so on. Every variable in a compiled function gets exactly one type, unified across all assignments.\n\nNormally the dispatcher compiles lazily for whatever arguments it sees. You can instead pass **explicit signatures** to compile eagerly, at decoration time:\n\n```python\n@njit(\"float64(float64[:], float64)\")\n```\n\nor with type objects, `@njit(float64(float64[::1], float64))`. With signatures, only those types are accepted; calling with anything else raises `TypeError` instead of compiling a new version. Signatures are useful for ahead-of-time warm-up, for libraries that want predictable behaviour, and for `cfunc` and `@vectorize`.\n\nTo inspect what happened:\n\n- `f.signatures` lists compiled signatures.\n- `numba.typeof(value)` shows the Numba type of a Python value.\n- `f.inspect_types()` prints the source annotated with inferred types, revealing unexpected `float64` to `int64` mixes or `pyobject` fallbacks.\n\nInteger semantics differ from Python: Numba integers are fixed width (`int64` by default), so they can overflow silently instead of growing like Python ints.",
+   "code": "import numpy as np\nfrom numba import njit, typeof, float64\n\nprint(typeof(np.zeros((2, 3))))     # array(float64, 2d, C)\nprint(typeof(np.zeros(4)[::2]))     # array(float64, 1d, A)\nprint(typeof(3), typeof(2.5))       # int64 float64\n\n@njit(float64(float64[::1], float64))   # compiled eagerly, at definition\ndef scale_sum(a, k):\n    return (a * k).sum()\n\nprint(scale_sum(np.ones(3), 2.0))   # 6.0\nprint(scale_sum.signatures)         # [(Array(float64, 1, 'C', False, aligned=True), float64)]\ntry:\n    scale_sum(np.ones(3, dtype=np.int64), 2.0)\nexcept TypeError as e:\n    print(\"TypeError:\", str(e)[:40])  # No matching definition for argument ...\n\n@njit\ndef overflow(n):\n    return n * n\nprint(overflow(2**40))              # 0  (int64 wrap-around, Python gives 1208925819614629174706176)",
+   "code_lang": "python",
+   "takeaways": [
+    "Array types include dtype, ndim and layout (C, F or A)",
+    "Explicit signatures compile eagerly and reject other types",
+    "Numba integers are fixed width and can overflow silently"
+   ],
+   "pitfalls": [
+    "Assuming Python's unlimited integers inside compiled code."
+   ],
+   "quiz": [
+    {
+     "q": "A function is decorated with @njit('float64(float64[:])'). What happens when it is called with an int64 array?",
+     "options": [
+      "It compiles a new int64 version",
+      "It silently converts the array",
+      "It raises a TypeError: no matching definition",
+      "It falls back to Python mode"
+     ],
+     "answer": 2,
+     "explain": "With explicit signatures the dispatcher only accepts those types and does not compile new ones."
+    }
+   ],
+   "docs": "https://numba.readthedocs.io/en/stable/reference/jit-compilation.html",
+   "requires": [
+    "numba.compile-on-first-call",
+    "numba.nopython-subset"
+   ]
+  },
+  {
+   "id": "numba.vectorize",
+   "name": "@vectorize and @guvectorize ufuncs",
+   "module": "ufuncs",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Write scalar functions and turn them into real NumPy ufuncs with broadcasting, or generalized ufuncs that work on sub-arrays.",
+   "why": "Custom ufuncs plug into NumPy broadcasting and reductions while running compiled code.",
+   "body": "`@vectorize` takes a function written for **scalars** and builds a true NumPy ufunc from it. The ufunc then works on scalars and arrays of any shape, with full **broadcasting**, `out=` arguments and ufunc methods like `.reduce` and `.accumulate`.\n\n```python\n@vectorize([\"float64(float64, float64)\"])\ndef rel_diff(x, y): ...\n```\n\nWith a list of signatures, the ufunc is compiled eagerly for those types. Without signatures you get a dynamic ufunc that compiles new loops as it meets new types. The `target` option selects `\"cpu\"` (default, single thread) or `\"parallel\"` (multithreaded, worth it only for large arrays).\n\n`@guvectorize` builds a **generalized ufunc** that operates on sub-arrays rather than single elements. You declare a layout string like `\"(n),()->(n)\"`, and the function receives array slices and writes results into an output argument (it does not return). NumPy loops over the remaining leading dimensions for you, so a function written for one row automatically applies to every row of a 2D array.\n\nCompared with `@njit`, ufuncs give you NumPy-native behaviour for free: broadcasting rules, dtype dispatch and integration with code that expects ufuncs. Use `@njit` when you need control flow across elements, such as recurrences, which a ufunc cannot express.",
+   "code": "import numpy as np\nfrom numba import vectorize, guvectorize, float64\n\n@vectorize([float64(float64, float64)])\ndef rel_diff(x, y):\n    return 2 * (x - y) / (x + y)\n\na = np.array([1.0, 2.0, 4.0])\nprint(rel_diff(a, 2.0))                 # [-0.66666667  0.          0.66666667]  (broadcast)\nprint(rel_diff(a[:, None], a).shape)    # (3, 3)\n\n@guvectorize([(float64[:], float64, float64[:])], \"(n),()->(n)\")\ndef clip_row(row, limit, out):\n    for i in range(row.shape[0]):\n        out[i] = min(row[i], limit)\n\nm = np.array([[1.0, 5.0], [7.0, 2.0]])\nprint(clip_row(m, 3.0))                 # [[1. 3.]\n                                        #  [3. 2.]]",
+   "code_lang": "python",
+   "takeaways": [
+    "@vectorize turns a scalar function into a broadcasting NumPy ufunc",
+    "@guvectorize works on sub-arrays described by a layout string and writes to an output argument",
+    "Use @njit when elements depend on each other"
+   ],
+   "pitfalls": [
+    "Returning a value from a @guvectorize function instead of filling the output argument."
+   ],
+   "quiz": [
+    {
+     "q": "What does a @guvectorize function with layout '(n)->()' applied to a (5, 3) array return?",
+     "options": [
+      "An array of shape (5,)",
+      "A scalar",
+      "An array of shape (3,)",
+      "An array of shape (5, 3)"
+     ],
+     "answer": 0,
+     "explain": "The core dimension n=3 is consumed per call; NumPy loops over the leading dimension of size 5."
+    }
+   ],
+   "docs": "https://numba.readthedocs.io/en/stable/user/vectorize.html",
+   "requires": [
+    "numba.loops-over-arrays",
+    "numba.types-signatures",
+    "numpy.ufuncs",
+    "numpy.broadcasting"
+   ]
+  },
+  {
+   "id": "numba.typed-containers",
+   "name": "Typed List and Dict",
+   "module": "types",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Use numba.typed.List and numba.typed.Dict for homogeneous lists and hash maps inside compiled code.",
+   "why": "Algorithms that need growing collections or lookup tables can stay fully compiled.",
+   "body": "Arrays have a fixed size, but many algorithms need a growable list or a hash map: building adjacency lists, counting occurrences, memoisation. Numba provides typed, compiled versions in `numba.typed`:\n\n- `typed.List`: a homogeneous list. You can create one in Python (`List()` then `append`, or `List([1.0, 2.0])`) and pass it into compiled functions, or create a list inside an `@njit` function with an ordinary `[]` literal and `append`.\n- `typed.Dict`: a homogeneous hash map. Create it empty with explicit types, `Dict.empty(key_type=types.int64, value_type=types.float64)`, or inside compiled code with `{}` and assignments, where the types are inferred from the first insertion.\n\nEvery element and key must have the same Numba type. Values can be numbers, tuples, arrays (as long as all have the same dtype and ndim) or other typed containers.\n\nWhy not just pass a Python list? Numba used to support \"reflected\" Python lists by converting them on every call, which was slow and is deprecated. Typed containers live in native memory and cross the Python boundary without conversion. Accessing them from plain Python, however, is slower than a normal list, because every access goes through a compiled helper. Use them as the data structure for compiled code, not as a general replacement.\n\nTyped dicts and lists are usable from both sides, so you can build data in a compiled function and inspect it in Python.",
+   "code": "import numpy as np\nfrom numba import njit, types\nfrom numba.typed import Dict, List\n\n@njit\ndef count_values(a):\n    counts = Dict.empty(key_type=types.int64, value_type=types.int64)\n    for x in a:\n        counts[x] = counts.get(x, 0) + 1\n    return counts\n\nc = count_values(np.array([3, 1, 3, 3, 2]))\nprint(dict(c))                      # {3: 3, 1: 1, 2: 1}\n\n@njit\ndef evens_up_to(n):\n    out = []                        # inferred as a typed list of int64\n    for i in range(n):\n        if i % 2 == 0:\n            out.append(i)\n    return out\n\nprint(list(evens_up_to(7)))         # [0, 2, 4, 6]\nlst = List([1.5, 2.5])\nprint(type(lst).__name__)           # List",
+   "code_lang": "python",
+   "takeaways": [
+    "typed.List and typed.Dict hold one Numba type per container",
+    "Create them in Python or with literals inside @njit code",
+    "They are for compiled code; plain Python access is slower than built-ins"
+   ],
+   "pitfalls": [
+    "Passing a regular Python list of lists into @njit code (reflected lists are deprecated and slow)."
+   ],
+   "quiz": [
+    {
+     "q": "Which value can be inserted into Dict.empty(key_type=types.int64, value_type=types.float64)?",
+     "options": [
+      "d[1] = 2.5",
+      "d['a'] = 2.5",
+      "d[1] = 'x'",
+      "d[(1, 2)] = 2.5"
+     ],
+     "answer": 0,
+     "explain": "Keys must be int64 and values float64; strings and tuples have other types."
+    }
+   ],
+   "docs": "https://numba.readthedocs.io/en/stable/reference/pysupported.html",
+   "requires": [
+    "numba.nopython-subset"
+   ]
+  },
+  {
+   "id": "numba.when-to-use",
+   "name": "Numba vs NumPy vs others",
+   "module": "performance",
+   "level": 2,
+   "minutes": 9,
+   "summary": "Decide when Numba beats vectorized NumPy, when it does not help, and what the alternatives are.",
+   "why": "Adding @njit everywhere wastes compile time; knowing where it wins focuses the effort.",
+   "body": "Vectorized NumPy already runs compiled C loops, so wrapping a single NumPy call such as `a.sum()` or `a @ b` in `@njit` gives no speedup: Numba calls comparable code, and matrix products go to the same BLAS. Numba wins when NumPy would need **multiple passes or temporaries**, or when the algorithm is inherently sequential:\n\n- Expressions creating many temporary arrays, like `np.sqrt(x**2 + y**2) * np.exp(-z)`, which allocate an array per operation. A Numba loop fuses them into one pass with no temporaries.\n- Recurrences, state machines, early exits, and searches.\n- Algorithms with irregular access patterns: graphs, histograms with custom binning, particle simulations, dynamic programming.\n- Code that would need `np.vectorize` (which is just a Python loop) or Python-level loops in NumPy.\n\nNumba does not help with I/O-bound code, pandas and string processing, or code dominated by calls to large NumPy or BLAS routines.\n\nAlternatives to know:\n\n- **Cython**: ahead-of-time compiled, good for wrapping C libraries and shipping wheels, more setup.\n- **JAX**: array programming with automatic differentiation and GPU/TPU support, functional style.\n- **NumExpr**: fuses array expressions without writing loops.\n- For GPUs, Numba's CUDA support now lives in the separate `numba-cuda` package maintained by NVIDIA.\n\nMeasure first: profile, find the hot function, then decide.",
+   "code": "import time\nimport numpy as np\nfrom numba import njit\n\nx = np.random.default_rng(1).random(5_000_000)\n\ndef numpy_version(x):\n    return np.sqrt(x**2 + 1.0) * np.exp(-x)   # several temporary arrays\n\n@njit\ndef numba_version(x):\n    out = np.empty_like(x)\n    for i in range(x.size):                    # one fused pass, no temporaries\n        out[i] = np.sqrt(x[i] ** 2 + 1.0) * np.exp(-x[i])\n    return out\n\nnumba_version(x[:10])                          # warm up\nfor f in (numpy_version, numba_version):\n    t = time.perf_counter(); f(x)\n    print(f.__name__, f\"{time.perf_counter() - t:.3f}s\")\nprint(np.allclose(numpy_version(x), numba_version(x)))  # True",
+   "code_lang": "python",
+   "takeaways": [
+    "Single NumPy calls are already compiled; wrapping them in @njit gains nothing",
+    "Numba wins on fused expressions, recurrences and irregular algorithms",
+    "Profile first; consider Cython, JAX or NumExpr where they fit better"
+   ],
+   "pitfalls": [
+    "Expecting @njit around a large matrix multiplication to beat NumPy's BLAS."
+   ],
+   "quiz": [
+    {
+     "q": "Which function is most likely to get a big speedup from @njit?",
+     "options": [
+      "return a @ b for two large matrices",
+      "A loop that tracks a running maximum and resets it when a value drops below zero",
+      "return np.sort(a)",
+      "return df.groupby('k').mean()"
+     ],
+     "answer": 1,
+     "explain": "Sequential logic with state cannot be vectorized well; the others are already compiled or unsupported."
+    }
+   ],
+   "docs": "https://numba.readthedocs.io/en/stable/user/performance-tips.html",
+   "requires": [
+    "numba.loops-over-arrays",
+    "numba.compile-on-first-call"
+   ]
+  },
+  {
+   "id": "numba.parallel-prange",
+   "name": "Multithreading with parallel=True and prange",
+   "module": "performance",
+   "level": 3,
+   "minutes": 13,
+   "summary": "Run loops on all cores with parallel=True and prange, and understand reductions, races and threading layers.",
+   "why": "Parallel loops can multiply speed by the number of cores with a one-word change, if the loop is safe.",
+   "body": "`@njit(parallel=True)` enables two things. First, Numba automatically parallelises supported array expressions and reductions. Second, you can replace `range` with `numba.prange` to mark a loop whose iterations run **in parallel threads**. The GIL is not involved: the compiled code runs natively on multiple cores.\n\nRules for a correct `prange` loop:\n\n- Iterations must be **independent**. Writing to `out[i]` from iteration `i` is safe. Writing to a shared element from several iterations is a **race condition** and gives wrong results.\n- **Reductions** into a scalar are recognised: `total += f(a[i])` inside a `prange` loop is turned into a per-thread partial sum combined at the end. This works for `+=`, `*=` and similar operators on scalars, not for arbitrary updates of array elements.\n- Only the outermost `prange` in a nest is parallelised; inner ones run serially.\n\nControl and inspect the threading:\n\n- `numba.set_num_threads(n)` and `get_num_threads()` change the thread count at run time, and the `NUMBA_NUM_THREADS` environment variable sets the maximum.\n- `f.parallel_diagnostics(level=1)` reports which loops were parallelised and fused.\n- Threading layers (TBB, OpenMP, workqueue) can be selected with `NUMBA_THREADING_LAYER`.\n\nParallelism has overhead: for small arrays or cheap loop bodies the single-threaded version is faster. Floating-point reductions may also give slightly different results from the serial sum, because the order of additions changes.",
+   "code": "import numpy as np\nfrom numba import njit, prange, get_num_threads\n\n@njit(parallel=True)\ndef pairwise_min_dist(p):\n    n = p.shape[0]\n    out = np.empty(n)\n    for i in prange(n):                 # rows processed in parallel\n        best = np.inf\n        for j in range(n):\n            if i != j:\n                best = min(best, ((p[i] - p[j]) ** 2).sum())\n        out[i] = np.sqrt(best)          # each i writes only out[i]: safe\n    return out\n\n@njit(parallel=True)\ndef total(a):\n    s = 0.0\n    for i in prange(a.size):\n        s += a[i]                       # recognised reduction\n    return s\n\npts = np.random.default_rng(0).random((2000, 3))\nprint(pairwise_min_dist(pts).shape, get_num_threads())  # (2000,) 8  (your core count)\nprint(total(np.ones(1_000_000)))        # 1000000.0",
+   "code_lang": "python",
+   "takeaways": [
+    "parallel=True plus prange runs independent iterations on several cores",
+    "Scalar reductions with += are handled; shared array writes are races",
+    "Overhead and changed summation order are the trade-offs"
+   ],
+   "pitfalls": [
+    "Updating a shared histogram bin from a prange loop, which silently loses counts."
+   ],
+   "quiz": [
+    {
+     "q": "Inside a prange loop over i, which update is a race condition?",
+     "options": [
+      "out[i] = a[i] * 2",
+      "s += a[i] where s is a scalar declared before the loop",
+      "tmp = a[i] + 1 with tmp local to the iteration",
+      "hist[a[i]] += 1 for a shared hist array"
+     ],
+     "answer": 3,
+     "explain": "Different iterations can hit the same bin at the same time, so increments are lost."
+    }
+   ],
+   "docs": "https://numba.readthedocs.io/en/stable/user/parallel.html",
+   "requires": [
+    "numba.when-to-use",
+    "numba.types-signatures"
+   ]
+  },
+  {
+   "id": "numba.fastmath-options",
+   "name": "fastmath, boundscheck and other options",
+   "module": "performance",
+   "level": 3,
+   "minutes": 11,
+   "summary": "Use compiler options like fastmath, boundscheck, error_model and inline to trade strictness for speed knowingly.",
+   "why": "These flags unlock SIMD vectorization and remove checks, but each changes semantics in specific ways.",
+   "body": "The JIT decorators accept options that change what the compiler may assume.\n\n- `fastmath=True` lets LLVM ignore strict IEEE 754 rules: it may reorder additions (enabling SIMD vectorization of reductions), assume no NaNs or infinities, and use approximate reciprocals. Loops summing floats often get several times faster. The price: results can differ in the last bits, and code that relies on NaN checks (`x != x`, `np.isnan`) may be optimised away. You can pass a set of flags such as `{\"nsz\", \"arcp\", \"contract\", \"afn\", \"reassoc\"}` to enable only some relaxations, leaving NaN and infinity handling intact.\n- `boundscheck=True` turns on index bounds checking. By default Numba does **not** check bounds, so `a[10]` on a 5-element array reads or writes arbitrary memory. Enable checks while debugging, or globally with `NUMBA_BOUNDSCHECK=1`.\n- `error_model=\"numpy\"` makes division by zero return `inf` or `nan` like NumPy instead of raising `ZeroDivisionError` as Python does. Removing the check makes division-heavy loops faster.\n- `inline=\"always\"` inlines a small `@njit` function into callers at the Numba IR level; LLVM usually inlines small functions anyway.\n- `nogil=True` and `cache=True` are covered elsewhere.\n\nTreat these as measured optimisations: benchmark with and without, and test numerical results against the strict version.",
+   "code": "import numpy as np\nfrom numba import njit\n\n@njit(fastmath=True)\ndef fast_sum(a):\n    s = 0.0\n    for x in a:\n        s += x            # may be reordered and vectorized\n    return s\n\n@njit(error_model=\"numpy\")\ndef safe_ratio(a, b):\n    return a / b\n\n@njit(boundscheck=True)\ndef get(a, i):\n    return a[i]\n\na = np.random.default_rng(0).random(10_000_000)\nprint(np.isclose(fast_sum(a), a.sum()))   # True (last bits may differ)\nprint(safe_ratio(1.0, 0.0))               # inf  (Python error model would raise)\ntry:\n    get(np.zeros(5), 10)\nexcept IndexError as e:\n    print(\"IndexError:\", e)               # IndexError: index is out of bounds",
+   "code_lang": "python",
+   "takeaways": [
+    "fastmath allows reordering and SIMD; results may change slightly and NaN checks may vanish",
+    "Bounds are not checked by default; enable boundscheck while debugging",
+    "error_model='numpy' returns inf/nan for division by zero"
+   ],
+   "pitfalls": [
+    "Using fastmath=True in code that tests for NaN, which may then never detect it."
+   ],
+   "quiz": [
+    {
+     "q": "By default, what happens in @njit code when you read a[10] from a 5-element array?",
+     "options": [
+      "IndexError is raised",
+      "It returns 0",
+      "Undefined behaviour: it reads whatever memory is there",
+      "Compilation fails"
+     ],
+     "answer": 2,
+     "explain": "Bounds checking is off by default for speed; out-of-range access is not detected."
+    }
+   ],
+   "docs": "https://numba.readthedocs.io/en/stable/reference/jit-compilation.html",
+   "requires": [
+    "numba.loops-over-arrays",
+    "numba.types-signatures",
+    "numpy.floating-point"
+   ]
+  },
+  {
+   "id": "numba.debugging-errors",
+   "name": "Reading errors and debugging",
+   "module": "types",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Diagnose TypingErrors, disable the JIT to debug in Python, and escape to object mode for unsupported calls.",
+   "why": "Numba's error messages are long; knowing how to read them and where to look saves hours.",
+   "body": "Most failures are a `TypingError` raised on the first call. The message is long, but it has a fixed structure: what operation failed (for example \"No implementation of function Function(<built-in function add>) found for signature: (int64, unicode_type)\"), the list of candidate implementations tried, and, at the end, the **source line** where it happened. Read the bottom first.\n\nCommon causes:\n\n- a variable that takes two incompatible types in different branches, such as `None` and an array,\n- an unsupported function or keyword argument,\n- an untyped empty list (`[]` that is never appended to),\n- passing an unsupported object (a pandas Series, a Python object) as an argument.\n\nDebugging tools:\n\n- `NUMBA_DISABLE_JIT=1` in the environment makes all decorators no-ops, so you can use `pdb`, breakpoints and prints in the pure Python version.\n- `print()` works in compiled code for simple values.\n- `f.inspect_types()` shows the inferred type of every variable.\n- `with numba.objmode(result=\"float64\"):` runs a block in the interpreter from compiled code, for example to call an unsupported library or a timer. Declare the types of variables that leave the block. It is slow, so keep it out of hot loops.\n\nRuntime errors behave differently from Python: raising exceptions works for simple cases, but without `boundscheck` indexing errors are not caught, and integer overflow is silent. When results look wrong rather than failing, compare with `f.py_func` on a small input.",
+   "code": "import time\nimport numpy as np\nfrom numba import njit, objmode\nfrom numba.core.errors import TypingError\n\n@njit\ndef broken(flag):\n    x = 1\n    if flag:\n        x = \"one\"           # int in one branch, str in the other\n    return x\n\ntry:\n    broken(True)\nexcept TypingError as e:\n    print(\"Cannot unify\" in str(e))  # True: the reason is near the end of the message\n\n@njit\ndef timed_sum(a):\n    with objmode(t0=\"float64\"):    # interpreter block inside compiled code\n        t0 = time.perf_counter()\n    s = a.sum()\n    return s, t0 > 0\n\nprint(timed_sum(np.ones(10)))      # (10.0, True)",
+   "code_lang": "python",
+   "takeaways": [
+    "Read a TypingError from the bottom: the failing source line is at the end",
+    "NUMBA_DISABLE_JIT=1 lets you debug the pure Python version",
+    "objmode runs a block in the interpreter with declared output types"
+   ],
+   "pitfalls": [
+    "Leaving objmode blocks inside hot loops, which brings back interpreter overhead."
+   ],
+   "quiz": [
+    {
+     "q": "A variable is assigned None in one branch and an array in another. What is the likely result?",
+     "options": [
+      "It works and is slower",
+      "A TypingError on the first call",
+      "A segmentation fault",
+      "The None branch is ignored"
+     ],
+     "answer": 1,
+     "explain": "Every variable needs one unified type; Numba fails to unify these and reports a TypingError (Optional types only help in specific cases)."
+    }
+   ],
+   "docs": "https://numba.readthedocs.io/en/stable/user/troubleshoot.html",
+   "requires": [
+    "numba.types-signatures",
+    "numba.typed-containers"
+   ]
+  },
+  {
+   "id": "numba.compilation-pipeline",
+   "name": "Inside the compiler: from bytecode to LLVM",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Follow Numba's pipeline from Python bytecode through Numba IR and type inference to LLVM IR and assembly.",
+   "why": "Knowing each stage tells you where an error comes from and how to verify that code was vectorized.",
+   "body": "When a dispatcher sees a new argument type signature it runs a compilation pipeline:\n\n- **Bytecode analysis.** Numba disassembles the function's CPython bytecode and builds a control flow graph. That is why Numba support depends on the Python version: each new CPython release changes the bytecode.\n- **Numba IR.** The bytecode is translated into a register-based intermediate representation, then rewritten by passes (inlining, constant folding, and for `parallel=True`, array-expression fusion and loop parallelisation).\n- **Type inference.** Starting from the argument types, Numba propagates types through the IR, resolving each operation and call to a typed implementation. Failure here is your `TypingError`.\n- **Lowering.** Each typed operation is lowered to **LLVM IR**, calling into Numba's runtime (NRT) for memory management of arrays: arrays are reference-counted, and their buffers live in NRT-managed memory.\n- **LLVM** optimises (inlining, loop vectorization with SIMD, constant propagation) and generates machine code for the host CPU, which is linked and wrapped for calls from Python.\n\nYou can inspect each stage of a compiled function: `inspect_types()` for typed IR, `inspect_llvm()` and `inspect_asm()` for the LLVM IR and assembly per signature. Searching the assembly for vector instructions like `vaddpd` (AVX) confirms SIMD vectorization.\n\nThe dispatcher boxes and unboxes arguments at the boundary, which costs a microsecond or so per call. Call compiled functions from other compiled functions to avoid it, and keep work per call large.",
+   "code": "import numpy as np\nfrom numba import njit\n\n@njit(fastmath=True)\ndef dot(a, b):\n    s = 0.0\n    for i in range(a.size):\n        s += a[i] * b[i]\n    return s\n\nx = np.ones(1000)\nprint(dot(x, x))                         # 1000.0\n\nsig = dot.signatures[0]\nllvm_ir = dot.inspect_llvm(sig)\nasm = dot.inspect_asm(sig)\nprint(\"fmul\" in llvm_ir)                 # True: multiply in LLVM IR\nprint(any(op in asm for op in (\"vfmadd\", \"vmulpd\", \"mulpd\", \"fmla\")))\n# True on most CPUs: SIMD instructions in the generated assembly",
+   "code_lang": "python",
+   "takeaways": [
+    "Pipeline: bytecode, Numba IR, type inference, lowering to LLVM IR, machine code",
+    "inspect_types, inspect_llvm and inspect_asm show each stage",
+    "Each call from Python pays a boxing cost; keep calls coarse-grained"
+   ],
+   "pitfalls": [
+    "Calling a tiny compiled function millions of times from Python, where the call overhead dominates."
+   ],
+   "quiz": [
+    {
+     "q": "In which pipeline stage is a TypingError raised?",
+     "options": [
+      "LLVM optimisation",
+      "Bytecode analysis",
+      "Type inference over Numba IR",
+      "Linking"
+     ],
+     "answer": 2,
+     "explain": "Type inference propagates types from the arguments and fails when no typed implementation matches."
+    }
+   ],
+   "docs": "https://numba.readthedocs.io/en/stable/developer/architecture.html",
+   "requires": [
+    "numba.debugging-errors",
+    "numba.fastmath-options",
+    "python.bytecode-performance"
+   ]
+  },
+  {
+   "id": "numba.nogil-cfunc",
+   "name": "Releasing the GIL and C callbacks",
+   "module": "internals",
+   "level": 4,
+   "minutes": 13,
+   "summary": "Use nogil=True to run compiled code in Python threads concurrently, and @cfunc to hand native callbacks to C libraries.",
+   "why": "These are the tools for integrating Numba kernels into threaded applications and C/SciPy APIs.",
+   "body": "Compiled nopython code does not need the interpreter, but by default it still holds the **GIL** while running, so two Python threads calling the same compiled function run one after the other. `@njit(nogil=True)` releases the GIL on entry and reacquires it on return. Then a `ThreadPoolExecutor` can run several calls truly in parallel on different cores, with ordinary threads and shared memory, no `prange` needed.\n\nYou become responsible for thread safety: two threads writing the same array is a data race, just as in C. Releasing the GIL is also not possible in object mode or inside `objmode` blocks. On free-threaded Python builds the GIL may be absent anyway, but `nogil=True` remains the explicit way to declare compiled code safe to run concurrently.\n\n`@cfunc(signature)` compiles a function with a **C calling convention** instead of a Python-callable dispatcher. Its `.address` is a raw function pointer and `.ctypes` a ctypes wrapper. Use it to pass callbacks to C libraries: for example `scipy.integrate.quad` and `scipy.LowLevelCallable` accept such pointers, removing the Python call overhead per evaluation, often a large speedup for integrators and optimisers. Inside a cfunc you cannot raise Python exceptions to the caller, and arguments must be C-compatible types (numbers and raw pointers, using `carray` to view pointers as arrays).\n\nRelated: Numba's ahead-of-time `numba.pycc` module is deprecated; for shipping compiled extensions, caching or Cython are the usual routes.",
+   "code": "import ctypes\nimport numpy as np\nfrom concurrent.futures import ThreadPoolExecutor\nfrom numba import njit, cfunc, float64\n\n@njit(nogil=True)\ndef heavy(a):\n    s = 0.0\n    for x in a:\n        s += np.sin(x) ** 2\n    return s\n\nchunks = np.array_split(np.random.default_rng(0).random(4_000_000), 4)\nwith ThreadPoolExecutor(4) as pool:            # runs concurrently: GIL released\n    print(round(sum(pool.map(heavy, chunks))))  # 1090663\n\n@cfunc(float64(float64))\ndef square(x):\n    return x * x\n\nprint(square.ctypes(3.0))                      # 9.0  (called through a C pointer)\nprint(isinstance(square.address, int))         # True",
+   "code_lang": "python",
+   "takeaways": [
+    "nogil=True lets Python threads run compiled code concurrently",
+    "You are responsible for avoiding data races once the GIL is released",
+    "@cfunc produces a C function pointer for callbacks into C and SciPy"
+   ],
+   "pitfalls": [
+    "Releasing the GIL and then writing to the same output array from several threads."
+   ],
+   "quiz": [
+    {
+     "q": "Without nogil=True, four threads each calling an @njit function on separate data will:",
+     "options": [
+      "Run in parallel on four cores",
+      "Raise a RuntimeError",
+      "Run mostly one at a time because the GIL is held",
+      "Automatically switch to prange"
+     ],
+     "answer": 2,
+     "explain": "Compiled code holds the GIL by default, so threads are serialised."
+    }
+   ],
+   "docs": "https://numba.readthedocs.io/en/stable/user/cfunc.html",
+   "requires": [
+    "numba.parallel-prange",
+    "numba.compilation-pipeline",
+    "python.gil-free-threading"
+   ]
+  },
+  {
+   "id": "numba.extending-overload",
+   "name": "Extending Numba with @overload",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Teach Numba to compile your own functions or unsupported library calls with the high-level @overload API.",
+   "why": "Libraries built on Numba, and teams with shared kernels, need typed implementations of their own APIs.",
+   "body": "When a function is not supported in nopython mode, you can register a compiled implementation for it with `numba.extending.overload`. The pattern has two layers:\n\n```python\n@overload(target_func)\ndef ol_target(x, y):          # typing time: receives Numba TYPES\n    if isinstance(x, types.Array):\n        def impl(x, y):       # run time: receives values\n            ...\n        return impl\n```\n\nThe outer function runs during **type inference** with the Numba types of the arguments, not values. It inspects them and returns a Python function implementing the operation for those types, or returns `None` to say \"not supported for these types\", which lets other overloads be tried. The returned implementation is compiled like any `@njit` function. This gives you type-based dispatch at compile time with zero run-time cost.\n\nRelated APIs:\n\n- `@overload_method(types.Array, \"name\")` adds methods to Numba types.\n- `@overload_attribute` adds attributes.\n- `@register_jitable` is a shortcut for a function that works the same in Python and compiled code.\n- `@intrinsic` is the low-level layer: you write the LLVM IR generation yourself, for operations not expressible in Python.\n- The low-level extension API (`typeof_impl`, `models`, `lower_builtin`) adds entirely new types, which is how libraries teach Numba about their objects.\n\nOverloads are registered globally when the module is imported, so import the module that defines them before compiling code that uses them.",
+   "code": "import numpy as np\nfrom numba import njit, types\nfrom numba.extending import overload\n\ndef clamp(x, lo, hi):                     # plain Python version\n    return min(max(x, lo), hi)\n\n@overload(clamp)\ndef ol_clamp(x, lo, hi):                  # receives Numba types\n    if isinstance(x, types.Array):\n        def impl(x, lo, hi):\n            out = np.empty_like(x)\n            for i in range(x.size):\n                out.flat[i] = min(max(x.flat[i], lo), hi)\n            return out\n        return impl\n    if isinstance(x, (types.Integer, types.Float)):\n        return lambda x, lo, hi: min(max(x, lo), hi)\n    return None                           # unsupported types\n\n@njit\ndef use(a):\n    return clamp(a, 0.0, 1.0), clamp(2.5, 0.0, 1.0)\n\nprint(use(np.array([-1.0, 0.5, 3.0])))    # (array([0. , 0.5, 1. ]), 1.0)",
+   "code_lang": "python",
+   "takeaways": [
+    "@overload maps a Python function to typed compiled implementations",
+    "The outer function sees types and returns an implementation (or None)",
+    "overload_method, intrinsic and the low-level API go further"
+   ],
+   "pitfalls": [
+    "Inspecting argument values inside the outer overload function, which only receives types."
+   ],
+   "quiz": [
+    {
+     "q": "What does the outer function decorated with @overload receive as arguments?",
+     "options": [
+      "Numba type objects describing the arguments",
+      "The runtime values",
+      "LLVM IR",
+      "Strings with the type names"
+     ],
+     "answer": 0,
+     "explain": "It runs at type-inference time and dispatches on Numba types."
+    }
+   ],
+   "docs": "https://numba.readthedocs.io/en/stable/extending/high-level.html",
+   "requires": [
+    "numba.compilation-pipeline",
+    "numba.debugging-errors"
+   ]
+  }
+ ]
+}

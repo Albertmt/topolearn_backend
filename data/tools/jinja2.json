@@ -1,0 +1,552 @@
+{
+ "tool": {
+  "id": "jinja2",
+  "name": "Jinja",
+  "category": "library",
+  "tagline": "Fast, expressive Python template engine for HTML, config files and more",
+  "description": "Jinja is the template engine behind Flask, Ansible, dbt, Salt and many static site generators. Templates mix text with expressions, filters, loops, inheritance and macros, and are compiled to Python code for speed. Learning it pays off wherever you generate HTML, configuration or code from data.",
+  "icon": "Jj",
+  "color": "#B41717",
+  "official_docs": "https://jinja.palletsprojects.com/en/stable/",
+  "version": "3.1",
+  "aliases": [
+   "jinja2",
+   "jinja templates",
+   "jinja template engine"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Templates and expressions"
+  },
+  {
+   "id": "logic",
+   "name": "Control flow"
+  },
+  {
+   "id": "reuse",
+   "name": "Reuse and safety"
+  },
+  {
+   "id": "api",
+   "name": "The Python API"
+  },
+  {
+   "id": "internals",
+   "name": "Internals and extending"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "jinja2.environment-basics",
+   "name": "Environment, loaders and render",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Create an Environment with a loader, load templates by name and render them with a context of variables.",
+   "why": "Every use of Jinja goes through an Environment, and its settings decide escaping, loading and errors.",
+   "body": "A **template** is text with placeholders. The central object is the **`Environment`**: it holds configuration (autoescaping, undefined handling, filters, globals) and a **loader** that finds templates by name.\n\n```python\nenv = Environment(loader=FileSystemLoader(\"templates\"), autoescape=select_autoescape())\ntemplate = env.get_template(\"hello.html\")\nhtml = template.render(name=\"Ann\", items=[1, 2])\n```\n\n`render()` takes keyword arguments or a single dict; the names become template variables, called the **context**. The result is a string. For huge outputs, `template.generate()` yields chunks and `template.stream()` can write to a file.\n\nFor quick scripts, `Template(\"Hello {{ name }}!\")` or `env.from_string(source)` compiles a template from a string. Prefer one shared environment with a loader for real projects: it caches compiled templates and enables inheritance and imports between files.\n\nAn important default: a bare `Environment()` has **autoescaping off**. That is correct for plain text, YAML or SQL generation, but for HTML you must turn it on, usually with `select_autoescape()`, which enables it for `.html`, `.htm` and `.xml` templates. Frameworks such as Flask configure this for you.\n\nTemplates can use any file extension, but `select_autoescape()` only checks how the name ends: `page.html.j2` is not escaped unless you pass `enabled_extensions=(\"html\", \"j2\")` or similar.\n\nTemplate syntax has three delimiters: `{{ ... }}` prints an expression, `{% ... %}` runs a statement such as `if` or `for`, and `{# ... #}` is a comment that produces no output.",
+   "code": "from jinja2 import DictLoader, Environment, Template, select_autoescape\n\nprint(Template(\"Hello {{ name }}!\").render(name=\"Ann\"))    # Hello Ann!\n\nenv = Environment(\n    loader=DictLoader({                 # FileSystemLoader(\"templates\") in real projects\n        \"greet.html\": \"<p>Hi {{ user }}{# not rendered #}</p>\",\n        \"greet.txt\": \"Hi {{ user }}\",\n    }),\n    autoescape=select_autoescape(),     # on for .html/.htm/.xml\n)\nprint(env.get_template(\"greet.html\").render(user=\"<b>Bo</b>\"))\n# <p>Hi &lt;b&gt;Bo&lt;/b&gt;</p>\nprint(env.get_template(\"greet.txt\").render({\"user\": \"<b>Bo</b>\"}))\n# Hi <b>Bo</b>",
+   "code_lang": "python",
+   "takeaways": [
+    "An Environment holds config and a loader; get_template loads by name",
+    "render(**vars) or render(dict) returns a string",
+    "{{ }} prints, {% %} executes, {# #} comments",
+    "Environment() has autoescaping off; enable it for HTML"
+   ],
+   "pitfalls": [
+    "Rendering HTML with a default Environment(), leaving output unescaped."
+   ],
+   "quiz": [
+    {
+     "q": "What is the default autoescape setting of a plain Environment()?",
+     "options": [
+      "On for all templates",
+      "Off",
+      "On only for .html files",
+      "On only for strings from users"
+     ],
+     "answer": 1,
+     "explain": "Autoescaping is off by default; select_autoescape() or autoescape=True turns it on."
+    }
+   ],
+   "docs": "https://jinja.palletsprojects.com/en/stable/api/#basics",
+   "requires": [
+    "python.strings",
+    "python.dicts"
+   ]
+  },
+  {
+   "id": "jinja2.variables-expressions",
+   "name": "Variables and expressions",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Print variables, access attributes and keys, use literals, math, comparisons, string concatenation and inline if expressions.",
+   "why": "Expressions are most of what templates contain, and their lookup rules explain many surprising blanks.",
+   "body": "Inside `{{ }}` you write **expressions**, which look a lot like Python:\n\n- attribute or key access: `user.name` and `user[\"name\"]` both work. The dot form tries the attribute first, then the item; the subscript form tries the item first.\n- literals: strings, numbers, lists `[1, 2]`, dicts `{\"a\": 1}`, `true`/`false` (lowercase also works for `none`)\n- math: `+ - * / // % **`\n- comparisons and logic: `== != < >= and or not in`\n- `~` converts both sides to strings and concatenates: `{{ \"Item \" ~ n }}`\n- inline if: `{{ \"yes\" if ok else \"no\" }}`; the `else` is optional\n- calling methods: `{{ name.upper() }}`, `{{ items|length }}` (filters come next)\n\nAssign with `{% set total = price * qty %}`.\n\n**Undefined values** are not errors by default. A missing variable, or a missing attribute or key on an existing object, becomes an `Undefined` object that prints as an empty string, so a typo like `{{ user.nmae }}` silently renders nothing. Going one step further, accessing an attribute of an undefined value (`{{ usr.name }}` when `usr` itself is missing) raises `UndefinedError`. Later you'll see `StrictUndefined`, which makes every missing value an error and is a good choice in development and for config generation.\n\nTemplates are meant to display data, not compute it. Jinja can call any method you pass in, so keep heavy logic in Python and give templates ready-to-show values.",
+   "code": "from jinja2 import Template\n\nt = Template(\"\"\"{% set total = price * qty -%}\n{{ user.name }} / {{ user[\"role\"] }}\n{{ \"Order \" ~ order_id }}: {{ qty }} x {{ price }} = {{ total }}\n{{ \"bulk\" if qty >= 10 else \"single\" }}\n{{ tags[0].upper() }} and {{ tags|length }} tags\n[{{ user.nmae }}] typo renders empty\"\"\")\n\nprint(t.render(user={\"name\": \"Ann\", \"role\": \"admin\"}, order_id=7,\n               qty=12, price=2.5, tags=[\"new\", \"sale\"]))\n# Ann / admin\n# Order 7: 12 x 2.5 = 30.0\n# bulk\n# NEW and 2 tags\n# [] typo renders empty",
+   "code_lang": "python",
+   "takeaways": [
+    "a.b tries attribute then key; a[\"b\"] tries key then attribute",
+    "~ concatenates as strings; x if cond else y works inline",
+    "Missing values render as empty strings unless you use StrictUndefined"
+   ],
+   "pitfalls": [
+    "Debugging a blank output for minutes when it was a misspelled variable."
+   ],
+   "quiz": [
+    {
+     "q": "user is a dict without an \"emial\" key. What does {{ user.emial }} render with default settings?",
+     "options": [
+      "An UndefinedError",
+      "None",
+      "An empty string",
+      "The text user.emial"
+     ],
+     "answer": 2,
+     "explain": "A missing key on an existing object is Undefined, which prints as an empty string; only attribute access on an Undefined raises."
+    },
+    {
+     "q": "What does {{ \"Total: \" ~ 3 }} produce?",
+     "options": [
+      "Total: ~3",
+      "3",
+      "An error, you can't add str and int",
+      "Total: 3"
+     ],
+     "answer": 3,
+     "explain": "The ~ operator converts both operands to strings and concatenates them."
+    }
+   ],
+   "docs": "https://jinja.palletsprojects.com/en/stable/templates/#variables",
+   "requires": [
+    "jinja2.environment-basics"
+   ]
+  },
+  {
+   "id": "jinja2.filters-tests",
+   "name": "Filters and tests",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Transform values with filters like default, join, sort and map, and check values with tests like defined and divisibleby.",
+   "why": "Filters are how templates format data without Python code, and tests make conditions readable.",
+   "body": "A **filter** transforms a value with the pipe syntax: `{{ name|title }}`. Filters chain left to right and can take arguments: `{{ items|sort(attribute=\"price\")|join(\", \") }}`.\n\nBuilt-in filters you will use constantly:\n\n- text: `upper`, `lower`, `title`, `capitalize`, `trim`, `truncate(30)`, `replace(\"a\", \"b\")`, `wordwrap`, `striptags`\n- fallback: `default(\"n/a\")` (alias `d`); `default(x, true)` also replaces empty or falsy values\n- collections: `length`, `first`, `last`, `join`, `sort`, `unique`, `reverse`, `sum(attribute=\"price\")`, `batch(3)`, `groupby(\"category\")`, `dictsort`, `items`\n- functional style: `map(attribute=\"name\")`, `selectattr(\"active\")`, `rejectattr(\"draft\")`, `select(\"odd\")`\n- numbers and output: `round(2)`, `int`, `float`, `filesizeformat`, `format`, `tojson`, `e`, `safe`\n\n`map`, `select` and friends return generators; finish with `join`, `list` or `first`.\n\nA **test** checks a value with `is`: `{% if user is defined %}`, `{% if n is divisibleby(3) %}`, `{% if x is none %}`, `is string`, `is number`, `is even`, `is iterable`, `is sameas(false)`. Negate with `is not`. Tests also power `select(\"odd\")` and `selectattr(\"age\", \"ge\", 18)`.\n\nFilters and tests are applied before most operators, so `{{ -3|abs }}` is `-(3|abs)`; use parentheses: `{{ (-3)|abs }}`.",
+   "code": "from jinja2 import Environment\n\nenv = Environment()\nt = env.from_string(\"\"\"{{ title|default(\"Untitled\")|upper }}\n{{ products|selectattr(\"in_stock\")|map(attribute=\"name\")|join(\", \") }}\nTotal: {{ products|sum(attribute=\"price\")|round(2) }}\n{% for g in products|groupby(\"cat\") %}{{ g.grouper }}={{ g.list|length }} {% endfor %}\n{% for n in range(1, 7) if n is divisibleby(3) %}{{ n }} {% endfor %}\n{{ bio|default(\"-\", true) }} {{ note is defined }}\"\"\")\n\nprint(t.render(bio=\"\", products=[\n    {\"name\": \"Pen\", \"price\": 1.25, \"cat\": \"office\", \"in_stock\": True},\n    {\"name\": \"Ink\", \"price\": 4.5, \"cat\": \"office\", \"in_stock\": False},\n    {\"name\": \"Mug\", \"price\": 7.333, \"cat\": \"kitchen\", \"in_stock\": True}]))\n# UNTITLED\n# Pen, Mug\n# Total: 13.08\n# kitchen=1 office=2\n# 3 6\n# - False",
+   "code_lang": "python",
+   "takeaways": [
+    "value|filter(args) transforms; filters chain left to right",
+    "default, join, sort, map, selectattr and groupby cover most formatting",
+    "Tests use is: is defined, is none, is divisibleby(n)"
+   ],
+   "pitfalls": [
+    "Forgetting that map/select return generators; finish with join, list or first."
+   ],
+   "quiz": [
+    {
+     "q": "What does {{ \"\"|default(\"none\") }} render?",
+     "options": [
+      "An empty string",
+      "An error",
+      "default",
+      "none"
+     ],
+     "answer": 0,
+     "explain": "default only replaces undefined values unless the second argument (boolean) is true."
+    }
+   ],
+   "docs": "https://jinja.palletsprojects.com/en/stable/templates/#list-of-builtin-filters",
+   "requires": [
+    "jinja2.variables-expressions"
+   ]
+  },
+  {
+   "id": "jinja2.control-structures",
+   "name": "if, for and whitespace control",
+   "module": "logic",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Use if/elif/else, for loops with the loop variable and else, and strip whitespace with - markers or trim_blocks.",
+   "why": "Lists and conditional sections are the bread and butter of every template.",
+   "body": "`{% if %}` works like Python's, with `elif` and `else`, closed by `{% endif %}`.\n\n`{% for item in items %}` loops over any iterable, closed by `{% endfor %}`. Inside the loop, the special **`loop`** variable gives:\n\n- `loop.index` (from 1), `loop.index0` (from 0), `loop.revindex`\n- `loop.first`, `loop.last`, `loop.length`\n- `loop.cycle(\"odd\", \"even\")` for alternating values, `loop.previtem`, `loop.nextitem`, `loop.changed(value)`\n\nLoop over dicts with `{% for key, value in d.items() %}`. Add a filter inline, `{% for u in users if u.active %}`, so `loop.length` counts only matching items. An **`else`** block runs when the loop produced no iterations: perfect for \"No results\".\n\nThere is no `break` or `continue` unless you enable the `jinja2.ext.loopcontrols` extension. Also note that variables set inside a loop do **not** survive after it; to accumulate, use `{% set ns = namespace(total=0) %}` and `{% set ns.total = ns.total + x %}`.\n\n**Whitespace control.** Tags leave their line breaks in the output, which matters for text formats. Add `-` inside a delimiter to strip whitespace on that side: `{%- if x %}` strips before, `{{ value -}}` after. Or set `trim_blocks=True` (remove the first newline after a block tag) and `lstrip_blocks=True` (strip spaces before a block tag) on the Environment, which is the usual choice for YAML and config files.",
+   "code": "from jinja2 import Environment\n\nenv = Environment(trim_blocks=True, lstrip_blocks=True)\nt = env.from_string(\"\"\"{% set ns = namespace(total=0) %}\n{% for u in users if u.active %}\n  {{ loop.index }}/{{ loop.length }} {{ u.name }}{{ \" (first)\" if loop.first }}\n  {% set ns.total = ns.total + u.score %}\n{% else %}\n  No active users.\n{% endfor %}\nTotal: {{ ns.total }}\n{% for k, v in limits.items() %}{{ k }}={{ v }}{{ \",\" if not loop.last }}{% endfor %}\"\"\")\n\nprint(t.render(users=[{\"name\": \"Ann\", \"active\": True, \"score\": 3},\n                      {\"name\": \"Bo\", \"active\": False, \"score\": 9},\n                      {\"name\": \"Cy\", \"active\": True, \"score\": 4}],\n               limits={\"cpu\": 2, \"mem\": \"1Gi\"}))\n#   1/2 Ann (first)\n#   2/2 Cy\n# Total: 7\n# cpu=2,mem=1Gi",
+   "code_lang": "python",
+   "takeaways": [
+    "loop.index, loop.first/last and loop.cycle are available in every for loop",
+    "for ... else handles empty lists; for x in xs if cond filters",
+    "Use namespace() to carry values out of a loop",
+    "- markers or trim_blocks/lstrip_blocks control whitespace"
+   ],
+   "pitfalls": [
+    "Setting a variable inside a loop and expecting the change to be visible after it."
+   ],
+   "quiz": [
+    {
+     "q": "A template does {% set count = 0 %}{% for x in xs %}{% set count = count + 1 %}{% endfor %}{{ count }} with three items. What prints?",
+     "options": [
+      "3",
+      "0",
+      "An error",
+      "1"
+     ],
+     "answer": 1,
+     "explain": "Assignments inside the loop are scoped to it; use a namespace object to accumulate."
+    }
+   ],
+   "docs": "https://jinja.palletsprojects.com/en/stable/templates/#list-of-control-structures",
+   "requires": [
+    "jinja2.variables-expressions"
+   ]
+  },
+  {
+   "id": "jinja2.inheritance",
+   "name": "Template inheritance",
+   "module": "reuse",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Build a base layout with blocks, extend it in child templates, call super() and use required and scoped blocks.",
+   "why": "Inheritance gives every page the same layout without copy-pasting headers and footers.",
+   "body": "**Template inheritance** is Jinja's most powerful layout tool. A **base template** defines the page skeleton and marks replaceable regions with blocks:\n\n```html\n<title>{% block title %}My site{% endblock %}</title>\n<main>{% block content %}{% endblock %}</main>\n```\n\nA **child template** starts with `{% extends \"base.html\" %}` and overrides only the blocks it needs. Anything in a child outside blocks is ignored, because the base decides the output.\n\nUseful details:\n\n- `{{ super() }}` renders the parent's version of the block, so a child can append rather than replace, for example adding a script to a `scripts` block.\n- Inheritance chains: `page.html` extends `section.html` extends `base.html`; each level can override blocks.\n- `{% block sidebar required %}{% endblock %}` forces every rendering child to override it.\n- Blocks can't see variables defined in an outer `for` loop unless declared `scoped`: `{% block row scoped %}`.\n- Reuse a block's content elsewhere with `{{ self.title() }}`, for example the title in both `<title>` and `<h1>`.\n- Name the end tag for readability: `{% endblock content %}`.\n- `extends` accepts a variable, so the layout can be chosen at runtime: `{% extends layout or \"base.html\" %}`.\n\nA block can only be defined once per template, and `extends` should be the first tag. Keep base templates small and stable; pages change, the skeleton rarely does.",
+   "code": "from jinja2 import DictLoader, Environment\n\nenv = Environment(loader=DictLoader({\n    \"base.html\": \"<title>{% block title %}Site{% endblock %}</title>\\n\"\n                 \"<h1>{{ self.title() }}</h1>\\n\"\n                 \"<main>{% block content %}{% endblock %}</main>\\n\"\n                 \"<script src=app.js></script>{% block scripts %}{% endblock %}\",\n    \"post.html\": \"{% extends 'base.html' %}\"\n                 \"{% block title %}{{ post.title }} - {{ super() }}{% endblock %}\"\n                 \"{% block content %}{{ post.body }}{% endblock %}\"\n                 \"{% block scripts %}<script src=post.js></script>{% endblock %}\"\n                 \"This text is outside any block and never rendered.\",\n}), autoescape=True)\n\nprint(env.get_template(\"post.html\").render(post={\"title\": \"Hello\", \"body\": \"First post\"}))\n# <title>Hello - Site</title>\n# <h1>Hello - Site</h1>\n# <main>First post</main>\n# <script src=app.js></script><script src=post.js></script>",
+   "code_lang": "python",
+   "takeaways": [
+    "Base template defines blocks; children extend it and override blocks",
+    "super() includes the parent's block content",
+    "self.blockname() reuses a block; required forces overrides"
+   ],
+   "pitfalls": [
+    "Putting content outside blocks in a child template and wondering why it never appears."
+   ],
+   "quiz": [
+    {
+     "q": "In a child template, what does {{ super() }} inside a block do?",
+     "options": [
+      "Skips the block",
+      "Renders the parent template completely",
+      "Renders the parent's content for this block",
+      "Calls the parent's macro of the same name"
+     ],
+     "answer": 2,
+     "explain": "super() outputs the block's content as defined one level up the inheritance chain."
+    }
+   ],
+   "docs": "https://jinja.palletsprojects.com/en/stable/templates/#template-inheritance",
+   "requires": [
+    "jinja2.control-structures"
+   ]
+  },
+  {
+   "id": "jinja2.macros-imports",
+   "name": "Macros, include and import",
+   "module": "reuse",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Write reusable macros with arguments and caller(), import them from other files, and include partial templates.",
+   "why": "Repeated HTML snippets like form fields and cards should be written once and called everywhere.",
+   "body": "A **macro** is a template function:\n\n```html\n{% macro field(name, label, type=\"text\", value=\"\") %}\n  <label>{{ label }} <input name=\"{{ name }}\" type=\"{{ type }}\" value=\"{{ value }}\"></label>\n{% endmacro %}\n```\n\nCall it like a function: `{{ field(\"email\", \"Email\", type=\"email\") }}`. Macros have default arguments, and extra keyword arguments are available in `kwargs` if the macro references it.\n\nA `{% call %}` block passes a chunk of template to a macro, which renders it with `{{ caller() }}`. That is how you write wrappers such as cards or modals around arbitrary content.\n\nTo share macros across files:\n\n- `{% import \"forms.html\" as forms %}` then `{{ forms.field(...) }}`\n- `{% from \"forms.html\" import field, button as btn %}`\n\n**Include** renders another template in place: `{% include \"partials/nav.html\" %}`. `ignore missing` skips absent files, and a list tries each name in order.\n\nThe context rules differ, which trips people up:\n\n- `include` passes the **current context** by default, so the partial sees your variables.\n- `import` does **not** pass the context by default (imported templates are cached), so macros in it can't see page variables unless you write `import ... with context`. Prefer passing values as macro arguments instead.\n\nGuideline: macros for parametrized components, includes for static chunks like footers, inheritance for overall page layout.",
+   "code": "from jinja2 import DictLoader, Environment\n\nenv = Environment(autoescape=True, trim_blocks=True, lstrip_blocks=True, loader=DictLoader({\n    \"ui.html\": \"\"\"{% macro field(name, label, type=\"text\") -%}\n<label>{{ label }} <input name=\"{{ name }}\" type=\"{{ type }}\"></label>\n{%- endmacro %}\n{% macro card(title) -%}\n<div class=\"card\"><h2>{{ title }}</h2>{{ caller() }}</div>\n{%- endmacro %}\"\"\",\n    \"nav.html\": \"<nav>Hi {{ user }}</nav>\",\n    \"page.html\": \"\"\"{% import \"ui.html\" as ui %}\n{% include \"nav.html\" %}\n{% call ui.card(\"Sign up\") %}{{ ui.field(\"email\", \"Email\", type=\"email\") }}{% endcall %}\"\"\",\n}))\nprint(env.get_template(\"page.html\").render(user=\"Ann\"))\n# <nav>Hi Ann</nav><div class=\"card\"><h2>Sign up</h2><label>Email <input name=\"email\" type=\"email\"></label></div>",
+   "code_lang": "python",
+   "takeaways": [
+    "Macros are template functions with arguments and defaults",
+    "{% call %} + caller() pass a content block into a macro",
+    "include sees the current context; import doesn't unless with context"
+   ],
+   "pitfalls": [
+    "Expecting macros from an imported file to see the page's variables."
+   ],
+   "quiz": [
+    {
+     "q": "A macro in macros.html uses {{ user }}. It is imported with {% import \"macros.html\" as m %}. What does user render as?",
+     "options": [
+      "An ImportError",
+      "The string user",
+      "The page's user variable",
+      "Empty (undefined), because imports don't get the context by default"
+     ],
+     "answer": 3,
+     "explain": "Imported templates are rendered without the current context unless you add with context."
+    }
+   ],
+   "docs": "https://jinja.palletsprojects.com/en/stable/templates/#macros",
+   "requires": [
+    "jinja2.control-structures"
+   ]
+  },
+  {
+   "id": "jinja2.autoescaping",
+   "name": "Autoescaping and safe markup",
+   "module": "reuse",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Understand how autoescaping prevents XSS, when to use Markup and |safe, and how to output JSON for scripts.",
+   "why": "Escaping mistakes in templates are a top cause of cross-site scripting vulnerabilities.",
+   "body": "With **autoescaping** on, every `{{ value }}` is passed through HTML escaping: `<`, `>`, `&`, `\"` and `'` become entities. User input like `<script>` displays as text instead of running.\n\nEscaping is tracked by type. A **`Markup`** string (from MarkupSafe) is considered already safe and is not escaped again. Ways to produce one:\n\n- `{{ html|safe }}` in a template\n- `Markup(\"<b>ok</b>\")` in Python\n- macros and `caller()` return `Markup`, so they nest without double escaping\n\nUse these only for HTML you produced or sanitized yourself. `Markup` has safe helpers: `Markup(\"<a href='{}'>{}</a>\").format(url, name)` escapes the arguments and keeps the template part.\n\nWhere autoescaping is not enough:\n\n- inside `<script>` blocks, HTML escaping is the wrong encoding. Use `{{ data|tojson }}`, which produces JSON and escapes characters that could close the script tag.\n- in attributes, always quote: `href=\"{{ url }}\"`. An unquoted attribute can be broken out of with a space. Escaping also doesn't stop `javascript:` URLs; validate URLs.\n- in CSS and URLs, use dedicated encoders such as `|urlencode`.\n\nWhen autoescaping is off (text templates, or plain `Environment()`), `{{ x|e }}` escapes explicitly. You can switch it locally with `{% autoescape true %}...{% endautoescape %}`.\n\nNever build HTML by concatenating user strings in Python and then marking the result safe; that defeats the whole system.",
+   "code": "from jinja2 import Environment\nfrom markupsafe import Markup\n\nenv = Environment(autoescape=True)\nt = env.from_string(\"\"\"<p>{{ comment }}</p>\n<p>{{ trusted }}</p>\n<a href=\"{{ url }}\">{{ link }}</a>\n<script>const user = {{ user|tojson }};</script>\"\"\")\n\nprint(t.render(\n    comment=\"<img src=x onerror=alert(1)>\",\n    trusted=Markup(\"<em>{}</em>\").format(\"<b>escaped arg</b>\"),\n    url='x\" onclick=\"evil()', link=Markup(\"<b>Home</b>\"),\n    user={\"name\": \"</script><script>alert(1)\"}))\n# <p>&lt;img src=x onerror=alert(1)&gt;</p>\n# <p><em>&lt;b&gt;escaped arg&lt;/b&gt;</em></p>\n# <a href=\"x&#34; onclick=&#34;evil()\"><b>Home</b></a>\n# <script>const user = {\"name\": \"\\u003c/script\\u003e\\u003cscript\\u003ealert(1)\"};</script>",
+   "code_lang": "python",
+   "takeaways": [
+    "Autoescaping escapes every {{ }} unless the value is Markup",
+    "Use |safe or Markup only for HTML you trust",
+    "Use |tojson for data inside <script>; always quote attributes"
+   ],
+   "pitfalls": [
+    "Applying |safe to user-provided rich text without sanitizing it first."
+   ],
+   "quiz": [
+    {
+     "q": "How should you embed a Python dict as a JavaScript object inside a <script> tag?",
+     "options": [
+      "{{ data|tojson }}",
+      "{{ data|e }}",
+      "{{ data }}",
+      "{{ data|safe }}"
+     ],
+     "answer": 0,
+     "explain": "tojson emits valid JSON and escapes characters like < so the script tag cannot be closed early."
+    }
+   ],
+   "docs": "https://jinja.palletsprojects.com/en/stable/templates/#html-escaping",
+   "requires": [
+    "jinja2.filters-tests"
+   ]
+  },
+  {
+   "id": "jinja2.custom-filters",
+   "name": "Custom filters, tests and globals",
+   "module": "api",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Register your own filters, tests and global functions on the Environment, including context-aware ones with pass_context.",
+   "why": "Domain formatting such as money, dates or slugs belongs in reusable filters, not repeated template code.",
+   "body": "When the built-ins aren't enough, extend the Environment. All three are plain dicts of callables:\n\n- `env.filters[\"money\"] = format_money` makes `{{ price|money }}` call `format_money(price)`. Extra filter arguments become extra function arguments: `{{ price|money(\"EUR\") }}` calls `format_money(price, \"EUR\")`.\n- `env.tests[\"prime\"] = is_prime` enables `{% if n is prime %}`.\n- `env.globals[\"now\"] = datetime.now` makes `{{ now() }}` available in every template; also good for config values and helper functions.\n\nRegister them **before** loading templates, since filters are looked up when a template is compiled; an unknown filter is a `TemplateAssertionError` at compile time, not a runtime blank.\n\nSometimes a filter needs more than its value. Decorators from `jinja2` pass extra first arguments:\n\n- `@pass_context`: the active `Context`, giving access to template variables, for example the current locale\n- `@pass_eval_context`: the evaluation context, mainly to check `eval_ctx.autoescape`\n- `@pass_environment`: the Environment\n\nA filter that returns HTML should return `Markup`, escaping its inputs, so it works correctly with autoescaping on. In Flask, register filters with `@app.template_filter()` and globals with `@app.template_global()` or a context processor.\n\nKeep filters pure and fast: they run for every value, on every render.",
+   "code": "from decimal import Decimal\nfrom jinja2 import Environment, pass_context\nfrom markupsafe import Markup, escape\n\ndef money(value, currency=\"USD\"):\n    return f\"{Decimal(value):,.2f} {currency}\"\n\n@pass_context\ndef greet(ctx, name):                 # can read template variables\n    return f\"{ctx.get('greeting', 'Hello')}, {name}\"\n\ndef badge(text):\n    return Markup('<span class=\"badge\">%s</span>') % escape(text)\n\nenv = Environment(autoescape=True)\nenv.filters.update(money=money, greet=greet, badge=badge)\nenv.tests[\"even_len\"] = lambda s: len(s) % 2 == 0\nenv.globals[\"site\"] = \"Shop\"\n\nt = env.from_string(\"{{ site }}: {{ 1234.5|money('EUR') }} | {{ 'Ann'|greet }} | \"\n                    \"{{ '<b>new</b>'|badge }} | {{ 'abcd' is even_len }}\")\nprint(t.render(greeting=\"Hi\"))\n# Shop: 1,234.50 EUR | Hi, Ann | <span class=\"badge\">&lt;b&gt;new&lt;/b&gt;</span> | True",
+   "code_lang": "python",
+   "takeaways": [
+    "env.filters, env.tests and env.globals are dicts you can extend",
+    "Extra filter arguments map to extra function parameters",
+    "@pass_context gives a filter access to template variables",
+    "Return Markup from filters that produce HTML, escaping inputs"
+   ],
+   "pitfalls": [
+    "Registering a filter after templates using it were compiled, causing \"No filter named\" errors."
+   ],
+   "quiz": [
+    {
+     "q": "You register env.filters[\"slug\"] = slugify. What does {{ title|slug(\"_\") }} call?",
+     "options": [
+      "slugify(\"_\", title)",
+      "slugify(title, \"_\")",
+      "slugify(title)",
+      "slug(title, \"_\")"
+     ],
+     "answer": 1,
+     "explain": "The filtered value is the first argument; filter arguments follow it."
+    }
+   ],
+   "docs": "https://jinja.palletsprojects.com/en/stable/api/#custom-filters",
+   "requires": [
+    "jinja2.filters-tests",
+    "jinja2.autoescaping",
+    "python.functions"
+   ]
+  },
+  {
+   "id": "jinja2.loaders",
+   "name": "Loaders, caching and auto-reload",
+   "module": "api",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Pick the right loader (FileSystem, Package, Dict, Choice, Prefix), and understand template caching, auto_reload and bytecode caches.",
+   "why": "Loader and cache setup decide where templates come from and how fast rendering is in production.",
+   "body": "The **loader** maps a template name to source. Built-in options:\n\n- `FileSystemLoader([\"templates\", \"shared\"])`: searches directories in order\n- `PackageLoader(\"myapp\", \"templates\")`: loads from an installed Python package, ideal for libraries\n- `DictLoader({...})`: in-memory, great for tests\n- `FunctionLoader(fn)`: any callable returning source, for example from a database\n- `ChoiceLoader([a, b])`: tries loaders in order, so an app's templates can override a library's\n- `PrefixLoader({\"admin\": loader})`: namespaces, `\"admin/index.html\"`\n\nTemplate names always use forward slashes and cannot escape the loader's root with `..`.\n\n**Caching.** `get_template` compiles a template once and keeps it in an LRU cache (`cache_size=400` by default). With `auto_reload=True` (the default), Jinja checks the source's modification time on each `get_template` call and recompiles if it changed, which is convenient in development. In production, `auto_reload=False` skips those filesystem checks.\n\n**Bytecode cache.** Compiling is the expensive step. A `FileSystemBytecodeCache` (or memcached-based cache) stores compiled bytecode on disk so new processes, for example many short-lived workers, skip recompiling.\n\n`env.list_templates()` lists everything a loader can find, useful for pre-compiling or checking that all templates parse in CI.\n\nKeep **one Environment per application**. Creating a new Environment per request throws away the cache and recompiles every template each time, a common performance bug.",
+   "code": "import os, tempfile\nfrom jinja2 import ChoiceLoader, DictLoader, Environment, FileSystemLoader, PrefixLoader\n\nwith tempfile.TemporaryDirectory() as d:\n    with open(os.path.join(d, \"hello.txt\"), \"w\") as f:\n        f.write(\"v1 from disk\")\n    env = Environment(loader=ChoiceLoader([\n        FileSystemLoader(d),                                    # app templates win\n        DictLoader({\"hello.txt\": \"default\", \"footer.txt\": \"(c) lib\"}),\n        PrefixLoader({\"admin\": DictLoader({\"index.txt\": \"admin home\"})}),\n    ]))\n    print(env.get_template(\"hello.txt\").render())        # v1 from disk\n    print(env.get_template(\"footer.txt\").render())       # (c) lib\n    print(env.get_template(\"admin/index.txt\").render())  # admin home\n    print(env.get_template(\"hello.txt\") is env.get_template(\"hello.txt\"))  # True (cached)\n\n    with open(os.path.join(d, \"hello.txt\"), \"w\") as f:\n        f.write(\"v2 edited\")\n    os.utime(os.path.join(d, \"hello.txt\"), (0, 10**10))   # make the change visible\n    print(env.get_template(\"hello.txt\").render())        # v2 edited (auto_reload)",
+   "code_lang": "python",
+   "takeaways": [
+    "FileSystemLoader for apps, PackageLoader for libraries, ChoiceLoader for overrides",
+    "Compiled templates are cached; auto_reload re-checks sources",
+    "Use one shared Environment; a bytecode cache speeds up cold starts"
+   ],
+   "pitfalls": [
+    "Creating a new Environment for every render, recompiling templates each time."
+   ],
+   "quiz": [
+    {
+     "q": "Why should a web app create its Jinja Environment once at startup?",
+     "options": [
+      "Autoescaping only works on the first Environment",
+      "Environments are not thread-safe otherwise",
+      "The Environment caches compiled templates, so reuse avoids recompiling",
+      "Loaders can only be attached once"
+     ],
+     "answer": 2,
+     "explain": "Compiling is the slow part; a shared Environment keeps compiled templates in its cache."
+    }
+   ],
+   "docs": "https://jinja.palletsprojects.com/en/stable/api/#loaders",
+   "requires": [
+    "jinja2.inheritance",
+    "jinja2.macros-imports"
+   ]
+  },
+  {
+   "id": "jinja2.undefined",
+   "name": "Undefined handling and debugging",
+   "module": "api",
+   "level": 3,
+   "minutes": 8,
+   "summary": "Choose Undefined, ChainableUndefined, DebugUndefined or StrictUndefined, and find which variables a template needs.",
+   "why": "Silently empty output from a typo is a classic template bug, especially in config generation.",
+   "body": "When a template references something that doesn't exist, Jinja creates an **undefined** object. The class used is set on the Environment with `undefined=`:\n\n- `Undefined` (default): prints as empty, is falsy and iterates as empty, but raises `UndefinedError` on attribute access (`{{ db.host }}` with no `db`) or arithmetic\n- `ChainableUndefined`: also allows `a.b.c` chains on undefined values, returning undefined instead of raising, handy with deeply optional data\n- `DebugUndefined`: prints the expression back, such as `{{ user.name }}`, so missing values stand out in output\n- `StrictUndefined`: raises `UndefinedError` on almost any use, including printing, iterating and truth tests\n\n`StrictUndefined` is the safest choice for generated configuration, emails and anything where a blank is a bug. Within it, you can still handle optional values explicitly with `{% if x is defined %}` or `x|default(\"...\")`, which work because tests and `default` don't trigger the error.\n\nTo find out which variables a template expects, parse it and ask:\n\n```python\nfrom jinja2 import meta\nmeta.find_undeclared_variables(env.parse(source))\n```\n\nThat is useful for validating that a caller provides everything, or for documenting template inputs.\n\nError messages from Jinja include the template name and line number in the traceback, because compiled templates keep a mapping back to template lines.",
+   "code": "from jinja2 import ChainableUndefined, DebugUndefined, Environment, StrictUndefined, meta\nfrom jinja2.exceptions import UndefinedError\n\nsrc = \"host={{ db_host }} port={{ port|default(5432) }} {% if debug is defined %}debug{% endif %}\"\n\nprint(Environment().from_string(src).render())                 # host= port=5432\nprint(Environment(undefined=DebugUndefined).from_string(src).render())\n# host={{ db_host }} port=5432\ntry:\n    Environment(undefined=StrictUndefined).from_string(src).render()\nexcept UndefinedError as e:\n    print(\"error:\", e)                                     # error: 'db_host' is undefined\nprint(Environment(undefined=StrictUndefined).from_string(src).render(db_host=\"h\"))\n# host=h port=5432\nprint(Environment(undefined=ChainableUndefined).from_string(\"[{{ a.b.c }}]\").render())  # []\n\nenv = Environment()\nprint(sorted(meta.find_undeclared_variables(env.parse(src))))  # ['db_host', 'debug', 'port']",
+   "code_lang": "python",
+   "takeaways": [
+    "The undefined= option decides what missing values do",
+    "StrictUndefined turns typos into errors; default and is defined still work",
+    "meta.find_undeclared_variables lists a template's inputs"
+   ],
+   "pitfalls": [
+    "Generating config files with the default Undefined, so a typo produces an empty value."
+   ],
+   "quiz": [
+    {
+     "q": "With StrictUndefined, what does {{ missing|default(\"x\") }} render?",
+     "options": [
+      "An empty string",
+      "missing",
+      "An UndefinedError",
+      "x"
+     ],
+     "answer": 3,
+     "explain": "The default filter checks for undefined without triggering the strict error."
+    }
+   ],
+   "docs": "https://jinja.palletsprojects.com/en/stable/api/#undefined-types",
+   "requires": [
+    "jinja2.variables-expressions",
+    "jinja2.filters-tests"
+   ]
+  },
+  {
+   "id": "jinja2.compilation",
+   "name": "How templates compile to Python",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "See the pipeline from source to tokens, AST and generated Python code, and how blocks, macros and context work at runtime.",
+   "why": "Knowing the compiled form explains performance, scoping rules and error tracebacks.",
+   "body": "Jinja doesn't interpret templates; it **compiles them to Python**. The pipeline:\n\n1. The **lexer** splits source into tokens, using the configured delimiters (you can change `{{` and `{%` via Environment options).\n2. The **parser** builds an **AST** of `jinja2.nodes` (`Output`, `For`, `If`, `Name`, `Filter`, ...). `env.parse(source)` returns it, which is what `meta.find_undeclared_variables` analyzes.\n3. The **code generator** turns the AST into Python source. You can read it with `env.compile(source, raw=True)`.\n4. Python compiles that source to a code object, cached in memory and optionally by a bytecode cache.\n\nIn the generated module, the template body becomes a generator function `root(context, ...)` that yields strings, and each block becomes its own function in a `blocks` dict. That is why inheritance is cheap: the child's block functions replace the parent's when the parent's `root` runs. Macros become Python functions returning `Markup`.\n\nVariables are resolved from the `Context`, a layered mapping of template variables, then globals. Lookups are cached in local Python variables, so `{% set %}` inside a loop creates a new local in the loop's scope, the reason assignments don't leak out of loops and blocks.\n\nFilter and test names are resolved at **compile time**, so an unknown filter fails when the template is loaded, while undefined variables only matter at render time.\n\nTracebacks point at template lines because Jinja keeps a debug line mapping and rewrites the traceback frames.\n\nThe generated code is an implementation detail and changes between versions; inspect it to learn, never depend on it.",
+   "code": "from jinja2 import Environment\nfrom jinja2.exceptions import TemplateAssertionError\n\nenv = Environment()\nsrc = \"{% for x in items %}{{ x|upper }}{% endfor %}\"\n\nprint(env.parse(src))\n# Template(body=[For(target=Name(name='x', ctx='store'), iter=Name(name='items', ...\ncode = env.compile(src, raw=True)\nprint([line for line in code.splitlines() if line.startswith(\"def \")])\n# ['def root(context, missing=missing, environment=environment):']\nprint(\"t_1 = environment.filters['upper']\" in code)          # True: resolved up front\n\ntry:\n    env.from_string(\"{{ x|no_such_filter }}\")              # fails at compile time\nexcept TemplateAssertionError as e:\n    print(e)                                                # No filter named 'no_such_filter'.\nt = env.from_string(\"{{ x }}\")\nprint(t.render(x=1), list(t.generate(x=2)))                 # 1 ['2']",
+   "code_lang": "python",
+   "takeaways": [
+    "Templates go lexer -> parser AST -> generated Python -> bytecode",
+    "Each template is a root() generator; blocks and macros become functions",
+    "Filters are resolved at compile time, variables at render time"
+   ],
+   "pitfalls": [
+    "Relying on the generated Python code, which is internal and changes between releases."
+   ],
+   "quiz": [
+    {
+     "q": "When is an unknown filter name in a template detected?",
+     "options": [
+      "When the template is compiled/loaded",
+      "Never, it renders empty",
+      "Only with StrictUndefined",
+      "Only when that line is rendered"
+     ],
+     "answer": 0,
+     "explain": "Filters are looked up during code generation, so a missing one raises TemplateAssertionError at load time."
+    }
+   ],
+   "docs": "https://jinja.palletsprojects.com/en/stable/api/#low-level-api",
+   "requires": [
+    "jinja2.loaders",
+    "jinja2.undefined"
+   ]
+  },
+  {
+   "id": "jinja2.sandbox",
+   "name": "The sandboxed environment",
+   "module": "internals",
+   "level": 4,
+   "minutes": 10,
+   "summary": "Render templates written by untrusted users with SandboxedEnvironment and understand what it does and doesn't protect.",
+   "why": "Letting users write templates (emails, themes, notifications) is a server-side template injection risk without a sandbox.",
+   "body": "If template **source** comes from users, a normal Environment is dangerous: Jinja expressions can walk Python's object graph, for example `{{ ''.__class__.__mro__[1].__subclasses__() }}`, and reach functions that read files or run commands. This is **server-side template injection (SSTI)**.\n\n`jinja2.sandbox.SandboxedEnvironment` intercepts attribute access and calls:\n\n- underscore attributes such as `__class__` and `__globals__`, and internal function and frame attributes, are blocked: they evaluate to a special undefined value that raises `SecurityError` as soon as it is used, and calling unsafe callables raises it too\n- `range()` is capped (`MAX_RANGE`, 100000 items) to stop trivially huge loops\n- `ImmutableSandboxedEnvironment` additionally blocks methods that mutate lists, dicts and sets, like `append` or `update`\n\nYou can customize policy by subclassing and overriding `is_safe_attribute(obj, attr, value)` and `is_safe_callable(obj)`, or mark your own functions with `@unsafe` from the sandbox module.\n\nWhat the sandbox does **not** do:\n\n- protect against resource exhaustion, such as nested loops or huge strings; enforce timeouts and output size limits yourself, ideally in a separate process\n- make unsafe objects safe: anything you pass into the context is reachable, so pass plain data (dicts, strings, numbers), never ORM objects with `delete()` methods or your app's config\n- escape output: autoescaping is still a separate setting\n\nThe safest design is still to not let users write templates at all. If you must, combine the sandbox with minimal context data, autoescaping and resource limits.",
+   "code": "from jinja2.sandbox import ImmutableSandboxedEnvironment, SandboxedEnvironment\nfrom jinja2.exceptions import SecurityError\nfrom jinja2 import Environment\n\nevil = \"{{ ''.__class__.__mro__[1].__subclasses__()|length > 0 }}\"\nprint(Environment().from_string(evil).render())          # True: object graph reachable!\n\nsandbox = SandboxedEnvironment(autoescape=True)\ntry:\n    print(sandbox.from_string(evil).render())\nexcept Exception as e:\n    print(type(e).__name__)                              # SecurityError\n\nuser_template = \"Hi {{ user.name }}, you have {{ count }} new messages\"\nprint(sandbox.from_string(user_template).render(user={\"name\": \"Ann\"}, count=3))\n# Hi Ann, you have 3 new messages\n\nimmutable = ImmutableSandboxedEnvironment()\ntry:\n    immutable.from_string(\"{{ items.append(4) }}\").render(items=[1, 2, 3])\nexcept SecurityError as e:\n    print(\"blocked:\", e)        # blocked: access to attribute 'append' of 'list' object is unsafe.",
+   "code_lang": "python",
+   "takeaways": [
+    "SandboxedEnvironment blocks unsafe attributes and calls in untrusted templates",
+    "ImmutableSandboxedEnvironment also blocks mutating container methods",
+    "The sandbox doesn't limit CPU or memory, and can't protect unsafe objects you pass in"
+   ],
+   "pitfalls": [
+    "Rendering user-supplied template source with a normal Environment (SSTI)."
+   ],
+   "quiz": [
+    {
+     "q": "Which risk does SandboxedEnvironment NOT address on its own?",
+     "options": [
+      "Calling unsafe internal attributes",
+      "A template that loops a huge number of times to exhaust CPU",
+      "Reaching Python internals via strings",
+      "Accessing __class__ and __subclasses__"
+     ],
+     "answer": 1,
+     "explain": "The sandbox restricts attribute access and calls, but resource limits must be enforced separately."
+    }
+   ],
+   "docs": "https://jinja.palletsprojects.com/en/stable/sandbox/",
+   "requires": [
+    "jinja2.custom-filters",
+    "jinja2.autoescaping"
+   ]
+  },
+  {
+   "id": "jinja2.extensions",
+   "name": "Writing extensions and async rendering",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Add custom tags with an Extension that parses tokens into AST nodes, use built-in extensions, and render templates asynchronously.",
+   "why": "Extensions let you add syntax such as caching or i18n blocks when filters and macros aren't enough.",
+   "body": "Filters, tests and globals extend what expressions can do. **Extensions** go further and add new **tags**. Built-in ones are enabled by name:\n\n```python\nEnvironment(extensions=[\"jinja2.ext.i18n\", \"jinja2.ext.loopcontrols\", \"jinja2.ext.do\"])\n```\n\n`i18n` adds `{% trans %}` blocks for gettext, `loopcontrols` adds `break` and `continue`, `do` runs an expression without output, and `debug` adds `{% debug %}` to dump the context.\n\nA custom extension subclasses `jinja2.ext.Extension`, declares `tags = {\"mytag\"}` and implements `parse(self, parser)`. The parser hands you the token stream; you consume your tag, parse arguments with `parser.parse_expression()`, collect the body with `parser.parse_statements((\"name:endmytag\",), drop_needle=True)`, and return AST nodes. The most common pattern returns a `nodes.CallBlock` that calls a method on the extension via `self.call_method(\"_render\", args)`; that method receives `caller`, a function that renders the body. This is how fragment caching extensions work: compute a key, return cached output or call `caller()` and store it.\n\nExtensions can also add Environment attributes with `self.environment.extend(...)` and preprocess source or filter the token stream.\n\n**Async rendering.** `Environment(enable_async=True)` compiles templates so they can `await` async functions and iterate async generators passed in the context. Render with `await template.render_async(...)`. It is useful when templates pull data from async sources, but it is slower than sync rendering, so prefer loading data first and rendering synchronously.",
+   "code": "import asyncio\nfrom jinja2 import Environment, nodes\nfrom jinja2.ext import Extension\n\nclass ShoutExtension(Extension):\n    tags = {\"shout\"}\n\n    def parse(self, parser):\n        lineno = next(parser.stream).lineno          # consume the \"shout\" token\n        times = parser.parse_expression()            # {% shout 2 %}\n        body = parser.parse_statements((\"name:endshout\",), drop_needle=True)\n        return nodes.CallBlock(self.call_method(\"_render\", [times]), [], [], body).set_lineno(lineno)\n    def _render(self, times, caller):\n        return (caller().strip().upper() + \"! \") * times\nenv = Environment(extensions=[ShoutExtension, \"jinja2.ext.loopcontrols\"])\nprint(env.from_string(\"{% shout 2 %}hi {{ name }}{% endshout %}\").render(name=\"ann\"))\n# HI ANN! HI ANN!\nprint(env.from_string(\"{% for i in range(9) %}{% if i > 2 %}{% break %}{% endif %}{{ i }}{% endfor %}\").render())\n# 012\n\nasync def get_user():\n    return \"Bo\"\naenv = Environment(enable_async=True)\nprint(asyncio.run(aenv.from_string(\"Hello {{ get_user() }}\").render_async(get_user=get_user)))\n# Hello Bo",
+   "code_lang": "python",
+   "takeaways": [
+    "Built-in extensions: i18n, loopcontrols, do, debug",
+    "A custom tag = Extension subclass with tags and parse() returning AST nodes",
+    "CallBlock + call_method lets Python code wrap a rendered body",
+    "enable_async + render_async await async functions in templates"
+   ],
+   "pitfalls": [
+    "Writing an extension for something a filter, global or macro could do more simply."
+   ],
+   "quiz": [
+    {
+     "q": "In an extension's _render(self, ..., caller) method, what does caller() return?",
+     "options": [
+      "The name of the calling template",
+      "The template source of the tag body",
+      "The rendered output of the tag's body",
+      "The parser"
+     ],
+     "answer": 2,
+     "explain": "CallBlock passes a caller function that renders the body between the opening and end tags."
+    }
+   ],
+   "docs": "https://jinja.palletsprojects.com/en/stable/extensions/#writing-extensions",
+   "requires": [
+    "jinja2.compilation",
+    "jinja2.custom-filters"
+   ]
+  }
+ ]
+}

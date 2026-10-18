@@ -1,0 +1,532 @@
+{
+ "tool": {
+  "id": "py-logging",
+  "name": "logging",
+  "category": "library",
+  "tagline": "The standard library's flexible logging framework for apps and libraries",
+  "description": "logging is Python's built-in system for recording what a program does, with levels, named loggers, pluggable handlers and formatters. Every serious application and library uses it, and frameworks such as Django, FastAPI and Celery plug into it. Learning it well means readable diagnostics in development and searchable, structured logs in production.",
+  "icon": "log",
+  "color": "#4B6A88",
+  "official_docs": "https://docs.python.org/3/library/logging.html",
+  "version": "Python 3.13",
+  "aliases": [
+   "python logging",
+   "logger",
+   "log module"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Logging basics"
+  },
+  {
+   "id": "handlers",
+   "name": "Handlers and the logger tree"
+  },
+  {
+   "id": "config",
+   "name": "Configuration and context"
+  },
+  {
+   "id": "production",
+   "name": "Production logging"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "py-logging.first-logs",
+   "name": "Your first log messages",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Replace print debugging with logging.basicConfig and the five standard level functions.",
+   "why": "Logs can be filtered, redirected and timestamped without touching the code that emits them; prints can't.",
+   "body": "The `logging` module gives each message a **level** saying how important it is: `DEBUG`, `INFO`, `WARNING`, `ERROR` and `CRITICAL`, in increasing severity.\n\nThe quickest start is `logging.basicConfig(...)`, called once at program start. It attaches a handler that writes to standard error, with the threshold and format you choose:\n\n```python\nlogging.basicConfig(level=logging.INFO,\n                    format=\"%(asctime)s %(levelname)s %(message)s\")\n```\n\nMessages below the threshold are dropped. With no configuration at all, only `WARNING` and above appear: that's why `logging.info(\"hi\")` seems to do nothing at first. Note that the module-level functions (`logging.info`, `logging.warning`...) call `basicConfig()` for you if the root logger has no handlers yet.\n\nWhy bother instead of `print`?\n\n- You can turn detail up or down with one setting instead of deleting prints.\n- Output goes to stderr, a file or a log service without code changes.\n- Each line can carry a timestamp, level, module and line number for free.\n\n`basicConfig` does nothing if the root logger already has handlers, which surprises people in notebooks, test runners, and after an early `logging.warning(...)` call; pass `force=True` to replace the existing setup. Other handy arguments are `filename=` to log to a file and `datefmt=` for the timestamp format.",
+   "code": "import logging, sys\n\nlogging.warning(\"before config\")   # WARNING:root:before config (auto basicConfig)\nlogging.basicConfig(\n    level=logging.INFO,\n    format=\"%(levelname)-8s %(message)s\",\n    stream=sys.stdout,\n    force=True,                     # replace any earlier configuration\n)\nlogging.debug(\"hidden: below INFO\")\nlogging.info(\"server started on port %d\", 8000)\nlogging.error(\"disk almost full\")\n# INFO     server started on port 8000\n# ERROR    disk almost full",
+   "code_lang": "python",
+   "takeaways": [
+    "Five levels: DEBUG < INFO < WARNING < ERROR < CRITICAL",
+    "Call logging.basicConfig once at startup to set level and format",
+    "Unconfigured logging shows only WARNING and above"
+   ],
+   "pitfalls": [
+    "Calling basicConfig after something else configured logging; it silently does nothing unless force=True."
+   ],
+   "quiz": [
+    {
+     "q": "With no logging configuration, what does logging.info('x') print?",
+     "options": [
+      "x",
+      "INFO:root:x",
+      "Nothing",
+      "It raises an error"
+     ],
+     "answer": 2,
+     "explain": "The default threshold is WARNING, so INFO messages are dropped."
+    }
+   ],
+   "docs": "https://docs.python.org/3/howto/logging.html#a-simple-example",
+   "requires": [
+    "python.modules-imports"
+   ]
+  },
+  {
+   "id": "py-logging.named-loggers",
+   "name": "Named loggers: getLogger(__name__)",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Create one logger per module with logging.getLogger(__name__) instead of logging through the root logger.",
+   "why": "Named loggers tell you where each message came from and let you tune modules independently.",
+   "body": "Calling `logging.info(...)` uses the **root logger**. Real code creates a logger per module:\n\n```python\nlog = logging.getLogger(__name__)\n```\n\n`getLogger` returns the same object for the same name every time, so module-level creation is cheap and safe. Using `__name__` gives names like `myapp.db.models`, which mirror your package structure. That matters because:\n\n- `%(name)s` in the format shows which module produced each line,\n- you can raise or lower the level of one subsystem: `logging.getLogger(\"myapp.db\").setLevel(logging.DEBUG)`,\n- third-party libraries do the same, so you can quiet them: `logging.getLogger(\"urllib3\").setLevel(logging.WARNING)`.\n\nLogger methods mirror the module functions: `log.debug`, `log.info`, `log.warning`, `log.error`, `log.critical`, `log.exception`, plus `log.log(level, msg)`.\n\nDon't create loggers with dynamic names per request or per object; loggers live forever in a global registry. And never instantiate `logging.Logger(...)` directly; always go through `getLogger` so the logger is attached to the hierarchy.",
+   "code": "import logging, sys\nlogging.basicConfig(level=logging.INFO, stream=sys.stdout,\n                    format=\"%(name)s | %(levelname)s | %(message)s\")\n\ndb_log = logging.getLogger(\"myapp.db\")\napi_log = logging.getLogger(\"myapp.api\")\nprint(db_log is logging.getLogger(\"myapp.db\"))   # True: same object\n\ndb_log.info(\"connected\")\napi_log.info(\"listening\")\nlogging.getLogger(\"myapp.db\").setLevel(logging.WARNING)  # quiet the db\ndb_log.info(\"query took 3 ms\")                    # suppressed\napi_log.info(\"GET /users\")\n# myapp.db | INFO | connected\n# myapp.api | INFO | listening\n# myapp.api | INFO | GET /users",
+   "code_lang": "python",
+   "takeaways": [
+    "log = logging.getLogger(__name__) at the top of each module",
+    "Same name, same logger object",
+    "Names form a dotted hierarchy you can tune per subsystem"
+   ],
+   "pitfalls": [
+    "Logging through the root logger everywhere, losing the module name and per-module control."
+   ],
+   "quiz": [
+    {
+     "q": "What do two calls to logging.getLogger('app.db') return?",
+     "options": [
+      "Two independent loggers",
+      "The same logger object",
+      "A logger and a child logger",
+      "An error the second time"
+     ],
+     "answer": 1,
+     "explain": "Loggers are cached by name in a global manager."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/logging.html#logger-objects",
+   "requires": [
+    "py-logging.first-logs"
+   ]
+  },
+  {
+   "id": "py-logging.levels",
+   "name": "Choosing and filtering levels",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Pick the right level for each message and understand how logger levels filter them.",
+   "why": "Consistent levels are what make logs searchable and alerting possible.",
+   "body": "Each level has a number: `DEBUG` 10, `INFO` 20, `WARNING` 30, `ERROR` 40, `CRITICAL` 50. A logger passes a message on only if its level is at or above the logger's **effective level**.\n\nA practical guide:\n\n- `DEBUG`: details useful when diagnosing, such as payloads and branch decisions. Off in production.\n- `INFO`: normal milestones, such as startup, a job finishing, a user signing in.\n- `WARNING`: something unexpected that was handled, such as a retry or a deprecated option.\n- `ERROR`: an operation failed; someone should look.\n- `CRITICAL`: the program may not be able to continue.\n\n`logger.setLevel(level)` sets a threshold; a logger left at `NOTSET` (0) inherits the level of its nearest ancestor that has one, ultimately the root (`WARNING` by default). `logger.getEffectiveLevel()` tells you the resolved value.\n\nLevels accept names as strings: `setLevel(\"DEBUG\")` works, which is handy when reading from an environment variable. `logging.getLevelNamesMapping()` (3.11+) gives the name-to-number dict.\n\nWhen building a message is expensive (formatting a huge object), guard it with `if log.isEnabledFor(logging.DEBUG):` so the work is skipped when debug is off.",
+   "code": "import logging, os, sys\nlogging.basicConfig(stream=sys.stdout, format=\"%(levelname)s %(message)s\")\n\nlog = logging.getLogger(\"worker\")\nprint(log.level, log.getEffectiveLevel())    # 0 30  (NOTSET, inherits WARNING)\n\nlog.setLevel(os.environ.get(\"LOG_LEVEL\", \"INFO\"))\nprint(logging.getLevelName(log.getEffectiveLevel()))  # INFO\nlog.debug(\"payload=%s\", {\"id\": 1})           # dropped\nlog.info(\"job started\")                      # INFO job started\nif log.isEnabledFor(logging.DEBUG):\n    log.debug(\"expensive dump: %s\", \"...\")   # skipped entirely\nprint(logging.getLevelNamesMapping()[\"ERROR\"])  # 40",
+   "code_lang": "python",
+   "takeaways": [
+    "DEBUG 10, INFO 20, WARNING 30, ERROR 40, CRITICAL 50",
+    "A NOTSET logger inherits its ancestor's level",
+    "isEnabledFor() skips expensive message preparation"
+   ],
+   "pitfalls": [
+    "Logging normal events at ERROR, which floods alerting and hides real failures."
+   ],
+   "quiz": [
+    {
+     "q": "A logger 'app.db' is NOTSET; 'app' is set to DEBUG; root is WARNING. What is app.db's effective level?",
+     "options": [
+      "NOTSET",
+      "WARNING",
+      "DEBUG",
+      "INFO"
+     ],
+     "answer": 2,
+     "explain": "A NOTSET logger walks up to the nearest ancestor with a level, here 'app'."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/logging.html#logging-levels",
+   "requires": [
+    "py-logging.first-logs"
+   ]
+  },
+  {
+   "id": "py-logging.message-formatting",
+   "name": "Message arguments and formats",
+   "module": "basics",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Pass values as arguments for lazy %-formatting, and control each line's layout with format attributes.",
+   "why": "Lazy arguments save work and keep messages groupable; format attributes add context for free.",
+   "body": "Logging methods take a message template and arguments: `log.info(\"user %s logged in from %s\", user, ip)`. The `%` formatting happens **only if the message is actually emitted**, so a dropped DEBUG call costs almost nothing. With an f-string, the string is built every time, even when the message is filtered out.\n\nArguments also keep the template constant (\"user %s logged in\"), which log aggregators such as Sentry use to group identical events. Use `%s`, `%d`, `%r`, `%.2f`; the message template itself always uses %-style, regardless of the formatter style.\n\nThe line layout is set by a format string of **LogRecord attributes**:\n\n- `%(asctime)s`, `%(levelname)s`, `%(name)s`, `%(message)s`,\n- `%(module)s`, `%(funcName)s`, `%(lineno)d`, `%(process)d`, `%(threadName)s`.\n\nYou can use `{`-style or `$`-style for the format string by passing `style=\"{\"` to `basicConfig` or `Formatter`: `\"{asctime} {levelname:<8} {message}\"`. `datefmt` controls `asctime` using `time.strftime` codes.\n\nIf a message has placeholders but the arguments don't match, logging doesn't crash your program; it prints a \"--- Logging error ---\" traceback to stderr and moves on.",
+   "code": "import logging, sys\nlogging.basicConfig(\n    stream=sys.stdout, level=logging.DEBUG, style=\"{\",\n    format=\"{levelname:<7} {funcName}:{lineno} {message}\",\n)\nlog = logging.getLogger(__name__)\n\nclass Expensive:\n    def __str__(self):\n        print(\"  (str called)\")\n        return \"big object\"\n\ndef handle(user, ms):\n    log.info(\"user %s served in %.1f ms\", user, ms)\n    log.setLevel(logging.INFO)\n    log.debug(\"state: %s\", Expensive())   # never formatted: no '(str called)'\n\nhandle(\"ada\", 12.345)\n# INFO    handle:14 user ada served in 12.3 ms",
+   "code_lang": "python",
+   "takeaways": [
+    "Pass values as arguments: log.info('x=%s', x), not f-strings",
+    "Formatting is lazy: skipped when the message is filtered out",
+    "Format strings use LogRecord attributes like %(name)s and %(lineno)d"
+   ],
+   "pitfalls": [
+    "Using f-strings in hot debug logging, paying formatting costs even when DEBUG is off."
+   ],
+   "quiz": [
+    {
+     "q": "Why prefer log.debug('data=%s', data) over log.debug(f'data={data}')?",
+     "options": [
+      "f-strings are not allowed in logging",
+      "The %-version is only formatted if the record is emitted",
+      "The f-string version logs at INFO",
+      "The %-version is thread-safe and the f-string isn't"
+     ],
+     "answer": 1,
+     "explain": "Arguments are merged into the message lazily, after level filtering."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/logging.html#logrecord-attributes",
+   "requires": [
+    "py-logging.named-loggers"
+   ]
+  },
+  {
+   "id": "py-logging.handlers-formatters",
+   "name": "Handlers and formatters",
+   "module": "handlers",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Send records to several destinations, each with its own level and format, using handlers and formatters.",
+   "why": "Real apps log to the console and files or services at once, with different detail for each.",
+   "body": "A logger decides **whether** a message is logged; **handlers** decide **where** it goes, and **formatters** decide **how** it looks. One logger can have many handlers.\n\nCommon handlers:\n\n- `StreamHandler(sys.stderr)`: console.\n- `FileHandler(\"app.log\")`: a file.\n- `RotatingFileHandler(path, maxBytes=..., backupCount=...)` and `TimedRotatingFileHandler(path, when=\"midnight\")` in `logging.handlers`: files that rotate by size or time.\n- `SysLogHandler`, `SMTPHandler`, `HTTPHandler`, `QueueHandler`: other destinations.\n\nEach handler has its own level, so the logger can let DEBUG through while the console handler shows only INFO and a file handler keeps everything. A record must pass the logger's level, then each handler's level, independently.\n\nWire it up by hand:\n\n```python\nh = logging.FileHandler(\"app.log\", encoding=\"utf-8\")\nh.setLevel(logging.DEBUG)\nh.setFormatter(logging.Formatter(\"%(asctime)s %(name)s %(message)s\"))\nlogger.addHandler(h)\n```\n\n`basicConfig` is just a shortcut that does this for the root logger. Attach handlers in one place at startup, usually to the root logger, not in every module, or you'll get duplicate lines.",
+   "code": "import logging, sys\n\nlog = logging.getLogger(\"app\")\nlog.setLevel(logging.DEBUG)                 # logger lets everything through\n\nconsole = logging.StreamHandler(sys.stdout)\nconsole.setLevel(logging.INFO)\nconsole.setFormatter(logging.Formatter(\"console: %(levelname)s %(message)s\"))\n\nfile = logging.FileHandler(\"app.log\", mode=\"w\", encoding=\"utf-8\")\nfile.setFormatter(logging.Formatter(\"%(levelname)s:%(name)s:%(message)s\"))\n\nlog.addHandler(console)\nlog.addHandler(file)\nlog.debug(\"cache miss for key=42\")\nlog.info(\"request done\")\nprint(open(\"app.log\").read())\n# console: INFO request done\n# DEBUG:app:cache miss for key=42\n# INFO:app:request done",
+   "code_lang": "python",
+   "takeaways": [
+    "Loggers filter, handlers route, formatters render",
+    "Each handler has its own level and formatter",
+    "Rotating handlers in logging.handlers keep log files bounded"
+   ],
+   "pitfalls": [
+    "Calling addHandler inside a function that runs many times, multiplying every log line."
+   ],
+   "quiz": [
+    {
+     "q": "The logger is at DEBUG, a console handler at WARNING. Where does log.info('x') appear?",
+     "options": [
+      "Nowhere via that handler: it fails the handler's level",
+      "On the console",
+      "On the console twice",
+      "Only if the root is at INFO"
+     ],
+     "answer": 0,
+     "explain": "The record passes the logger but the handler drops anything below WARNING."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/logging.handlers.html",
+   "requires": [
+    "py-logging.named-loggers",
+    "py-logging.levels"
+   ]
+  },
+  {
+   "id": "py-logging.propagation",
+   "name": "Propagation and the logger tree",
+   "module": "handlers",
+   "level": 2,
+   "minutes": 11,
+   "summary": "Follow how records bubble up the dotted logger hierarchy to ancestor handlers, and fix duplicate log lines.",
+   "why": "Propagation explains most 'why is this logged twice' and 'why is this not logged' puzzles.",
+   "body": "Loggers form a tree by name: `app.db.pool` is a child of `app.db`, which is a child of `app`, which is a child of the root logger. When a logger accepts a record, the record is handed to the logger's own handlers and then, because `propagate` is True by default, to the handlers of each ancestor in turn, up to the root.\n\nTwo details trip people up:\n\n- Ancestor **logger levels are not checked** during propagation; only the originating logger's effective level and each **handler's** level are. A record from `app.db` at DEBUG reaches the root's handlers even if the root logger is set to WARNING.\n- If both `app` and the root have handlers, a record from `app.x` is printed by both: duplicate lines.\n\nThe standard design avoids both: put handlers only on the root logger (or one top-level application logger), leave module loggers handler-less, and control verbosity with levels. Set `logger.propagate = False` only when a subtree must go somewhere else exclusively, such as an audit log.\n\nIf no handler is found anywhere, logging falls back to `logging.lastResort`, which prints WARNING and above to stderr. That's the bare message you see before configuring anything.",
+   "code": "import logging, sys\n\ndef show(msg):\n    h = logging.StreamHandler(sys.stdout)\n    h.setFormatter(logging.Formatter(msg + \" %(name)s: %(message)s\"))\n    return h\n\nroot = logging.getLogger()\nroot.addHandler(show(\"[root]\"))\nroot.setLevel(logging.WARNING)\n\napp = logging.getLogger(\"app\")\napp.setLevel(logging.INFO)\napp.addHandler(show(\"[app]\"))\n\nlogging.getLogger(\"app.db\").info(\"connected\")   # handled twice\n# [app] app.db: connected\n# [root] app.db: connected   (root's WARNING level isn't checked)\n\napp.propagate = False\nlogging.getLogger(\"app.db\").info(\"pooled\")\n# [app] app.db: pooled",
+   "code_lang": "python",
+   "takeaways": [
+    "Records go to their logger's handlers, then every ancestor's handlers",
+    "Ancestor logger levels are skipped; only handler levels apply on the way up",
+    "Configure handlers once at the root to avoid duplicates"
+   ],
+   "pitfalls": [
+    "Adding a handler to a module logger and to the root, then seeing every line twice."
+   ],
+   "quiz": [
+    {
+     "q": "Root logger is WARNING with a console handler at NOTSET. A child logger set to INFO logs log.info('x'). Is it printed?",
+     "options": [
+      "No, the root's WARNING level blocks it",
+      "Yes, propagation checks only handler levels, not ancestor logger levels",
+      "Only if propagate is False",
+      "Only if the child has its own handler"
+     ],
+     "answer": 1,
+     "explain": "Propagation passes records straight to ancestor handlers without re-checking ancestor logger levels."
+    }
+   ],
+   "docs": "https://docs.python.org/3/howto/logging.html#logging-flow",
+   "requires": [
+    "py-logging.handlers-formatters"
+   ]
+  },
+  {
+   "id": "py-logging.exceptions",
+   "name": "Logging exceptions",
+   "module": "handlers",
+   "level": 2,
+   "minutes": 9,
+   "summary": "Record full tracebacks with logger.exception() or exc_info=True, and add stack context with stack_info.",
+   "why": "An error log without a traceback is the hardest kind of bug report to act on.",
+   "body": "Inside an `except` block, `log.exception(\"message\")` logs at ERROR and appends the current exception's traceback. It's equivalent to `log.error(\"message\", exc_info=True)`.\n\nUse `exc_info=True` with other levels when the failure isn't really an error, for example a retried call: `log.warning(\"retrying\", exc_info=True)`. You can also pass an exception instance: `exc_info=err`.\n\nGuidelines:\n\n- Call `log.exception` only inside an `except` block; elsewhere there is no current exception and you get `NoneType: None` as the \"traceback\".\n- Log **or** re-raise, not both at every layer, or a single failure appears five times. Log where you handle the error (for example the top-level request handler).\n- Include identifiers in the message: `log.exception(\"charge failed for order %s\", order_id)`.\n\n`stack_info=True` adds the current call stack (not an exception) to a record, useful for \"who called this deprecated function?\". `stacklevel=2` attributes the record's `funcName` and `lineno` to the caller, which is what you want inside logging helper functions.\n\nException chains (`raise ... from err`) are rendered in full, the same as an uncaught exception.",
+   "code": "import logging, sys\nlogging.basicConfig(stream=sys.stdout, format=\"%(levelname)s %(message)s\")\nlog = logging.getLogger(\"billing\")\n\ndef charge(order_id, amount):\n    try:\n        return 100 / amount\n    except ZeroDivisionError:\n        log.exception(\"charge failed for order %s\", order_id)\n        return None\n\ncharge(\"A-17\", 0)\n# ERROR charge failed for order A-17\n# Traceback (most recent call last):\n#   File \"...\", line 7, in charge\n#     return 100 / amount\n# ZeroDivisionError: division by zero",
+   "code_lang": "python",
+   "takeaways": [
+    "log.exception() = log.error() plus the current traceback",
+    "exc_info=True attaches a traceback at any level",
+    "Log an error once, where it is handled"
+   ],
+   "pitfalls": [
+    "Logging and re-raising at every layer, so one failure produces many identical tracebacks."
+   ],
+   "quiz": [
+    {
+     "q": "What is the difference between log.exception('x') and log.error('x')?",
+     "options": [
+      "exception() logs at CRITICAL",
+      "error() can't be used inside except blocks",
+      "There is no difference",
+      "exception() also records the current traceback"
+     ],
+     "answer": 3,
+     "explain": "exception() is error() with exc_info=True."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/logging.html#logging.Logger.exception",
+   "requires": [
+    "py-logging.message-formatting",
+    "python.exceptions"
+   ]
+  },
+  {
+   "id": "py-logging.dict-config",
+   "name": "Configuring with dictConfig",
+   "module": "config",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Describe loggers, handlers and formatters declaratively with logging.config.dictConfig.",
+   "why": "One reviewable config (often loaded from YAML or TOML) replaces scattered setup code and works across environments.",
+   "body": "`logging.config.dictConfig(config)` builds the whole logging setup from a dictionary, the format frameworks like Django use. Keys:\n\n- `version`: always `1`.\n- `formatters`: named formatters (`format`, `datefmt`, `style`, or `()` for a custom factory).\n- `filters`: named filters.\n- `handlers`: each with `class`, `level`, `formatter`, and constructor arguments such as `filename` or `stream`.\n- `loggers`: per-name `level`, `handlers`, `propagate`.\n- `root`: the root logger's config.\n- `disable_existing_loggers`: defaults to **True**, which disables every logger created before the call. Set it to `False` almost always, otherwise module-level loggers created at import time go silent.\n\nValues like `\"ext://sys.stdout\"` refer to Python objects, and `\"cfg://...\"` refers to other parts of the config. Since 3.12 a `QueueHandler` can be configured fully here, including its listener.\n\nKeep the dict in a module or load it from a file (`json.load`, `tomllib.load`), apply it once at startup, and vary only the levels per environment. `logging.getHandlerByName(\"console\")` (3.12+) fetches a configured handler later. The older `fileConfig` (INI format) still works but is less capable.",
+   "code": "import logging, logging.config\n\nCONFIG = {\n    \"version\": 1,\n    \"disable_existing_loggers\": False,\n    \"formatters\": {\"short\": {\"format\": \"%(levelname)s %(name)s: %(message)s\"}},\n    \"handlers\": {\n        \"console\": {\"class\": \"logging.StreamHandler\", \"level\": \"INFO\",\n                    \"formatter\": \"short\", \"stream\": \"ext://sys.stdout\"},\n    },\n    \"loggers\": {\"urllib3\": {\"level\": \"WARNING\"}},\n    \"root\": {\"level\": \"DEBUG\", \"handlers\": [\"console\"]},\n}\nlogging.config.dictConfig(CONFIG)\n\nlogging.getLogger(\"myapp\").info(\"configured\")    # INFO myapp: configured\nlogging.getLogger(\"urllib3\").info(\"noise\")       # filtered by level\nprint(logging.getHandlerByName(\"console\").level) # 20",
+   "code_lang": "python",
+   "takeaways": [
+    "dictConfig sets up formatters, handlers, loggers and root from one dict",
+    "Set disable_existing_loggers to False",
+    "ext:// and cfg:// reference objects and other config entries"
+   ],
+   "pitfalls": [
+    "Leaving disable_existing_loggers at its default True, silencing loggers created at import time."
+   ],
+   "quiz": [
+    {
+     "q": "After dictConfig with defaults, loggers created at import time stop logging. Why?",
+     "options": [
+      "dictConfig resets all levels to CRITICAL",
+      "Module loggers need their own handlers",
+      "version must be 2",
+      "disable_existing_loggers defaults to True"
+     ],
+     "answer": 3,
+     "explain": "Unless set to False, existing loggers not named in the config are disabled."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/logging.config.html#logging-config-dictschema",
+   "requires": [
+    "py-logging.propagation",
+    "python.dicts"
+   ]
+  },
+  {
+   "id": "py-logging.context",
+   "name": "Adding context: extra, adapters, filters",
+   "module": "config",
+   "level": 3,
+   "minutes": 13,
+   "summary": "Attach request IDs and other context to records with extra=, LoggerAdapter, or a filter reading contextvars.",
+   "why": "Without per-request context, logs from concurrent requests are impossible to untangle.",
+   "body": "Three ways to add fields to log records:\n\n**`extra=`** on a single call: `log.info(\"paid\", extra={\"order_id\": 42})` adds attributes to the record, usable in formats as `%(order_id)s`. A format that references a field will fail on records that lack it, and keys must not clash with built-in attributes such as `message` or `asctime`.\n\n**`LoggerAdapter`** wraps a logger and injects the same extra into every call: `LoggerAdapter(log, {\"user\": \"ada\"})`. Since 3.13, `merge_extra=True` merges per-call `extra` with the adapter's instead of discarding it.\n\n**A filter** is any callable or object with `filter(record)` added to a logger or handler. Return False to drop the record; or modify it and return True. Returning a (possibly new) `LogRecord` is also allowed since 3.12. Filters on a **handler** see all records reaching it, including propagated ones, so a handler filter that reads a `contextvars.ContextVar` holding the current request ID stamps every line, from any module, with no changes at call sites. Context vars are per-thread and per-asyncio-task, so this works with concurrency.\n\nFilters on a logger only run for records created by that exact logger, not its children.",
+   "code": "import logging, sys, contextvars\nrequest_id = contextvars.ContextVar(\"request_id\", default=\"-\")\n\nclass RequestIdFilter(logging.Filter):\n    def filter(self, record):\n        record.request_id = request_id.get()\n        return True                          # keep the record\n\nh = logging.StreamHandler(sys.stdout)\nh.addFilter(RequestIdFilter())\nh.setFormatter(logging.Formatter(\"[%(request_id)s] %(name)s %(message)s\"))\nlogging.basicConfig(level=logging.INFO, handlers=[h])\n\ndef handle(rid):\n    request_id.set(rid)\n    logging.getLogger(\"app.db\").info(\"query\")\n\nhandle(\"req-1\")                              # [req-1] app.db query\nbase = logging.LoggerAdapter(logging.getLogger(\"app\"), {\"user\": \"ada\"})\nbase.info(\"hi %s\", base.extra[\"user\"])       # [req-1] app hi ada",
+   "code_lang": "python",
+   "takeaways": [
+    "extra={...} adds fields to one record",
+    "LoggerAdapter adds fixed context to every call",
+    "A handler filter reading a ContextVar stamps request IDs everywhere"
+   ],
+   "pitfalls": [
+    "Putting a filter on a parent logger and expecting it to run for child loggers' records."
+   ],
+   "quiz": [
+    {
+     "q": "A filter is attached to logger 'app'. A record from 'app.db' propagates up. Does the filter run?",
+     "options": [
+      "Yes, filters apply to the whole subtree",
+      "No, logger filters only see records created by that logger",
+      "Only if propagate is False",
+      "Only at ERROR level"
+     ],
+     "answer": 1,
+     "explain": "Attach to a handler to see propagated records."
+    }
+   ],
+   "docs": "https://docs.python.org/3/howto/logging-cookbook.html#adding-contextual-information-to-your-logging-output",
+   "requires": [
+    "py-logging.handlers-formatters",
+    "py-logging.message-formatting"
+   ]
+  },
+  {
+   "id": "py-logging.library-logging",
+   "name": "Logging in libraries",
+   "module": "config",
+   "level": 3,
+   "minutes": 9,
+   "summary": "Log from reusable packages correctly: named loggers, a NullHandler, and no configuration.",
+   "why": "A library that configures logging overrides its users' choices and floods their output.",
+   "body": "Applications configure logging; libraries only **emit**. Rules for library code:\n\n- Use `logging.getLogger(__name__)` in each module, so users can tune `yourlib` or `yourlib.http` independently.\n- Never call `basicConfig`, add handlers to the root, or set levels in import-time code.\n- Optionally add `logging.NullHandler()` to your top-level package logger. It does nothing, but it means \"this library has a handler\", so when the app hasn't configured logging, your warnings don't fall through to `lastResort` on stderr. Python's own docs recommend it for libraries.\n- Use DEBUG generously for internal details and WARNING sparingly, only for things the app owner should act on.\n- Don't log and raise the same error; raise it and let the app decide.\n\nFrom the application side, quiet a chatty dependency with `logging.getLogger(\"lib\").setLevel(logging.WARNING)`.\n\n`logging.captureWarnings(True)` routes the `warnings` module (for example `DeprecationWarning`s) into the logger named `py.warnings`, so they reach your handlers and log aggregator instead of bare stderr.",
+   "code": "import logging, sys, warnings\n\n# --- in yourlib/__init__.py ---\nlib_log = logging.getLogger(\"yourlib\")\nlib_log.addHandler(logging.NullHandler())\n\ndef connect():\n    lib_log.debug(\"opening socket\")\n    lib_log.warning(\"using insecure default port\")\n    warnings.warn(\"connect() is deprecated\", DeprecationWarning)\n\n# --- in the application ---\nlogging.basicConfig(stream=sys.stdout, format=\"%(name)s: %(message)s\")\nlogging.captureWarnings(True)             # warnings -> 'py.warnings' logger\nconnect()\n# yourlib: using insecure default port\n# py.warnings: .../app.py:10: DeprecationWarning: connect() is deprecated\n#   warnings.warn(\"connect() is deprecated\", DeprecationWarning)\nlogging.getLogger(\"yourlib\").setLevel(logging.ERROR)  # quiet the library",
+   "code_lang": "python",
+   "takeaways": [
+    "Libraries call getLogger(__name__) and never configure handlers or levels",
+    "A NullHandler on the package logger prevents lastResort output",
+    "captureWarnings(True) sends warnings into logging"
+   ],
+   "pitfalls": [
+    "Calling logging.basicConfig at import time in a library, hijacking the application's configuration."
+   ],
+   "quiz": [
+    {
+     "q": "What does adding logging.NullHandler() to a library's top-level logger do?",
+     "options": [
+      "Disables all logging from the library",
+      "Sends logs to /dev/null even when the app configures logging",
+      "Stops lastResort printing the library's warnings when the app hasn't configured logging",
+      "Sets the library's level to CRITICAL"
+     ],
+     "answer": 2,
+     "explain": "The handler discards records but its presence stops the fallback; app handlers on ancestors still receive records."
+    }
+   ],
+   "docs": "https://docs.python.org/3/howto/logging.html#configuring-logging-for-a-library",
+   "requires": [
+    "py-logging.propagation"
+   ]
+  },
+  {
+   "id": "py-logging.queue-handler",
+   "name": "Non-blocking logging with queues",
+   "module": "production",
+   "level": 4,
+   "minutes": 13,
+   "summary": "Move slow handler I/O off your threads with QueueHandler and QueueListener.",
+   "why": "Network or disk handlers can stall request threads and the asyncio event loop; a queue decouples them.",
+   "body": "Every handler's `emit()` runs synchronously in the thread that logged. A slow destination (SMTP, HTTP, a network file system, or even a busy disk) blocks the caller. In asyncio code, that means the event loop.\n\nThe fix is two-stage logging:\n\n- `QueueHandler(q)` is the only handler on your loggers. Its `emit` just prepares the record (formats the message, drops unpicklable args and exception objects in favour of text) and puts it on a queue: fast and non-blocking.\n- `QueueListener(q, *handlers)` runs a background thread that pulls records off the queue and passes them to the real, slow handlers.\n\nStart the listener at startup and call `listener.stop()` at shutdown to flush remaining records. Since 3.12, `dictConfig` can create both: a handler with `\"class\": \"logging.handlers.QueueHandler\"` and a `\"handlers\"` list builds a listener, available as `handler.listener`, which you start yourself.\n\nWith multiprocessing, a `multiprocessing.Queue` lets worker processes ship records to one listener in the main process, which avoids interleaved writes to a shared file. Record attributes must be picklable then.\n\nUse `respect_handler_level=True` on the listener so each downstream handler's level still applies.",
+   "code": "import logging, logging.handlers, queue, sys, time\n\nclass SlowHandler(logging.StreamHandler):\n    def emit(self, record):\n        time.sleep(0.2)                    # pretend network I/O\n        super().emit(record)\n\nq = queue.Queue(-1)                        # unbounded\nlistener = logging.handlers.QueueListener(\n    q, SlowHandler(sys.stdout), respect_handler_level=True)\nlog = logging.getLogger(\"api\")\nlog.addHandler(logging.handlers.QueueHandler(q))\nlog.setLevel(logging.INFO)\n\nlistener.start()\nt = time.perf_counter()\nfor i in range(3):\n    log.info(\"request %d\", i)\nprint(f\"logging took {time.perf_counter() - t:.3f}s\")  # ~0.000s\nlistener.stop()                            # flushes: request 0, 1, 2",
+   "code_lang": "python",
+   "takeaways": [
+    "Handlers run in the logging thread; slow ones block callers",
+    "QueueHandler enqueues, QueueListener emits from a background thread",
+    "Stop the listener at shutdown to flush pending records"
+   ],
+   "pitfalls": [
+    "Forgetting listener.stop() at exit, losing the last log lines."
+   ],
+   "quiz": [
+    {
+     "q": "Why is QueueHandler recommended for logging from asyncio applications?",
+     "options": [
+      "It keeps slow handler I/O off the event loop thread",
+      "It makes log calls awaitable",
+      "It formats messages faster",
+      "It is the only thread-safe handler"
+     ],
+     "answer": 0,
+     "explain": "The listener's thread does the I/O; the loop only enqueues."
+    }
+   ],
+   "docs": "https://docs.python.org/3/howto/logging-cookbook.html#dealing-with-handlers-that-block",
+   "requires": [
+    "py-logging.dict-config",
+    "python.threads-processes"
+   ]
+  },
+  {
+   "id": "py-logging.structured-logging",
+   "name": "Structured JSON logs",
+   "module": "production",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Emit one JSON object per line with a custom Formatter so log platforms can index every field.",
+   "why": "Production log tools (ELK, Loki, Datadog, CloudWatch) search fields, not free text.",
+   "body": "In production, logs are usually shipped to a system that parses them. Plain text needs fragile regexes; **JSON lines** are parsed for free: one object per line with fields such as `time`, `level`, `logger`, `message`, `request_id` and `exc`.\n\nImplement it with a `Formatter` subclass whose `format(record)` builds a dict and returns `json.dumps(...)`:\n\n- `record.getMessage()` merges message and args.\n- `self.formatTime(record)` or `record.created` gives the timestamp; prefer UTC ISO 8601.\n- `self.formatException(record.exc_info)` renders a traceback when there is one.\n- Copy custom attributes that came from `extra=` or filters. One approach: compare `record.__dict__` against the attributes of a blank LogRecord.\n\nKeep the message template constant and put variable data in fields (`extra={\"order_id\": 42}`), so the platform can group by message and filter by field.\n\nThird-party packages such as `python-json-logger` and `structlog` do this for you; structlog adds bound context and processors. Whatever you choose, ensure `json.dumps(..., default=str)` so a non-serializable value never kills the log line.",
+   "code": "import json, logging, sys\nfrom datetime import datetime, timezone\n\nSTD = set(vars(logging.makeLogRecord({}))) | {\"message\"}\n\nclass JsonFormatter(logging.Formatter):\n    def format(self, record):\n        out = {\n            \"time\": datetime.fromtimestamp(record.created, timezone.utc).isoformat(timespec=\"seconds\"),\n            \"level\": record.levelname,\n            \"logger\": record.name,\n            \"message\": record.getMessage(),\n        }\n        out |= {k: v for k, v in vars(record).items() if k not in STD}\n        if record.exc_info:\n            out[\"exc\"] = self.formatException(record.exc_info)\n        return json.dumps(out, default=str)\n\nh = logging.StreamHandler(sys.stdout)\nh.setFormatter(JsonFormatter())\nlog = logging.getLogger(\"shop\"); log.addHandler(h); log.propagate = False\nlog.warning(\"payment declined\", extra={\"order_id\": 42})\n# {\"time\": \"2026-...+00:00\", \"level\": \"WARNING\", \"logger\": \"shop\",\n#  \"message\": \"payment declined\", \"order_id\": 42}",
+   "code_lang": "python",
+   "takeaways": [
+    "One JSON object per line makes every field searchable",
+    "A Formatter subclass builds the dict; use getMessage() and formatException()",
+    "Keep messages constant and put variables in fields"
+   ],
+   "pitfalls": [
+    "json.dumps without default=str, so one datetime or Decimal in extra breaks the log line."
+   ],
+   "quiz": [
+    {
+     "q": "Why keep the message template constant and pass order IDs via extra?",
+     "options": [
+      "JSON can't contain numbers",
+      "extra is faster than %-formatting",
+      "So the platform can group identical events and filter by field",
+      "Messages longer than 80 characters are truncated"
+     ],
+     "answer": 2,
+     "explain": "Constant messages group together; structured fields stay queryable."
+    }
+   ],
+   "docs": "https://docs.python.org/3/howto/logging-cookbook.html#implementing-structured-logging",
+   "requires": [
+    "py-logging.context",
+    "py-logging.library-logging"
+   ]
+  },
+  {
+   "id": "py-logging.internals",
+   "name": "How a log call works inside",
+   "module": "production",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Trace a record from logger call through filters, handlers and locks, and know the performance costs.",
+   "why": "Understanding the pipeline lets you debug odd behaviour and keep logging cheap in hot paths.",
+   "body": "What `log.info(\"x %s\", v)` does, step by step:\n\n- `isEnabledFor(INFO)` is checked first. The result is cached per logger and reset whenever levels change, so disabled calls are very cheap. `logging.disable(level)` globally short-circuits at this point.\n- `findCaller()` walks the stack for file, line and function name, one of the most expensive steps.\n- A `LogRecord` is created (through the factory you can replace with `setLogRecordFactory`), with time, thread, process and the unformatted `msg` and `args`.\n- Logger filters run, then `callHandlers` walks the logger and its ancestors while `propagate` is True.\n- Each handler checks its level, runs its filters, then acquires its **lock** (handlers are thread-safe) and calls `emit`, which calls `format`. The message is merged with args at this point, in `getMessage()`.\n\nPerformance tips from the docs: set `logging.logThreads`, `logging.logProcesses`, `logging.logMultiprocessing` and `logging.logAsyncioTasks` (3.12) to False to skip collecting those fields. Avoid `extra` dicts built on every call in hot loops. Formatters cache the exception text in `record.exc_text`.\n\nErrors inside `emit` go to `handler.handleError`, which prints a traceback but doesn't raise, unless `logging.raiseExceptions` is False, when they are silently ignored.",
+   "code": "import logging, sys, timeit\n\nlog = logging.getLogger(\"hot\")\nlog.addHandler(logging.StreamHandler(sys.stdout))\nlog.setLevel(logging.WARNING)\n\nn = 100_000\noff = timeit.timeit(lambda: log.debug(\"x=%s\", 1), number=n)\nlogging.disable(logging.CRITICAL)            # global kill switch\ndis = timeit.timeit(lambda: log.warning(\"x=%s\", 1), number=n)\nlogging.disable(logging.NOTSET)\nprint(f\"filtered debug: {off / n * 1e9:.0f} ns/call\")\nprint(f\"disabled:       {dis / n * 1e9:.0f} ns/call\")\n\nold = logging.getLogRecordFactory()\ndef factory(*a, **kw):\n    rec = old(*a, **kw); rec.service = \"api\"; return rec\nlogging.setLogRecordFactory(factory)\nlog.handlers[0].setFormatter(logging.Formatter(\"%(service)s %(message)s\"))\nlog.warning(\"custom field\")                  # api custom field",
+   "code_lang": "python",
+   "takeaways": [
+    "Level checks happen first and are cached, so filtered calls are cheap",
+    "findCaller and record creation dominate the cost of emitted calls",
+    "Handlers are lock-protected; errors in emit are reported, not raised"
+   ],
+   "pitfalls": [
+    "Wrapping log calls in try/except: logging already swallows handler errors via handleError."
+   ],
+   "quiz": [
+    {
+     "q": "At what point is the message text actually merged with its arguments?",
+     "options": [
+      "When log.info() is called",
+      "When the LogRecord is created",
+      "In getMessage(), called while a handler formats the record",
+      "When the logger's filters run"
+     ],
+     "answer": 2,
+     "explain": "Records carry msg and args separately until a formatter asks for the message."
+    }
+   ],
+   "docs": "https://docs.python.org/3/howto/logging.html#optimization",
+   "requires": [
+    "py-logging.queue-handler",
+    "py-logging.propagation"
+   ]
+  }
+ ]
+}

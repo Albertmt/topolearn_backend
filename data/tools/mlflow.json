@@ -1,0 +1,685 @@
+{
+ "tool": {
+  "id": "mlflow",
+  "name": "MLflow",
+  "category": "library",
+  "tagline": "Track experiments, version models and evaluate ML and GenAI apps",
+  "description": "MLflow is an open-source platform for the machine learning lifecycle. It records experiment runs (parameters, metrics, artifacts), packages models in a standard format, manages versions in a model registry, serves models, and adds tracing and evaluation for LLM and agent applications. Teams use it to make ML work reproducible, comparable and deployable.",
+  "icon": "ML",
+  "color": "#0194E2",
+  "official_docs": "https://mlflow.org/docs/latest/",
+  "version": "3.x",
+  "aliases": [
+   "ml flow",
+   "mlflow tracking",
+   "mlflow model registry"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 2
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "tracking",
+   "name": "Experiment tracking"
+  },
+  {
+   "id": "models",
+   "name": "Packaging models"
+  },
+  {
+   "id": "registry",
+   "name": "Model registry and deployment"
+  },
+  {
+   "id": "genai",
+   "name": "Tracing and GenAI evaluation"
+  },
+  {
+   "id": "platform",
+   "name": "Running MLflow for a team"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "mlflow.what-is-mlflow",
+   "name": "What MLflow does",
+   "module": "tracking",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Get the big picture: tracking, models, registry, serving and GenAI features, and how to start the local UI.",
+   "why": "Knowing the components tells you which part solves your current problem, from comparing runs to deploying models.",
+   "body": "MLflow organizes ML work around a few concepts:\n\n- **Tracking** records each training attempt as a **run** inside an **experiment**: parameters, metrics over time, tags and files (artifacts).\n- **Models** are saved in a standard format with a **flavor** (sklearn, pytorch, transformers...) plus a generic `pyfunc` interface, so any logged model can be loaded and called with `predict` the same way.\n- The **Model Registry** gives models names, versions and aliases such as `champion`, which deployment code refers to.\n- **Serving** turns a logged model into a REST endpoint or Docker image.\n- **GenAI** features add tracing of LLM and agent calls, evaluation with LLM judges, and a prompt registry.\n\nInstall with `pip install mlflow`. With no configuration, MLflow 3 stores runs in a local SQLite database `mlflow.db` in the working directory and artifacts in a local folder. Start the web UI with:\n\n```bash\nmlflow ui --port 5000\n```\n\nthen open http://localhost:5000 to browse experiments, compare runs and charts, and inspect models.\n\nFor teams, a shared **tracking server** backed by a database and object storage replaces the local file (covered later). The same Python code works against either; only the tracking URI changes.",
+   "code": "import mlflow\n\nprint(mlflow.__version__)          # 3.x\nprint(mlflow.get_tracking_uri())   # sqlite:///.../mlflow.db  (local default)\n\nmlflow.set_experiment(\"hello-mlflow\")\nwith mlflow.start_run():\n    mlflow.log_param(\"model\", \"baseline\")\n    mlflow.log_metric(\"accuracy\", 0.81)\n\n# Then, in a terminal in the same directory:\n#   mlflow ui --port 5000      -> open http://localhost:5000",
+   "code_lang": "python",
+   "takeaways": [
+    "Runs inside experiments record params, metrics, tags and artifacts",
+    "Models get a flavor plus a generic pyfunc interface; the registry versions them",
+    "Local default: SQLite `mlflow.db`; `mlflow ui` browses it"
+   ],
+   "pitfalls": [
+    "Running `mlflow ui` from a different directory than your scripts and seeing no runs, because the local store is relative to the working directory."
+   ],
+   "quiz": [
+    {
+     "q": "Which MLflow component lets deployment code refer to 'the current production model' by a stable name?",
+     "options": [
+      "The Model Registry with aliases",
+      "Artifacts",
+      "Autologging",
+      "Tracking"
+     ],
+     "answer": 0,
+     "explain": "Registered model names plus aliases like @champion give a stable reference that can be repointed to new versions."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/ml/",
+   "requires": []
+  },
+  {
+   "id": "mlflow.runs-experiments",
+   "name": "Runs, params, metrics and tags",
+   "module": "tracking",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Log parameters, step-wise metrics and tags inside runs grouped by experiment.",
+   "why": "Consistent logging is what makes experiments comparable weeks later.",
+   "body": "An **experiment** groups related runs, e.g. one per project or model family. `mlflow.set_experiment(\"churn\")` selects it (creating it if needed). A **run** is one execution, opened with a context manager so it is closed even when the code raises:\n\n```python\nwith mlflow.start_run(run_name=\"rf-depth-8\"):\n    ...\n```\n\nWhat to log:\n\n- **Parameters**: inputs that define the run, logged once (`log_param`, `log_params(dict)`). Values are stored as strings; logging the same key again with a different value raises an error.\n- **Metrics**: numbers that can change over time, with an optional `step` (`log_metric(\"loss\", v, step=epoch)`, `log_metrics(dict, step=...)`). The UI plots them as curves.\n- **Tags**: free-form metadata such as git commit, dataset version or owner (`set_tag`, `set_tags`). MLflow adds system tags like the source file and user automatically.\n\nThe run object exposes `run.info.run_id`, used to reload results or models later. Outside a `with` block, call `mlflow.end_run()` yourself; the run's status becomes `FINISHED`, or `FAILED` if the block raised an exception.\n\nLog parameters for everything that affects results, including data version and random seed. A run without them can be seen but not reproduced.",
+   "code": "import mlflow\n\nmlflow.set_experiment(\"churn-model\")\n\nwith mlflow.start_run(run_name=\"gbm-lr-0.1\") as run:\n    mlflow.log_params({\"learning_rate\": 0.1, \"max_depth\": 4, \"seed\": 42})\n    mlflow.set_tags({\"data_version\": \"2026-10-01\", \"owner\": \"ml-team\"})\n    for epoch in range(3):\n        mlflow.log_metric(\"val_loss\", 0.9 / (epoch + 1), step=epoch)\n    mlflow.log_metric(\"val_auc\", 0.87)\n\nfinished = mlflow.get_run(run.info.run_id)\nprint(finished.info.status)          # FINISHED\nprint(finished.data.params)          # {'learning_rate': '0.1', 'max_depth': '4', 'seed': '42'}\nprint(finished.data.metrics[\"val_loss\"])   # 0.3  (latest value)",
+   "code_lang": "python",
+   "takeaways": [
+    "Use `with mlflow.start_run()` so runs always close with the right status",
+    "Params are logged once as strings; metrics can have steps",
+    "Tag runs with data version, commit and owner for later filtering"
+   ],
+   "pitfalls": [
+    "Logging a changing value such as epoch loss with log_param, which fails on the second call; use log_metric."
+   ],
+   "quiz": [
+    {
+     "q": "You call mlflow.log_param('lr', 0.1) and later in the same run mlflow.log_param('lr', 0.01). What happens?",
+     "options": [
+      "The value is overwritten",
+      "MLflow raises an error because params are immutable within a run",
+      "Both values are stored as a history",
+      "The second call is silently ignored"
+     ],
+     "answer": 1,
+     "explain": "Parameters are write-once per run; values that change belong in metrics."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/ml/tracking/tracking-api/",
+   "requires": [
+    "mlflow.what-is-mlflow",
+    "python.context-managers"
+   ]
+  },
+  {
+   "id": "mlflow.artifacts",
+   "name": "Logging artifacts",
+   "module": "tracking",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Store files, plots, dicts, text and tables alongside a run, and read them back later.",
+   "why": "Plots, confusion matrices, feature lists and sample predictions explain a run far better than metrics alone.",
+   "body": "**Artifacts** are files attached to a run and stored in the run's artifact location (a local folder, S3, GCS, Azure Blob, or proxied through a tracking server).\n\nWays to log them:\n\n- `mlflow.log_artifact(\"report.html\")` uploads a single file; `log_artifacts(\"plots/\")` uploads a directory. `artifact_path=\"eval\"` places them in a subfolder.\n- `mlflow.log_dict(d, \"config.json\")` and `mlflow.log_text(s, \"notes.md\")` write objects directly without temporary files.\n- `mlflow.log_figure(fig, \"roc.png\")` saves a matplotlib or plotly figure.\n- `mlflow.log_image(array_or_pil, key=\"samples\", step=epoch)` logs images over steps.\n- `mlflow.log_table(data=df_or_dict, artifact_file=\"preds.json\")` stores tables you can view and compare in the UI.\n\nReading back: `mlflow.artifacts.download_artifacts(run_id=..., artifact_path=\"config.json\")` returns a local path, and `mlflow.artifacts.load_dict` or `load_text` load from an artifact URI directly. `MlflowClient().list_artifacts(run_id)` lists files.\n\nKeep artifacts purposeful: large datasets usually belong in a data store, with only a pointer or hash logged as a tag or via `mlflow.log_input` with a dataset object. Model files are logged with `log_model`, not as raw artifacts, so they get a signature and flavor.",
+   "code": "import json\nimport mlflow\n\nwith mlflow.start_run() as run:\n    mlflow.log_dict({\"features\": [\"age\", \"tenure\"], \"target\": \"churn\"}, \"config.json\")\n    mlflow.log_text(\"Baseline with two features.\", \"notes/summary.txt\")\n    mlflow.log_table(data={\"id\": [1, 2], \"pred\": [0.2, 0.9]}, artifact_file=\"preds.json\")\n    with open(\"threshold.json\", \"w\") as f:\n        json.dump({\"threshold\": 0.5}, f)\n    mlflow.log_artifact(\"threshold.json\", artifact_path=\"eval\")\n\nfrom mlflow import MlflowClient\nprint(sorted(a.path for a in MlflowClient().list_artifacts(run.info.run_id)))\n# ['config.json', 'eval', 'notes', 'preds.json']\n\ncfg = mlflow.artifacts.load_dict(f\"runs:/{run.info.run_id}/config.json\")\nprint(cfg[\"target\"])    # churn",
+   "code_lang": "python",
+   "takeaways": [
+    "Artifacts are files stored with a run (local, cloud or proxied storage)",
+    "`log_dict`, `log_text`, `log_figure`, `log_table` avoid temp files",
+    "Load back with `mlflow.artifacts` helpers and `runs:/<id>/path` URIs"
+   ],
+   "pitfalls": [
+    "Logging huge raw datasets as artifacts on every run, which bloats storage; log a reference instead."
+   ],
+   "quiz": [
+    {
+     "q": "Which call stores a matplotlib figure with a run without saving it to disk first?",
+     "options": [
+      "mlflow.log_param('plot', fig)",
+      "mlflow.log_artifact(fig)",
+      "mlflow.log_figure(fig, 'plot.png')",
+      "mlflow.log_metric('plot', fig)"
+     ],
+     "answer": 2,
+     "explain": "log_figure serializes the figure straight into the run's artifacts."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/ml/tracking/tracking-api/",
+   "requires": [
+    "mlflow.runs-experiments"
+   ]
+  },
+  {
+   "id": "mlflow.autolog",
+   "name": "Autologging",
+   "module": "tracking",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Capture parameters, metrics and models automatically for scikit-learn, XGBoost, PyTorch Lightning and more.",
+   "why": "Autolog gives complete runs with one line, so nothing important is forgotten.",
+   "body": "`mlflow.autolog()` patches supported libraries so that training calls log themselves. For scikit-learn, calling `fit` creates (or uses) a run and records:\n\n- all estimator **parameters** from `get_params()`,\n- **training metrics** such as accuracy, F1, ROC AUC for classifiers or MSE and R2 for regressors,\n- the fitted **model** with an inferred signature,\n- for searches like `GridSearchCV`, the best parameters and child runs for candidates.\n\nLibrary-specific versions offer more options, e.g. `mlflow.sklearn.autolog(log_models=False, max_tuning_runs=10)`. Supported integrations include scikit-learn, XGBoost, LightGBM, Keras/TensorFlow, PyTorch Lightning, Spark, statsmodels, and GenAI libraries such as OpenAI and LangChain, where autolog produces **traces** instead.\n\nAutolog composes with manual logging: inside a `with mlflow.start_run():` block, your own `log_metric` calls join the same run. Evaluation metrics on a test set are not logged automatically for sklearn unless you call a scoring function (MLflow records post-training metrics for calls like `model.score` or `sklearn.metrics` functions after `fit`).\n\nCall `autolog()` before you import and train, and turn it off with `mlflow.autolog(disable=True)`. It is ideal for exploration; for production pipelines many teams log explicitly so the contents of a run are deliberate.",
+   "code": "import mlflow\nfrom sklearn.datasets import load_iris\nfrom sklearn.ensemble import RandomForestClassifier\nfrom sklearn.model_selection import train_test_split\n\nmlflow.sklearn.autolog()\nX, y = load_iris(return_X_y=True)\nX_tr, X_te, y_tr, y_te = train_test_split(X, y, random_state=0)\n\nwith mlflow.start_run() as run:\n    model = RandomForestClassifier(n_estimators=50, max_depth=3, random_state=0)\n    model.fit(X_tr, y_tr)                 # params, train metrics, model logged\n    model.score(X_te, y_te)               # post-training metric logged too\n\nr = mlflow.get_run(run.info.run_id)\nprint(r.data.params[\"max_depth\"])         # 3\nprint(sorted(k for k in r.data.metrics if k.startswith(\"training_\"))[:3])\n# ['training_accuracy_score', 'training_f1_score', 'training_log_loss']",
+   "code_lang": "python",
+   "takeaways": [
+    "`mlflow.autolog()` logs params, metrics and the model for supported libraries",
+    "Manual logging inside the same run adds to autologged data",
+    "GenAI library autolog produces traces rather than training metrics"
+   ],
+   "pitfalls": [
+    "Enabling autolog after the model was already trained, so nothing gets captured."
+   ],
+   "quiz": [
+    {
+     "q": "Where do autologged sklearn metrics come from by default?",
+     "options": [
+      "Only from the test set",
+      "From the training data, plus scoring calls you make after fit",
+      "From cross-validation that MLflow runs automatically",
+      "They are not logged; only params are"
+     ],
+     "answer": 1,
+     "explain": "Autolog computes training metrics at fit time and records post-training metrics when you score the model."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/ml/tracking/autolog/",
+   "requires": [
+    "mlflow.runs-experiments"
+   ]
+  },
+  {
+   "id": "mlflow.logging-models",
+   "name": "Logging and loading models",
+   "module": "models",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Save a trained model with log_model, load it back natively or as a generic pyfunc, and understand model URIs.",
+   "why": "A logged model carries its dependencies and interface, so others can load and use it without your training code.",
+   "body": "Each flavor module has `log_model`, e.g. `mlflow.sklearn.log_model(model, name=\"model\")`. In MLflow 3 this creates a **LoggedModel**, a first-class entity with its own ID, linked to the active run. The return value (`ModelInfo`) has a `model_uri` such as `models:/m-...`.\n\nA logged model directory contains:\n\n- `MLmodel`: a YAML file listing flavors, signature and metadata,\n- the serialized model (for sklearn, a pickle-free `model.skops` file by default in recent 3.x releases),\n- `requirements.txt`, `conda.yaml` and `python_env.yaml` with pinned dependencies,\n- an optional `input_example`.\n\nLoad it two ways:\n\n- **Native flavor**: `mlflow.sklearn.load_model(uri)` returns the original estimator with all its methods.\n- **pyfunc**: `mlflow.pyfunc.load_model(uri)` returns a generic `PyFuncModel` whose `predict(data)` works the same for every flavor, which is what serving and batch scoring use.\n\nURIs you will see: `models:/<model_id>`, `runs:/<run_id>/<path>` for older-style references, and `models:/<name>/<version>` or `models:/<name>@<alias>` for registered models.\n\nAlways pass an `input_example` (a few rows of real input): MLflow infers the signature from it and validates that the model can be loaded and called. Version mismatches between the training and loading environments are the most common loading problem; the logged requirements tell you what to install.",
+   "code": "import mlflow\nfrom sklearn.datasets import load_diabetes\nfrom sklearn.linear_model import Ridge\n\nX, y = load_diabetes(return_X_y=True, as_frame=True)\nmodel = Ridge(alpha=0.5).fit(X, y)\n\nwith mlflow.start_run():\n    info = mlflow.sklearn.log_model(model, name=\"ridge\", input_example=X.head(3))\n\nprint(info.model_uri.startswith(\"models:/\"))   # True (MLflow 3 LoggedModel URI)\n\nnative = mlflow.sklearn.load_model(info.model_uri)\nprint(type(native).__name__, native.alpha)     # Ridge 0.5\n\ngeneric = mlflow.pyfunc.load_model(info.model_uri)\nprint(generic.predict(X.head(2)).round(1))     # same predictions as native.predict\nprint(generic.metadata.get_input_schema().input_names()[:3])  # ['age', 'sex', 'bmi']",
+   "code_lang": "python",
+   "takeaways": [
+    "`<flavor>.log_model(model, name=...)` creates a LoggedModel with an MLmodel file and pinned requirements",
+    "Load natively for full API, or via `mlflow.pyfunc` for a uniform predict",
+    "Pass `input_example` so a signature is inferred and the model is validated"
+   ],
+   "pitfalls": [
+    "Loading a model in an environment with different library versions than the ones logged in requirements.txt, causing deserialization errors.",
+    "Logging tree-based sklearn models with skops serialization without listing their types in skops_trusted_types (or choosing serialization_format=\"cloudpickle\"), which fails with an untrusted-types error."
+   ],
+   "quiz": [
+    {
+     "q": "What does mlflow.pyfunc.load_model return?",
+     "options": [
+      "A generic model wrapper with a uniform predict() for any flavor",
+      "The raw pickle bytes",
+      "A REST endpoint",
+      "The original estimator object"
+     ],
+     "answer": 0,
+     "explain": "pyfunc is MLflow's flavor-independent interface used by serving and batch inference."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/ml/model/",
+   "requires": [
+    "mlflow.runs-experiments"
+   ]
+  },
+  {
+   "id": "mlflow.search-runs",
+   "name": "Searching and comparing runs",
+   "module": "tracking",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Query runs programmatically with filter strings and ordering, and use the UI's comparison views.",
+   "why": "Picking the best run, building reports and cleaning up old runs all start with search.",
+   "body": "`mlflow.search_runs()` returns a pandas DataFrame with one row per run and columns like `run_id`, `status`, `params.max_depth`, `metrics.val_auc` and `tags.owner`.\n\n```python\nmlflow.search_runs(experiment_names=[\"churn\"],\n                   filter_string=\"metrics.val_auc > 0.85 and params.model = 'gbm'\",\n                   order_by=[\"metrics.val_auc DESC\"], max_results=5)\n```\n\nThe filter language is SQL-like:\n\n- Prefixes: `metrics.`, `params.`, `tags.`, `attributes.` (e.g. `attributes.status = 'FINISHED'`, `attributes.start_time > ...` in milliseconds).\n- Params and tags are strings, so compare them with quoted strings; metrics are numbers.\n- Operators: `=`, `!=`, `<`, `>`, `LIKE`, `ILIKE`, `IN`, `IS NULL`, combined with `AND` (no `OR`).\n- Names with spaces or dots need backticks: ``metrics.`val auc` ``.\n\n`MlflowClient().search_runs(...)` returns `Run` objects instead of a DataFrame, with pagination, which suits automation.\n\nIn the UI, select runs and click **Compare** to see parallel coordinates plots, scatter plots of a parameter against a metric, and metric curves overlaid. Charts and table views can be grouped by tags or parameters, handy for sweeps.\n\nMetric filters use the **latest** logged value of each metric; log a separate `best_val_auc` metric if you need to search on the best epoch.",
+   "code": "import mlflow\n\nmlflow.set_experiment(\"search-demo\")\nfor depth in [2, 4, 8]:\n    with mlflow.start_run(run_name=f\"depth-{depth}\"):\n        mlflow.log_params({\"model\": \"tree\", \"max_depth\": depth})\n        mlflow.log_metric(\"val_auc\", 0.70 + depth * 0.02)\n\nbest = mlflow.search_runs(\n    experiment_names=[\"search-demo\"],\n    filter_string=\"params.model = 'tree' and metrics.val_auc > 0.75\",\n    order_by=[\"metrics.val_auc DESC\"],\n)\nprint(best[[\"params.max_depth\", \"metrics.val_auc\"]].head(2).to_string(index=False))\n# params.max_depth  metrics.val_auc\n#                8             0.86\n#                4             0.78",
+   "code_lang": "python",
+   "takeaways": [
+    "`search_runs` returns a DataFrame with params., metrics. and tags. columns",
+    "Filter strings quote string values; metrics compare as numbers",
+    "Metric filters see the latest value, not the best"
+   ],
+   "pitfalls": [
+    "Filtering params numerically like params.max_depth > 4; params are strings, so compare as strings or cast in pandas."
+   ],
+   "quiz": [
+    {
+     "q": "Which filter string is valid for runs whose parameter optimizer is adam?",
+     "options": [
+      "params.optimizer = 'adam'",
+      "param:optimizer = \"adam\"",
+      "optimizer = 'adam'",
+      "params.optimizer == adam"
+     ],
+     "answer": 0,
+     "explain": "Use the params. prefix, a single = and a quoted string value."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/ml/search/search-runs/",
+   "requires": [
+    "mlflow.runs-experiments"
+   ]
+  },
+  {
+   "id": "mlflow.signatures",
+   "name": "Signatures and input examples",
+   "module": "models",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Describe a model's expected inputs and outputs with a signature so callers and servers can validate requests.",
+   "why": "Schema enforcement catches wrong columns and types before they silently produce bad predictions.",
+   "body": "A **model signature** records the schema of a model's inputs, outputs and optional inference **params**. It is stored in the `MLmodel` file, shown in the UI, and enforced when the model is called through `pyfunc` or served.\n\nCreate one by inference:\n\n```python\nfrom mlflow.models import infer_signature\nsignature = infer_signature(X_train, model.predict(X_train))\n```\n\nor let `log_model(..., input_example=X.head())` infer it automatically. Signatures can be **column-based** (named, typed columns from a DataFrame or dict) or **tensor-based** (dtype and shape, with `-1` for variable dimensions).\n\nWhat enforcement does on `predict`:\n\n- Missing required columns raise an error; extra columns are dropped with a warning.\n- Types are converted where safe (int to float) and rejected otherwise.\n- Columns marked optional may be absent.\n\n**Params** let callers change inference behaviour per request without changing the input data, e.g. `{\"threshold\": 0.7}` or a `max_tokens` for an LLM. Declare them with `infer_signature(X, y, params={\"threshold\": 0.5})`; the default comes from the signature.\n\nInteger columns with missing values are a classic trap: pandas turns them into floats at inference time and enforcement fails. Cast such columns to float before training and logging.",
+   "code": "import mlflow\nimport pandas as pd\nfrom mlflow.models import infer_signature\nfrom sklearn.linear_model import LogisticRegression\n\nX = pd.DataFrame({\"age\": [25.0, 40.0, 33.0, 51.0], \"visits\": [1.0, 5.0, 2.0, 8.0]})\ny = [0, 1, 0, 1]\nmodel = LogisticRegression().fit(X, y)\n\nsignature = infer_signature(X, model.predict(X))\nprint(signature.inputs)   # ['age': double (required), 'visits': double (required)]\n\nwith mlflow.start_run():\n    info = mlflow.sklearn.log_model(model, name=\"clf\", signature=signature,\n                                    input_example=X.head(2))\n\nloaded = mlflow.pyfunc.load_model(info.model_uri)\ntry:\n    loaded.predict(pd.DataFrame({\"age\": [30.0]}))   # 'visits' missing\nexcept mlflow.exceptions.MlflowException as e:\n    print(\"rejected:\", \"visits\" in str(e))           # rejected: True",
+   "code_lang": "python",
+   "takeaways": [
+    "Signatures describe inputs, outputs and inference params",
+    "pyfunc and serving enforce the schema on every call",
+    "Infer from real data with `infer_signature` or an `input_example`"
+   ],
+   "pitfalls": [
+    "Logging a model trained on integer columns that can be null at inference, so schema enforcement rejects float inputs."
+   ],
+   "quiz": [
+    {
+     "q": "A served model's signature requires columns a and b. A request sends a, b and c. What happens by default?",
+     "options": [
+      "c is passed to the model as an extra feature",
+      "MLflow retrains the model",
+      "The request fails",
+      "Column c is dropped and prediction proceeds"
+     ],
+     "answer": 3,
+     "explain": "Extra columns are ignored with a warning; missing required ones would fail."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/ml/model/signatures/",
+   "requires": [
+    "mlflow.logging-models"
+   ]
+  },
+  {
+   "id": "mlflow.model-registry",
+   "name": "Model registry and aliases",
+   "module": "registry",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Register model versions under a name, point aliases like champion at them, and load models by alias.",
+   "why": "The registry decouples deployment from training: services load 'the champion' while you swap versions behind it.",
+   "body": "The **Model Registry** gives logged models a **registered model name** and auto-incrementing **versions**. Register either while logging (`log_model(..., registered_model_name=\"churn\")`) or afterwards:\n\n```python\nmv = mlflow.register_model(info.model_uri, \"churn\")\n```\n\nEach version links back to the run and logged model that produced it, preserving lineage.\n\nTo mark which version is used where, assign **aliases**: mutable named pointers such as `champion`, `challenger` or `staging`:\n\n```python\nclient.set_registered_model_alias(\"churn\", \"champion\", mv.version)\nmodel = mlflow.pyfunc.load_model(\"models:/churn@champion\")\n```\n\nPromoting a new model is just moving the alias; rolling back is moving it back. No consumer code changes. The older **stages** (`Staging`, `Production`) are deprecated in favour of aliases and tags.\n\nOther useful operations on `MlflowClient`:\n\n- `set_model_version_tag` for metadata like `validation_status=passed`.\n- `get_model_version_by_alias`, `search_model_versions(\"name='churn'\")`.\n- Descriptions on models and versions for documentation.\n\nFor separate dev and prod environments, a common pattern is one registry per environment (or names prefixed by environment) and copying approved versions across with `client.copy_model_version`.",
+   "code": "import mlflow\nfrom mlflow import MlflowClient\nfrom sklearn.datasets import load_iris\nfrom sklearn.linear_model import LogisticRegression\n\nX, y = load_iris(return_X_y=True, as_frame=True)\nclient = MlflowClient()\n\nversions = []\nfor C in [0.1, 1.0]:\n    with mlflow.start_run():\n        m = LogisticRegression(C=C, max_iter=1000).fit(X, y)\n        info = mlflow.sklearn.log_model(m, name=\"clf\", input_example=X.head(2))\n    versions.append(mlflow.register_model(info.model_uri, \"iris-clf\").version)\n\nclient.set_registered_model_alias(\"iris-clf\", \"champion\", versions[-1])\nclient.set_model_version_tag(\"iris-clf\", versions[-1], \"validated\", \"true\")\n\nchamp = mlflow.pyfunc.load_model(\"models:/iris-clf@champion\")\nprint(champ.predict(X.head(3)))                       # [0 0 0]\nmv = client.get_model_version_by_alias(\"iris-clf\", \"champion\")\nprint(mv.version == versions[-1], mv.tags)            # True {'validated': 'true'}",
+   "code_lang": "python",
+   "takeaways": [
+    "Registered models have versions linked to the runs that produced them",
+    "Aliases (e.g. @champion) are movable pointers; load with `models:/name@alias`",
+    "Promote or roll back by moving an alias; stages are deprecated"
+   ],
+   "pitfalls": [
+    "Hard-coding a version number in serving code, which forces a redeploy for every model update."
+   ],
+   "quiz": [
+    {
+     "q": "How do you roll back production from version 7 to version 6 if services load models:/fraud@champion?",
+     "options": [
+      "Change the services to load version 6",
+      "Delete version 7",
+      "Point the champion alias at version 6",
+      "Re-register version 6 as version 8"
+     ],
+     "answer": 2,
+     "explain": "Moving the alias changes what models:/fraud@champion resolves to without touching consumers."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/ml/model-registry/",
+   "requires": [
+    "mlflow.logging-models"
+   ]
+  },
+  {
+   "id": "mlflow.nested-runs",
+   "name": "Nested runs for tuning",
+   "module": "tracking",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Organize hyperparameter searches as a parent run with child runs per trial.",
+   "why": "Sweeps produce dozens of runs; nesting keeps the experiment readable and the best trial easy to find.",
+   "body": "A hyperparameter search is naturally a tree: one **parent run** for the search, one **child run** per configuration. Create children with `nested=True` inside an active parent:\n\n```python\nwith mlflow.start_run(run_name=\"search\"):\n    for params in grid:\n        with mlflow.start_run(nested=True):\n            ...\n```\n\nChildren get the tag `mlflow.parentRunId`, and the UI shows them collapsed under the parent. Log the search configuration and the best result on the parent, so the parent alone answers \"what did this sweep find?\".\n\nPatterns that work well:\n\n- Log each child's params and validation metric; log the best params and metric to the parent at the end.\n- Query children with `filter_string=f\"tags.mlflow.parentRunId = '{parent_id}'\"`.\n- With tools like Optuna, start a nested run inside the objective function. In parallel workers, pass `parent_run_id=` explicitly to `start_run` instead of relying on the active run, because the active-run stack is per thread.\n\n`sklearn` autolog does this automatically for `GridSearchCV` and `RandomizedSearchCV`, creating child runs for the top candidates (limited by `max_tuning_runs`).\n\nKeep the number of logged metrics per child small; thousands of child runs with many step metrics make the UI slow.",
+   "code": "import mlflow\n\ndef train(lr, depth):                    # stand-in for real training\n    return 0.9 - abs(lr - 0.1) - abs(depth - 4) * 0.01\n\nmlflow.set_experiment(\"tuning-demo\")\nwith mlflow.start_run(run_name=\"grid-search\") as parent:\n    best = None\n    for lr in [0.01, 0.1, 0.3]:\n        for depth in [2, 4]:\n            with mlflow.start_run(nested=True):\n                score = train(lr, depth)\n                mlflow.log_params({\"lr\": lr, \"depth\": depth})\n                mlflow.log_metric(\"val_score\", score)\n            if best is None or score > best[0]:\n                best = (score, lr, depth)\n    mlflow.log_metric(\"best_val_score\", best[0])\n    mlflow.log_params({\"best_lr\": best[1], \"best_depth\": best[2]})\n\nkids = mlflow.search_runs(filter_string=f\"tags.mlflow.parentRunId = '{parent.info.run_id}'\")\nprint(len(kids), best)                   # 6 (0.9, 0.1, 4)",
+   "code_lang": "python",
+   "takeaways": [
+    "Use a parent run per search and `nested=True` child runs per trial",
+    "Summarize the best params and score on the parent",
+    "Children carry the `mlflow.parentRunId` tag for querying"
+   ],
+   "pitfalls": [
+    "Starting child runs from worker threads without passing parent_run_id, producing orphaned top-level runs."
+   ],
+   "quiz": [
+    {
+     "q": "How can you list all trials of a sweep whose parent run ID is p?",
+     "options": [
+      "mlflow.get_run(p).children",
+      "search_runs with filter tags.mlflow.parentRunId = 'p'",
+      "mlflow.list_nested(p)",
+      "Search for run names starting with p"
+     ],
+     "answer": 1,
+     "explain": "Child runs are tagged with mlflow.parentRunId, which search filters can use."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/ml/traditional-ml/tutorials/hyperparameter-tuning/part1-child-runs/",
+   "requires": [
+    "mlflow.runs-experiments",
+    "mlflow.search-runs"
+   ]
+  },
+  {
+   "id": "mlflow.tracking-server",
+   "name": "Remote tracking server",
+   "module": "platform",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Share experiments across a team with mlflow server, a database backend and object-store artifacts.",
+   "why": "A local mlflow.db works for one person; teams need a shared server so runs and models are visible to all.",
+   "body": "`mlflow server` runs the tracking API, model registry and UI as a service. Two stores are configured separately:\n\n- **Backend store** for metadata (experiments, runs, params, metrics, registry): a SQL database such as PostgreSQL or MySQL, e.g. `--backend-store-uri postgresql://user:pw@db/mlflow`. SQLite is fine for small single-machine setups.\n- **Artifact store** for files and models: S3, GCS, Azure Blob, HDFS or a shared filesystem, e.g. `--artifacts-destination s3://ml-artifacts`.\n\nBy default the server **proxies** artifact access: clients upload and download through the server, so they need no cloud credentials. Alternatively clients can write directly to the store if they have access.\n\nClients point at the server with either:\n\n- `mlflow.set_tracking_uri(\"http://mlflow.internal:5000\")` in code, or\n- the environment variable `MLFLOW_TRACKING_URI`, which keeps code environment-agnostic.\n\nProduction considerations:\n\n- Put it behind TLS and authentication. MLflow has built-in basic auth (`mlflow server --app-name basic-auth`) or you can use a reverse proxy or managed offering.\n- Run several server workers (`--workers`) for heavier traffic.\n- Back up the database; artifacts live in the object store.\n- Database schema changes between MLflow versions are applied with `mlflow db upgrade <uri>`; back up first.",
+   "code": "# Start a team server (shell):\n#   mlflow server --host 0.0.0.0 --port 5000 \\\n#       --backend-store-uri postgresql://mlflow:secret@db:5432/mlflow \\\n#       --artifacts-destination s3://acme-ml-artifacts\n#\n# Clients: export MLFLOW_TRACKING_URI=http://mlflow.internal:5000\nimport os\nimport mlflow\n\nuri = os.environ.get(\"MLFLOW_TRACKING_URI\", \"sqlite:///mlflow.db\")\nmlflow.set_tracking_uri(uri)\nprint(mlflow.get_tracking_uri())       # whichever store is configured\n\nmlflow.set_experiment(\"shared-experiment\")\nwith mlflow.start_run() as run:\n    mlflow.log_metric(\"rmse\", 3.2)\nprint(run.info.artifact_uri[:30])      # mlflow-artifacts:/... when proxied by a server",
+   "code_lang": "python",
+   "takeaways": [
+    "Backend store = SQL metadata; artifact store = object storage for files",
+    "Default proxied artifacts mean clients need no cloud credentials",
+    "Configure clients with MLFLOW_TRACKING_URI rather than hard-coded URIs"
+   ],
+   "pitfalls": [
+    "Running a shared server on the local file or SQLite store from a laptop, then losing the team's history when the laptop goes away."
+   ],
+   "quiz": [
+    {
+     "q": "In a default proxied-artifact setup, who needs write credentials for the S3 artifact bucket?",
+     "options": [
+      "Only the tracking server",
+      "Nobody, S3 is public",
+      "Only the database",
+      "Every client that logs runs"
+     ],
+     "answer": 0,
+     "explain": "With proxied artifacts, clients send files through the server, which is the only component talking to S3."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/ml/tracking/tutorials/remote-server/",
+   "requires": [
+    "mlflow.what-is-mlflow",
+    "mlflow.artifacts"
+   ]
+  },
+  {
+   "id": "mlflow.custom-pyfunc",
+   "name": "Custom pyfunc models",
+   "module": "models",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Wrap preprocessing, ensembles or any Python logic as an MLflow model with PythonModel and artifacts.",
+   "why": "Real predictors include feature engineering, thresholds and multiple models; pyfunc ships them as one deployable unit.",
+   "body": "When a model is more than one estimator's `predict`, subclass `mlflow.pyfunc.PythonModel`:\n\n- `load_context(self, context)` runs once at load time; `context.artifacts` maps names to local paths of files you attached, such as a tokenizer or a second model.\n- `predict(self, context, model_input, params=None)` implements inference. `params` receives per-request parameters declared in the signature.\n\nLog it with `mlflow.pyfunc.log_model(name=..., python_model=MyModel(), artifacts={...}, pip_requirements=[...])`. Artifacts are copied into the model directory, so the result is self-contained.\n\nThere are two ways to provide the model:\n\n- An **instance** (`python_model=MyModel()`), which MLflow serializes with cloudpickle. Easy, but sensitive to Python and library versions.\n- **Models from code**: pass a path to a Python file that defines the model and calls `mlflow.models.set_model(MyModel())`. Nothing is pickled; the code itself is stored, which is more robust and readable. This is the recommended approach, especially for GenAI apps and agents.\n\nType hints on `predict` (e.g. `model_input: list[str]`) let MLflow infer the signature and validate inputs automatically.\n\nKeep `predict` free of training logic and network calls you cannot control, and pin every dependency it needs in `pip_requirements`; the serving environment is built from them.",
+   "code": "import mlflow\nimport pandas as pd\n\nclass ThresholdModel(mlflow.pyfunc.PythonModel):\n    def load_context(self, context):\n        cfg = mlflow.artifacts.load_dict(context.artifacts[\"config\"])\n        self.threshold = cfg[\"threshold\"]\n\n    def predict(self, context, model_input: pd.DataFrame, params=None):\n        thr = (params or {}).get(\"threshold\", self.threshold)\n        score = model_input[\"a\"] * 0.6 + model_input[\"b\"] * 0.4\n        return (score > thr).astype(int)\n\nwith mlflow.start_run() as run:\n    mlflow.log_dict({\"threshold\": 0.5}, \"config.json\")\n    info = mlflow.pyfunc.log_model(\n        name=\"thresh\", python_model=ThresholdModel(),\n        artifacts={\"config\": f\"runs:/{run.info.run_id}/config.json\"},\n        input_example=pd.DataFrame({\"a\": [0.9, 0.1], \"b\": [0.8, 0.2]}),\n    )\n\nm = mlflow.pyfunc.load_model(info.model_uri)\nprint(list(m.predict(pd.DataFrame({\"a\": [0.9, 0.1], \"b\": [0.8, 0.2]}))))   # [1, 0]",
+   "code_lang": "python",
+   "takeaways": [
+    "Subclass PythonModel; load resources in `load_context`, infer in `predict`",
+    "Attach files via `artifacts` so the model is self-contained",
+    "Prefer models-from-code over pickled instances for robustness"
+   ],
+   "pitfalls": [
+    "Loading large resources inside predict on every call instead of once in load_context."
+   ],
+   "quiz": [
+    {
+     "q": "Where should a custom pyfunc load a 500 MB embedding file it needs at inference?",
+     "options": [
+      "In load_context, from a path in context.artifacts",
+      "Download it from the internet in predict",
+      "Pickle it into the signature",
+      "At the top of predict on every call"
+     ],
+     "answer": 0,
+     "explain": "load_context runs once when the model is loaded, and artifacts are bundled with the model."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/ml/model/python_model/",
+   "requires": [
+    "mlflow.signatures",
+    "python.classes"
+   ]
+  },
+  {
+   "id": "mlflow.serving",
+   "name": "Serving and deploying models",
+   "module": "registry",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Serve a logged or registered model as a REST API locally, build a Docker image, and run batch inference.",
+   "why": "The point of packaging a model is to run it somewhere else with the same behaviour.",
+   "body": "Any pyfunc-compatible model can be served without writing a web app:\n\n```bash\nmlflow models serve -m \"models:/churn@champion\" -p 5001\n```\n\nThis starts a server (using an environment built from the model's requirements, or the current one with `--env-manager local`) with endpoints:\n\n- `POST /invocations` for predictions, accepting JSON such as `{\"dataframe_split\": {\"columns\": [...], \"data\": [[...]]}}`, `{\"dataframe_records\": [...]}`, `{\"inputs\": ...}` for tensors, plus optional `\"params\"`;\n- `GET /ping` and `/health` for health checks; `/version`.\n\nFor containers, `mlflow models build-docker -m <uri> -n churn-model` builds an image that serves the model on port 8080, ready for Kubernetes or a cloud container service. `mlflow models generate-dockerfile` emits the Dockerfile instead, so you can customise it.\n\nOther deployment paths:\n\n- **Batch**: load with `mlflow.pyfunc.load_model` in a job, or `mlflow.pyfunc.spark_udf` to score Spark DataFrames in parallel.\n- **Cloud targets**: deployment plugins for SageMaker, Azure ML, Databricks and others via `mlflow deployments`.\n\nBefore deploying, check the model in isolation with `mlflow models predict -m <uri> -i input.json` or `mlflow.models.predict(...)`, which runs it in a fresh environment and catches missing dependencies early.\n\nServe by alias URI so redeploying picks up the new champion; pin the version in the image tag for traceability.",
+   "code": "# Shell:\n#   mlflow models serve -m \"models:/iris-clf@champion\" -p 5001 --env-manager local\n#   mlflow models build-docker -m \"models:/iris-clf@champion\" -n iris-clf:v3\nimport json\nimport urllib.request\n\npayload = {\n    \"dataframe_split\": {\n        \"columns\": [\"sepal length (cm)\", \"sepal width (cm)\",\n                    \"petal length (cm)\", \"petal width (cm)\"],\n        \"data\": [[5.1, 3.5, 1.4, 0.2], [6.7, 3.0, 5.2, 2.3]],\n    }\n}\nreq = urllib.request.Request(\n    \"http://127.0.0.1:5001/invocations\",\n    data=json.dumps(payload).encode(),\n    headers={\"Content-Type\": \"application/json\"},\n)\n# with urllib.request.urlopen(req) as resp:\n#     print(json.loads(resp.read()))      # {'predictions': [0, 2]}\nprint(json.dumps(payload)[:40])",
+   "code_lang": "python",
+   "takeaways": [
+    "`mlflow models serve` exposes `/invocations` for any pyfunc model",
+    "`build-docker` packages model plus server into an image",
+    "Validate with `mlflow models predict` in a fresh environment before deploying"
+   ],
+   "pitfalls": [
+    "Sending a bare list of rows to /invocations; the payload must use a key such as dataframe_split, dataframe_records or inputs."
+   ],
+   "quiz": [
+    {
+     "q": "Which request body shape does the /invocations endpoint accept for tabular data?",
+     "options": [
+      "A pickled DataFrame",
+      "URL query parameters",
+      "A CSV string only",
+      "JSON with a key like dataframe_split or dataframe_records"
+     ],
+     "answer": 3,
+     "explain": "The scoring server expects JSON wrapped in one of its documented keys (dataframe_split, dataframe_records, instances, inputs)."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/ml/deployment/deploy-model-locally/",
+   "requires": [
+    "mlflow.model-registry",
+    "mlflow.signatures"
+   ]
+  },
+  {
+   "id": "mlflow.evaluation",
+   "name": "Evaluating classic ML models",
+   "module": "models",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Run mlflow.models.evaluate to compute standard metrics, plots and custom metrics, and log them to a run.",
+   "why": "Standardized evaluation makes runs comparable and catches regressions before a model is promoted.",
+   "body": "`mlflow.models.evaluate` scores a model on a dataset and logs the results to the active run:\n\n```python\nresult = mlflow.models.evaluate(model_uri, eval_df, targets=\"label\",\n                                model_type=\"classifier\")\n```\n\n- `model_type=\"classifier\"` computes accuracy, precision, recall, F1, log loss, ROC AUC and logs a confusion matrix and ROC/PR curves; `\"regressor\"` computes MAE, RMSE, R2 and more.\n- `result.metrics` is a dict of values; `result.artifacts` holds plots and tables.\n- Pass `predictions=\"pred_col\"` with `model=None` to evaluate precomputed predictions, for models MLflow cannot load.\n- `extra_metrics=[make_metric(eval_fn=..., greater_is_better=...)]` adds business metrics such as expected profit.\n\n**Validation thresholds** turn evaluation into a gate: `mlflow.validate_evaluation_results(candidate_result=..., baseline_result=..., validation_thresholds={\"accuracy\": MetricThreshold(threshold=0.8, greater_is_better=True)})` raises if the candidate fails absolute or relative checks against the baseline. Use this in CI before moving the `champion` alias.\n\nFor LLM and agent applications use `mlflow.genai.evaluate` instead, which is built around traces and scorers (an Expert lesson). SHAP-based explanations can be added with `evaluator_config={\"log_explainer\": True}` when `shap` is installed.\n\nEvaluate on a fixed, versioned dataset so metrics across runs are comparable.",
+   "code": "import mlflow\nfrom sklearn.datasets import load_breast_cancer\nfrom sklearn.linear_model import LogisticRegression\nfrom sklearn.model_selection import train_test_split\n\ndata = load_breast_cancer(as_frame=True)\nX_tr, X_te, y_tr, y_te = train_test_split(data.data, data.target, random_state=0)\nmodel = LogisticRegression(max_iter=5000).fit(X_tr, y_tr)\n\neval_df = X_te.assign(label=y_te)\nwith mlflow.start_run():\n    info = mlflow.sklearn.log_model(model, name=\"lr\", input_example=X_te.head(2))\n    result = mlflow.models.evaluate(\n        info.model_uri, eval_df, targets=\"label\", model_type=\"classifier\")\n\nprint(round(result.metrics[\"accuracy_score\"], 3))   # about 0.95\nprint(\"roc_auc\" in result.metrics)                 # True",
+   "code_lang": "python",
+   "takeaways": [
+    "`mlflow.models.evaluate` logs standard metrics and plots per model type",
+    "Add business metrics with `extra_metrics`",
+    "Gate promotions with validation thresholds against a baseline"
+   ],
+   "pitfalls": [
+    "Evaluating each run on a different random split, which makes metric comparisons meaningless."
+   ],
+   "quiz": [
+    {
+     "q": "You want CI to block a model whose accuracy is worse than the current champion's. What do you use?",
+     "options": [
+      "Nested runs",
+      "mlflow.autolog()",
+      "Validation thresholds comparing candidate and baseline evaluation results",
+      "A model signature"
+     ],
+     "answer": 2,
+     "explain": "validate_evaluation_results checks the candidate's metrics against thresholds and the baseline, raising on failure."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/ml/evaluation/",
+   "requires": [
+    "mlflow.signatures"
+   ]
+  },
+  {
+   "id": "mlflow.tracing",
+   "name": "Tracing LLM and agent apps",
+   "module": "genai",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Record every LLM call, tool call and step of a GenAI app as a trace with spans, automatically or with decorators.",
+   "why": "LLM apps fail in non-obvious ways; traces show exactly which prompt, retrieval or tool call went wrong.",
+   "body": "A **trace** records one request through your application as a tree of **spans**. Each span has a name, type (LLM, RETRIEVER, TOOL, CHAIN...), inputs, outputs, timing, attributes and status. MLflow's tracing is OpenTelemetry-compatible.\n\nThree ways to create traces:\n\n- **Autolog**: `mlflow.openai.autolog()`, `mlflow.langchain.autolog()`, `mlflow.anthropic.autolog()` and many more capture LLM calls, token usage and tool calls with no code changes.\n- **Decorator**: `@mlflow.trace` on your own functions records their arguments and return values; nested decorated calls become child spans.\n- **Context manager**: `with mlflow.start_span(\"rerank\") as span:` with `span.set_inputs(...)`, `span.set_outputs(...)`, `span.set_attribute(...)` for fine-grained blocks.\n\nTraces appear in the experiment's **Traces** tab, where you can open the span tree, see latency per step and inspect prompts. Programmatically, `mlflow.search_traces()` returns a DataFrame for analysis, and `mlflow.get_last_active_trace_id()` gives the most recent one.\n\nYou can attach **tags** (user, session, version) with `mlflow.update_current_trace(tags=...)` and **feedback** with `mlflow.log_feedback(...)`, which later feeds evaluation.\n\nIn production, use the lightweight `mlflow-tracing` package and asynchronous logging so tracing adds minimal latency.",
+   "code": "import mlflow\n\nmlflow.set_experiment(\"rag-app\")\n\n@mlflow.trace(span_type=\"RETRIEVER\")\ndef retrieve(question: str) -> list[str]:\n    return [\"MLflow traces are trees of spans.\"]\n\n@mlflow.trace(span_type=\"LLM\")\ndef fake_llm(prompt: str) -> str:\n    return \"A trace is a tree of spans.\"   # stand-in for a real model call\n\n@mlflow.trace\ndef answer(question: str) -> str:\n    docs = retrieve(question)\n    with mlflow.start_span(\"build_prompt\") as span:\n        prompt = f\"Context: {docs}\\nQ: {question}\"\n        span.set_attribute(\"n_docs\", len(docs))\n    return fake_llm(prompt)\n\nprint(answer(\"What is a trace?\"))\ntrace = mlflow.get_trace(mlflow.get_last_active_trace_id(), flush=True)\nprint([s.name for s in trace.data.spans])  # ['answer', 'retrieve', 'build_prompt', 'fake_llm']",
+   "code_lang": "python",
+   "takeaways": [
+    "A trace is a tree of typed spans with inputs, outputs and timing",
+    "Use autolog for supported libraries and `@mlflow.trace`/`start_span` for your code",
+    "Search, tag and attach feedback to traces for debugging and evaluation"
+   ],
+   "pitfalls": [
+    "Tracing only the final LLM call, which hides retrieval or tool failures that cause most bad answers."
+   ],
+   "quiz": [
+    {
+     "q": "You decorate answer() and retrieve() with @mlflow.trace, and answer() calls retrieve(). How do they appear?",
+     "options": [
+      "As two separate traces",
+      "As one trace where retrieve is a child span of answer",
+      "Only answer is recorded",
+      "As two runs in the experiment"
+     ],
+     "answer": 1,
+     "explain": "Nested traced calls become child spans within the same trace."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/genai/tracing/",
+   "requires": [
+    "mlflow.runs-experiments",
+    "python.functions"
+   ]
+  },
+  {
+   "id": "mlflow.logged-models",
+   "name": "LoggedModels and model-centric tracking",
+   "module": "platform",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Use MLflow 3's LoggedModel entity to tie metrics, traces and evaluations to model versions across runs.",
+   "why": "In MLflow 3 the model, not the run, is the central object, which matters for GenAI apps and checkpoint selection.",
+   "body": "Before MLflow 3, a model was just an artifact inside a run. MLflow 3 introduces the **LoggedModel** as a first-class entity with its own ID (`m-...`), parameters, metrics, tags and status, which can be linked to several runs.\n\nWhat this enables:\n\n- **Checkpoints as models**: during deep learning training you can log a model per epoch (`log_model(..., step=epoch)`) and log metrics with `model_id=...`; then `mlflow.search_logged_models(filter_string=\"metrics.val_acc > 0.9\", order_by=[...])` picks the best checkpoint directly.\n- **Evaluation across runs**: evaluating an existing model in a new run links the resulting metrics back to that model's ID, so each model page shows all its evaluations.\n- **GenAI versions without weights**: `mlflow.set_active_model(name=\"support-agent-v3\")` creates or selects a LoggedModel that represents an application version (code, prompts, config). Traces produced while it is active are linked to it, so you can compare quality and latency between app versions.\n\n`mlflow.last_logged_model()` returns the most recent one, and `mlflow.get_logged_model(model_id)` loads metadata. Registry versions point at LoggedModels, so lineage runs from deployed alias to model to training run and dataset.\n\nCode written for MLflow 2 (`artifact_path=`, `runs:/` URIs) mostly still works, but `artifact_path` is deprecated in favour of `name`, and new features assume model IDs.",
+   "code": "import mlflow\nfrom sklearn.datasets import load_iris\nfrom sklearn.linear_model import LogisticRegression\n\nX, y = load_iris(return_X_y=True, as_frame=True)\nmlflow.set_experiment(\"checkpoints\")\n\nwith mlflow.start_run():\n    for i, C in enumerate([0.01, 0.1, 1.0]):\n        m = LogisticRegression(C=C, max_iter=1000).fit(X, y)\n        info = mlflow.sklearn.log_model(m, name=f\"lr-{i}\", params={\"C\": C},\n                                        input_example=X.head(2))\n        mlflow.log_metric(\"train_acc\", m.score(X, y), model_id=info.model_id)\n\nbest = mlflow.search_logged_models(\n    order_by=[{\"field_name\": \"metrics.train_acc\", \"ascending\": False}],\n    output_format=\"list\", max_results=1)[0]\nprint(best.name, best.params)   # lr-2 {'C': '1.0'}\n\nmlflow.set_active_model(name=\"support-agent-v3\")   # GenAI app version; traces link to it",
+   "code_lang": "python",
+   "takeaways": [
+    "LoggedModel is a first-class entity with an ID, metrics and params",
+    "Log metrics with `model_id` and pick checkpoints with `search_logged_models`",
+    "`set_active_model` versions GenAI apps and links their traces"
+   ],
+   "pitfalls": [
+    "Continuing to use artifact_path= and parsing run artifact paths, instead of using model IDs that MLflow 3 features rely on."
+   ],
+   "quiz": [
+    {
+     "q": "What is the main change in how MLflow 3 models relate to runs?",
+     "options": [
+      "Models can no longer be linked to runs",
+      "A LoggedModel is its own entity with an ID and metrics, linkable to multiple runs",
+      "Runs are replaced by traces",
+      "Models must be registered before they can be logged"
+     ],
+     "answer": 1,
+     "explain": "MLflow 3 makes models first-class so metrics and evaluations from many runs attach to the same model."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/ml/mlflow-3/",
+   "requires": [
+    "mlflow.model-registry",
+    "mlflow.evaluation"
+   ]
+  },
+  {
+   "id": "mlflow.genai-evaluation",
+   "name": "Evaluating GenAI apps with scorers",
+   "module": "genai",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Use mlflow.genai.evaluate with built-in LLM judges and custom scorers to measure and compare app versions.",
+   "why": "Without systematic evaluation, prompt and model changes to LLM apps are guesswork that regress silently.",
+   "body": "`mlflow.genai.evaluate` runs your application over an evaluation dataset, traces each call, and applies **scorers** to the traces:\n\n```python\nmlflow.genai.evaluate(data=eval_data, predict_fn=my_app, scorers=[...])\n```\n\n- **data**: a list of dicts or DataFrame with `inputs` (keyword arguments for `predict_fn`) and optional `expectations` (ground truth such as `expected_response` or `expected_facts`). It can also be an MLflow **evaluation dataset** or existing traces, so production traffic can be scored after the fact.\n- **predict_fn**: your app; every call is traced.\n- **scorers**: built-in **LLM judges** such as `Correctness`, `RelevanceToQuery`, `RetrievalGroundedness`, `Safety` and `Guidelines(name=..., guidelines=\"...\")`, or custom ones.\n\nCustom scorers are functions decorated with `@scorer` that receive `inputs`, `outputs`, `expectations` and/or `trace`, and return a bool, number, string, or `Feedback` with a rationale. Code-based scorers are cheap and deterministic, good for formats, lengths and exact checks; judges handle semantic quality. `make_judge` creates a custom LLM judge from natural-language instructions.\n\nResults are logged to a run, with per-row assessments attached to traces, and the UI compares runs side by side. Judges themselves need validation: compare their verdicts with human labels on a sample before trusting them as a release gate.\n\nRegistered prompts (`mlflow.genai.register_prompt`) and `set_active_model` complete the loop: change a prompt, evaluate, compare versions.",
+   "code": "import mlflow\nfrom mlflow.genai.scorers import scorer\n\ndef my_app(question: str) -> str:            # stand-in for an LLM app\n    return \"Paris is the capital of France.\" if \"France\" in question else \"I am not sure.\"\n\n@scorer\ndef mentions_expected(outputs, expectations) -> bool:\n    return expectations[\"expected_response\"].lower() in outputs.lower()\n\n@scorer\ndef concise(outputs) -> bool:\n    return len(outputs.split()) <= 12\n\ndata = [\n    {\"inputs\": {\"question\": \"Capital of France?\"}, \"expectations\": {\"expected_response\": \"Paris\"}},\n    {\"inputs\": {\"question\": \"Capital of Peru?\"}, \"expectations\": {\"expected_response\": \"Lima\"}},\n]\nresult = mlflow.genai.evaluate(data=data, predict_fn=my_app,\n                               scorers=[mentions_expected, concise])\nprint(result.metrics)\n# {'mentions_expected/mean': 0.5, 'concise/mean': 1.0}\n# Built-in judges (need an LLM endpoint): Correctness(), Guidelines(name=..., guidelines=...)",
+   "code_lang": "python",
+   "takeaways": [
+    "`mlflow.genai.evaluate` = dataset + traced predict_fn + scorers",
+    "Combine cheap code scorers with LLM judges for semantic quality",
+    "Validate judges against human labels before using them as gates"
+   ],
+   "pitfalls": [
+    "Trusting an LLM judge's scores without checking agreement with human reviewers on a sample."
+   ],
+   "quiz": [
+    {
+     "q": "What does a custom @scorer function typically receive?",
+     "options": [
+      "Fields such as inputs, outputs, expectations and the trace",
+      "The MLflow run object",
+      "The raw HTTP request",
+      "Only the model weights"
+     ],
+     "answer": 0,
+     "explain": "Scorers declare which of inputs, outputs, expectations and trace they need, and MLflow passes them in."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/genai/eval-monitor/",
+   "requires": [
+    "mlflow.tracing",
+    "mlflow.evaluation"
+   ]
+  },
+  {
+   "id": "mlflow.operating-mlflow",
+   "name": "Operating MLflow at scale",
+   "module": "platform",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Run MLflow reliably for many teams: storage layout, access control, upgrades, cleanup and performance.",
+   "why": "A shared MLflow becomes critical infrastructure; outages or lost metadata block every ML team.",
+   "body": "Running MLflow for an organization raises operational questions beyond `mlflow server`.\n\n**Architecture.** Run stateless server replicas behind a load balancer, with a managed PostgreSQL or MySQL backend and an object store for artifacts. Consider separate artifact-serving instances (`--artifacts-only`) when large model uploads would otherwise slow API traffic. Kubernetes deployments typically use the community Helm charts.\n\n**Access control.** Built-in basic auth (`--app-name basic-auth`) supports users and per-experiment and per-model permissions (READ, EDIT, MANAGE). Larger setups put an SSO proxy in front, or use **workspaces** to isolate teams on one server. Managed platforms (Databricks, SageMaker, Azure ML, Nebius) provide hosted MLflow with integrated auth.\n\n**Upgrades.** New versions may change the database schema. Back up the database, then run `mlflow db upgrade <backend-uri>` before starting new servers. Old clients usually keep working against newer servers, but test before rolling out.\n\n**Cleanup.** Deleting runs or experiments only marks them deleted. `mlflow gc --backend-store-uri ... --older-than 30d` permanently removes them and their artifacts. Set retention policies for checkpoints and large artifacts.\n\n**Performance.** The metrics table grows fastest; log step metrics at sensible intervals, use `log_metrics` batches, and enable asynchronous logging (`MLFLOW_ENABLE_ASYNC_LOGGING=true`) so training is not blocked by network latency. Index-heavy queries such as broad `search_runs` over huge experiments should be paginated.",
+   "code": "# Shell (operations):\n#   mlflow db upgrade postgresql://mlflow:pw@db:5432/mlflow      # after backup\n#   mlflow gc --backend-store-uri postgresql://mlflow:pw@db:5432/mlflow --older-than 30d\n#   mlflow server --app-name basic-auth --workers 4 \\\n#       --backend-store-uri postgresql://mlflow:pw@db:5432/mlflow \\\n#       --artifacts-destination s3://acme-ml-artifacts\nimport mlflow\n\nmlflow.config.enable_async_logging(True)       # don't block training on logging I/O\nwith mlflow.start_run():\n    for step in range(0, 1000, 100):            # log at intervals, not every step\n        mlflow.log_metrics({\"loss\": 1 / (step + 1), \"lr\": 1e-3}, step=step)\nmlflow.flush_async_logging()\nprint(\"logged 10 batched points per metric\")",
+   "code_lang": "python",
+   "takeaways": [
+    "Stateless servers + managed SQL database + object store is the standard layout",
+    "Back up, then `mlflow db upgrade` before running a new server version",
+    "Deleted runs need `mlflow gc` to be removed; log metrics in batches and asynchronously"
+   ],
+   "pitfalls": [
+    "Upgrading the MLflow server package without running the database migration, which makes the server fail to start or behave inconsistently."
+   ],
+   "quiz": [
+    {
+     "q": "Users deleted thousands of old runs but storage did not shrink. Why?",
+     "options": [
+      "The UI caches artifacts",
+      "Artifacts are stored in the database",
+      "MLflow never deletes data",
+      "Deletion is soft; mlflow gc must be run to purge runs and artifacts"
+     ],
+     "answer": 3,
+     "explain": "Deleted runs are only marked deleted until garbage collection permanently removes them."
+    }
+   ],
+   "docs": "https://mlflow.org/docs/latest/self-hosting/",
+   "requires": [
+    "mlflow.tracking-server",
+    "mlflow.logged-models"
+   ]
+  }
+ ]
+}

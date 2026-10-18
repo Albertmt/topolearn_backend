@@ -1,0 +1,595 @@
+{
+ "tool": {
+  "id": "webpack",
+  "name": "webpack",
+  "category": "tool",
+  "tagline": "Configurable module bundler that builds a dependency graph into optimized bundles",
+  "description": "webpack is the module bundler that powered a decade of frontend development: starting from entry points it builds a dependency graph of JavaScript, CSS and assets, transforms them with loaders and plugins, and emits optimized bundles. It still runs a huge number of production applications and enterprise build pipelines, and its concepts (loaders, code splitting, module federation) underpin newer tools such as Rspack.",
+  "icon": "wp",
+  "color": "#1C78C0",
+  "official_docs": "https://webpack.js.org/concepts/",
+  "version": "5 (5.11x), webpack-cli 7, webpack-dev-server 5/6",
+  "aliases": [
+   "webpack 5",
+   "webpack-cli",
+   "webpack-dev-server"
+  ],
+  "requires": [
+   {
+    "tool": "nodejs",
+    "level": 1
+   },
+   {
+    "tool": "javascript",
+    "level": 2
+   },
+   {
+    "tool": "npm",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Core concepts"
+  },
+  {
+   "id": "transform",
+   "name": "Loaders, assets and plugins"
+  },
+  {
+   "id": "dev",
+   "name": "Development workflow"
+  },
+  {
+   "id": "optimize",
+   "name": "Optimizing output"
+  },
+  {
+   "id": "internals",
+   "name": "Extending and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "webpack.what-is-webpack",
+   "name": "What webpack does",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "webpack starts from entry points, follows every import to build a dependency graph, and emits bundles the browser can load.",
+   "why": "Many production apps still build with webpack, and its concepts explain how all bundlers work.",
+   "body": "Browsers load files over the network, while your code is split into hundreds of modules plus npm packages, CSS and images. A **bundler** turns that source tree into a few optimized files.\n\n**webpack** works like this:\n\n- Start from one or more **entry points** (e.g. `./src/index.js`).\n- Parse each module and follow its `import`, `require()` and `import()` calls to build the **dependency graph**. CSS, images and fonts can be part of the graph too.\n- Run each non-JavaScript (or non-plain-JavaScript) file through **loaders**, which turn it into modules webpack understands.\n- Group modules into **chunks** and emit them as **bundles**, with a small **runtime** that loads modules and chunks in the browser.\n- **Plugins** hook into every step for everything else: HTML generation, CSS extraction, minification, environment variables.\n\nwebpack 5 is extremely flexible, which is its strength and its cost: configuration can grow large, and builds are slower than Rust-based tools. New projects usually start with Vite or a framework's built-in tooling, while existing webpack apps often migrate to **Rspack**, a Rust reimplementation with a largely compatible API. The concepts in this course transfer directly to both.\n\nThe four core concepts to remember: **entry**, **output**, **loaders**, **plugins**, plus **mode** to choose development or production defaults.",
+   "code": "# Minimal setup: no config file needed for the defaults\nmkdir wp-demo && cd wp-demo && npm init -y\nnpm install -D webpack webpack-cli\nmkdir src\necho 'import { greet } from \"./greet.js\"; console.log(greet(\"Ann\"));' > src/index.js\necho 'export const greet = (n) => `Hello, ${n}`;' > src/greet.js\n\nnpx webpack --mode production\n# asset main.js 49 bytes [emitted] [minimized] (name: main)\n# ./src/index.js + 1 modules ...\n# webpack compiled successfully\n\nnode dist/main.js      # Hello, Ann",
+   "code_lang": "bash",
+   "takeaways": [
+    "Entry -> dependency graph -> chunks -> bundles",
+    "Loaders transform files; plugins hook into the whole build",
+    "Defaults: entry ./src/index.js, output dist/main.js",
+    "Rspack offers a webpack-compatible, faster alternative"
+   ],
+   "pitfalls": [
+    "Starting a new project with a hand-written webpack config when a framework or Vite would do."
+   ],
+   "quiz": [
+    {
+     "q": "What does webpack build before emitting any bundle?",
+     "options": [
+      "A Docker image",
+      "A lockfile",
+      "A dependency graph starting from the entry points",
+      "A source map only"
+     ],
+     "answer": 2,
+     "explain": "webpack follows imports from the entries to discover every module that belongs in the output."
+    }
+   ],
+   "docs": "https://webpack.js.org/concepts/",
+   "requires": []
+  },
+  {
+   "id": "webpack.entry-output-mode",
+   "name": "Configuration: entry, output and mode",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Write webpack.config.js with entry, output and mode, use content hashes in filenames, and clean the output folder.",
+   "why": "Every webpack project starts from this skeleton.",
+   "body": "`webpack.config.js` exports a configuration object (or a function returning one). The essentials:\n\n- `entry`: a string, an array, or an object of named entries, e.g. `{ app: \"./src/app.js\", admin: \"./src/admin.js\" }` for two separate bundles.\n- `output.path`: an **absolute** directory, usually `path.resolve(__dirname, \"dist\")`.\n- `output.filename`: a template with placeholders: `[name]` (entry or chunk name), `[contenthash]` (hash of the file's content, for caching), `[id]`. For example `[name].[contenthash].js`.\n- `output.clean: true`: empty the output directory before each build.\n- `output.publicPath`: the URL prefix where assets will be served (`\"/\"` or `\"auto\"`).\n- `mode`: `\"development\"` (readable output, fast rebuilds, helpful errors) or `\"production\"` (minification with Terser, tree shaking, scope hoisting, `process.env.NODE_ENV` set to `\"production\"`). Without a mode, webpack warns and assumes production.\n\nRun with `npx webpack` (reads `webpack.config.js`), `npx webpack --config other.config.js`, or `npx webpack --mode development`. Put commands in npm scripts.\n\nExporting a **function** `(env, argv) => config` lets one file handle several modes: `argv.mode` holds the CLI mode and `--env foo=bar` arrives as `env.foo`.",
+   "code": "// webpack.config.js\nconst path = require(\"node:path\");\n\nmodule.exports = (env, argv) => ({\n  mode: argv.mode ?? \"development\",\n  entry: {\n    app: \"./src/index.js\",\n    admin: \"./src/admin.js\",\n  },\n  output: {\n    path: path.resolve(__dirname, \"dist\"),\n    filename: argv.mode === \"production\" ? \"[name].[contenthash].js\" : \"[name].js\",\n    clean: true,          // wipe dist/ before each build\n    publicPath: \"/\",\n  },\n});\n\n// package.json scripts:\n//   \"build\": \"webpack --mode production\",\n//   \"build:dev\": \"webpack --mode development\"\n// $ npm run build\n// asset app.3f1c2a9b8e7d6c5b.js 1.2 KiB [emitted] [immutable] [minimized] (name: app)\n// asset admin.a9e8d7c6b5a4f3e2.js 980 bytes [emitted] [immutable] [minimized] (name: admin)",
+   "code_lang": "javascript",
+   "takeaways": [
+    "`entry` names bundles; `output.path` must be absolute",
+    "`[name]` and `[contenthash]` placeholders in filenames",
+    "`mode` switches on dev or production defaults",
+    "Export a function to vary config by mode and --env"
+   ],
+   "pitfalls": [
+    "Omitting `mode`, getting a warning and production defaults during development."
+   ],
+   "quiz": [
+    {
+     "q": "Why use `[contenthash]` in production filenames?",
+     "options": [
+      "File names change only when content changes, enabling long-term caching",
+      "It makes builds faster",
+      "It is required by HTML",
+      "It hides source code"
+     ],
+     "answer": 0,
+     "explain": "Browsers can cache hashed files forever; new content gets a new name."
+    }
+   ],
+   "docs": "https://webpack.js.org/concepts/output/",
+   "requires": [
+    "webpack.what-is-webpack",
+    "npm.scripts"
+   ]
+  },
+  {
+   "id": "webpack.loaders",
+   "name": "Loaders",
+   "module": "transform",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Transform files with module.rules: test, use and exclude, chain loaders right to left, and process CSS and modern JavaScript.",
+   "why": "Loaders are how webpack handles anything beyond plain JavaScript.",
+   "body": "Out of the box webpack understands JavaScript and JSON. **Loaders** teach it other file types or transform code, configured in `module.rules`:\n\n- `test`: a regex matched against the file path, e.g. `/\\.css$/i`.\n- `use`: one loader or an array of loaders (with `options` objects).\n- `exclude` / `include`: limit which files a rule applies to, e.g. `exclude: /node_modules/` for Babel.\n\n**Loader chains run right to left** (bottom to top). For CSS:\n\n- `css-loader` resolves `@import` and `url()` and turns CSS into a JavaScript module.\n- `style-loader` takes that result and injects it into the page via `<style>` tags.\n\nSo `use: [\"style-loader\", \"css-loader\"]` runs css-loader first. Add `\"sass-loader\"` at the end for Sass, or `\"postcss-loader\"` between them for autoprefixing.\n\nCommon loaders:\n\n- `babel-loader` for modern syntax and JSX; alternatives `swc-loader` and `esbuild-loader` are much faster.\n- `ts-loader` for TypeScript, or Babel/SWC to strip types and run `tsc --noEmit` separately.\n- `css-loader` with `modules: true` (or files named `*.module.css` by default) for CSS modules.\n\nImages and fonts no longer need loaders in webpack 5; they use asset modules (next lesson).",
+   "code": "// webpack.config.js\nmodule.exports = {\n  mode: \"development\",\n  module: {\n    rules: [\n      {\n        test: /\\.css$/i,\n        use: [\"style-loader\", \"css-loader\"],   // runs right to left\n      },\n      {\n        test: /\\.m?jsx?$/,\n        exclude: /node_modules/,\n        use: {\n          loader: \"babel-loader\",\n          options: { presets: [[\"@babel/preset-env\", { targets: \"defaults\" }]] },\n        },\n      },\n    ],\n  },\n};\n// src/index.js:  import \"./style.css\";   -> styles injected at runtime",
+   "code_lang": "javascript",
+   "takeaways": [
+    "`module.rules`: test + use (+ include/exclude)",
+    "Loader chains execute right to left",
+    "style-loader + css-loader for CSS; babel/swc/esbuild loaders for JS",
+    "Exclude node_modules from expensive transforms"
+   ],
+   "pitfalls": [
+    "Writing `[\"css-loader\", \"style-loader\"]`, which feeds raw CSS to style-loader and fails."
+   ],
+   "quiz": [
+    {
+     "q": "In `use: ['style-loader', 'css-loader', 'sass-loader']`, which loader runs first?",
+     "options": [
+      "style-loader",
+      "css-loader",
+      "All in parallel",
+      "sass-loader"
+     ],
+     "answer": 3,
+     "explain": "Loaders apply right to left, so Sass is compiled first, then css-loader, then style-loader."
+    }
+   ],
+   "docs": "https://webpack.js.org/concepts/loaders/",
+   "requires": [
+    "webpack.entry-output-mode"
+   ]
+  },
+  {
+   "id": "webpack.plugins",
+   "name": "Plugins: HTML, CSS extraction and defines",
+   "module": "transform",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Use HtmlWebpackPlugin to generate index.html, MiniCssExtractPlugin to emit CSS files, and DefinePlugin for compile-time constants.",
+   "why": "Real apps need an HTML page, CSS files and environment values, all provided by plugins.",
+   "body": "**Plugins** are objects with an `apply(compiler)` method that hook into the build. You add instances to the `plugins` array.\n\nThe ones nearly every app uses:\n\n- **HtmlWebpackPlugin** (`html-webpack-plugin`): generates `index.html` with `<script>` (and `<link>`) tags for the emitted bundles, including hashed names, optionally from your own template.\n- **MiniCssExtractPlugin** (`mini-css-extract-plugin`): extracts CSS into separate `.css` files for production instead of injecting it with JavaScript. Use its `loader` in place of `style-loader`, typically only in production.\n- **DefinePlugin** (built in, `webpack.DefinePlugin`): replaces expressions at compile time, e.g. `__API_URL__` or `process.env.API_URL`. Values are inserted as code, so wrap strings in `JSON.stringify`.\n- **CopyWebpackPlugin**: copies static files that are not imported.\n- **ProvidePlugin**, **BundleAnalyzerPlugin** (`webpack-bundle-analyzer`) and many more.\n\nBuilt-in plugins live on the `webpack` object; third-party ones are npm packages. `mode` already adds several plugins for you (e.g. minification in production), so do not add them twice.\n\nLike Vite's `VITE_` variables, anything you define ends up in the client bundle; never inject secrets.",
+   "code": "// webpack.config.js\nconst webpack = require(\"webpack\");\nconst HtmlWebpackPlugin = require(\"html-webpack-plugin\");\nconst MiniCssExtractPlugin = require(\"mini-css-extract-plugin\");\n\nconst isProd = process.env.NODE_ENV === \"production\";\n\nmodule.exports = {\n  mode: isProd ? \"production\" : \"development\",\n  module: {\n    rules: [{\n      test: /\\.css$/i,\n      use: [isProd ? MiniCssExtractPlugin.loader : \"style-loader\", \"css-loader\"],\n    }],\n  },\n  plugins: [\n    new HtmlWebpackPlugin({ title: \"Shop\", template: \"./src/index.html\" }),\n    new MiniCssExtractPlugin({ filename: \"[name].[contenthash].css\" }),\n    new webpack.DefinePlugin({\n      __API_URL__: JSON.stringify(process.env.API_URL ?? \"http://localhost:8000\"),\n    }),\n  ],\n};",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Plugins hook into the compiler for everything loaders can't do",
+    "HtmlWebpackPlugin writes index.html with the right script tags",
+    "MiniCssExtractPlugin emits CSS files in production",
+    "DefinePlugin inserts code: wrap strings in JSON.stringify"
+   ],
+   "pitfalls": [
+    "`new DefinePlugin({ API: 'https://x' })`, which inserts an unquoted URL as code and breaks the bundle."
+   ],
+   "quiz": [
+    {
+     "q": "Why wrap DefinePlugin string values in JSON.stringify?",
+     "options": [
+      "For security",
+      "Values are inserted as code, so strings need quotes",
+      "To compress them",
+      "DefinePlugin requires JSON"
+     ],
+     "answer": 1,
+     "explain": "DefinePlugin does textual replacement with code; JSON.stringify produces a valid string literal."
+    }
+   ],
+   "docs": "https://webpack.js.org/concepts/plugins/",
+   "requires": [
+    "webpack.entry-output-mode"
+   ]
+  },
+  {
+   "id": "webpack.asset-modules",
+   "name": "Asset modules: images, fonts and files",
+   "module": "transform",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Handle images, fonts and other files with webpack 5's built-in asset module types instead of file-loader and url-loader.",
+   "why": "Every app ships images and fonts, and webpack 5 handles them without extra loaders.",
+   "body": "webpack 5 replaced `file-loader`, `url-loader` and `raw-loader` with built-in **asset modules**, selected with a rule's `type`:\n\n- `asset/resource`: emits the file to the output directory and exports its URL (formerly file-loader).\n- `asset/inline`: exports a data URI (formerly url-loader).\n- `asset/source`: exports the file's contents as a string (formerly raw-loader).\n- `asset`: chooses automatically: files under `parser.dataUrlCondition.maxSize` (8 KB by default) are inlined, larger ones emitted.\n\nOutput names come from `output.assetModuleFilename` (default `[hash][ext][query]`) or a rule's `generator.filename`, e.g. `images/[name].[contenthash][ext]`.\n\nYou can then `import logoUrl from \"./logo.png\"` in JavaScript, and `url(./bg.png)` in CSS is handled by css-loader through the same rules. `new URL(\"./file.png\", import.meta.url)` also works and is the bundler-agnostic way.\n\nChoosing between inline and resource is a trade-off: inlining saves a request but increases bundle size and bypasses separate caching; keep it for tiny icons. For SVGs used as React components, add `@svgr/webpack`. Remove old file-loader rules when migrating, or assets get processed twice.",
+   "code": "// webpack.config.js\nmodule.exports = {\n  mode: \"production\",\n  output: { assetModuleFilename: \"assets/[name].[contenthash][ext]\" },\n  module: {\n    rules: [\n      {\n        test: /\\.(png|jpe?g|gif|webp|svg)$/i,\n        type: \"asset\",                          // inline if small, else a file\n        parser: { dataUrlCondition: { maxSize: 4 * 1024 } },\n      },\n      { test: /\\.(woff2?|ttf)$/i, type: \"asset/resource\" },\n      { test: /\\.txt$/i, type: \"asset/source\" },\n    ],\n  },\n};\n// src/index.js\n// import logoUrl from \"./logo.png\";   // \"/assets/logo.8f3a1c2b.png\" or \"data:image/png;base64,...\"\n// import licence from \"./LICENSE.txt\"; // file contents as a string",
+   "code_lang": "javascript",
+   "takeaways": [
+    "asset/resource = file + URL, asset/inline = data URI",
+    "asset/source = contents as string, asset = automatic by size",
+    "Name files via assetModuleFilename or generator.filename",
+    "Drop file-loader/url-loader when on webpack 5"
+   ],
+   "pitfalls": [
+    "Keeping legacy file-loader rules alongside asset modules, so files are emitted twice."
+   ],
+   "quiz": [
+    {
+     "q": "Which asset type inlines small files and emits larger ones?",
+     "options": [
+      "asset/resource",
+      "asset/inline",
+      "asset",
+      "asset/source"
+     ],
+     "answer": 2,
+     "explain": "The generic `asset` type decides by `dataUrlCondition.maxSize`."
+    }
+   ],
+   "docs": "https://webpack.js.org/guides/asset-modules/",
+   "requires": [
+    "webpack.loaders"
+   ]
+  },
+  {
+   "id": "webpack.dev-server",
+   "name": "webpack-dev-server and HMR",
+   "module": "dev",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Run webpack-dev-server for in-memory rebuilds, hot module replacement, API proxying and history API fallback for SPAs.",
+   "why": "A fast feedback loop during development depends on the dev server setup.",
+   "body": "**webpack-dev-server** compiles your app in memory (nothing is written to `dist/`), serves it, and pushes updates to the browser over a WebSocket. Start it with `npx webpack serve`.\n\nConfiguration lives under `devServer`:\n\n- `port`, `host`, `open`.\n- `hot: true` (the default): **hot module replacement**. Changed modules are swapped in place when an HMR boundary accepts them; otherwise the page reloads (`liveReload`). CSS through style-loader updates instantly. For React, add `@pmmmwh/react-refresh-webpack-plugin` with `react-refresh` for state-preserving component updates.\n- `static`: folders served as-is (like `public/`).\n- `historyApiFallback: true`: serve `index.html` for unknown paths, required for client-side routers.\n- `proxy`: an **array** of rules forwarding API calls to a backend: `[{ context: [\"/api\"], target: \"http://localhost:8000\" }]`.\n- `client.overlay`: show build errors over the page.\n\nIn plain modules, the HMR API is `module.hot` (CommonJS style) or `import.meta.webpackHot` (ESM): `accept`, `dispose`, `invalidate`.\n\nFor server-rendered apps or custom servers, `webpack-dev-middleware` and `webpack-hot-middleware` integrate the same features into Express. Like any dev server, never expose it to the internet.",
+   "code": "// webpack.config.js (excerpt)\nmodule.exports = {\n  mode: \"development\",\n  devServer: {\n    port: 3000,\n    open: true,\n    hot: true,\n    static: \"./public\",\n    historyApiFallback: true,           // SPA routes -> index.html\n    proxy: [\n      {\n        context: [\"/api\"],\n        target: \"http://localhost:8000\",\n        changeOrigin: true,\n        pathRewrite: { \"^/api\": \"\" },   // /api/users -> /users\n      },\n    ],\n    client: { overlay: { errors: true, warnings: false } },\n  },\n};\n// $ npx webpack serve\n// <i> [webpack-dev-server] Project is running at: http://localhost:3000/",
+   "code_lang": "javascript",
+   "takeaways": [
+    "`webpack serve` builds in memory and serves with HMR",
+    "historyApiFallback for client-side routing",
+    "proxy is an array of { context, target } rules",
+    "React needs react-refresh-webpack-plugin for Fast Refresh"
+   ],
+   "pitfalls": [
+    "Looking for dev-server output in dist/; it only exists in memory."
+   ],
+   "quiz": [
+    {
+     "q": "A React Router app shows 404 when reloading /settings in dev. Which option fixes it?",
+     "options": [
+      "hot: true",
+      "static: './dist'",
+      "client.overlay",
+      "historyApiFallback: true"
+     ],
+     "answer": 3,
+     "explain": "Unknown paths must fall back to index.html so the client router can handle them."
+    }
+   ],
+   "docs": "https://webpack.js.org/configuration/dev-server/",
+   "requires": [
+    "webpack.plugins"
+   ]
+  },
+  {
+   "id": "webpack.resolve",
+   "name": "Module resolution and aliases",
+   "module": "dev",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Control how imports are found with resolve.extensions, alias, modules, conditionNames and fallback for Node built-ins.",
+   "why": "Import errors and duplicated packages usually come down to resolution settings.",
+   "body": "When webpack meets `import x from \"something\"`, its resolver (enhanced-resolve) decides which file that is. The `resolve` options shape that:\n\n- `extensions`: suffixes tried for extension-less imports, e.g. `[\".tsx\", \".ts\", \".js\"]`. Keep the list short; every entry costs file-system lookups.\n- `alias`: map a prefix to a path: `\"@\": path.resolve(__dirname, \"src\")`. A trailing `$` makes an exact match (`react$`). Aliases also force a single copy of a package, e.g. pointing `react` at one location in a monorepo. Mirror aliases in `tsconfig.json` `paths` for TypeScript.\n- `modules`: directories searched for bare imports, default `[\"node_modules\"]`.\n- `conditionNames` and `mainFields`: which package.json `exports` conditions and legacy fields are honoured (`browser`, `module`, `import`, `require`...). The defaults depend on `target`.\n- `fallback`: webpack 5 no longer polyfills Node built-ins like `crypto` or `buffer` for the browser. Either avoid them, provide polyfills (`fallback: { buffer: require.resolve(\"buffer/\") }`), or disable with `false`.\n\n`resolve.fullySpecified` relates to ESM packages, where relative imports must include the extension; errors like \"fully specified\" come from `.mjs` files or `\"type\": \"module\"` packages.\n\nDebug with `npx webpack --stats=detailed` or by temporarily setting `infrastructureLogging: { level: \"verbose\" }`.",
+   "code": "// webpack.config.js (excerpt)\nconst path = require(\"node:path\");\n\nmodule.exports = {\n  resolve: {\n    extensions: [\".tsx\", \".ts\", \".js\"],\n    alias: {\n      \"@\": path.resolve(__dirname, \"src\"),           // import \"@/lib/api\"\n      react$: path.resolve(__dirname, \"node_modules/react\"), // one copy in a monorepo\n    },\n    fallback: {\n      buffer: require.resolve(\"buffer/\"),  // polyfill a Node built-in for the browser\n      fs: false,                           // never in the browser\n    },\n  },\n};\n// tsconfig.json: \"compilerOptions\": { \"paths\": { \"@/*\": [\"./src/*\"] } }",
+   "code_lang": "javascript",
+   "takeaways": [
+    "`extensions`, `alias`, `modules` steer the resolver",
+    "webpack 5 does not polyfill Node built-ins: use `fallback`",
+    "Mirror aliases in tsconfig paths",
+    "Keep `extensions` short for speed"
+   ],
+   "pitfalls": [
+    "Expecting `require('crypto')` to work in browser code as it did with webpack 4's automatic polyfills."
+   ],
+   "quiz": [
+    {
+     "q": "After upgrading to webpack 5, a dependency fails with \"Can't resolve 'buffer'\". Why?",
+     "options": [
+      "webpack 5 stopped auto-polyfilling Node core modules",
+      "buffer is deprecated",
+      "Aliases are broken",
+      "The mode is wrong"
+     ],
+     "answer": 0,
+     "explain": "You must now add a `resolve.fallback` polyfill or replace the dependency."
+    }
+   ],
+   "docs": "https://webpack.js.org/configuration/resolve/",
+   "requires": [
+    "webpack.entry-output-mode",
+    "nodejs.modules-esm-cjs"
+   ]
+  },
+  {
+   "id": "webpack.source-maps-and-envs",
+   "name": "Source maps and per-environment configs",
+   "module": "dev",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Pick a devtool for each mode, split config into common, dev and prod files with webpack-merge, and pass environment values.",
+   "why": "Debuggable builds and maintainable configs both depend on these choices.",
+   "body": "**Source maps** map bundled code back to your sources in DevTools and error trackers. The `devtool` option picks the strategy, trading build speed against quality:\n\n- `eval-cheap-module-source-map` (or `eval-source-map`): fast rebuilds with good mappings; typical for development.\n- `source-map`: full, separate `.map` files; best quality, slowest. Use in production if you serve or upload maps.\n- `hidden-source-map`: produces maps without the `//# sourceMappingURL` comment, so browsers do not download them but you can upload them to Sentry or similar.\n- `false`: no maps (production default).\n\nWords in the name mean: `eval` (each module wrapped in eval, fast rebuilds), `cheap` (line-only mappings), `module` (maps through loaders to original sources), `inline` (embedded as data URLs, never in production).\n\n**Splitting config**: as configs grow, keep `webpack.common.js` and merge mode-specific files with `webpack-merge`, or export a function and branch on `argv.mode`. Pick one approach and stay consistent.\n\n**Environment values**: read `process.env` in the config (Node), then expose only what the client needs through `DefinePlugin` or `EnvironmentPlugin`. `dotenv-webpack` loads `.env` files. Again: everything defined ends up in the bundle.",
+   "code": "// webpack.common.js\nconst HtmlWebpackPlugin = require(\"html-webpack-plugin\");\nmodule.exports = {\n  entry: \"./src/index.js\",\n  plugins: [new HtmlWebpackPlugin()],\n};\n\n// webpack.prod.js\nconst { merge } = require(\"webpack-merge\");\nconst webpack = require(\"webpack\");\nconst common = require(\"./webpack.common.js\");\nmodule.exports = merge(common, {\n  mode: \"production\",\n  devtool: \"hidden-source-map\",            // maps for Sentry, not for browsers\n  output: { filename: \"[name].[contenthash].js\", clean: true },\n  plugins: [new webpack.EnvironmentPlugin({ API_URL: \"https://api.example.com\" })],\n});\n\n// webpack.dev.js: merge(common, { mode: \"development\", devtool: \"eval-cheap-module-source-map\" })\n// package.json: \"build\": \"webpack -c webpack.prod.js\", \"dev\": \"webpack serve -c webpack.dev.js\"",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Dev: eval-cheap-module-source-map; prod: source-map or hidden-source-map",
+    "`inline` maps never belong in production",
+    "webpack-merge composes common + mode-specific configs",
+    "EnvironmentPlugin/DefinePlugin expose only what the client needs"
+   ],
+   "pitfalls": [
+    "Shipping `eval` or `inline` source maps in production bundles."
+   ],
+   "quiz": [
+    {
+     "q": "Which devtool creates maps that browsers won't load but an error tracker can use?",
+     "options": [
+      "eval-source-map",
+      "hidden-source-map",
+      "inline-source-map",
+      "false"
+     ],
+     "answer": 1,
+     "explain": "hidden-source-map omits the sourceMappingURL comment, so maps are not referenced publicly."
+    }
+   ],
+   "docs": "https://webpack.js.org/configuration/devtool/",
+   "requires": [
+    "webpack.dev-server"
+   ]
+  },
+  {
+   "id": "webpack.code-splitting",
+   "name": "Code splitting and SplitChunksPlugin",
+   "module": "optimize",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Split bundles with dynamic import(), magic comments and prefetching, and tune SplitChunksPlugin's cache groups for vendor code.",
+   "why": "Shipping less JavaScript up front is the biggest lever for load performance.",
+   "body": "webpack creates separate **chunks** in three ways:\n\n- **Entry points**: each entry is its own chunk (duplicating shared code unless you configure sharing).\n- **Dynamic imports**: `import(\"./chart.js\")` returns a promise and puts the module and its dependencies in a chunk loaded on demand. Route-level splitting with `React.lazy` uses this.\n- **SplitChunksPlugin** (`optimization.splitChunks`): extracts shared modules and vendor code into common chunks.\n\n**Magic comments** tune dynamic imports: `import(/* webpackChunkName: \"chart\" */ \"./chart.js\")` names the chunk, `webpackPrefetch: true` fetches it in idle time, `webpackPreload: true` loads it in parallel with the parent.\n\n**SplitChunksPlugin** defaults apply to async chunks only. Set `chunks: \"all\"` to also split initial chunks, so vendor code shared by entries is loaded once. **Cache groups** define how modules are grouped:\n\n- `defaultVendors` collects `node_modules` modules; `default` collects modules used by at least two chunks.\n- Add your own, e.g. a `react` group for React packages with a higher `priority`.\n- `minSize` (20 KB by default; smaller groups are not split out), `maxSize`, `minChunks`, `maxAsyncRequests` and `maxInitialRequests` limit how aggressive splitting is.\n\nInspect the result with `webpack-bundle-analyzer`. Too many tiny chunks cause request overhead; one giant vendor chunk invalidates the cache on every dependency update.",
+   "code": "// src/index.js\ndocument.querySelector(\"#show-chart\").addEventListener(\"click\", async () => {\n  const { drawChart } = await import(\n    /* webpackChunkName: \"chart\", webpackPrefetch: true */ \"./chart.js\"\n  );\n  drawChart();\n});\n\n// webpack.config.js (excerpt)\nmodule.exports = {\n  optimization: {\n    splitChunks: {\n      chunks: \"all\",\n      cacheGroups: {\n        react: {\n          test: /[\\\\/]node_modules[\\\\/](react|react-dom|scheduler)[\\\\/]/,\n          name: \"react\",\n          priority: 20,\n        },\n      },\n    },\n  },\n};\n// Output: main.[hash].js, react.[hash].js, chart.[hash].js (loaded on click)",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Dynamic import() creates on-demand chunks",
+    "Magic comments: webpackChunkName, webpackPrefetch, webpackPreload",
+    "`splitChunks.chunks: 'all'` shares vendor code across entries",
+    "Cache groups with priorities control grouping"
+   ],
+   "pitfalls": [
+    "Prefetching everything, which wastes bandwidth on chunks users rarely need."
+   ],
+   "quiz": [
+    {
+     "q": "By default, which chunks does SplitChunksPlugin optimize?",
+     "options": [
+      "All chunks",
+      "Only entry chunks",
+      "Only async (dynamically imported) chunks",
+      "None"
+     ],
+     "answer": 2,
+     "explain": "The default is `chunks: 'async'`; set 'all' to include initial chunks."
+    }
+   ],
+   "docs": "https://webpack.js.org/guides/code-splitting/",
+   "requires": [
+    "webpack.asset-modules",
+    "webpack.resolve"
+   ]
+  },
+  {
+   "id": "webpack.long-term-caching",
+   "name": "Long-term caching and persistent cache",
+   "module": "optimize",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Keep hashes stable across builds with contenthash, a runtime chunk and deterministic ids, and speed up rebuilds with the filesystem cache.",
+   "why": "Users should only re-download what changed, and developers shouldn't wait for unchanged work.",
+   "body": "Two different kinds of caching matter with webpack.\n\n**Browser caching of outputs.** With `[contenthash]` in filenames, unchanged files keep their names and stay cached. To keep hashes truly stable:\n\n- `optimization.runtimeChunk: \"single\"` moves webpack's small **runtime** (which contains the chunk-to-filename manifest) into its own file. Otherwise, adding a lazy chunk changes the manifest inside your main bundle and its hash.\n- `optimization.moduleIds: \"deterministic\"` and `chunkIds: \"deterministic\"` (production defaults in webpack 5) keep ids stable when unrelated modules are added.\n- Split rarely changing vendor code into its own chunk.\n- Serve hashed files with `Cache-Control: max-age=31536000, immutable`, and `index.html` without caching.\n\n**Build caching.** `cache: { type: \"filesystem\" }` persists the module and chunk caches to `node_modules/.cache/webpack`, making second and later builds dramatically faster, including in CI if you cache that folder. Invalidate correctly with `cache.buildDependencies: { config: [__filename] }` so config changes reset the cache; `cache.version` lets you bump it manually. In development mode the default is an in-memory cache.\n\nIf builds behave strangely after dependency upgrades, delete the cache folder first.",
+   "code": "// webpack.config.js (production excerpt)\nmodule.exports = {\n  mode: \"production\",\n  output: {\n    filename: \"[name].[contenthash].js\",\n    chunkFilename: \"[name].[contenthash].chunk.js\",\n  },\n  optimization: {\n    runtimeChunk: \"single\",          // runtime.[hash].js holds the manifest\n    moduleIds: \"deterministic\",\n    splitChunks: {\n      cacheGroups: {\n        vendor: { test: /[\\\\/]node_modules[\\\\/]/, name: \"vendors\", chunks: \"all\" },\n      },\n    },\n  },\n  cache: {\n    type: \"filesystem\",              // node_modules/.cache/webpack\n    buildDependencies: { config: [__filename] }, // config change = fresh cache\n  },\n};",
+   "code_lang": "javascript",
+   "takeaways": [
+    "contenthash + runtimeChunk + deterministic ids = stable hashes",
+    "Vendor chunks change rarely and stay cached",
+    "`cache: { type: 'filesystem' }` speeds up rebuilds and CI",
+    "Declare buildDependencies so config changes invalidate the cache"
+   ],
+   "pitfalls": [
+    "Leaving the runtime in the main chunk, so every new lazy route changes the main bundle's hash."
+   ],
+   "quiz": [
+    {
+     "q": "Why extract the runtime with `runtimeChunk: 'single'`?",
+     "options": [
+      "The runtime's chunk manifest changes often and would change other bundles' hashes",
+      "It is required for HMR",
+      "It makes the bundle smaller",
+      "To enable tree shaking"
+     ],
+     "answer": 0,
+     "explain": "Isolating the manifest keeps the main and vendor hashes stable."
+    }
+   ],
+   "docs": "https://webpack.js.org/guides/caching/",
+   "requires": [
+    "webpack.code-splitting",
+    "webpack.entry-output-mode"
+   ]
+  },
+  {
+   "id": "webpack.tree-shaking",
+   "name": "Tree shaking and sideEffects",
+   "module": "optimize",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Get dead code eliminated with ES modules, usedExports, the sideEffects flag and scope hoisting, and know what breaks it.",
+   "why": "Unused library code is often the largest part of a bundle.",
+   "body": "**Tree shaking** removes exports nobody imports. In webpack it is a cooperation of several steps, all enabled in production mode:\n\n- `optimization.usedExports`: webpack marks which exports of each module are used.\n- The minifier (Terser) then deletes the unused, now-unreferenced code.\n- `optimization.sideEffects`: if a package declares `\"sideEffects\": false` in its `package.json`, webpack can skip **entire modules** whose exports are unused, even if they were imported through a re-exporting index file.\n- `optimization.concatenateModules` (scope hoisting) merges modules into one scope, making the output smaller and faster.\n\nWhat breaks it:\n\n- **CommonJS** (`require`, `module.exports`): webpack 5 can analyze some patterns, but ESM is far more reliable. Make sure Babel does not convert ESM to CommonJS (`modules: false` in preset-env; the default with babel-loader is to keep ESM).\n- **Side effects at module top level** (polyfills, global CSS imports, registering things). If you mark a package `\"sideEffects\": false`, list files that do have side effects: `\"sideEffects\": [\"*.css\", \"./src/polyfills.js\"]`, or your CSS disappears.\n- Importing a whole namespace and using it dynamically (`lib[name]`).\n\nMark pure function calls with `/*#__PURE__*/` so minifiers can drop them when unused. Verify with the bundle analyzer, or by setting `usedExports` with `mode: \"development\"` and looking for `/* unused harmony export */` comments.",
+   "code": "// src/math.js\nexport const add = (a, b) => a + b;\nexport const heavyStats = (xs) => xs.reduce((s, x) => s + x * x, 0); // never imported\n\n// src/index.js\nimport { add } from \"./math.js\";\nconsole.log(add(2, 3));\n\n// package.json of the app or a library\n//   \"sideEffects\": [\"*.css\", \"./src/polyfills.js\"]\n\n// $ npx webpack --mode development --optimization-used-exports\n// dist/main.js contains:  /* unused harmony export heavyStats */\n// $ npx webpack --mode production\n// heavyStats is gone from dist/main.js",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Tree shaking needs ES modules",
+    "usedExports marks, the minifier removes",
+    "`sideEffects: false` lets webpack skip whole modules",
+    "List CSS and polyfills in sideEffects so they survive"
+   ],
+   "pitfalls": [
+    "Setting `\"sideEffects\": false` in an app that imports global CSS, silently dropping the styles."
+   ],
+   "quiz": [
+    {
+     "q": "Why can `\"sideEffects\": false` make global CSS imports disappear?",
+     "options": [
+      "CSS is never tree-shaken",
+      "It disables css-loader",
+      "It only affects production source maps",
+      "webpack assumes unused imports with no side effects can be dropped, and a CSS import has no used exports"
+     ],
+     "answer": 3,
+     "explain": "CSS imports exist only for their side effect, so they must be listed in sideEffects."
+    }
+   ],
+   "docs": "https://webpack.js.org/guides/tree-shaking/",
+   "requires": [
+    "webpack.code-splitting",
+    "javascript.modules"
+   ]
+  },
+  {
+   "id": "webpack.module-federation",
+   "name": "Module Federation and micro-frontends",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Share code between independently deployed builds at runtime with Module Federation remotes, exposes and shared singletons.",
+   "why": "Large organisations use it to compose apps from separately deployed micro-frontends.",
+   "body": "**Module Federation** (webpack 5's `ModuleFederationPlugin`) lets one build load modules from another build **at runtime**. Each build can be:\n\n- A **remote**: it `exposes` modules (`\"./Button\": \"./src/Button.jsx\"`) and emits a small `remoteEntry.js` manifest.\n- A **host**: it declares `remotes` (`checkout: \"checkout@https://cdn.example.com/checkout/remoteEntry.js\"`) and imports them like packages: `import(\"checkout/Cart\")`.\n\n**Shared dependencies** are negotiated at runtime: with `shared: { react: { singleton: true, requiredVersion: \"^19.0.0\" } }`, host and remotes use one copy of React instead of each bundling their own. Version mismatches produce warnings or fall back to separate copies, depending on settings.\n\nPractical rules:\n\n- The host must load shared modules asynchronously, so use a **bootstrap** pattern: `index.js` contains only `import(\"./bootstrap\")`, giving the runtime time to negotiate shared versions. Otherwise you hit \"Shared module is not available for eager consumption\".\n- Treat exposed modules as public APIs with versioning and contracts; independent deploys mean independent failures. Wrap remote loads in error boundaries.\n- Type sharing, dynamic remotes and runtime plugins come from **Module Federation 2.0** (`@module-federation/enhanced`), which also works with Rspack, Vite and other bundlers.\n\nFederation solves organisational problems (independent deploys of a large frontend) at the price of runtime complexity; a monorepo with shared packages is often simpler.",
+   "code": "// shell app (host): webpack.config.js\nconst { ModuleFederationPlugin } = require(\"webpack\").container;\n\nmodule.exports = {\n  entry: \"./src/index.js\",                 // contains only: import(\"./bootstrap\");\n  output: { publicPath: \"auto\" },\n  plugins: [\n    new ModuleFederationPlugin({\n      name: \"shell\",\n      remotes: {\n        checkout: \"checkout@https://cdn.example.com/checkout/remoteEntry.js\",\n      },\n      shared: {\n        react: { singleton: true, requiredVersion: \"^19.0.0\" },\n        \"react-dom\": { singleton: true, requiredVersion: \"^19.0.0\" },\n      },\n    }),\n  ],\n};\n// checkout app (remote): new ModuleFederationPlugin({ name: \"checkout\",\n//   filename: \"remoteEntry.js\", exposes: { \"./Cart\": \"./src/Cart.jsx\" }, shared: {...} })\n// in the shell: const Cart = React.lazy(() => import(\"checkout/Cart\"));",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Remotes expose modules via remoteEntry.js; hosts import them at runtime",
+    "Shared singletons keep one copy of React across builds",
+    "Use an async bootstrap entry for shared modules",
+    "Federation trades runtime complexity for independent deploys"
+   ],
+   "pitfalls": [
+    "Importing shared modules eagerly in the host entry, causing 'not available for eager consumption'."
+   ],
+   "quiz": [
+    {
+     "q": "What does `singleton: true` on a shared dependency ensure?",
+     "options": [
+      "The dependency is bundled into every remote",
+      "Only one instance is loaded and used across host and remotes",
+      "The dependency is never loaded",
+      "It is loaded from npm at runtime"
+     ],
+     "answer": 1,
+     "explain": "Singletons are essential for libraries like React that break with multiple instances."
+    }
+   ],
+   "docs": "https://webpack.js.org/concepts/module-federation/",
+   "requires": [
+    "webpack.long-term-caching",
+    "webpack.code-splitting"
+   ]
+  },
+  {
+   "id": "webpack.loaders-plugins-api",
+   "name": "Writing loaders and plugins",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Write a loader as a source-transforming function and a plugin that taps compiler and compilation hooks via Tapable.",
+   "why": "Custom build steps in large codebases are implemented as loaders and plugins.",
+   "body": "A **loader** is a function exported from a module that receives a file's source and returns new source. It runs in a loader context (`this`):\n\n- `this.getOptions()` reads options (validate them with a schema).\n- `this.resourcePath` is the file being processed; `this.addDependency(file)` makes webpack watch extra files.\n- Return a string, or call `this.callback(err, content, sourceMap)` to also pass a source map; for async work use `const done = this.async()`.\n- Loaders should be pure and cacheable (they are by default; `this.cacheable(false)` opts out). A `pitch` method can run before the chain in reverse order.\n\nA **plugin** is a class with `apply(compiler)`. webpack's internals are built on **Tapable** hooks, and plugins tap them:\n\n- **Compiler hooks** cover the whole lifecycle: `beforeRun`, `compile`, `thisCompilation`, `emit`, `done`, `watchRun`.\n- A **compilation** represents one build of the graph. In `thisCompilation`, tap `compilation.hooks.processAssets` with a `stage` (e.g. `PROCESS_ASSETS_STAGE_ADDITIONAL`) to add or modify output files via `compilation.emitAsset` and `webpack.sources`.\n- Hooks can be sync (`tap`), callback-async (`tapAsync`) or promise-based (`tapPromise`).\n\nUse `compilation.errors.push(new webpack.WebpackError(...))` or `this.emitError` in loaders to report problems instead of throwing raw exceptions.",
+   "code": "// banner-loader.js: prepend a comment to every matched module\nmodule.exports = function bannerLoader(source) {\n  const { text } = this.getOptions();\n  return `/* ${text} */\\n${source}`;\n};\n\n// build-info-plugin.js: emit build-info.json with the asset list\nconst { Compilation, sources } = require(\"webpack\");\nclass BuildInfoPlugin {\n  apply(compiler) {\n    compiler.hooks.thisCompilation.tap(\"BuildInfoPlugin\", (compilation) => {\n      compilation.hooks.processAssets.tap(\n        { name: \"BuildInfoPlugin\", stage: Compilation.PROCESS_ASSETS_STAGE_SUMMARIZE },\n        (assets) => {\n          const info = { builtAt: new Date().toISOString(), files: Object.keys(assets) };\n          compilation.emitAsset(\"build-info.json\", new sources.RawSource(JSON.stringify(info)));\n        },\n      );\n    });\n  }\n}\nmodule.exports = BuildInfoPlugin;\n// config: module.rules: [{ test: /\\.js$/, use: { loader: path.resolve(\"banner-loader.js\"), options: { text: \"v1\" } } }]\n//         plugins: [new BuildInfoPlugin()]",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Loaders: functions from source to source, with this.getOptions/callback/async",
+    "Plugins: `apply(compiler)` tapping Tapable hooks",
+    "Modify output in `processAssets` with the right stage",
+    "Report errors through webpack instead of throwing"
+   ],
+   "pitfalls": [
+    "Mutating assets in the `emit` hook (deprecated style) instead of `processAssets` stages."
+   ],
+   "quiz": [
+    {
+     "q": "Which hook should a plugin use to add a new output file in webpack 5?",
+     "options": [
+      "compiler.hooks.done",
+      "compiler.hooks.beforeRun",
+      "compilation.hooks.processAssets",
+      "loader pitch"
+     ],
+     "answer": 2,
+     "explain": "processAssets with an appropriate stage is the supported place to add or change assets."
+    }
+   ],
+   "docs": "https://webpack.js.org/contribute/writing-a-plugin/",
+   "requires": [
+    "webpack.loaders",
+    "webpack.plugins",
+    "webpack.source-maps-and-envs"
+   ]
+  },
+  {
+   "id": "webpack.internals-performance",
+   "name": "Internals and build performance",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Understand the module graph, chunk graph and runtime, profile slow builds, and know when to switch to faster loaders or Rspack.",
+   "why": "Large webpack builds can take minutes; understanding the internals points to the real fixes.",
+   "body": "Inside a compilation, webpack builds a **module graph** (modules and their dependency edges), then a **chunk graph** (which modules belong to which chunks, and how chunk groups load each other). The **runtime** in the output implements `__webpack_require__`: a module cache, a registry of module factory functions, and chunk loading via JSONP-style script tags or `import()` for ESM output. Reading a development bundle (`devtool: false`, `mode: \"development\"`) makes all of this visible.\n\nWhere time goes in slow builds, usually:\n\n- **Loaders**, especially Babel and `ts-loader` with type checking. Replace with `swc-loader` or `esbuild-loader`, and type-check in a separate process (`fork-ts-checker-webpack-plugin` or `tsc --noEmit`).\n- **Minification**: use the SWC or esbuild minifier via `TerserPlugin.swcMinify` / `esbuildMinify`.\n- **Source maps**: expensive variants in development.\n- **Too much work**: missing `include`/`exclude` on rules, large `resolve.extensions`, building unused locales (moment.js), and no persistent cache.\n\nMeasure before changing: `npx webpack --profile --json > stats.json` for the analyzer, `speed-measure-webpack-plugin` for per-loader timings, and `ProgressPlugin` for phase timing.\n\nWhen a codebase outgrows these fixes, **Rspack** (Rust, webpack-compatible API and most loaders/plugins) often gives 5-10x faster builds with modest migration effort, while new projects typically choose Vite.",
+   "code": "// Simplified view of what webpack's runtime does (development output)\nvar __webpack_modules__ = {\n  \"./src/greet.js\": (module, exports, __webpack_require__) => {\n    exports.greet = (n) => `Hello, ${n}`;\n  },\n  \"./src/index.js\": (module, exports, __webpack_require__) => {\n    const { greet } = __webpack_require__(\"./src/greet.js\");\n    console.log(greet(\"Ann\"));\n  },\n};\nvar __webpack_module_cache__ = {};\nfunction __webpack_require__(id) {\n  if (__webpack_module_cache__[id]) return __webpack_module_cache__[id].exports;\n  const module = (__webpack_module_cache__[id] = { exports: {} });\n  __webpack_modules__[id](module, module.exports, __webpack_require__);\n  return module.exports;\n}\n__webpack_require__(\"./src/index.js\"); // Hello, Ann\n// Faster builds: { loader: \"swc-loader\" } instead of babel-loader,\n// cache: { type: \"filesystem\" }, and npx webpack --profile --json > stats.json",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Module graph -> chunk graph -> runtime with __webpack_require__",
+    "Loaders, minifiers and source maps dominate build time",
+    "Profile with --profile --json and per-loader timings",
+    "Rspack is the drop-in path to much faster builds"
+   ],
+   "pitfalls": [
+    "Optimizing config blindly without profiling which loader or plugin is slow."
+   ],
+   "quiz": [
+    {
+     "q": "What does `__webpack_require__` do with a module that was already executed?",
+     "options": [
+      "Runs it again",
+      "Throws an error",
+      "Downloads it again",
+      "Returns the cached exports"
+     ],
+     "answer": 3,
+     "explain": "The runtime keeps a module cache, so each module's factory runs once."
+    }
+   ],
+   "docs": "https://webpack.js.org/guides/build-performance/",
+   "requires": [
+    "webpack.long-term-caching",
+    "webpack.tree-shaking"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,532 @@
+{
+ "tool": {
+  "id": "py-unittest",
+  "name": "unittest",
+  "category": "library",
+  "tagline": "Python's built-in xUnit-style testing framework, with mocking included",
+  "description": "unittest is the testing framework that ships with Python: test case classes, rich assertions, fixtures, test discovery and a runner, plus unittest.mock for replacing dependencies. It needs no installation, CPython itself is tested with it, and pytest runs unittest tests unchanged. Learning it gives you dependable tests anywhere Python runs.",
+  "icon": "UT",
+  "color": "#4A6B3A",
+  "official_docs": "https://docs.python.org/3/library/unittest.html",
+  "version": "Python 3.13",
+  "aliases": [
+   "python unittest",
+   "unit tests",
+   "unittest.mock",
+   "mock",
+   "xunit"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 2
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Writing and running tests"
+  },
+  {
+   "id": "fixtures",
+   "name": "Fixtures and test organisation"
+  },
+  {
+   "id": "mocking",
+   "name": "Mocking"
+  },
+  {
+   "id": "advanced",
+   "name": "Framework internals and tooling"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "py-unittest.testcase",
+   "name": "Your first TestCase",
+   "module": "basics",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Write tests as methods named test_* on a unittest.TestCase subclass and run them with unittest.main().",
+   "why": "Automated tests let you change code with confidence; unittest needs nothing beyond Python itself.",
+   "body": "A test in unittest is a method on a subclass of `unittest.TestCase` whose name starts with `test`. Each method checks one behaviour using assertion methods such as `self.assertEqual(actual, expected)`.\n\n```python\nclass TestSlugify(unittest.TestCase):\n    def test_spaces_become_dashes(self):\n        self.assertEqual(slugify(\"Hello World\"), \"hello-world\")\n```\n\nThe framework creates a **fresh instance of the class for every test method**, so tests don't share instance state. A test **passes** if the method returns normally, **fails** if an assertion fails (`AssertionError`), and is reported as an **error** if any other exception escapes.\n\nRunning: put `unittest.main()` under `if __name__ == \"__main__\":` and run the file, or use `python -m unittest` (next lessons). The runner prints a dot per passing test, `F` for failures and `E` for errors, then details and a summary.\n\nConventions:\n\n- test files named `test_*.py`, classes `Test...`,\n- one behaviour per test, with a name that describes it,\n- arrange, act, assert: set up inputs, call the code, check the result.\n\nUse the `assert*` methods rather than bare `assert`: they give informative failure messages and still work under `python -O`.",
+   "code": "import unittest\n\ndef slugify(text: str) -> str:\n    return \"-\".join(text.lower().split())\n\nclass TestSlugify(unittest.TestCase):\n    def test_spaces_become_dashes(self):\n        self.assertEqual(slugify(\"Hello World\"), \"hello-world\")\n\n    def test_collapses_whitespace(self):\n        self.assertEqual(slugify(\"  a   b \"), \"a-b\")\n\n    def test_deliberately_wrong(self):\n        self.assertEqual(slugify(\"X\"), \"X\")    # fails: 'x' != 'X'\n\nif __name__ == \"__main__\":\n    unittest.main(exit=False)\n# .F.   (methods run in alphabetical order)\n# FAIL: test_deliberately_wrong (__main__.TestSlugify...)\n# AssertionError: 'x' != 'X'\n# Ran 3 tests in 0.000s\n# FAILED (failures=1)",
+   "code_lang": "python",
+   "takeaways": [
+    "Subclass TestCase and name methods test_*",
+    "Each test method runs on a fresh instance",
+    "Failures come from assertions; other exceptions are errors"
+   ],
+   "pitfalls": [
+    "Naming a method check_something; only methods starting with 'test' are collected."
+   ],
+   "quiz": [
+    {
+     "q": "A test method raises KeyError from the code under test. How does unittest report it?",
+     "options": [
+      "As a failure (F)",
+      "As an error (E)",
+      "As a skip",
+      "As a pass, since no assertion failed"
+     ],
+     "answer": 1,
+     "explain": "Only AssertionError counts as a failure; other exceptions are errors."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/unittest.html#basic-example",
+   "requires": [
+    "python.classes",
+    "python.functions"
+   ]
+  },
+  {
+   "id": "py-unittest.assertions",
+   "name": "Assertion methods",
+   "module": "basics",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Pick the most specific assert method so failures explain themselves, including assertAlmostEqual and assertCountEqual.",
+   "why": "A precise assertion turns a failing test into an instant diagnosis instead of 'False is not true'.",
+   "body": "`TestCase` has many assertion methods. Using the most specific one gives the best failure message.\n\n- `assertEqual(a, b)` / `assertNotEqual`: for lists, dicts, sets and multi-line strings it shows a **diff**.\n- `assertTrue(x)` / `assertFalse(x)`: only for genuinely boolean checks; `assertTrue(a == b)` just says \"False is not true\".\n- `assertIs(a, b)`, `assertIsNone(x)`, `assertIsNotNone(x)`: identity.\n- `assertIn(item, container)`, `assertNotIn`.\n- `assertIsInstance(obj, cls)`.\n- `assertAlmostEqual(a, b, places=7)` or `delta=`: floating-point comparisons, since `0.1 + 0.2 != 0.3`.\n- `assertGreater`, `assertLess`, `assertGreaterEqual`...\n- `assertCountEqual(a, b)`: same elements regardless of order.\n- `assertRegex(text, pattern)`.\n- `assertDictEqual`, `assertListEqual` and friends are used automatically by `assertEqual` for those types.\n\nEvery method takes an optional `msg=` argument added to the failure output, which is useful in loops. `self.fail(\"reason\")` fails unconditionally.\n\nConvention: put the actual value first and the expected value second; the diff output labels them as first and second, so consistency helps when reading failures.",
+   "code": "import unittest\n\nclass TestExamples(unittest.TestCase):\n    def test_float(self):\n        self.assertAlmostEqual(0.1 + 0.2, 0.3)            # passes\n\n    def test_unordered(self):\n        self.assertCountEqual([3, 1, 2], [1, 2, 3])      # passes\n\n    def test_dict_diff(self):\n        self.assertEqual({\"a\": 1, \"b\": 2}, {\"a\": 1, \"b\": 3})\n\nunittest.main(exit=False, argv=[\"x\", \"-q\"])\n# FAIL: test_dict_diff ...\n# AssertionError: {'a': 1, 'b': 2} != {'a': 1, 'b': 3}\n# - {'a': 1, 'b': 2}\n# ?               ^\n# + {'a': 1, 'b': 3}\n# ?               ^",
+   "code_lang": "python",
+   "takeaways": [
+    "Use the most specific assert method for the best failure message",
+    "assertAlmostEqual for floats, assertCountEqual for order-independent comparisons",
+    "assertEqual shows diffs for containers and long strings"
+   ],
+   "pitfalls": [
+    "assertTrue(result == expected), which hides both values in the failure message."
+   ],
+   "quiz": [
+    {
+     "q": "Which assertion is right for checking a computed float like 0.1 + 0.2 against 0.3?",
+     "options": [
+      "assertEqual",
+      "assertIs",
+      "assertAlmostEqual",
+      "assertTrue(a == b)"
+     ],
+     "answer": 2,
+     "explain": "Floating-point results need a tolerance; assertAlmostEqual rounds to 7 places by default."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/unittest.html#assert-methods",
+   "requires": [
+    "py-unittest.testcase"
+   ]
+  },
+  {
+   "id": "py-unittest.assert-raises",
+   "name": "Testing exceptions, warnings and logs",
+   "module": "basics",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Check that code raises the right exception with assertRaises, and verify warnings and log output.",
+   "why": "Error paths are where bugs hide, and they need tests as much as the happy path.",
+   "body": "To assert that code raises, use `assertRaises` as a context manager:\n\n```python\nwith self.assertRaises(ValueError):\n    parse_age(\"-3\")\n```\n\nThe test fails if no exception, or a different one, is raised. Capture the exception to inspect it: `with self.assertRaises(ValueError) as cm:` then check `cm.exception`. `assertRaisesRegex(ValueError, \"negative\")` also matches the message with a regex search.\n\nKeep the `with` block small: only the call that should raise. If setup code inside the block raises the same exception type by accident, the test passes for the wrong reason.\n\nRelated helpers with the same shape:\n\n- `assertWarns(DeprecationWarning)` and `assertWarnsRegex` check warnings.\n- `assertLogs(\"myapp\", level=\"WARNING\")` captures log records emitted on a logger (and its children); `cm.output` holds formatted lines such as `'WARNING:myapp:disk low'`. The test fails if nothing is logged.\n- `assertNoLogs` (3.10+) asserts that nothing is logged.\n\nException-group code can be tested by catching `ExceptionGroup` and inspecting `.exceptions`.",
+   "code": "import logging, unittest, warnings\n\ndef parse_age(text: str) -> int:\n    age = int(text)\n    if age < 0:\n        raise ValueError(f\"negative age: {age}\")\n    if age > 150:\n        logging.getLogger(\"app\").warning(\"suspicious age %d\", age)\n    return age\n\nclass TestParseAge(unittest.TestCase):\n    def test_negative(self):\n        with self.assertRaises(ValueError) as cm:\n            parse_age(\"-3\")\n        self.assertIn(\"negative\", str(cm.exception))\n\n    def test_not_a_number(self):\n        self.assertRaisesRegex(ValueError, \"invalid literal\", parse_age, \"x\")\n\n    def test_logs_suspicious(self):\n        with self.assertLogs(\"app\", level=\"WARNING\") as cm:\n            parse_age(\"200\")\n        self.assertEqual(cm.output, [\"WARNING:app:suspicious age 200\"])\n\nunittest.main(exit=False)           # ... Ran 3 tests ... OK",
+   "code_lang": "python",
+   "takeaways": [
+    "with self.assertRaises(Exc) as cm: checks an exception; cm.exception holds it",
+    "assertRaisesRegex also matches the message",
+    "assertWarns, assertLogs and assertNoLogs cover warnings and logging"
+   ],
+   "pitfalls": [
+    "Putting several statements in an assertRaises block, so the wrong line raising still passes the test."
+   ],
+   "quiz": [
+    {
+     "q": "A test uses with self.assertRaises(KeyError): and the block raises nothing. What happens?",
+     "options": [
+      "The test fails with 'KeyError not raised'",
+      "The test passes",
+      "The test is skipped",
+      "The test errors with KeyError"
+     ],
+     "answer": 0,
+     "explain": "assertRaises fails the test when the expected exception isn't raised."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/unittest.html#unittest.TestCase.assertRaises",
+   "requires": [
+    "py-unittest.assertions",
+    "python.exceptions"
+   ]
+  },
+  {
+   "id": "py-unittest.running",
+   "name": "Running tests and discovery",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Run tests with python -m unittest, use discovery, select tests by name, and read the output.",
+   "why": "Knowing the runner's options makes the edit-test loop fast, locally and in CI.",
+   "body": "The command-line runner is `python -m unittest`:\n\n- `python -m unittest` with no arguments runs **discovery**: it finds `test*.py` files in the current directory and importable subpackages, and runs every TestCase in them.\n- `python -m unittest discover -s tests -p \"test_*.py\"` sets the start directory and file pattern explicitly.\n- Run a subset by dotted name: `python -m unittest tests.test_api`, `tests.test_api.TestLogin`, or `tests.test_api.TestLogin.test_bad_password`.\n- `-k pattern` selects tests whose names contain the substring (or match a wildcard pattern).\n\nUseful flags:\n\n- `-v` verbose: one line per test with its name and result.\n- `-f` / `--failfast`: stop at the first failure.\n- `-b` / `--buffer`: hide stdout/stderr of passing tests.\n- `--durations N` (3.12+): report the N slowest tests.\n\nFor discovery, test directories must be importable: a package with `__init__.py` or a namespace package reachable from the start directory. The exit status is non-zero when anything fails, which is what CI relies on.\n\npytest can run the same tests unchanged (`pytest tests/`), so starting with unittest doesn't lock you in.",
+   "code": "mkdir -p demo/tests && cd demo\ntouch tests/__init__.py\ncat > tests/test_math.py <<'EOF'\nimport unittest\nclass TestMath(unittest.TestCase):\n    def test_add(self): self.assertEqual(1 + 1, 2)\n    def test_mul(self): self.assertEqual(2 * 3, 6)\nEOF\npython -m unittest -v            # discovery from the current directory\n# test_add (tests.test_math.TestMath.test_add) ... ok\n# test_mul (tests.test_math.TestMath.test_mul) ... ok\n# Ran 2 tests in 0.000s\n# OK\npython -m unittest -k mul tests.test_math    # only test_mul\npython -m unittest --durations 3             # slowest tests (3.12+)\necho \"exit status: $?\"                       # 0 when everything passed",
+   "code_lang": "bash",
+   "takeaways": [
+    "python -m unittest discovers test*.py files automatically",
+    "Run subsets by dotted name or -k pattern",
+    "-v, -f, -b and --durations tune the output"
+   ],
+   "pitfalls": [
+    "A tests folder without __init__.py that discovery can't import, so zero tests run."
+   ],
+   "quiz": [
+    {
+     "q": "python -m unittest reports 'Ran 0 tests'. What's a likely cause?",
+     "options": [
+      "The tests are too fast",
+      "unittest needs pytest installed",
+      "Files or methods don't match the discovery naming (test*.py / test*)",
+      "-v is missing"
+     ],
+     "answer": 2,
+     "explain": "Discovery only collects matching files and test-prefixed methods in importable packages."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/unittest.html#command-line-interface",
+   "requires": [
+    "py-unittest.testcase"
+   ]
+  },
+  {
+   "id": "py-unittest.fixtures",
+   "name": "setUp, tearDown and cleanups",
+   "module": "fixtures",
+   "level": 2,
+   "minutes": 11,
+   "summary": "Share setup across tests with setUp and setUpClass, and release resources reliably with addCleanup and enterContext.",
+   "why": "Fixtures remove duplicated setup and guarantee that temp files, servers and patches are cleaned up.",
+   "body": "**Fixtures** prepare the world a test needs and tear it down afterwards.\n\n- `setUp(self)` runs before **each** test method; `tearDown(self)` after each, even if the test failed (but not if `setUp` itself raised).\n- `setUpClass(cls)` / `tearDownClass(cls)`, decorated with `@classmethod`, run once per class. Use them for expensive, read-only resources such as a database schema. Shared mutable state between tests causes order-dependent failures.\n- `setUpModule()` / `tearDownModule()` are functions at module level for once-per-file setup.\n\n**Cleanups** are more robust than `tearDown`. `self.addCleanup(func, *args)` registers a function to call after the test; cleanups run in reverse order (LIFO) and run even if `setUp` failed after registering them. Register each cleanup right after acquiring the resource.\n\n`self.enterContext(cm)` (3.11+) enters a context manager and registers its exit as a cleanup, returning the `__enter__` result. That works for temp directories, open files and `mock.patch`:\n\n```python\nself.tmp = self.enterContext(tempfile.TemporaryDirectory())\n```\n\n`addClassCleanup` / `enterClassContext` are the class-level equivalents.",
+   "code": "import tempfile, unittest\nfrom pathlib import Path\n\nclass TestNotes(unittest.TestCase):\n    @classmethod\n    def setUpClass(cls):\n        print(\"setUpClass once\")\n\n    def setUp(self):\n        self.dir = Path(self.enterContext(tempfile.TemporaryDirectory()))\n        self.file = self.dir / \"notes.txt\"\n        self.file.write_text(\"hello\")\n        self.addCleanup(print, \"cleanup for\", self._testMethodName)\n\n    def test_read(self):\n        self.assertEqual(self.file.read_text(), \"hello\")\n\n    def test_append(self):\n        with self.file.open(\"a\") as f:\n            f.write(\"!\")\n        self.assertEqual(self.file.read_text(), \"hello!\")\n\nunittest.main(exit=False)\n# setUpClass once / cleanup for test_append / cleanup for test_read\n# Ran 2 tests ... OK",
+   "code_lang": "python",
+   "takeaways": [
+    "setUp/tearDown run around every test; setUpClass once per class",
+    "addCleanup runs LIFO, even after failures in setUp",
+    "enterContext(cm) enters a context manager and schedules its exit"
+   ],
+   "pitfalls": [
+    "Mutating objects created in setUpClass, so tests pass or fail depending on order."
+   ],
+   "quiz": [
+    {
+     "q": "setUp raises an exception halfway through. What still runs?",
+     "options": [
+      "tearDown",
+      "Cleanups registered with addCleanup before the exception",
+      "Nothing at all",
+      "The test method"
+     ],
+     "answer": 1,
+     "explain": "tearDown is skipped when setUp fails, but already-registered cleanups run."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/unittest.html#unittest.TestCase.addCleanup",
+   "requires": [
+    "py-unittest.testcase",
+    "python.context-managers"
+   ]
+  },
+  {
+   "id": "py-unittest.subtests",
+   "name": "Parametrised tests with subTest",
+   "module": "fixtures",
+   "level": 2,
+   "minutes": 8,
+   "summary": "Test many inputs in one method with self.subTest so each failing case is reported separately.",
+   "why": "Table-driven tests cover edge cases cheaply, and subTest keeps one failure from hiding the others.",
+   "body": "Testing a function against a table of inputs is common. A plain loop has a drawback: the first failing assertion ends the test, so you only learn about one bad case, and the message doesn't say which input it was.\n\n`with self.subTest(**params):` fixes both:\n\n```python\nfor raw, expected in cases:\n    with self.subTest(raw=raw):\n        self.assertEqual(parse(raw), expected)\n```\n\nA failure inside the block is recorded with the parameters (`(raw='x')`) and the loop **continues**, so every failing case is reported. The test as a whole fails if any subtest failed.\n\nNotes:\n\n- Parameters are only labels for the report; pass whatever identifies the case.\n- `-v` output counts the method once; failures are listed per subtest.\n- Subtests can be nested; parameters combine.\n- `setUp` and `tearDown` run once for the whole method, not per subtest, so subtests must not depend on fresh fixtures.\n\npytest's `@pytest.mark.parametrize` generates separate tests instead. Recent pytest versions (9+) report unittest subtests natively; older ones need the pytest-subtests plugin.",
+   "code": "import unittest\n\ndef is_leap(year: int) -> bool:\n    return year % 4 == 0 and year % 100 != 0      # bug: ignores the 400 rule\n\nclass TestLeap(unittest.TestCase):\n    def test_years(self):\n        cases = [(2024, True), (2023, False), (1900, False), (2000, True)]\n        for year, expected in cases:\n            with self.subTest(year=year):\n                self.assertEqual(is_leap(year), expected)\n\nunittest.main(exit=False)\n# FAIL: test_years (__main__.TestLeap.test_years) (year=2000)\n# AssertionError: False != True\n# Ran 1 test ... FAILED (failures=1)",
+   "code_lang": "python",
+   "takeaways": [
+    "with self.subTest(param=value): labels a case and keeps the loop going",
+    "Every failing case is reported with its parameters",
+    "setUp/tearDown run once per method, not per subtest"
+   ],
+   "pitfalls": [
+    "Asserting in a loop without subTest, so one failure hides all later cases."
+   ],
+   "quiz": [
+    {
+     "q": "Inside a loop over 10 cases with subTest, cases 3 and 7 fail. What is reported?",
+     "options": [
+      "Both case 3 and case 7, each with its parameters",
+      "Only case 3",
+      "The test is marked as an error",
+      "Nothing until all cases pass"
+     ],
+     "answer": 0,
+     "explain": "subTest records each failure and continues the loop."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/unittest.html#distinguishing-test-iterations-using-subtests",
+   "requires": [
+    "py-unittest.assertions"
+   ]
+  },
+  {
+   "id": "py-unittest.skipping",
+   "name": "Skipping tests and expected failures",
+   "module": "fixtures",
+   "level": 2,
+   "minutes": 7,
+   "summary": "Skip tests conditionally with skipIf and skipUnless, and mark known bugs with expectedFailure.",
+   "why": "Platform-specific code and optional dependencies need tests that skip cleanly instead of failing.",
+   "body": "Some tests can't run everywhere: a Windows-only path, a test needing a network service or an optional package. unittest offers decorators, usable on methods or whole classes:\n\n- `@unittest.skip(\"reason\")`: always skip.\n- `@unittest.skipIf(condition, \"reason\")`: skip when the condition is true, e.g. `sys.platform == \"win32\"`.\n- `@unittest.skipUnless(condition, \"reason\")`: skip unless it's true, e.g. an environment variable is set.\n- Inside a test or `setUp`: `self.skipTest(\"reason\")` decides at runtime.\n\nSkipped tests show as `s` and in the summary as `OK (skipped=2)`. Always give a reason; `-v` prints it.\n\nFor optional imports, a common pattern is:\n\n```python\ntry:\n    import numpy\nexcept ImportError:\n    numpy = None\n@unittest.skipIf(numpy is None, \"numpy not installed\")\n```\n\n`@unittest.expectedFailure` marks a test that currently fails because of a known bug. It's reported as `x` (expected failure). If it starts passing, it's reported as an **unexpected success** and the run fails, which reminds you to remove the marker once the bug is fixed.",
+   "code": "import sys, unittest\n\nclass TestPlatform(unittest.TestCase):\n    @unittest.skipIf(sys.platform == \"win32\", \"uses POSIX paths\")\n    def test_posix_path(self):\n        self.assertTrue(\"/tmp\".startswith(\"/\"))\n\n    @unittest.skipUnless(sys.version_info >= (4, 0), \"needs Python 4\")\n    def test_future(self):\n        pass\n\n    @unittest.expectedFailure\n    def test_known_bug(self):\n        self.assertEqual(round(2.675, 2), 2.68)   # float repr: gives 2.67\n\n    def test_runtime_skip(self):\n        self.skipTest(\"service not reachable\")\n\nunittest.main(exit=False, argv=[\"x\"])\n# sx.s  (alphabetical: future, known_bug, posix_path, runtime_skip)\n# Ran 4 tests ... OK (skipped=2, expected failures=1)",
+   "code_lang": "python",
+   "takeaways": [
+    "skip, skipIf, skipUnless decorate methods or classes",
+    "self.skipTest() skips from inside a test",
+    "expectedFailure turns an unexpected pass into a failing run"
+   ],
+   "pitfalls": [
+    "Skipping without a reason, leaving future readers guessing why."
+   ],
+   "quiz": [
+    {
+     "q": "A test marked @expectedFailure starts passing. What is the overall result?",
+     "options": [
+      "OK",
+      "The test is skipped",
+      "The run fails because of an unexpected success",
+      "The decorator is removed automatically"
+     ],
+     "answer": 2,
+     "explain": "Unexpected successes make wasSuccessful() return False (since Python 3.4)."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/unittest.html#skipping-tests-and-expected-failures",
+   "requires": [
+    "py-unittest.running"
+   ]
+  },
+  {
+   "id": "py-unittest.mock-basics",
+   "name": "Mock objects",
+   "module": "mocking",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Replace collaborators with Mock and MagicMock, configure return_value and side_effect, and assert on calls.",
+   "why": "Mocks isolate the unit under test from slow, flaky or costly dependencies such as APIs and databases.",
+   "body": "`unittest.mock.Mock` creates an object that accepts any attribute access or call, records everything, and returns more mocks. You configure what it does and then assert how it was used.\n\nConfiguring:\n\n- `m.return_value = 42`: what calling it returns.\n- `m.side_effect = ...`: an exception to raise, an iterable of successive return values, or a function to call with the same arguments.\n- Attributes: `m.get_user.return_value = {\"id\": 1}` configures a method on the mock.\n- `Mock(name=\"api\")` improves repr in failure messages.\n\nAsserting:\n\n- `m.assert_called_once_with(1, key=\"x\")`, `m.assert_called_with(...)` (last call), `m.assert_any_call(...)`, `m.assert_not_called()`.\n- `m.call_count`, `m.call_args`, `m.call_args_list`, `m.mock_calls` for detailed inspection.\n\n`MagicMock` also supports magic methods (`len(m)`, iteration, `with m:`), with sensible defaults. `patch` creates MagicMocks by default.\n\nMocks accept anything, including typos: `m.asert_called_once()` would silently do nothing, except that Mock raises `AttributeError` for unknown names starting with `assert`, `assret` and similar. Specs, covered later, close the general hole.",
+   "code": "from unittest.mock import Mock, call\n\ndef notify_overdue(api, user_ids):\n    sent = 0\n    for uid in user_ids:\n        user = api.get_user(uid)\n        if user[\"overdue\"]:\n            api.send_email(user[\"email\"], subject=\"Payment overdue\")\n            sent += 1\n    return sent\n\napi = Mock(name=\"api\")\napi.get_user.side_effect = [\n    {\"email\": \"a@x.io\", \"overdue\": True},\n    {\"email\": \"b@x.io\", \"overdue\": False},\n]\nprint(notify_overdue(api, [1, 2]))                 # 1\napi.send_email.assert_called_once_with(\"a@x.io\", subject=\"Payment overdue\")\nprint(api.get_user.call_args_list == [call(1), call(2)])   # True\n\napi.get_user.side_effect = ConnectionError(\"down\")\ntry:\n    notify_overdue(api, [3])\nexcept ConnectionError as e:\n    print(\"raised:\", e)                            # raised: down",
+   "code_lang": "python",
+   "takeaways": [
+    "Mocks record calls; configure them with return_value and side_effect",
+    "assert_called_once_with and call_args_list verify interactions",
+    "MagicMock adds support for magic methods"
+   ],
+   "pitfalls": [
+    "Asserting on a misspelled method of an unspecced mock; the attribute is created and nothing is checked."
+   ],
+   "quiz": [
+    {
+     "q": "m.side_effect = [1, 2] and m() is called three times. What happens on the third call?",
+     "options": [
+      "Returns 2 again",
+      "Returns None",
+      "Raises StopIteration",
+      "Returns a new Mock"
+     ],
+     "answer": 2,
+     "explain": "An iterable side_effect yields one value per call and raises StopIteration when exhausted."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/unittest.mock.html#the-mock-class",
+   "requires": [
+    "py-unittest.fixtures"
+   ]
+  },
+  {
+   "id": "py-unittest.patch",
+   "name": "patch: replacing dependencies",
+   "module": "mocking",
+   "level": 3,
+   "minutes": 13,
+   "summary": "Temporarily replace objects with mock.patch as a decorator or context manager, and learn where to patch.",
+   "why": "Most code calls its dependencies directly, so patching is how you mock them without changing the code.",
+   "body": "`patch(\"module.name\")` replaces an object for the duration of a test and restores it afterwards.\n\n```python\nwith patch(\"myapp.billing.requests.post\") as post:\n    post.return_value.status_code = 200\n    charge(10)\n```\n\nAs a decorator, `@patch(\"target\")` passes the mock as an extra argument; stacked decorators pass mocks **bottom-up**. `patch.object(obj, \"attr\")` patches an attribute of an object you already have, and `patch.dict(os.environ, {\"MODE\": \"test\"})` patches a dictionary.\n\nThe rule that trips everyone: **patch where the name is looked up, not where it's defined.** If `myapp/billing.py` does `from datetime import datetime` and calls `datetime.now()`, patch `myapp.billing.datetime`, because billing holds its own reference. Patching `datetime.datetime` has no effect there (and fails anyway: built-in types can't be patched). If the module does `import requests` and calls `requests.post`, patching `requests.post` works because the lookup happens through the module at call time.\n\nUseful options: `return_value=`, `side_effect=`, `new=` to provide a specific replacement, and `autospec=True` (next level). In `setUp`, use `self.enterContext(patch(...))` so the patch is undone automatically.",
+   "code": "import unittest\nfrom unittest.mock import patch\n\n# --- code under test (normally in another module) ---\nfrom time import monotonic          # imported name: patch it HERE, in this module\ndef elapsed_label(start):\n    secs = monotonic() - start\n    return \"slow\" if secs > 1 else \"fast\"\n# ----------------------------------------------------\n\nclass TestElapsed(unittest.TestCase):\n    @patch(f\"{__name__}.monotonic\", return_value=105.0)\n    def test_slow(self, fake_monotonic):\n        self.assertEqual(elapsed_label(100.0), \"slow\")\n        fake_monotonic.assert_called_once()\n\n    def test_wrong_place(self):\n        with patch(\"time.monotonic\", return_value=105.0) as fake:\n            elapsed_label(100.0)\n            fake.assert_not_called()    # our module kept its own reference\n\nunittest.main(exit=False)           # Ran 2 tests ... OK",
+   "code_lang": "python",
+   "takeaways": [
+    "patch replaces an object for one test and restores it",
+    "Patch where the name is looked up, not where it's defined",
+    "patch.object and patch.dict cover attributes and dictionaries"
+   ],
+   "pitfalls": [
+    "Patching 'requests.get' when the module did 'from requests import get'; patch 'mymodule.get' instead."
+   ],
+   "quiz": [
+    {
+     "q": "app/report.py has 'from os import getcwd' and calls getcwd(). What should a test patch?",
+     "options": [
+      "os.getcwd",
+      "builtins.getcwd",
+      "app.os.getcwd",
+      "app.report.getcwd"
+     ],
+     "answer": 3,
+     "explain": "report.py holds its own reference named getcwd, so patch that name in that module."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/unittest.mock.html#where-to-patch",
+   "requires": [
+    "py-unittest.mock-basics"
+   ]
+  },
+  {
+   "id": "py-unittest.async-tests",
+   "name": "Testing async code",
+   "module": "mocking",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Test coroutines with IsolatedAsyncioTestCase and mock async dependencies with AsyncMock.",
+   "why": "Async services need tests too, and plain TestCase cannot await.",
+   "body": "`unittest.IsolatedAsyncioTestCase` (3.8+) runs each test in its own fresh event loop, so test methods can be `async def` and `await` freely.\n\n```python\nclass TestClient(unittest.IsolatedAsyncioTestCase):\n    async def asyncSetUp(self): self.client = await connect()\n    async def test_get(self): self.assertEqual(await self.client.get(\"k\"), 1)\n    async def asyncTearDown(self): await self.client.close()\n```\n\nLifecycle: `setUp`, then `asyncSetUp`, the test, `asyncTearDown`, `tearDown`. `self.addAsyncCleanup(coro_fn)` registers async cleanup, and `enterAsyncContext(cm)` (3.11) enters an async context manager. At the end the loop is shut down and remaining tasks are cancelled. Since 3.13 a custom loop factory can be set with the `loop_factory` class attribute.\n\n**`AsyncMock`** is a mock whose call returns an awaitable. Its `return_value` is what the `await` produces, and it records awaits: `assert_awaited_once_with(...)`, `await_count`. `patch` automatically uses `AsyncMock` when the target is an async function, and `MagicMock` configures async magic methods (`__aenter__`, `__aiter__`) too.\n\nA common bug: calling an `AsyncMock` without awaiting it. The test may pass while nothing was really checked; `assert_awaited_*` catches that.",
+   "code": "import asyncio, unittest\nfrom unittest.mock import AsyncMock\n\nasync def fetch_price(client, symbol):\n    data = await client.get(f\"/price/{symbol}\")\n    return round(data[\"price\"] * 1.2, 2)\n\nclass TestPrice(unittest.IsolatedAsyncioTestCase):\n    async def asyncSetUp(self):\n        self.client = AsyncMock()\n        self.client.get.return_value = {\"price\": 10.0}\n\n    async def test_adds_markup(self):\n        self.assertEqual(await fetch_price(self.client, \"ABC\"), 12.0)\n        self.client.get.assert_awaited_once_with(\"/price/ABC\")\n\n    async def test_timeout(self):\n        self.client.get.side_effect = TimeoutError\n        with self.assertRaises(TimeoutError):\n            await asyncio.wait_for(fetch_price(self.client, \"X\"), 1)\n\nunittest.main(exit=False)           # Ran 2 tests ... OK",
+   "code_lang": "python",
+   "takeaways": [
+    "IsolatedAsyncioTestCase gives each test its own event loop",
+    "Use asyncSetUp, asyncTearDown and addAsyncCleanup for async fixtures",
+    "AsyncMock returns awaitables; check with assert_awaited_once_with"
+   ],
+   "pitfalls": [
+    "Calling an AsyncMock without await and asserting assert_called; use assert_awaited to ensure it was awaited."
+   ],
+   "quiz": [
+    {
+     "q": "What does await mock() return for m = AsyncMock(return_value=5)?",
+     "options": [
+      "5",
+      "A coroutine",
+      "An AsyncMock",
+      "None"
+     ],
+     "answer": 0,
+     "explain": "Calling returns an awaitable; awaiting it produces return_value."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/unittest.html#unittest.IsolatedAsyncioTestCase",
+   "requires": [
+    "py-unittest.mock-basics"
+   ]
+  },
+  {
+   "id": "py-unittest.autospec",
+   "name": "Specs and autospec",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Make mocks enforce real signatures and attributes with spec, autospec, create_autospec and seal.",
+   "why": "Unspecced mocks keep passing after the real API changes, which is how mock-heavy suites rot.",
+   "body": "A plain `Mock` accepts any attribute and any call signature. If the real `send_email(to, subject)` is renamed or gains a required argument, tests using a plain mock keep passing while production breaks.\n\n**Specs** constrain a mock to the real object's shape:\n\n- `Mock(spec=RealClass)`: accessing attributes that don't exist on the class raises `AttributeError`, and `isinstance(m, RealClass)` is True. Signatures are not checked.\n- `spec_set=`: also forbids **setting** non-existent attributes.\n- `create_autospec(obj)` or `patch(..., autospec=True)`: recursively specs attributes and **checks call signatures**, for functions and methods. Calling with wrong arguments raises `TypeError`, just like the real thing. Methods are specced without `self`, and the result tracks the real signature.\n- `seal(mock)` stops a mock from creating new child attributes after you've configured it.\n\nLimitations: autospec only sees attributes that exist on the class, so instance attributes set in `__init__` are missing unless they are declared as class-level annotations or defaults. Autospeccing large objects costs some time, and properties or descriptors may be triggered during introspection.\n\nRule of thumb: default to `autospec=True` when patching your own code's functions and classes.",
+   "code": "from unittest.mock import Mock, create_autospec, patch, seal\n\nclass Mailer:\n    def send(self, to: str, subject: str) -> bool:\n        return True\n\nMock().sennd(\"x\")                             # plain Mock: typo silently accepted\n\nstrict = create_autospec(Mailer, instance=True)\nstrict.send(\"a@x.io\", subject=\"hi\")           # matches the real signature\nfor bad in (lambda: strict.sennd(\"x\"), lambda: strict.send(\"a@x.io\")):\n    try:\n        bad()\n    except (AttributeError, TypeError) as e:\n        print(type(e).__name__, str(e)[:45])\n# AttributeError Mock object has no attribute 'sennd'\n# TypeError missing a required argument: 'subject'\n\nm = Mock()\nm.client.get.return_value = 1\nseal(m)\ntry:\n    m.client.post\nexcept AttributeError as e:\n    print(\"sealed:\", e)                        # sealed: mock.client.post",
+   "code_lang": "python",
+   "takeaways": [
+    "spec= restricts attributes; spec_set also restricts assignment",
+    "autospec / create_autospec also enforces call signatures",
+    "seal() freezes a configured mock"
+   ],
+   "pitfalls": [
+    "Relying on autospec for instance attributes created in __init__; they don't exist on the class, so the spec rejects them."
+   ],
+   "quiz": [
+    {
+     "q": "Why does patch(..., autospec=True) catch more bugs than a plain MagicMock?",
+     "options": [
+      "It runs the real code",
+      "It records more calls",
+      "It makes tests faster",
+      "Calls with arguments that don't fit the real signature raise TypeError"
+     ],
+     "answer": 3,
+     "explain": "Autospec copies the real signatures, so mismatched calls fail like they would in production."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/unittest.mock.html#autospeccing",
+   "requires": [
+    "py-unittest.patch"
+   ]
+  },
+  {
+   "id": "py-unittest.loaders-suites",
+   "name": "Loaders, suites, runners and results",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Understand TestLoader, TestSuite, TextTestRunner and TestResult, and customise collection with load_tests.",
+   "why": "Custom runners, reporting and test selection all build on these four pieces.",
+   "body": "`python -m unittest` is assembled from small parts you can use directly:\n\n- **TestLoader** finds tests: `loadTestsFromTestCase(cls)`, `loadTestsFromModule(mod)`, `loadTestsFromName(\"pkg.mod.Class.test\")`, and `discover(start_dir, pattern)`. `testMethodPrefix` and `testNamePatterns` control which methods count.\n- **TestSuite** is a composite: a list of tests and nested suites, run in order. Each `TestCase` instance represents exactly one test method.\n- **TextTestRunner** runs a suite and prints progress. Options: `verbosity`, `failfast`, `buffer`, `stream`, `resultclass`, and `durations` (3.12).\n- **TestResult** collects outcomes: `failures`, `errors`, `skipped`, `expectedFailures`, `unexpectedSuccesses`, and `wasSuccessful()`. Subclass it to produce JSON or JUnit XML, or to hook `startTest` / `stopTest`.\n\nThe **`load_tests` protocol**: if a test module or a package's `__init__.py` defines `load_tests(loader, tests, pattern)`, the loader calls it instead of collecting the default way, so you can add doctests (`doctest.DocTestSuite`) or filter tests.\n\nTest methods run in alphabetical order within a class (by `sortTestMethodsUsing`), and suites keep insertion order. Tests should never depend on order anyway.",
+   "code": "import io, unittest\n\nclass TestA(unittest.TestCase):\n    def test_ok(self): pass\n    def test_fail(self): self.assertEqual(1, 2)\n\nclass TestB(unittest.TestCase):\n    @unittest.skip(\"not today\")\n    def test_skip(self): pass\n\nclass CountingResult(unittest.TextTestResult):\n    def startTest(self, test):\n        super().startTest(test)\n        print(\"starting\", test.id().split(\".\", 1)[1])\n\nloader = unittest.TestLoader()\nsuite = unittest.TestSuite([loader.loadTestsFromTestCase(TestA),\n                            loader.loadTestsFromTestCase(TestB)])\nprint(suite.countTestCases())                         # 3\nrunner = unittest.TextTestRunner(stream=io.StringIO(), resultclass=CountingResult)\nresult = runner.run(suite)\n# starting TestA.test_fail / starting TestA.test_ok / starting TestB.test_skip\nprint(len(result.failures), len(result.skipped), result.wasSuccessful())  # 1 1 False",
+   "code_lang": "python",
+   "takeaways": [
+    "TestLoader collects, TestSuite groups, TextTestRunner runs, TestResult records",
+    "Subclass TestResult for custom reporting",
+    "load_tests(loader, tests, pattern) customises a module's or package's tests"
+   ],
+   "pitfalls": [
+    "Writing tests that rely on alphabetical method order to share state."
+   ],
+   "quiz": [
+    {
+     "q": "A module defines load_tests(loader, tests, pattern). When is it used?",
+     "options": [
+      "Never; it's a naming convention only",
+      "When the loader loads that module, instead of the default collection",
+      "Only when tests fail",
+      "Only under pytest"
+     ],
+     "answer": 1,
+     "explain": "The load_tests protocol lets a module or package decide which tests it contributes."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/unittest.html#load-tests-protocol",
+   "requires": [
+    "py-unittest.running",
+    "py-unittest.skipping"
+   ]
+  },
+  {
+   "id": "py-unittest.failure-output",
+   "name": "Custom equality, diffs and pytest interop",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 10,
+   "summary": "Tune failure output with maxDiff and longMessage, register type-specific equality, and run unittest suites under pytest.",
+   "why": "Readable failures save debugging time, and most teams eventually run unittest code with pytest.",
+   "body": "Failure output is configurable per TestCase:\n\n- `maxDiff` caps the length of diffs shown by `assertEqual` on long sequences or strings (default 640 characters). Set `maxDiff = None` in a class to always see the full diff.\n- `longMessage` (default True) appends your `msg=` to the standard message instead of replacing it.\n- `addTypeEqualityFunc(MyType, func)` registers a comparison function used by `assertEqual` when both arguments have exactly that type, so domain objects get domain-specific failure messages. The function should raise `self.failureException(msg)` on mismatch.\n- Custom assertion helpers: write methods that call the standard ones, and set `__unittest = True` at module level in a helper module to hide its frames from tracebacks (an undocumented but long-standing convention).\n\n**pytest interop**: pytest collects `TestCase` subclasses natively, running `setUp`, cleanups, `skip` decorators and `subTest`. You can adopt pytest features gradually: plain `assert` with rich introspection, fixtures for new tests, plugins such as coverage and xdist. Some pytest features (fixtures injected as arguments, parametrize) don't work on TestCase methods, so new tests are usually written as plain functions.",
+   "code": "import unittest\nfrom dataclasses import dataclass\n\n@dataclass\nclass Money:\n    amount: int\n    currency: str\n\nclass TestMoney(unittest.TestCase):\n    maxDiff = None\n\n    def setUp(self):\n        self.addTypeEqualityFunc(Money, self.assertMoneyEqual)\n\n    def assertMoneyEqual(self, a, b, msg=None):\n        if a.currency != b.currency:\n            raise self.failureException(f\"currency {a.currency} != {b.currency}\")\n        if a.amount != b.amount:\n            raise self.failureException(f\"{a.currency} amounts differ by {a.amount - b.amount}\")\n\n    def test_total(self):\n        self.assertEqual(Money(1050, \"EUR\"), Money(1000, \"EUR\"))\n\nunittest.main(exit=False)\n# AssertionError: EUR amounts differ by 50",
+   "code_lang": "python",
+   "takeaways": [
+    "maxDiff = None shows full diffs; longMessage appends msg=",
+    "addTypeEqualityFunc gives assertEqual domain-specific messages",
+    "pytest runs TestCase classes unchanged, enabling gradual migration"
+   ],
+   "pitfalls": [
+    "Truncated diffs ('Diff is 1200 characters long') hiding the real difference; set maxDiff = None while debugging."
+   ],
+   "quiz": [
+    {
+     "q": "What does addTypeEqualityFunc(Money, fn) change?",
+     "options": [
+      "assertEqual uses fn when both arguments are exactly Money",
+      "Money.__eq__",
+      "All assertions on Money objects",
+      "How pytest compares Money"
+     ],
+     "answer": 0,
+     "explain": "It registers a type-specific comparison used only by assertEqual."
+    }
+   ],
+   "docs": "https://docs.python.org/3/library/unittest.html#unittest.TestCase.addTypeEqualityFunc",
+   "requires": [
+    "py-unittest.assert-raises",
+    "py-unittest.subtests"
+   ]
+  }
+ ]
+}

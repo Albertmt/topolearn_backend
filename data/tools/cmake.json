@@ -1,0 +1,693 @@
+{
+ "tool": {
+  "id": "cmake",
+  "name": "CMake",
+  "category": "tool",
+  "tagline": "The de facto build system generator for C and C++ projects",
+  "description": "CMake describes a C or C++ project as targets with their sources, dependencies and requirements, then generates Ninja, Makefile or Visual Studio builds for any platform. It is what most open-source and commercial C++ uses, and what IDEs and package managers expect.",
+  "icon": "CM",
+  "color": "#064F8C",
+  "official_docs": "https://cmake.org/cmake/help/latest/",
+  "version": "4.1",
+  "aliases": [
+   "cmakelists",
+   "CMakeLists.txt",
+   "ctest",
+   "cpack"
+  ],
+  "requires": [
+   {
+    "tool": "cpp",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "First builds"
+  },
+  {
+   "id": "targets",
+   "name": "Targets and structure"
+  },
+  {
+   "id": "deps",
+   "name": "Dependencies"
+  },
+  {
+   "id": "config",
+   "name": "Configurations and presets"
+  },
+  {
+   "id": "ship",
+   "name": "Testing and installing"
+  },
+  {
+   "id": "internals",
+   "name": "Under the hood"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "cmake.what-is-cmake",
+   "name": "What CMake is: a build generator",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "CMake reads CMakeLists.txt and generates a native build (Ninja, Makefiles, Visual Studio); you configure once, then build many times.",
+   "why": "Understanding the configure/build split explains most of CMake's commands and errors.",
+   "body": "CMake is not a compiler and not quite a build tool. It is a **build system generator**: you describe the project once in `CMakeLists.txt`, and CMake writes the files for a real build tool on the current platform, such as **Ninja**, **Unix Makefiles**, **Visual Studio** or **Xcode** projects. The build tool then calls the compiler.\n\nThe workflow has two steps:\n\n- **Configure** (and generate): `cmake -S . -B build` reads the source directory, detects compilers, finds dependencies and writes a build tree into `build/`.\n- **Build**: `cmake --build build` runs the generated build tool. You can call `ninja` or `make` directly, but `cmake --build` works with any generator.\n\nAlways use an **out-of-source build**: everything generated goes into the build directory, the sources stay clean, and deleting `build/` resets everything. You can have several build trees for one source tree, for example `build-debug` and `build-release`.\n\nYou only need to reconfigure explicitly when you change options. If you edit `CMakeLists.txt`, the next build notices and reruns the configure step automatically.\n\nPick the generator with `-G`: `cmake -S . -B build -G Ninja`. Ninja is fast and the usual choice on all platforms; without `-G` CMake picks a platform default (Makefiles on Unix, Visual Studio on Windows).",
+   "code": "# project layout\n#   hello/\n#     CMakeLists.txt\n#     main.cpp\n\ncmake -S hello -B hello/build -G Ninja     # configure + generate\n# -- The CXX compiler identification is GNU 13.3.0\n# -- Configuring done\n# -- Generating done\n# -- Build files have been written to: hello/build\n\ncmake --build hello/build                  # build with Ninja\n./hello/build/hello                        # run the program\n\n# edit a .cpp file: just build again, only that file recompiles\ncmake --build hello/build\nrm -rf hello/build                         # start completely fresh",
+   "code_lang": "bash",
+   "takeaways": [
+    "CMake generates a build for Ninja, Make or Visual Studio",
+    "Configure with cmake -S src -B build, build with cmake --build build",
+    "Keep builds out of source so deleting build/ resets everything"
+   ],
+   "pitfalls": [
+    "Running cmake . inside the source directory, which litters it with generated files that are hard to clean up."
+   ],
+   "quiz": [
+    {
+     "q": "What does cmake -S . -B build do?",
+     "options": [
+      "Configures the project and generates build files in build/",
+      "Installs the project",
+      "Deletes the build directory",
+      "Compiles the project"
+     ],
+     "answer": 0,
+     "explain": "That's the configure and generate step; compiling happens with cmake --build build."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/manual/cmake.1.html",
+   "requires": [
+    "cpp.compile-and-run"
+   ]
+  },
+  {
+   "id": "cmake.first-project",
+   "name": "A first CMakeLists.txt",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Write the minimal project: cmake_minimum_required, project, add_executable and a C++ standard, then build and run it.",
+   "why": "These four lines are the start of every CMake project you'll write or read.",
+   "body": "A minimal `CMakeLists.txt`:\n\n```cmake\ncmake_minimum_required(VERSION 3.25)\nproject(hello VERSION 1.0 LANGUAGES CXX)\nadd_executable(hello main.cpp)\ntarget_compile_features(hello PRIVATE cxx_std_20)\n```\n\n- `cmake_minimum_required` must come first. It states the oldest CMake you support and switches on the behaviour (policies) of that version. CMake 4 refuses projects that declare a minimum below 3.5.\n- `project` names the project, optionally gives a version, and enables languages, which triggers compiler detection. `LANGUAGES CXX` avoids also searching for a C compiler.\n- `add_executable(name sources...)` creates a **target**: a thing to build, with its own sources and settings.\n- `target_compile_features(... cxx_std_20)` requires C++20 for that target; CMake adds the right flag for each compiler.\n\nPass settings at configure time with `-D`: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release`. They are stored in the build tree's cache, so later configures remember them.\n\nList source files explicitly rather than using `file(GLOB ...)`. A glob is evaluated only at configure time, so a newly added file isn't compiled until someone reruns CMake. Explicit lists also make reviews show exactly what's built.\n\nCommand names are case-insensitive (`ADD_EXECUTABLE` works) but lower case is the modern convention.",
+   "code": "cmake_minimum_required(VERSION 3.25)\nproject(hello VERSION 1.0 LANGUAGES CXX)\n\nadd_executable(hello main.cpp greet.cpp)\ntarget_compile_features(hello PRIVATE cxx_std_20)\n\n# main.cpp:\n#   #include <print>   // or <iostream> before C++23\n#   int main() { std::puts(\"hello\"); }\n#\n# $ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug\n# $ cmake --build build\n# [3/3] Linking CXX executable hello\n# $ ./build/hello\n# hello",
+   "code_lang": "cmake",
+   "takeaways": [
+    "cmake_minimum_required first, then project(), then targets",
+    "add_executable creates a target from a list of sources",
+    "Prefer explicit source lists over file(GLOB)"
+   ],
+   "pitfalls": [
+    "Globbing sources and wondering why a new .cpp file isn't compiled until CMake is rerun."
+   ],
+   "quiz": [
+    {
+     "q": "Why list source files explicitly instead of using file(GLOB SRC *.cpp)?",
+     "options": [
+      "Explicit lists compile faster",
+      "GLOB only finds C files",
+      "GLOB is not supported in CMake 4",
+      "A glob is evaluated at configure time, so new files are missed until CMake reruns"
+     ],
+     "answer": 3,
+     "explain": "The build tool doesn't know a new file appeared; only a reconfigure re-evaluates the glob."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/guide/tutorial/index.html",
+   "requires": [
+    "cmake.what-is-cmake"
+   ]
+  },
+  {
+   "id": "cmake.variables-language",
+   "name": "The CMake language: variables, lists, if",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Read and write CMake script: set and ${VAR}, lists as semicolon-separated strings, message, if conditions, foreach and functions.",
+   "why": "Every CMakeLists.txt is a script; knowing its quirks avoids hours of confusion.",
+   "body": "CMake has its own small scripting language. Everything is a **command call** `name(args...)`, and every value is a **string**.\n\n- `set(NAME value)` sets a variable; `${NAME}` reads it. An unset variable expands to an empty string, silently.\n- A **list** is just a string with `;` separators: `set(SRC a.cpp b.cpp)` stores `a.cpp;b.cpp`. `list(APPEND SRC c.cpp)`, `list(LENGTH ...)`, `list(FILTER ...)` manipulate them.\n- Unquoted arguments are split on whitespace and on `;`, so `${SRC}` passes three arguments. Quote it (`\"${SRC}\"`) to pass a single string.\n- `message(STATUS \"...\")` prints during configure; `message(FATAL_ERROR \"...\")` stops.\n- `if(cond) ... elseif() ... else() ... endif()`; operators include `NOT`, `AND`, `OR`, `STREQUAL`, `VERSION_GREATER_EQUAL`, `DEFINED VAR`, `EXISTS path`, `TARGET name`.\n- `foreach(x IN LISTS SRC)` and `function(name args)` / `endfunction()`.\n\nScope: **functions** and `add_subdirectory` create a new variable scope; changes don't leak to the caller unless you use `set(VAR value PARENT_SCOPE)`. Macros don't create a scope.\n\n`if(VAR)` versus `if(${VAR})` is a classic trap: `if` dereferences bare names itself, so write `if(ENABLE_X)`, not `if(${ENABLE_X})`. True values are `ON`, `YES`, `TRUE`, `Y`, `1` and non-zero numbers.",
+   "code": "cmake_minimum_required(VERSION 3.25)\nproject(lang LANGUAGES NONE)\n\nset(SRC main.cpp util.cpp)\nlist(APPEND SRC net.cpp)\nlist(LENGTH SRC n)\nmessage(STATUS \"SRC=${SRC} (${n} items)\")    # SRC=main.cpp;util.cpp;net.cpp (3 items)\n\nforeach(f IN LISTS SRC)\n  if(f MATCHES \"^net\")\n    message(STATUS \"network file: ${f}\")      # network file: net.cpp\n  endif()\nendforeach()\n\nfunction(add_suffix out suffix)\n  set(result \"\")\n  foreach(x IN LISTS ARGN)\n    list(APPEND result \"${x}${suffix}\")\n  endforeach()\n  set(${out} \"${result}\" PARENT_SCOPE)        # return a value to the caller\nendfunction()\nadd_suffix(objs \".o\" a b)\nmessage(STATUS \"objs=${objs}\")                # objs=a.o;b.o",
+   "code_lang": "cmake",
+   "takeaways": [
+    "Every value is a string; lists are ;-separated strings",
+    "Quote \"${VAR}\" to keep a list as one argument",
+    "Functions have their own scope: return values with PARENT_SCOPE"
+   ],
+   "pitfalls": [
+    "Writing if(${FLAG}): if dereferences names itself, so the value is looked up as a variable name."
+   ],
+   "quiz": [
+    {
+     "q": "After set(L a b c), how many arguments does foo(${L}) receive?",
+     "options": [
+      "0",
+      "1",
+      "3",
+      "5"
+     ],
+     "answer": 2,
+     "explain": "Unquoted, the list a;b;c is split on semicolons into three arguments."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/manual/cmake-language.7.html",
+   "requires": [
+    "cmake.first-project"
+   ]
+  },
+  {
+   "id": "cmake.libraries-targets",
+   "name": "Libraries and linking targets",
+   "module": "targets",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Split code into libraries with add_library (STATIC, SHARED, or by BUILD_SHARED_LIBS) and connect targets with target_link_libraries.",
+   "why": "Real projects are a graph of libraries and executables; CMake models exactly that.",
+   "body": "Most projects are a few **libraries** plus one or more executables and tests that use them. Create a library target with `add_library`:\n\n- `add_library(core STATIC a.cpp b.cpp)` an archive linked into each user.\n- `add_library(core SHARED ...)` a `.so` / `.dll` / `.dylib` loaded at run time.\n- `add_library(core a.cpp b.cpp)` without a type: static or shared depending on the `BUILD_SHARED_LIBS` option, letting whoever builds decide.\n- `add_library(core INTERFACE)` a header-only library with no sources to compile.\n- `add_library(core OBJECT ...)` compiled objects without an archive, reused by other targets.\n\nThen connect targets: `target_link_libraries(app PRIVATE core)`. This does far more than pass `-lcore`. CMake builds `core` first, links it into `app`, and propagates core's **usage requirements** (include directories, compile definitions, further dependencies) to `app`. That propagation is the heart of modern CMake and is covered next.\n\nAlways link by **target name**, not by file path. A target name lets CMake track the dependency, choose the correct file name per platform and pass on requirements.\n\nIt's common to give libraries a namespaced **alias**, `add_library(myproj::core ALIAS core)`, so code linking `myproj::core` works the same whether the library is built in the project or found as an installed package. A name containing `::` is known to be a target, so typos become errors instead of a silent `-lmyproj::core`.",
+   "code": "cmake_minimum_required(VERSION 3.25)\nproject(shop LANGUAGES CXX)\n\nadd_library(core STATIC src/cart.cpp src/price.cpp)\nadd_library(shop::core ALIAS core)\ntarget_include_directories(core PUBLIC include)\ntarget_compile_features(core PUBLIC cxx_std_20)\n\nadd_executable(shop src/main.cpp)\ntarget_link_libraries(shop PRIVATE shop::core)    # include/ and C++20 come along\n\nadd_executable(cart_test tests/cart_test.cpp)\ntarget_link_libraries(cart_test PRIVATE shop::core)\n\n# $ cmake -S . -B build -G Ninja && cmake --build build\n# [1/6] Building CXX object CMakeFiles/core.dir/src/cart.cpp.o\n# ...\n# [7/7] Linking CXX executable cart_test",
+   "code_lang": "cmake",
+   "takeaways": [
+    "add_library creates STATIC, SHARED, INTERFACE or OBJECT libraries",
+    "target_link_libraries links and propagates usage requirements",
+    "Link by target name; provide a namespaced ALIAS like proj::core"
+   ],
+   "pitfalls": [
+    "Linking by a path like ${CMAKE_BINARY_DIR}/libcore.a, which loses build ordering and usage requirements."
+   ],
+   "quiz": [
+    {
+     "q": "What does target_link_libraries(app PRIVATE core) do besides adding the library to the link line?",
+     "options": [
+      "Nothing else",
+      "Makes core build first and gives app core's public include paths and flags",
+      "Copies core's sources into app",
+      "Installs core"
+     ],
+     "answer": 1,
+     "explain": "Linking to a target creates a build dependency and propagates its PUBLIC and INTERFACE usage requirements."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/command/add_library.html",
+   "requires": [
+    "cmake.first-project",
+    "cpp.namespaces-headers"
+   ]
+  },
+  {
+   "id": "cmake.usage-requirements",
+   "name": "PUBLIC, PRIVATE and INTERFACE",
+   "module": "targets",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Attach include paths, definitions and options to targets with target_* commands, and control what propagates to dependents with PUBLIC, PRIVATE and INTERFACE.",
+   "why": "Getting these keywords right is what makes libraries easy to consume and builds correct.",
+   "body": "Modern CMake attaches every setting to a **target** with `target_*` commands, instead of setting global variables:\n\n- `target_include_directories(core PUBLIC include PRIVATE src)`\n- `target_compile_definitions(core PRIVATE CORE_INTERNAL=1)`\n- `target_compile_options(core PRIVATE -Wall)`\n- `target_compile_features(core PUBLIC cxx_std_20)`\n- `target_link_libraries(core PUBLIC fmt::fmt PRIVATE zlib)`\n\nThe keyword decides **who** gets the setting:\n\n- `PRIVATE`: only for building this target. Implementation details: `src/` headers, warnings, libraries used only in `.cpp` files.\n- `INTERFACE`: only for targets that link to this one, not for itself. Typical for header-only libraries.\n- `PUBLIC`: both. Use it when the setting appears in your **public headers**: the public include directory, a dependency whose types appear in your API, a required C++ standard.\n\nThe rule of thumb: if a user of your library needs it to compile against your headers, it's PUBLIC; otherwise PRIVATE. Propagation is transitive: if `app` links `core` and `core` links `fmt` PUBLIC, `app` gets fmt's include path too.\n\nAvoid the old directory-wide commands `include_directories()`, `add_definitions()` and `link_libraries()`; they apply to every target in the directory and hide which target needs what.",
+   "code": "# header-only utility: nothing to compile, only requirements for users\nadd_library(mathx INTERFACE)\ntarget_include_directories(mathx INTERFACE mathx/include)\ntarget_compile_features(mathx INTERFACE cxx_std_20)\n\nadd_library(core STATIC src/engine.cpp)\ntarget_include_directories(core\n  PUBLIC  include          # users include <core/engine.h>\n  PRIVATE src)             # internal headers\ntarget_compile_definitions(core PRIVATE CORE_BUILDING=1)\ntarget_link_libraries(core\n  PUBLIC  mathx            # mathx types appear in core's public headers\n  PRIVATE Threads::Threads)\n\nadd_executable(app src/main.cpp)\ntarget_link_libraries(app PRIVATE core)\n# app gets: include/, mathx/include, C++20\n# app does not get: src/, CORE_BUILDING, (Threads only at link time for static core)",
+   "code_lang": "cmake",
+   "takeaways": [
+    "PRIVATE: only this target; INTERFACE: only users; PUBLIC: both",
+    "If it's needed to compile against your headers, make it PUBLIC",
+    "Use target_* commands, not directory-wide include_directories"
+   ],
+   "pitfalls": [
+    "Making everything PUBLIC, which leaks internal include paths and flags into every dependent target."
+   ],
+   "quiz": [
+    {
+     "q": "A library uses zlib only inside its .cpp files. How should it link zlib?",
+     "options": [
+      "PRIVATE",
+      "INTERFACE",
+      "With link_libraries()",
+      "PUBLIC"
+     ],
+     "answer": 0,
+     "explain": "zlib isn't visible in the library's headers, so dependents don't need its include paths."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/manual/cmake-buildsystem.7.html#target-usage-requirements",
+   "requires": [
+    "cmake.libraries-targets"
+   ]
+  },
+  {
+   "id": "cmake.subdirectories",
+   "name": "Project structure and add_subdirectory",
+   "module": "targets",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Organise a project into directories, each with its own CMakeLists.txt, and understand how add_subdirectory scopes variables and paths.",
+   "why": "A clear directory layout keeps CMake files small and lets components be reused or extracted later.",
+   "body": "As a project grows, split it: the top-level `CMakeLists.txt` sets up the project and includes subdirectories, and each component directory defines its own targets.\n\n```\nproject/\n  CMakeLists.txt          # cmake_minimum_required, project, add_subdirectory(...)\n  libs/core/CMakeLists.txt\n  apps/cli/CMakeLists.txt\n  tests/CMakeLists.txt\n```\n\n`add_subdirectory(libs/core)` processes that directory's `CMakeLists.txt` right away, with its own **variable scope** (a copy of the parent's variables) and its own binary directory under `build/`. Targets, unlike variables, are **global**: a target defined in `libs/core` can be linked from `apps/cli` as long as it's defined first.\n\nPaths worth knowing:\n\n- `CMAKE_CURRENT_SOURCE_DIR` / `CMAKE_CURRENT_BINARY_DIR` the directory being processed and its build counterpart. Relative paths in `target_sources` and `target_include_directories` resolve against the current source directory.\n- `PROJECT_SOURCE_DIR` the directory of the latest `project()` call; prefer it to `CMAKE_SOURCE_DIR`, which is the top of the whole build and wrong when your project is itself included by another.\n\nGuard optional parts with options: `option(MYPROJ_BUILD_TESTS \"Build tests\" ON)` and `if(MYPROJ_BUILD_TESTS) add_subdirectory(tests) endif()`. Prefix options with the project name to avoid clashes when the project is used as a subproject.",
+   "code": "# ---- CMakeLists.txt (top level) ----\ncmake_minimum_required(VERSION 3.25)\nproject(todo VERSION 0.3 LANGUAGES CXX)\n\noption(TODO_BUILD_TESTS \"Build the todo tests\" ${PROJECT_IS_TOP_LEVEL})\n\nadd_subdirectory(libs/core)     # defines target todo_core\nadd_subdirectory(apps/cli)      # links todo_core\nif(TODO_BUILD_TESTS)\n  enable_testing()\n  add_subdirectory(tests)\nendif()\n\n# ---- libs/core/CMakeLists.txt ----\n# add_library(todo_core STATIC store.cpp item.cpp)\n# target_include_directories(todo_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)\n\n# ---- apps/cli/CMakeLists.txt ----\n# add_executable(todo main.cpp)\n# target_link_libraries(todo PRIVATE todo_core)\n\n# $ cmake -S . -B build -DTODO_BUILD_TESTS=OFF",
+   "code_lang": "cmake",
+   "takeaways": [
+    "add_subdirectory gives each directory its own variable scope; targets are global",
+    "Use CMAKE_CURRENT_SOURCE_DIR and PROJECT_SOURCE_DIR, not CMAKE_SOURCE_DIR",
+    "Prefix options with the project name, e.g. TODO_BUILD_TESTS"
+   ],
+   "pitfalls": [
+    "Setting a variable in a subdirectory and expecting the parent to see it; use PARENT_SCOPE or, better, target properties."
+   ],
+   "quiz": [
+    {
+     "q": "A variable is set inside libs/core/CMakeLists.txt. Is it visible in the top-level file after add_subdirectory(libs/core)?",
+     "options": [
+      "Only if it's a list",
+      "Only in CMake 4",
+      "Yes, all variables are global",
+      "No, the subdirectory has its own scope"
+     ],
+     "answer": 3,
+     "explain": "add_subdirectory creates a new scope; only targets and cache entries are global."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/command/add_subdirectory.html",
+   "requires": [
+    "cmake.usage-requirements",
+    "cmake.variables-language"
+   ]
+  },
+  {
+   "id": "cmake.build-types",
+   "name": "Build types: Debug, Release and multi-config",
+   "module": "config",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Pick optimisation and debug info with CMAKE_BUILD_TYPE (Ninja, Makefiles) or --config at build time (Visual Studio, Ninja Multi-Config).",
+   "why": "Benchmarking a Debug build or shipping one is a classic, costly mistake.",
+   "body": "CMake knows four standard **build types**:\n\n- `Debug`: no optimisation, debug info (`-O0 -g` with GCC/Clang, `/Od /Zi` with MSVC).\n- `Release`: optimised, `-O3 -DNDEBUG` (so `assert` is disabled).\n- `RelWithDebInfo`: optimised with debug info, `-O2 -g -DNDEBUG`; good for profiling and for production with symbols.\n- `MinSizeRel`: optimise for size, `-Os`.\n\nHow you choose depends on the generator:\n\n- **Single-config** generators (Ninja, Makefiles) build one type per build tree: `cmake -B build -DCMAKE_BUILD_TYPE=Release`. If you set nothing, the type is **empty**, meaning no optimisation flags at all; many projects default it in their CMakeLists when the user didn't choose.\n- **Multi-config** generators (Visual Studio, Xcode, `Ninja Multi-Config`) hold all types in one tree, and you pick at build time: `cmake --build build --config Release`. There `CMAKE_BUILD_TYPE` is ignored.\n\nSo `if(CMAKE_BUILD_TYPE STREQUAL \"Debug\")` is wrong for multi-config builds. Express per-configuration settings with generator expressions such as `$<$<CONFIG:Debug>:...>` (covered later), which work for both kinds.\n\nA common layout is one build directory per type, `build/debug` and `build/release`, which presets make convenient.",
+   "code": "# default to Release for single-config generators when nothing was chosen\nget_property(multi GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)\nif(NOT multi AND NOT CMAKE_BUILD_TYPE)\n  set(CMAKE_BUILD_TYPE Release CACHE STRING \"Build type\" FORCE)\nendif()\n\nmessage(STATUS \"Release flags: ${CMAKE_CXX_FLAGS_RELEASE}\")   # -O3 -DNDEBUG (GCC)\nmessage(STATUS \"Debug flags:   ${CMAKE_CXX_FLAGS_DEBUG}\")     # -g\n\n# single-config (Ninja, Makefiles): one type per build tree\n#   cmake -S . -B build/debug   -G Ninja -DCMAKE_BUILD_TYPE=Debug\n#   cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release\n#   cmake --build build/release\n# multi-config (Visual Studio, Ninja Multi-Config): choose when building\n#   cmake -S . -B build -G \"Ninja Multi-Config\"\n#   cmake --build build --config Release",
+   "code_lang": "cmake",
+   "takeaways": [
+    "Debug, Release, RelWithDebInfo and MinSizeRel set optimisation and debug flags",
+    "Single-config: -DCMAKE_BUILD_TYPE; multi-config: --config at build time",
+    "An empty build type means no optimisation"
+   ],
+   "pitfalls": [
+    "Benchmarking a build configured without CMAKE_BUILD_TYPE, which compiles with no optimisation at all."
+   ],
+   "quiz": [
+    {
+     "q": "You configured with -G \"Visual Studio 17 2022\" -DCMAKE_BUILD_TYPE=Release, then ran cmake --build build. What do you get?",
+     "options": [
+      "All four configurations",
+      "A Release build",
+      "A Debug build, because multi-config generators ignore CMAKE_BUILD_TYPE and default to Debug",
+      "An error"
+     ],
+     "answer": 2,
+     "explain": "Visual Studio is multi-config; you must pass --config Release when building."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/manual/cmake-buildsystem.7.html#build-configurations",
+   "requires": [
+    "cmake.first-project"
+   ]
+  },
+  {
+   "id": "cmake.compile-options",
+   "name": "C++ standard, warnings and definitions",
+   "module": "config",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Set the C++ standard with target_compile_features or CMAKE_CXX_STANDARD, add warnings per compiler, and pass definitions to the code.",
+   "why": "Every project needs consistent language settings and warnings, set in a way that works on GCC, Clang and MSVC.",
+   "body": "Two ways to request a language standard:\n\n- Per target: `target_compile_features(core PUBLIC cxx_std_20)`. As a usage requirement it propagates, so anything using `core`'s headers is compiled as C++20 or newer.\n- Project-wide defaults: `set(CMAKE_CXX_STANDARD 20)`, `set(CMAKE_CXX_STANDARD_REQUIRED ON)` (fail instead of silently falling back) and `set(CMAKE_CXX_EXTENSIONS OFF)` (use `-std=c++20`, not `-std=gnu++20`). Set them before creating targets.\n\n**Warnings** are compiler-specific, so branch on the compiler. Keep them `PRIVATE`: your warnings shouldn't be forced on your users.\n\n```cmake\nif(MSVC)\n  target_compile_options(core PRIVATE /W4 /permissive-)\nelse()\n  target_compile_options(core PRIVATE -Wall -Wextra -Wpedantic)\nendif()\n```\n\nTreating warnings as errors is great in CI but annoying for people building your release with a newer compiler; CMake's `COMPILE_WARNING_AS_ERROR` property (3.24+) can be switched off from the command line with `--compile-no-warning-as-error`.\n\n**Definitions** become preprocessor macros: `target_compile_definitions(core PRIVATE APP_VERSION=\"${PROJECT_VERSION}\")`. For many values, `configure_file(version.h.in version.h)` generates a header from a template with `@PROJECT_VERSION@` placeholders, and a changed value rebuilds only what includes it.",
+   "code": "cmake_minimum_required(VERSION 3.25)\nproject(app VERSION 2.1.0 LANGUAGES CXX)\n\nset(CMAKE_CXX_STANDARD 20)\nset(CMAKE_CXX_STANDARD_REQUIRED ON)\nset(CMAKE_CXX_EXTENSIONS OFF)\nset(CMAKE_EXPORT_COMPILE_COMMANDS ON)     # compile_commands.json for clangd etc.\n\nadd_executable(app main.cpp)\nif(MSVC)\n  target_compile_options(app PRIVATE /W4 /permissive-)\nelse()\n  target_compile_options(app PRIVATE -Wall -Wextra -Wpedantic)\nendif()\nset_target_properties(app PROPERTIES COMPILE_WARNING_AS_ERROR ON)\n\nconfigure_file(version.h.in version.h)    # contains: #define APP_VERSION \"@PROJECT_VERSION@\"\ntarget_include_directories(app PRIVATE ${CMAKE_CURRENT_BINARY_DIR})\ntarget_compile_definitions(app PRIVATE APP_NAME=\"${PROJECT_NAME}\")\n\n# compile line: c++ -DAPP_NAME=\"app\" -I.../build -std=c++20 -Wall -Wextra -Wpedantic -Werror ...",
+   "code_lang": "cmake",
+   "takeaways": [
+    "cxx_std_20 per target, or CMAKE_CXX_STANDARD with _REQUIRED ON and EXTENSIONS OFF",
+    "Branch on MSVC for warning flags and keep them PRIVATE",
+    "configure_file generates headers from templates with project values"
+   ],
+   "pitfalls": [
+    "Setting CMAKE_CXX_STANDARD after add_executable; it only applies to targets created afterwards."
+   ],
+   "quiz": [
+    {
+     "q": "Why should warning flags be PRIVATE?",
+     "options": [
+      "PUBLIC flags are ignored",
+      "Your warning choices shouldn't be imposed on projects that link your library",
+      "MSVC requires it",
+      "They make the build slower otherwise"
+     ],
+     "answer": 1,
+     "explain": "PUBLIC or INTERFACE options would propagate to every consumer's compile lines."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/manual/cmake-compile-features.7.html",
+   "requires": [
+    "cmake.usage-requirements",
+    "cmake.build-types"
+   ]
+  },
+  {
+   "id": "cmake.find-package",
+   "name": "Using installed libraries: find_package",
+   "module": "deps",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Locate installed dependencies with find_package, link their imported targets like fmt::fmt, and point CMake at them with CMAKE_PREFIX_PATH.",
+   "why": "Almost every project depends on other libraries; find_package is the standard way to consume them.",
+   "body": "`find_package(fmt 10 REQUIRED)` asks CMake to find an installed package and fail with a clear message if it's missing. On success the package provides **imported targets**, usually namespaced, which you link like your own:\n\n```cmake\ntarget_link_libraries(app PRIVATE fmt::fmt)\n```\n\nImported targets carry the include paths, definitions and transitive dependencies, so one line is all you need.\n\nThere are two search modes:\n\n- **Config mode**: the package ships a `fmtConfig.cmake` (or `fmt-config.cmake`) file, installed with it. This is what modern libraries provide and what package managers generate.\n- **Module mode**: CMake (or your project) supplies a `FindXxx.cmake` script that searches for headers and libraries. CMake ships modules for common system libraries: `Threads`, `ZLIB`, `OpenSSL`, `CURL`, `Python`, `Boost` (newer Boost versions provide config files instead).\n\nBy default CMake tries module mode first, then config mode. `find_package(fmt CONFIG REQUIRED)` forces config mode.\n\nIf a package is installed in a non-standard location, tell CMake: `-DCMAKE_PREFIX_PATH=/opt/fmt` (a list of install prefixes), or `-Dfmt_DIR=/path/to/dir/containing/fmtConfig.cmake`. Package managers such as **vcpkg** and **Conan** work by installing packages and pointing CMake at them through a toolchain file or presets.",
+   "code": "cmake_minimum_required(VERSION 3.25)\nproject(fetcher LANGUAGES CXX)\n\nfind_package(Threads REQUIRED)                # module mode: FindThreads.cmake ships with CMake\nfind_package(ZLIB 1.2 REQUIRED)               # FindZLIB -> ZLIB::ZLIB\nfind_package(fmt 10 CONFIG REQUIRED)          # config mode: fmtConfig.cmake from the install\nfind_package(OpenSSL)                         # optional\nmessage(STATUS \"zlib ${ZLIB_VERSION}, OpenSSL found: ${OpenSSL_FOUND}\")\n\nadd_executable(fetcher main.cpp)\ntarget_link_libraries(fetcher PRIVATE fmt::fmt ZLIB::ZLIB Threads::Threads)\nif(OpenSSL_FOUND)\n  target_link_libraries(fetcher PRIVATE OpenSSL::SSL)\n  target_compile_definitions(fetcher PRIVATE HAVE_OPENSSL=1)\nendif()\n\n# $ cmake -S . -B build -DCMAKE_PREFIX_PATH=\"$HOME/.local;/opt/fmt\"",
+   "code_lang": "cmake",
+   "takeaways": [
+    "find_package(Name REQUIRED) then link the imported target Name::Name",
+    "Config mode uses the package's own Config.cmake; module mode a FindXxx.cmake",
+    "Point CMake at custom installs with CMAKE_PREFIX_PATH"
+   ],
+   "pitfalls": [
+    "Linking ${ZLIB_LIBRARIES} and adding include dirs by hand when an imported target ZLIB::ZLIB exists and carries everything."
+   ],
+   "quiz": [
+    {
+     "q": "find_package(fmt CONFIG REQUIRED) fails although fmt is installed in /opt/fmt. What is the usual fix?",
+     "options": [
+      "Configure with -DCMAKE_PREFIX_PATH=/opt/fmt",
+      "Use file(GLOB) to find fmt",
+      "Switch to a Debug build",
+      "Add include_directories(/opt/fmt)"
+     ],
+     "answer": 0,
+     "explain": "CMAKE_PREFIX_PATH adds install prefixes to the places find_package searches for fmtConfig.cmake."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/command/find_package.html",
+   "requires": [
+    "cmake.usage-requirements"
+   ]
+  },
+  {
+   "id": "cmake.fetchcontent",
+   "name": "Bringing dependencies in with FetchContent",
+   "module": "deps",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Download and build dependencies as part of your project with FetchContent_Declare and FetchContent_MakeAvailable, and know when a package manager is better.",
+   "why": "It makes a project buildable with just CMake and a compiler, which is ideal for small dependencies and test frameworks.",
+   "body": "**FetchContent** downloads a dependency at configure time and adds it to your build as if it were a subdirectory. Its targets then exist in your project:\n\n```cmake\ninclude(FetchContent)\nFetchContent_Declare(fmt\n  GIT_REPOSITORY https://github.com/fmtlib/fmt.git\n  GIT_TAG 11.1.4)\nFetchContent_MakeAvailable(fmt)\ntarget_link_libraries(app PRIVATE fmt::fmt)\n```\n\nGood practice:\n\n- Pin an exact tag or, better, a commit hash. Downloading a URL archive with `URL_HASH SHA256=...` is faster than cloning and verifiable.\n- Add `FIND_PACKAGE_ARGS` (3.24+) so `FetchContent_MakeAvailable` first tries `find_package` and only downloads when the package isn't installed. Distributions and package managers can then supply their own copy.\n- `FETCHCONTENT_FULLY_DISCONNECTED=ON` or `FETCHCONTENT_SOURCE_DIR_<NAME>` let offline builds and local checkouts override the download.\n\nTrade-offs: the dependency is built from source in every fresh build tree, its options and warnings mix with yours, and two dependencies fetching different versions of a third library will conflict (the first declaration wins).\n\nFor a few small libraries and test frameworks (GoogleTest, Catch2) FetchContent is great. For many or heavy dependencies (Boost, Qt, OpenSSL) use a package manager like vcpkg or Conan, with `find_package` in the CMakeLists.",
+   "code": "cmake_minimum_required(VERSION 3.25)\nproject(cli LANGUAGES CXX)\n\ninclude(FetchContent)\nFetchContent_Declare(fmt\n  URL https://github.com/fmtlib/fmt/archive/refs/tags/11.1.4.tar.gz\n  FIND_PACKAGE_ARGS 11)          # use an installed fmt >= 11 if there is one\nFetchContent_Declare(googletest\n  GIT_REPOSITORY https://github.com/google/googletest.git\n  GIT_TAG v1.16.0\n  GIT_SHALLOW TRUE)\nset(INSTALL_GTEST OFF CACHE BOOL \"\" FORCE)    # options of the dependency\nFetchContent_MakeAvailable(fmt googletest)\n\nadd_executable(cli main.cpp)\ntarget_link_libraries(cli PRIVATE fmt::fmt)\n\nadd_executable(cli_test test.cpp)\ntarget_link_libraries(cli_test PRIVATE GTest::gtest_main)",
+   "code_lang": "cmake",
+   "takeaways": [
+    "FetchContent_Declare + FetchContent_MakeAvailable add a dependency's targets to your build",
+    "Pin versions; FIND_PACKAGE_ARGS prefers an installed copy",
+    "Use a package manager for many or heavy dependencies"
+   ],
+   "pitfalls": [
+    "Fetching a branch name like main, so builds change silently whenever upstream pushes."
+   ],
+   "quiz": [
+    {
+     "q": "What does FIND_PACKAGE_ARGS in FetchContent_Declare do?",
+     "options": [
+      "Installs the package system-wide",
+      "Disables the download",
+      "Downloads the package twice",
+      "Tries find_package first and only downloads if it fails"
+     ],
+     "answer": 3,
+     "explain": "With FIND_PACKAGE_ARGS, MakeAvailable calls find_package with those arguments and falls back to fetching."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/module/FetchContent.html",
+   "requires": [
+    "cmake.find-package",
+    "cmake.subdirectories"
+   ]
+  },
+  {
+   "id": "cmake.ctest",
+   "name": "Testing with CTest",
+   "module": "ship",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Register tests with enable_testing and add_test, run them with ctest, and discover GoogleTest cases automatically.",
+   "why": "A single ctest command that runs every test is what CI pipelines and IDE test panels rely on.",
+   "body": "CTest is CMake's test driver. Two commands register tests:\n\n- `enable_testing()` in the top-level CMakeLists (or `include(CTest)`, which also adds a `BUILD_TESTING` option).\n- `add_test(NAME parser_test COMMAND parser_test --fast)`. When `COMMAND` names an executable target, CMake substitutes the built file's full path.\n\nAfter building, run `ctest --test-dir build`. Useful flags:\n\n- `--output-on-failure` shows a failing test's output (set `CTEST_OUTPUT_ON_FAILURE=1` to make it the default).\n- `-j 8` runs tests in parallel; `-R regex` and `-E regex` select or exclude by name; `-L label` filters by label.\n- `--rerun-failed` and `--repeat until-fail:20` help with flaky tests.\n- `-C Debug` selects the configuration with multi-config generators.\n\nA test passes when its command exits with status 0. Test properties refine this: `WILL_FAIL`, `PASS_REGULAR_EXPRESSION`, `TIMEOUT`, `ENVIRONMENT`, `LABELS`, `FIXTURES_SETUP`/`FIXTURES_REQUIRED` for setup and teardown tests.\n\nWith GoogleTest, `include(GoogleTest)` and `gtest_discover_tests(my_tests)` register each `TEST()` case as its own CTest test by querying the built executable, so failures are reported per case and `-R` works on case names.",
+   "code": "enable_testing()\n\nadd_executable(calc_test calc_test.cpp)\ntarget_link_libraries(calc_test PRIVATE calc GTest::gtest_main)\n\ninclude(GoogleTest)\ngtest_discover_tests(calc_test)               # one CTest test per TEST(...)\n\nadd_test(NAME cli_version COMMAND calc_cli --version)\nset_tests_properties(cli_version PROPERTIES\n  PASS_REGULAR_EXPRESSION \"^calc [0-9]+\\\\.[0-9]+\"\n  TIMEOUT 5\n  LABELS smoke)\n\n# $ cmake --build build && ctest --test-dir build -j8 --output-on-failure\n# 1/4 Test #1: CalcTest.Adds ......   Passed    0.01 sec\n# 2/4 Test #2: CalcTest.Divides ...   Passed    0.01 sec\n# ...\n# 100% tests passed, 0 tests failed out of 4\n# $ ctest --test-dir build -L smoke",
+   "code_lang": "cmake",
+   "takeaways": [
+    "enable_testing() + add_test(NAME ... COMMAND target)",
+    "ctest --test-dir build --output-on-failure -j N runs them",
+    "gtest_discover_tests registers each GoogleTest case separately"
+   ],
+   "pitfalls": [
+    "Calling enable_testing() only in a subdirectory, so ctest from the build root finds no tests."
+   ],
+   "quiz": [
+    {
+     "q": "When does CTest consider a test passed by default?",
+     "options": [
+      "When it writes no output to stderr",
+      "When it prints PASSED",
+      "When its command exits with status 0",
+      "When it finishes within 60 seconds"
+     ],
+     "answer": 2,
+     "explain": "The exit status decides unless properties such as PASS_REGULAR_EXPRESSION or WILL_FAIL change the rule."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/manual/ctest.1.html",
+   "requires": [
+    "cmake.libraries-targets",
+    "cmake.fetchcontent"
+   ]
+  },
+  {
+   "id": "cmake.presets",
+   "name": "CMakePresets.json",
+   "module": "config",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Share configure, build and test settings in CMakePresets.json, keep personal ones in CMakeUserPresets.json, and run them with --preset or a workflow.",
+   "why": "Presets replace long, error-prone command lines and are understood by VS Code, CLion and Visual Studio.",
+   "body": "Instead of documenting `cmake -S . -B build/release -G Ninja -DCMAKE_BUILD_TYPE=Release -D...` in a README, put it in **`CMakePresets.json`** at the project root and commit it.\n\n- **configurePresets** set the generator, `binaryDir`, cache variables, environment and toolchain file. Presets can `inherits` from others, and hidden ones act as shared bases.\n- **buildPresets** and **testPresets** reference a configure preset and add build targets, jobs or test filters.\n- **workflowPresets** (schema version 6, CMake 3.25+) chain configure, build and test into one command.\n\nUse them with `cmake --preset release`, `cmake --build --preset release`, `ctest --preset release` or `cmake --workflow --preset ci`. `cmake --list-presets` shows what's available.\n\nMacros like `${sourceDir}`, `${presetName}` and `$env{HOME}` keep paths portable. A `condition` can restrict presets to a host OS.\n\n**`CMakeUserPresets.json`** has the same format for personal settings (local compiler paths, extra flags) and should be in `.gitignore`. It may inherit from the project's presets.\n\nIDEs read both files and offer the presets in their UI, so the command line, CI and every developer's editor configure the project identically.",
+   "code": "{\n  \"version\": 6,\n  \"configurePresets\": [\n    { \"name\": \"base\", \"hidden\": true, \"generator\": \"Ninja\",\n      \"binaryDir\": \"${sourceDir}/build/${presetName}\",\n      \"cacheVariables\": { \"CMAKE_EXPORT_COMPILE_COMMANDS\": \"ON\" } },\n    { \"name\": \"debug\", \"inherits\": \"base\",\n      \"cacheVariables\": { \"CMAKE_BUILD_TYPE\": \"Debug\" } },\n    { \"name\": \"release\", \"inherits\": \"base\",\n      \"cacheVariables\": { \"CMAKE_BUILD_TYPE\": \"Release\" } }\n  ],\n  \"buildPresets\": [ { \"name\": \"release\", \"configurePreset\": \"release\" } ],\n  \"testPresets\": [\n    { \"name\": \"release\", \"configurePreset\": \"release\",\n      \"output\": { \"outputOnFailure\": true }, \"execution\": { \"jobs\": 8 } }\n  ],\n  \"workflowPresets\": [\n    { \"name\": \"ci\", \"steps\": [\n      { \"type\": \"configure\", \"name\": \"release\" },\n      { \"type\": \"build\", \"name\": \"release\" },\n      { \"type\": \"test\", \"name\": \"release\" } ] }\n  ]\n}",
+   "code_lang": "json",
+   "takeaways": [
+    "CMakePresets.json holds shared configure, build, test and workflow presets",
+    "Run with cmake --preset, cmake --build --preset, ctest --preset or cmake --workflow",
+    "Personal settings go in CMakeUserPresets.json, not committed"
+   ],
+   "pitfalls": [
+    "Committing machine-specific paths into CMakePresets.json instead of CMakeUserPresets.json."
+   ],
+   "quiz": [
+    {
+     "q": "Which file should hold the path to your locally installed compiler?",
+     "options": [
+      "CMakePresets.json",
+      "CMakeUserPresets.json",
+      "CMakeCache.txt in the source tree",
+      "CMakeLists.txt"
+     ],
+     "answer": 1,
+     "explain": "User presets are personal and ignored by version control, while the project presets are shared."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/manual/cmake-presets.7.html",
+   "requires": [
+    "cmake.build-types",
+    "cmake.ctest"
+   ]
+  },
+  {
+   "id": "cmake.generator-expressions",
+   "name": "Generator expressions",
+   "module": "config",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Use $<...> generator expressions to vary settings by configuration, compiler, platform or target, evaluated when the build is generated.",
+   "why": "They're the correct way to express per-configuration and per-compiler settings that also work in multi-config builds.",
+   "body": "**Generator expressions** look like `$<...>` and are evaluated during **generation**, after configuration, separately for each target and each configuration. They're needed because some facts aren't known while CMakeLists.txt runs: in a multi-config build, the configuration isn't chosen until build time, and a target's final file path isn't fixed until generation.\n\nBuilding blocks:\n\n- Conditions that yield `1` or `0`: `$<CONFIG:Debug>`, `$<CXX_COMPILER_ID:MSVC>`, `$<PLATFORM_ID:Windows>`, `$<BOOL:${OPT}>`, combined with `$<AND:...>`, `$<OR:...>`, `$<NOT:...>`.\n- `$<cond:value>` yields `value` if `cond` is `1`, otherwise nothing; `$<IF:cond,a,b>` picks one.\n- Information: `$<TARGET_FILE:app>` the built file's path, `$<TARGET_FILE_DIR:app>`, `$<TARGET_PROPERTY:tgt,prop>`.\n- `$<BUILD_INTERFACE:...>` and `$<INSTALL_INTERFACE:...>` give different values when a target is used from the build tree or after installation.\n\nMany conditions accept lists: `$<CONFIG:Debug,RelWithDebInfo>` (3.19+) and `$<CXX_COMPILER_ID:GNU,Clang>`.\n\nBecause evaluation happens later, `message()` prints the literal `$<...>` text. To inspect results, use `file(GENERATE OUTPUT dbg.txt CONTENT \"...\")`. Keep expressions small; deeply nested ones become unreadable fast, and a helper variable holding a part helps.",
+   "code": "add_executable(app main.cpp)\n\ntarget_compile_definitions(app PRIVATE\n  $<$<CONFIG:Debug>:APP_DEBUG=1>                 # only in Debug builds\n  APP_PLATFORM=\"$<PLATFORM_ID>\")                  # \"Linux\", \"Windows\", ...\n\nset(gcc_like \"$<CXX_COMPILER_ID:GNU,Clang,AppleClang>\")\ntarget_compile_options(app PRIVATE\n  \"$<${gcc_like}:-Wall;-Wextra>\"                  # quoted: no spaces inside a genex\n  $<$<CXX_COMPILER_ID:MSVC>:/W4>\n  $<$<AND:${gcc_like},$<CONFIG:Debug>>:-fsanitize=address>)\ntarget_link_options(app PRIVATE\n  $<$<AND:${gcc_like},$<CONFIG:Debug>>:-fsanitize=address>)\n\n# copy a data file next to the built executable, wherever it ends up\nadd_custom_command(TARGET app POST_BUILD\n  COMMAND ${CMAKE_COMMAND} -E copy_if_different\n          ${CMAKE_CURRENT_SOURCE_DIR}/config.json $<TARGET_FILE_DIR:app>)\n\nfile(GENERATE OUTPUT genex-$<CONFIG>.txt CONTENT \"file: $<TARGET_FILE:app>\\n\")",
+   "code_lang": "cmake",
+   "takeaways": [
+    "$<cond:value> inserts value when cond is true for this target and configuration",
+    "Use $<CONFIG:...> instead of if(CMAKE_BUILD_TYPE) so multi-config works",
+    "message() can't show them; use file(GENERATE) to debug"
+   ],
+   "pitfalls": [
+    "Putting a space-separated list inside a genex without quoting, which splits the expression into broken pieces."
+   ],
+   "quiz": [
+    {
+     "q": "Why use $<$<CONFIG:Debug>:-DTRACE> instead of if(CMAKE_BUILD_TYPE STREQUAL Debug)?",
+     "options": [
+      "With multi-config generators the configuration is chosen at build time, after if() has run",
+      "if() can't compare strings",
+      "CMAKE_BUILD_TYPE is deprecated",
+      "Generator expressions are faster"
+     ],
+     "answer": 0,
+     "explain": "The genex is evaluated per configuration during generation, so it works for single- and multi-config generators."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/manual/cmake-generator-expressions.7.html",
+   "requires": [
+    "cmake.compile-options",
+    "cmake.build-types"
+   ]
+  },
+  {
+   "id": "cmake.install-export",
+   "name": "Installing and exporting a package",
+   "module": "ship",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Install targets and headers with install(), export them with a namespace and generate Config files so others can find_package your library.",
+   "why": "A library that installs a proper CMake package is trivially consumable by other projects and package managers.",
+   "body": "`install()` rules describe what `cmake --install build --prefix /usr/local` copies. For a library to be usable by others via `find_package(mylib)` you need four pieces:\n\n- **Targets** with an export set: `install(TARGETS mylib EXPORT mylibTargets ...)`. `include(GNUInstallDirs)` provides standard destinations like `CMAKE_INSTALL_LIBDIR` and `CMAKE_INSTALL_INCLUDEDIR`.\n- **Headers**: `install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})`, or the `FILE_SET HEADERS` feature (3.23+), which installs headers declared with `target_sources`.\n- **The export file**: `install(EXPORT mylibTargets NAMESPACE mylib:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/mylib)` writes `mylibTargets.cmake`, which recreates `mylib::mylib` as an imported target with its usage requirements.\n- **Config and version files**: a small `mylibConfig.cmake` that includes the targets file (and calls `find_dependency` for public dependencies), plus a version file generated by `write_basic_package_version_file` from `CMakePackageConfigHelpers`.\n\nInclude directories must differ between the build tree and the installed tree, hence `$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>` and `$<INSTALL_INTERFACE:include>`. Never put absolute source paths in an installed interface: CMake rejects them.\n\nTest the result by installing to a temporary prefix and building a tiny consumer project with `-DCMAKE_PREFIX_PATH` pointing at it.",
+   "code": "include(GNUInstallDirs)\ninclude(CMakePackageConfigHelpers)\n\nadd_library(geo src/geo.cpp)\nadd_library(geo::geo ALIAS geo)\ntarget_include_directories(geo PUBLIC\n  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>\n  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)\n\ninstall(TARGETS geo EXPORT geoTargets)\ninstall(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})\ninstall(EXPORT geoTargets NAMESPACE geo::\n        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/geo)\n\nfile(WRITE ${CMAKE_CURRENT_BINARY_DIR}/geoConfig.cmake\n     \"include(\\\"\\${CMAKE_CURRENT_LIST_DIR}/geoTargets.cmake\\\")\\n\")\nwrite_basic_package_version_file(geoConfigVersion.cmake\n  VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion)\ninstall(FILES ${CMAKE_CURRENT_BINARY_DIR}/geoConfig.cmake\n              ${CMAKE_CURRENT_BINARY_DIR}/geoConfigVersion.cmake\n        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/geo)\n\n# $ cmake --install build --prefix /tmp/geo-install\n# consumer: find_package(geo 1.0 REQUIRED)  +  target_link_libraries(app PRIVATE geo::geo)",
+   "code_lang": "cmake",
+   "takeaways": [
+    "install(TARGETS ... EXPORT) + install(EXPORT ... NAMESPACE) create importable targets",
+    "Use BUILD_INTERFACE / INSTALL_INTERFACE for include paths",
+    "Ship a Config and ConfigVersion file so find_package works"
+   ],
+   "pitfalls": [
+    "Hard-coding absolute include paths into the exported target, which breaks as soon as the package is relocated."
+   ],
+   "quiz": [
+    {
+     "q": "What does install(EXPORT geoTargets NAMESPACE geo:: ...) produce?",
+     "options": [
+      "A shared library",
+      "A pkg-config file",
+      "A copy of the source code",
+      "A CMake file that defines the imported target geo::geo for consumers"
+     ],
+     "answer": 3,
+     "explain": "The export file recreates the installed targets, with their usage requirements, as imported targets."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/guide/importing-exporting/index.html",
+   "requires": [
+    "cmake.find-package",
+    "cmake.generator-expressions"
+   ]
+  },
+  {
+   "id": "cmake.phases-cache",
+   "name": "Configure, generate, cache and policies",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Know what happens in each CMake phase, how CMakeCache.txt and cache variables persist settings, and how policies keep old projects working.",
+   "why": "Mysterious 'my change has no effect' problems are almost always about the cache or a policy.",
+   "body": "A CMake run has distinct phases:\n\n- **Configure**: the CMake language runs top to bottom. Commands like `find_package` and `try_compile` probe the system; targets and properties are recorded. `message()` output appears here.\n- **Generate**: generator expressions are evaluated per target and configuration, and the native build files are written.\n- **Build**: the native tool runs; CMake itself is involved only to re-run configure when a CMakeLists.txt changes, or for custom commands.\n\nThe **cache** (`build/CMakeCache.txt`) stores settings that persist between runs: everything passed with `-D`, `option()` values, and results of searches such as `find_library`. A **cache variable** (`set(X value CACHE STRING \"doc\")`) is only written if it doesn't already exist, so editing its default in CMakeLists.txt has **no effect** on an existing build tree. Change it with `-D`, `ccmake`/`cmake-gui`, or delete the cache (`cmake --fresh` in 3.24+). A normal variable with the same name shadows the cache entry in that scope.\n\n**Policies** preserve backward compatibility. When CMake changes behaviour, it adds a policy `CMPxxxx`; projects get the old behaviour until they declare a minimum version that includes the new one. `cmake_minimum_required(VERSION 3.25...4.1)` means \"works with 3.25, and uses new behaviour up to 4.1\". Warnings about unset policies are hints to raise that range, not noise to suppress.",
+   "code": "cmake_minimum_required(VERSION 3.25...4.1)\nproject(cachedemo LANGUAGES NONE)\n\nset(GREETING \"hello\" CACHE STRING \"Greeting to print\")   # only if not cached yet\noption(USE_FAST_PATH \"Enable the fast path\" OFF)\nmessage(STATUS \"GREETING=${GREETING} USE_FAST_PATH=${USE_FAST_PATH}\")\n\ncmake_policy(GET CMP0135 p)          # DOWNLOAD_EXTRACT_TIMESTAMP behaviour\nmessage(STATUS \"CMP0135 is ${p}\")    # NEW, because 3.25 > 3.24 introduced it\n\n# $ cmake -S . -B build                      -> GREETING=hello USE_FAST_PATH=OFF\n#   (edit the default to \"hi\" in CMakeLists.txt)\n# $ cmake -S . -B build                      -> GREETING=hello   (cache wins!)\n# $ cmake -S . -B build -DGREETING=hey       -> GREETING=hey\n# $ cmake -S . -B build --fresh              -> GREETING=hi      (cache discarded)\n# $ cmake -L -N build | grep GREETING        -> GREETING:STRING=hi",
+   "code_lang": "cmake",
+   "takeaways": [
+    "Configure runs the script, generate evaluates genexes and writes build files",
+    "Cache variables keep their first value; change them with -D or --fresh",
+    "cmake_minimum_required(VERSION min...max) sets the policy behaviour"
+   ],
+   "pitfalls": [
+    "Editing a cache variable's default in CMakeLists.txt and expecting existing build trees to pick it up."
+   ],
+   "quiz": [
+    {
+     "q": "You change set(OPT ON CACHE BOOL \"\") to OFF and reconfigure an existing build. What is OPT?",
+     "options": [
+      "An error is raised",
+      "OFF",
+      "ON, because the cached value is kept",
+      "Empty"
+     ],
+     "answer": 2,
+     "explain": "set(... CACHE ...) doesn't overwrite an existing cache entry unless FORCE is used."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/manual/cmake-policies.7.html",
+   "requires": [
+    "cmake.generator-expressions",
+    "cmake.variables-language"
+   ]
+  },
+  {
+   "id": "cmake.toolchains",
+   "name": "Toolchain files and cross-compiling",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Describe a target platform in a toolchain file (compilers, sysroot, search modes) to cross-compile, and understand how package managers hook in the same way.",
+   "why": "Embedded, mobile and multi-architecture builds all rely on toolchain files, and so do vcpkg and Conan.",
+   "body": "A **toolchain file** is a CMake script loaded before the first `project()` call, passed with `--toolchain file.cmake` (or `-DCMAKE_TOOLCHAIN_FILE=...`). It describes the **target** system, as opposed to the **host** running the build:\n\n- `CMAKE_SYSTEM_NAME` (`Linux`, `Windows`, `Android`, `Generic` for bare metal) and `CMAKE_SYSTEM_PROCESSOR`. Setting `CMAKE_SYSTEM_NAME` is what tells CMake it is cross-compiling (`CMAKE_CROSSCOMPILING` becomes true).\n- `CMAKE_C_COMPILER` / `CMAKE_CXX_COMPILER`, for example `aarch64-linux-gnu-g++`.\n- `CMAKE_SYSROOT`: the target's headers and libraries.\n- `CMAKE_FIND_ROOT_PATH` and the `CMAKE_FIND_ROOT_PATH_MODE_*` variables: search for libraries, headers and packages only in the target root, but for programs (code generators, tools) on the host.\n\nBecause the compiler is fixed at the first configure, switching toolchains requires a fresh build directory.\n\nThings that break when cross-compiling: running freshly built executables during the build (code generators must be built for the host, or found as host tools), `try_run` checks, and tests (use `CMAKE_CROSSCOMPILING_EMULATOR`, e.g. `qemu-aarch64`, to run them).\n\nPackage managers use the same hook: **vcpkg** provides `scripts/buildsystems/vcpkg.cmake` as a toolchain that installs dependencies and adds them to the search path, and **Conan** generates `conan_toolchain.cmake`. A toolchain file can chain to another via `include()`.",
+   "code": "# aarch64-linux.cmake  (use: cmake -S . -B build-arm --toolchain aarch64-linux.cmake)\nset(CMAKE_SYSTEM_NAME Linux)\nset(CMAKE_SYSTEM_PROCESSOR aarch64)\n\nset(CMAKE_C_COMPILER   aarch64-linux-gnu-gcc)\nset(CMAKE_CXX_COMPILER aarch64-linux-gnu-g++)\nset(CMAKE_SYSROOT /opt/sysroots/aarch64)\n\n# libraries, headers and packages from the target; programs from the host\nset(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)\nset(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)\nset(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)\nset(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)\n\n# run target binaries (tests, gtest discovery) through an emulator\nset(CMAKE_CROSSCOMPILING_EMULATOR qemu-aarch64;-L;/opt/sysroots/aarch64)\n\n# vcpkg instead:  cmake -S . -B build --toolchain $VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake",
+   "code_lang": "cmake",
+   "takeaways": [
+    "A toolchain file describes the target system and is loaded before project()",
+    "CMAKE_SYSTEM_NAME turns on cross-compiling; FIND_ROOT_PATH modes separate host and target",
+    "vcpkg and Conan integrate through toolchain files too"
+   ],
+   "pitfalls": [
+    "Reusing a build directory after changing toolchain files; the compiler is cached at first configure, so start fresh."
+   ],
+   "quiz": [
+    {
+     "q": "Why set CMAKE_FIND_ROOT_PATH_MODE_PROGRAM to NEVER when cross-compiling?",
+     "options": [
+      "To disable all programs",
+      "Build-time tools like code generators must run on the host, so they shouldn't be searched in the target sysroot",
+      "It speeds up linking",
+      "Programs can't be found in a sysroot"
+     ],
+     "answer": 1,
+     "explain": "Programs run during the build on the host machine, while libraries and headers must come from the target."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/manual/cmake-toolchains.7.html",
+   "requires": [
+    "cmake.phases-cache",
+    "cmake.find-package"
+   ]
+  },
+  {
+   "id": "cmake.shared-libraries",
+   "name": "Shared libraries, symbol visibility and RPATH",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Hide symbols by default with GenerateExportHeader, set VERSION and SOVERSION, and make installed binaries find their libraries via RPATH.",
+   "why": "Shared-library details decide whether your binaries run after installation and whether your ABI stays stable.",
+   "body": "Shared libraries add concerns static ones don't have.\n\n**Symbol visibility.** On Linux every function is exported by default; on Windows nothing is unless marked `__declspec(dllexport)`. Make both behave the same by hiding symbols by default and exporting your API explicitly:\n\n- `set_target_properties(geo PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)`\n- `include(GenerateExportHeader)` and `generate_export_header(geo)` create `geo_export.h` with a `GEO_EXPORT` macro to put on public classes and functions.\n\nSmaller export tables load faster, avoid symbol clashes and make ABI breakage visible.\n\n**Versioning.** `VERSION 1.4.2` and `SOVERSION 1` properties produce `libgeo.so.1.4.2` with the SONAME `libgeo.so.1` and symlinks. Bump SOVERSION only when you break the ABI.\n\n**Finding libraries at run time.** An executable records an **RPATH** listing directories to search. CMake gives build-tree binaries an RPATH pointing at the build tree, and by default **strips** it at install time, so installed programs may fail with \"cannot open shared object file\". Set `CMAKE_INSTALL_RPATH` to a relative path, `$ORIGIN/../lib` on Linux or `@loader_path/../lib` on macOS, to make the installed tree relocatable. Windows has no RPATH: DLLs must sit next to the executable or on `PATH`, which `$<TARGET_RUNTIME_DLLS:app>` (3.21+) helps copy.",
+   "code": "cmake_minimum_required(VERSION 3.25)\nproject(geo VERSION 1.4.2 LANGUAGES CXX)\ninclude(GNUInstallDirs)\ninclude(GenerateExportHeader)\n\nadd_library(geo SHARED src/geo.cpp)\ngenerate_export_header(geo)                 # writes geo_export.h with GEO_EXPORT\ntarget_include_directories(geo PUBLIC\n  \"$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include;${CMAKE_CURRENT_BINARY_DIR}>\")\nset_target_properties(geo PROPERTIES\n  CXX_VISIBILITY_PRESET hidden\n  VISIBILITY_INLINES_HIDDEN ON\n  VERSION ${PROJECT_VERSION}                # libgeo.so.1.4.2\n  SOVERSION ${PROJECT_VERSION_MAJOR})       # SONAME libgeo.so.1\n\nadd_executable(app src/main.cpp)\ntarget_link_libraries(app PRIVATE geo)\nset_target_properties(app PROPERTIES INSTALL_RPATH \"$ORIGIN/../${CMAKE_INSTALL_LIBDIR}\")\ninstall(TARGETS geo app)\n\n# include/geo.h:  #include \"geo_export.h\"\n#                 GEO_EXPORT double area(double r);   // exported; helpers stay hidden\n# $ readelf -d build/libgeo.so | grep SONAME   -> [libgeo.so.1]",
+   "code_lang": "cmake",
+   "takeaways": [
+    "Hide symbols by default and export the API with generate_export_header",
+    "VERSION and SOVERSION set file names and the SONAME",
+    "Set INSTALL_RPATH to $ORIGIN/../lib so installed binaries find their libraries"
+   ],
+   "pitfalls": [
+    "Installing a program linked to your shared library without an install RPATH, so it only runs from the build tree."
+   ],
+   "quiz": [
+    {
+     "q": "An installed executable fails with 'error while loading shared libraries: libgeo.so.1'. It ran fine from the build directory. Why?",
+     "options": [
+      "CMake removed the build-tree RPATH at install time and no install RPATH was set",
+      "SOVERSION is missing",
+      "Visibility was set to hidden",
+      "The library was built static"
+     ],
+     "answer": 0,
+     "explain": "Build-tree binaries get an RPATH to the build directory; installed ones need CMAKE_INSTALL_RPATH or INSTALL_RPATH."
+    }
+   ],
+   "docs": "https://cmake.org/cmake/help/latest/module/GenerateExportHeader.html",
+   "requires": [
+    "cmake.install-export",
+    "cpp.abi-linking"
+   ]
+  }
+ ]
+}

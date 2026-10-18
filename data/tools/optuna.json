@@ -1,0 +1,610 @@
+{
+ "tool": {
+  "id": "optuna",
+  "name": "Optuna",
+  "category": "library",
+  "tagline": "Define-by-run hyperparameter optimization with smart sampling and pruning",
+  "description": "Optuna is a Python framework for hyperparameter optimization. You write an objective function that asks a trial for parameter values and returns a score; Optuna's samplers (TPE, CMA-ES, Gaussian processes and more) choose promising values, and pruners stop unpromising trials early. It scales from a notebook to many parallel workers sharing a database, with built-in visualization and multi-objective support.",
+  "icon": "Op",
+  "color": "#1F5FAE",
+  "official_docs": "https://optuna.readthedocs.io/en/stable/",
+  "version": "5.x",
+  "aliases": [
+   "optuna hpo",
+   "hyperparameter tuning"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 2
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Studies, trials and search spaces"
+  },
+  {
+   "id": "search",
+   "name": "Samplers and analysis"
+  },
+  {
+   "id": "pruning",
+   "name": "Pruning and control"
+  },
+  {
+   "id": "scale",
+   "name": "Persistence and parallelism"
+  },
+  {
+   "id": "advanced",
+   "name": "Multi-objective and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "optuna.first-study",
+   "name": "Objective, trial and study",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Write an objective function, create a study, run optimize, and read the best parameters.",
+   "why": "These three objects are the whole Optuna mental model; everything else builds on them.",
+   "body": "Optuna has three core concepts:\n\n- The **objective** is a function you write. It receives a `trial`, asks it for parameter values, evaluates something (usually trains and validates a model) and returns a number.\n- A **trial** is one evaluation of the objective. Calls such as `trial.suggest_float(\"lr\", 1e-5, 1e-1, log=True)` both define the search space and return a value chosen by the sampler.\n- A **study** is the optimization session. `optuna.create_study(direction=\"minimize\")` creates it (use `\"maximize\"` for accuracy-like scores), and `study.optimize(objective, n_trials=100)` runs trials.\n\nAfterwards:\n\n- `study.best_params` is a dict of the best parameter values,\n- `study.best_value` the best objective value,\n- `study.best_trial` the full `FrozenTrial` with number, params, user attributes and timing.\n\nOptuna logs one INFO line per trial. Silence it with `optuna.logging.set_verbosity(optuna.logging.WARNING)`.\n\nThe default sampler is **TPE**, a Bayesian method that learns from finished trials which regions look promising, so later trials concentrate there. That is why Optuna usually beats grid and random search for the same budget.\n\nMake the objective deterministic where possible (fixed data split, seeds), otherwise noise can make a lucky trial look best.",
+   "code": "import optuna\n\noptuna.logging.set_verbosity(optuna.logging.WARNING)\n\ndef objective(trial):\n    x = trial.suggest_float(\"x\", -10, 10)\n    y = trial.suggest_int(\"y\", -5, 5)\n    return (x - 2) ** 2 + (y + 1) ** 2     # minimum at x=2, y=-1\n\nstudy = optuna.create_study(direction=\"minimize\",\n                            sampler=optuna.samplers.TPESampler(seed=0))\nstudy.optimize(objective, n_trials=60)\n\nprint(study.best_params)          # close to {'x': 2.0, 'y': -1}\nprint(round(study.best_value, 2)) # close to 0\nprint(len(study.trials))          # 60",
+   "code_lang": "python",
+   "takeaways": [
+    "The objective takes a trial, suggests parameters and returns a score",
+    "`create_study(direction=...)` then `optimize(objective, n_trials=...)`",
+    "Read `best_params`, `best_value` and `best_trial` afterwards"
+   ],
+   "pitfalls": [
+    "Forgetting direction='maximize' when returning accuracy, so Optuna searches for the worst model."
+   ],
+   "quiz": [
+    {
+     "q": "Your objective returns validation accuracy. What must you set?",
+     "options": [
+      "direction='maximize' in create_study",
+      "A GridSampler",
+      "trial.maximize()",
+      "n_trials=1000"
+     ],
+     "answer": 0,
+     "explain": "Studies minimize by default; accuracy must be maximized."
+    }
+   ],
+   "docs": "https://optuna.readthedocs.io/en/stable/tutorial/10_key_features/001_first.html",
+   "requires": [
+    "python.functions"
+   ]
+  },
+  {
+   "id": "optuna.search-spaces",
+   "name": "Search spaces with suggest",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Define float, log-scale, integer, stepped and categorical parameters, including conditional spaces, at run time.",
+   "why": "The search space determines what Optuna can find; log scales and conditionals make it efficient.",
+   "body": "Optuna is **define-by-run**: the search space is whatever your objective asks for while it runs, so plain Python controls it.\n\nThe suggest API:\n\n- `trial.suggest_float(name, low, high)`; add `log=True` for scale-like parameters such as learning rates and regularization strengths, or `step=0.1` for a discretized grid.\n- `trial.suggest_int(name, low, high)`, with `step=` or `log=True` (e.g. layer widths 16 to 1024).\n- `trial.suggest_categorical(name, choices)`, where choices are `None`, bools, ints, floats or strings.\n\nBounds are inclusive. Each parameter name must keep the same distribution across trials; suggesting `\"lr\"` with different bounds in different trials triggers an error or a warning.\n\n**Conditional spaces** fall out naturally:\n\n```python\nclf = trial.suggest_categorical(\"clf\", [\"svm\", \"rf\"])\nif clf == \"svm\":\n    c = trial.suggest_float(\"svm_c\", 1e-3, 1e3, log=True)\nelse:\n    depth = trial.suggest_int(\"rf_depth\", 2, 32, log=True)\n```\n\nEach trial records only the parameters it actually suggested. Loops work too, e.g. a variable number of layers each with their own `units_{i}` parameter.\n\nKeep ranges realistic: an overly wide range wastes trials, while one that is too narrow may exclude the optimum. If the best value lands at a range edge, widen it.",
+   "code": "import optuna\n\noptuna.logging.set_verbosity(optuna.logging.WARNING)\n\ndef objective(trial):\n    model = trial.suggest_categorical(\"model\", [\"linear\", \"mlp\"])\n    lr = trial.suggest_float(\"lr\", 1e-5, 1e-1, log=True)\n    if model == \"mlp\":\n        n_layers = trial.suggest_int(\"n_layers\", 1, 3)\n        widths = [trial.suggest_int(f\"units_{i}\", 16, 256, log=True)\n                  for i in range(n_layers)]\n        cost = abs(lr - 1e-3) * 100 + abs(sum(widths) - 200) / 100\n    else:\n        cost = abs(lr - 1e-2) * 100 + 1.0\n    return cost\n\nstudy = optuna.create_study(sampler=optuna.samplers.TPESampler(seed=1))\nstudy.optimize(objective, n_trials=40)\nt = study.trials[0]\nprint(sorted(t.params))       # only the params this trial suggested\nprint(study.best_params[\"model\"])   # mlp",
+   "code_lang": "python",
+   "takeaways": [
+    "Suggest calls define the space as the objective runs",
+    "Use `log=True` for scale parameters like learning rates",
+    "Ordinary if-statements and loops create conditional spaces"
+   ],
+   "pitfalls": [
+    "Giving the same parameter name different ranges in different branches, which conflicts with the recorded distribution."
+   ],
+   "quiz": [
+    {
+     "q": "Which call is most appropriate for a learning rate between 1e-5 and 1e-1?",
+     "options": [
+      "suggest_int('lr', 1e-5, 1e-1)",
+      "suggest_categorical('lr', [1e-5, 1e-1])",
+      "suggest_float('lr', 1e-5, 1e-1)",
+      "suggest_float('lr', 1e-5, 1e-1, log=True)"
+     ],
+     "answer": 3,
+     "explain": "A log scale samples each order of magnitude equally; a linear range would almost never try small values."
+    }
+   ],
+   "docs": "https://optuna.readthedocs.io/en/stable/tutorial/10_key_features/002_configurations.html",
+   "requires": [
+    "optuna.first-study",
+    "python.booleans-conditionals"
+   ]
+  },
+  {
+   "id": "optuna.trials-results",
+   "name": "Inspecting trials and results",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Explore every trial's params, values, states and timing, attach user attributes, and export to pandas.",
+   "why": "The best value is only part of the story; trial history shows sensitivity, failures and where to search next.",
+   "body": "`study.trials` is a list of `FrozenTrial` objects. Each has `number`, `params`, `value` (or `values` for multi-objective), `state`, `datetime_start`, `datetime_complete`, `duration`, `user_attrs` and intermediate values reported for pruning.\n\n**States** tell you what happened:\n\n- `COMPLETE`: returned a value.\n- `PRUNED`: stopped early by a pruner.\n- `FAIL`: the objective raised or returned NaN/None.\n- `RUNNING` and `WAITING` (queued with `enqueue_trial`).\n\nFilter with `study.get_trials(states=(optuna.trial.TrialState.COMPLETE,))`.\n\n`study.trials_dataframe()` returns a pandas DataFrame with columns like `number`, `value`, `params_lr`, `state` and `duration`, which is the quickest way to sort, group or plot results.\n\nStore extra information on a trial with `trial.set_user_attr(\"val_f1\", f1)`, for example secondary metrics, the epoch with the best score, or a model path. These appear as `user_attrs_*` columns. Study-level notes go in `study.set_user_attr`.\n\nIf the objective raises an exception, the trial is marked `FAIL` and, by default, the exception propagates and stops `optimize`. Pass `catch=(ValueError,)` to record such failures and continue. Returning `float(\"nan\")` also marks the trial as failed without stopping the study.",
+   "code": "import optuna\n\noptuna.logging.set_verbosity(optuna.logging.WARNING)\n\ndef objective(trial):\n    x = trial.suggest_float(\"x\", 0, 4)\n    if x > 3.5:\n        raise ValueError(\"unstable region\")      # becomes a FAIL trial\n    trial.set_user_attr(\"x_squared\", x * x)\n    return (x - 1) ** 2\n\nstudy = optuna.create_study(sampler=optuna.samplers.RandomSampler(seed=0))\nstudy.optimize(objective, n_trials=20, catch=(ValueError,))\n\ndf = study.trials_dataframe()\nprint(df[\"state\"].value_counts().to_dict())   # e.g. {'COMPLETE': 18, 'FAIL': 2}\nprint(df.sort_values(\"value\").iloc[0][[\"params_x\", \"user_attrs_x_squared\"]].round(2).to_dict())\n\ndone = study.get_trials(states=(optuna.trial.TrialState.COMPLETE,))\nprint(all(t.value is not None for t in done))  # True",
+   "code_lang": "python",
+   "takeaways": [
+    "`study.trials` holds FrozenTrials with params, value, state and timing",
+    "`trials_dataframe()` exports everything to pandas",
+    "Use `set_user_attr` for extra metrics; `catch=` keeps the study going after errors"
+   ],
+   "pitfalls": [
+    "Letting one bad configuration's exception abort a long study instead of using catch= or returning NaN."
+   ],
+   "quiz": [
+    {
+     "q": "An objective raises ZeroDivisionError for some parameters and you call optimize(..., catch=(ZeroDivisionError,)). What happens on that error?",
+     "options": [
+      "The trial is recorded as PRUNED",
+      "The study stops",
+      "The trial is recorded as FAIL and optimization continues",
+      "The trial is retried with the same parameters"
+     ],
+     "answer": 2,
+     "explain": "Caught exceptions mark the trial FAIL and the study proceeds with the next trial."
+    }
+   ],
+   "docs": "https://optuna.readthedocs.io/en/stable/tutorial/20_recipes/003_attributes.html",
+   "requires": [
+    "optuna.first-study"
+   ]
+  },
+  {
+   "id": "optuna.tuning-sklearn",
+   "name": "Tuning a real model",
+   "module": "basics",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Tune a scikit-learn model with cross-validation inside the objective, then retrain with the best parameters.",
+   "why": "This is the bread-and-butter use of Optuna and the template for tuning any model.",
+   "body": "A realistic objective:\n\n1. Suggests hyperparameters.\n2. Builds the model with them.\n3. Scores it on validation data, ideally with **cross-validation** (`cross_val_score`) for stability.\n4. Returns the mean score.\n\n```python\ndef objective(trial):\n    params = {\"n_estimators\": trial.suggest_int(\"n_estimators\", 50, 400),\n              \"max_depth\": trial.suggest_int(\"max_depth\", 2, 16)}\n    return cross_val_score(RandomForestClassifier(**params), X, y, cv=5).mean()\n```\n\nAfter optimization, **retrain** on the full training data with `study.best_params` and evaluate once on a held-out **test set** that the study never saw. Using the test set inside the objective leaks information and overstates performance.\n\nPractical tips:\n\n- Load data outside the objective (or pass it via a closure or `functools.partial`) so it is not reloaded every trial.\n- Set model seeds for reproducibility; set `n_jobs` in the model or in cross-validation, not both, to avoid oversubscribing CPUs.\n- Start with a modest budget (50 to 100 trials) and look at results before scaling up.\n- For gradient boosting, tune learning rate, number of trees (or early stopping), depth or leaves, subsampling and regularization; most other knobs matter less.\n\nOptuna does not care what the model is: the same pattern works for XGBoost, PyTorch or a whole data pipeline.",
+   "code": "import optuna\nfrom sklearn.datasets import load_breast_cancer\nfrom sklearn.ensemble import RandomForestClassifier\nfrom sklearn.model_selection import cross_val_score, train_test_split\n\noptuna.logging.set_verbosity(optuna.logging.WARNING)\nX, y = load_breast_cancer(return_X_y=True)\nX_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=0)\n\ndef objective(trial):\n    params = {\n        \"n_estimators\": trial.suggest_int(\"n_estimators\", 50, 300, step=50),\n        \"max_depth\": trial.suggest_int(\"max_depth\", 2, 16, log=True),\n        \"max_features\": trial.suggest_categorical(\"max_features\", [\"sqrt\", \"log2\", None]),\n    }\n    model = RandomForestClassifier(**params, random_state=0, n_jobs=-1)\n    return cross_val_score(model, X_tr, y_tr, cv=3).mean()\n\nstudy = optuna.create_study(direction=\"maximize\")\nstudy.optimize(objective, n_trials=15)\n\nfinal = RandomForestClassifier(**study.best_params, random_state=0).fit(X_tr, y_tr)\nprint(f\"cv={study.best_value:.3f} test={final.score(X_te, y_te):.3f}\")  # both about 0.95",
+   "code_lang": "python",
+   "takeaways": [
+    "Score with cross-validation inside the objective",
+    "Retrain with `best_params` and test once on untouched data",
+    "Load data once outside the objective"
+   ],
+   "pitfalls": [
+    "Evaluating on the test set inside the objective, which tunes to the test set and inflates the reported score."
+   ],
+   "quiz": [
+    {
+     "q": "Why evaluate on a separate test set after the study instead of reporting study.best_value?",
+     "options": [
+      "best_value is not stored",
+      "best_value is optimistically biased because it was selected as the maximum over many trials",
+      "The test set is larger",
+      "Cross-validation scores cannot be compared"
+     ],
+     "answer": 1,
+     "explain": "Picking the best of many noisy validation scores overstates performance; an untouched test set gives an unbiased estimate."
+    }
+   ],
+   "docs": "https://optuna.readthedocs.io/en/stable/tutorial/10_key_features/001_first.html",
+   "requires": [
+    "optuna.search-spaces"
+   ]
+  },
+  {
+   "id": "optuna.samplers",
+   "name": "Choosing a sampler",
+   "module": "search",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Pick between TPE, random, CMA-ES, Gaussian process, grid and QMC samplers, and seed them for reproducibility.",
+   "why": "The sampler is the search algorithm; the right one can halve the trials you need.",
+   "body": "The **sampler** decides which parameters each trial gets. Pass one to `create_study(sampler=...)`.\n\n- `TPESampler` (default): Tree-structured Parzen Estimator. Robust, handles conditional and categorical spaces, scales to hundreds or thousands of trials. In Optuna 5 it models parameters jointly (multivariate) by default for single-objective studies.\n- `GPSampler`: Gaussian-process Bayesian optimization. Very sample-efficient for small budgets (tens of trials) on mostly continuous spaces; heavier per trial and requires PyTorch and SciPy.\n- `CmaEsSampler`: evolution strategy (needs the `cmaes` package), strong for continuous parameters with larger budgets; categorical parameters fall back to independent sampling.\n- `RandomSampler`: a useful baseline and for broad initial exploration.\n- `QMCSampler`: quasi-random low-discrepancy points, which cover the space more evenly than random.\n- `GridSampler(search_space)`: exhaustive grid when you truly need every combination.\n- `NSGAIISampler`/`NSGAIIISampler`: genetic algorithms for multi-objective problems.\n\nModel-based samplers start with `n_startup_trials` random trials (10 for TPE) before modelling, so tiny budgets behave like random search.\n\nPass `seed=` for reproducible sequences in single-process runs. Parallel runs are inherently non-deterministic because trial completion order varies.\n\nRules of thumb: under ~100 trials with continuous parameters try `GPSampler`; otherwise TPE. Compare samplers on your problem with a few seeds before committing.",
+   "code": "import optuna\n\noptuna.logging.set_verbosity(optuna.logging.WARNING)\n\ndef objective(trial):\n    x = trial.suggest_float(\"x\", -5, 5)\n    y = trial.suggest_float(\"y\", -5, 5)\n    return (x - 1) ** 2 + (y + 2) ** 2\n\nsamplers = {\n    \"random\": optuna.samplers.RandomSampler(seed=0),\n    \"tpe\": optuna.samplers.TPESampler(seed=0),\n    \"cmaes\": optuna.samplers.CmaEsSampler(seed=0),\n    \"qmc\": optuna.samplers.QMCSampler(seed=0),\n}\nfor name, sampler in samplers.items():\n    study = optuna.create_study(sampler=sampler)\n    study.optimize(objective, n_trials=60)\n    print(f\"{name:7} {study.best_value:.4f}\")\n# model-based tpe and cmaes end much closer to 0 than random or qmc\n\ngrid = optuna.samplers.GridSampler({\"x\": [0, 1, 2], \"y\": [-2, 0]})\nstudy = optuna.create_study(sampler=grid)\nstudy.optimize(objective)        # stops by itself after all 6 combinations\nprint(len(study.trials))         # 6",
+   "code_lang": "python",
+   "takeaways": [
+    "TPE is the robust default; GP is sample-efficient for small continuous problems",
+    "CMA-ES suits continuous spaces with bigger budgets; Random/QMC are baselines",
+    "Seed samplers for reproducible single-process runs"
+   ],
+   "pitfalls": [
+    "Comparing samplers with a single seed and tiny budget, where differences are mostly noise."
+   ],
+   "quiz": [
+    {
+     "q": "You can afford only about 30 expensive trials over 5 continuous parameters. Which sampler is a strong first choice?",
+     "options": [
+      "GridSampler",
+      "GPSampler",
+      "RandomSampler",
+      "NSGAIISampler"
+     ],
+     "answer": 1,
+     "explain": "Gaussian-process BO extracts the most information per trial on small continuous budgets."
+    }
+   ],
+   "docs": "https://optuna.readthedocs.io/en/stable/tutorial/10_key_features/003_efficient_optimization_algorithms.html",
+   "requires": [
+    "optuna.search-spaces"
+   ]
+  },
+  {
+   "id": "optuna.pruning",
+   "name": "Pruning unpromising trials",
+   "module": "pruning",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Report intermediate scores and let a pruner stop bad trials early with MedianPruner, Hyperband and friends.",
+   "why": "Pruning often cuts tuning time several-fold for iterative models like neural nets and boosting.",
+   "body": "Many trials are obviously bad after a few epochs. **Pruning** stops them early so the budget goes to promising ones.\n\nInside an iterative objective:\n\n```python\nfor epoch in range(n_epochs):\n    score = train_one_epoch_and_validate()\n    trial.report(score, step=epoch)\n    if trial.should_prune():\n        raise optuna.TrialPruned()\n```\n\n`report` records an intermediate value; `should_prune` asks the study's pruner whether this trial is worse than others at the same step. Raising `optuna.TrialPruned` marks the trial `PRUNED`.\n\nPruners, set with `create_study(pruner=...)`:\n\n- `MedianPruner` (default): prune if the value is worse than the median of previous trials at the same step. Tune `n_startup_trials` (trials completed before pruning starts) and `n_warmup_steps` (steps before a trial can be pruned).\n- `PercentilePruner`: like median but with a chosen percentile.\n- `SuccessiveHalvingPruner` and `HyperbandPruner`: allocate resources in rungs, keeping only the top fraction at each; Hyperband is a strong general choice.\n- `PatientPruner`: wraps another pruner and waits a few steps of no improvement.\n- `ThresholdPruner`: prune when values cross fixed bounds, such as a diverging loss.\n- `WilcoxonPruner`: for objectives evaluated over many instances or folds rather than epochs.\n\nPruning is a no-op unless the objective calls `report`. Steps must be comparable across trials (same epoch numbering).",
+   "code": "import optuna\nfrom sklearn.datasets import load_digits\nfrom sklearn.linear_model import SGDClassifier\nfrom sklearn.model_selection import train_test_split\noptuna.logging.set_verbosity(optuna.logging.WARNING)\nX, y = load_digits(return_X_y=True)\nX_tr, X_va, y_tr, y_va = train_test_split(X / 16, y, random_state=0)\n\ndef objective(trial):\n    alpha = trial.suggest_float(\"alpha\", 1e-6, 1e0, log=True)\n    clf = SGDClassifier(alpha=alpha, random_state=0)\n    for step in range(20):                       # \"epochs\"\n        clf.partial_fit(X_tr, y_tr, classes=list(range(10)))\n        acc = clf.score(X_va, y_va)\n        trial.report(acc, step)\n        if trial.should_prune():\n            raise optuna.TrialPruned()\n    return acc\n\npruner = optuna.pruners.HyperbandPruner(min_resource=2, max_resource=20)\nstudy = optuna.create_study(direction=\"maximize\", pruner=pruner)\nstudy.optimize(objective, n_trials=30)\nn_pruned = sum(t.state.name == \"PRUNED\" for t in study.trials)\nprint(n_pruned, \"of 30 trials pruned\")   # typically more than half\nprint(round(study.best_value, 3))                          # about 0.95",
+   "code_lang": "python",
+   "takeaways": [
+    "Call `trial.report(value, step)` and check `trial.should_prune()` each step",
+    "Raise `optuna.TrialPruned()` to stop a trial",
+    "MedianPruner is the default; Hyperband is a strong general choice"
+   ],
+   "pitfalls": [
+    "Setting a pruner but never calling trial.report, so nothing is ever pruned."
+   ],
+   "quiz": [
+    {
+     "q": "You set pruner=MedianPruner() but no trial is ever pruned. What is the most likely cause?",
+     "options": [
+      "The objective never calls trial.report and trial.should_prune",
+      "n_trials is too large",
+      "direction is maximize",
+      "MedianPruner only works with TPE"
+     ],
+     "answer": 0,
+     "explain": "Pruners act only on reported intermediate values when the objective asks should_prune()."
+    }
+   ],
+   "docs": "https://optuna.readthedocs.io/en/stable/reference/pruners.html",
+   "requires": [
+    "optuna.tuning-sklearn"
+   ]
+  },
+  {
+   "id": "optuna.storage-resume",
+   "name": "Persistent storage and resuming",
+   "module": "scale",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Save studies to SQLite or a journal file, resume them later, and browse them with optuna-dashboard.",
+   "why": "Long studies crash, notebooks restart and teams want to look at results; persistence makes studies durable.",
+   "body": "By default a study lives in memory and disappears with the process. Pass a **storage** to persist it:\n\n```python\nstudy = optuna.create_study(study_name=\"rf-tuning\", storage=\"sqlite:///optuna.db\",\n                            direction=\"maximize\", load_if_exists=True)\n```\n\n- `study_name` identifies the study inside the storage.\n- `load_if_exists=True` resumes an existing study instead of failing, so the same script can be re-run to add more trials.\n- `optuna.load_study(study_name=..., storage=...)` opens a study for analysis elsewhere.\n\nStorage options:\n\n- **RDB** URLs (SQLite, PostgreSQL, MySQL) via SQLAlchemy. SQLite is fine for one machine; use PostgreSQL or MySQL for many concurrent workers.\n- **JournalStorage** with `JournalFileBackend(\"journal.log\")`: an append-only log file, simple and robust for multiple processes on one machine or a shared filesystem, with no database server.\n- `JournalRedisBackend` for Redis.\n\nUtilities: `optuna.get_all_study_names(storage)`, `optuna.delete_study`, `optuna.copy_study`, and the `optuna` CLI (`optuna studies --storage ...`).\n\n**optuna-dashboard** (`pip install optuna-dashboard`, then `optuna-dashboard sqlite:///optuna.db`) gives a live web UI with history, importances and parameter plots.\n\nTrials interrupted by a crash stay `RUNNING`; enable heartbeats (`RDBStorage(url, heartbeat_interval=60)`) so they are marked failed and optionally retried.",
+   "code": "import optuna\n\noptuna.logging.set_verbosity(optuna.logging.WARNING)\n\ndef objective(trial):\n    x = trial.suggest_float(\"x\", -10, 10)\n    return (x - 3) ** 2\n\nstorage = \"sqlite:///optuna_demo.db\"\nfor session in range(2):                  # e.g. two separate script runs\n    study = optuna.create_study(study_name=\"quadratic\", storage=storage,\n                                load_if_exists=True)\n    study.optimize(objective, n_trials=10)\n    print(f\"session {session}: {len(study.trials)} trials\")\n# session 0: 10 trials\n# session 1: 20 trials   (resumed)\n\nloaded = optuna.load_study(study_name=\"quadratic\", storage=storage)\nprint(round(loaded.best_params[\"x\"], 1))  # near 3.0\noptuna.delete_study(study_name=\"quadratic\", storage=storage)\n\nfrom optuna.storages import JournalStorage\nfrom optuna.storages.journal import JournalFileBackend\njournal = JournalStorage(JournalFileBackend(\"optuna_journal.log\"))",
+   "code_lang": "python",
+   "takeaways": [
+    "Pass `storage=` and `study_name=` to persist a study",
+    "`load_if_exists=True` lets the same script resume",
+    "SQLite or journal files for one machine; PostgreSQL/MySQL for many workers"
+   ],
+   "pitfalls": [
+    "Pointing many parallel workers at one SQLite file, which leads to lock contention and errors."
+   ],
+   "quiz": [
+    {
+     "q": "You rerun a script that calls create_study(study_name='s', storage=url) without load_if_exists. The study already exists. What happens?",
+     "options": [
+      "It silently creates a second study with the same name",
+      "It deletes the old study",
+      "It appends trials to the existing study",
+      "It raises DuplicatedStudyError"
+     ],
+     "answer": 3,
+     "explain": "Without load_if_exists=True, creating a study whose name already exists in the storage raises an error."
+    }
+   ],
+   "docs": "https://optuna.readthedocs.io/en/stable/tutorial/20_recipes/001_rdb.html",
+   "requires": [
+    "optuna.trials-results"
+   ]
+  },
+  {
+   "id": "optuna.visualization",
+   "name": "Visualizing studies and importance",
+   "module": "search",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Plot optimization history, parameter importances, slices and contours to understand the search.",
+   "why": "Plots reveal which parameters matter, whether the study converged and whether ranges need adjusting.",
+   "body": "`optuna.visualization` builds interactive Plotly figures (and `optuna.visualization.matplotlib` the same plots for Matplotlib). Each takes a study and returns a figure you can `.show()` or save.\n\n- `plot_optimization_history(study)`: objective value per trial with the best-so-far line. A flat best line means diminishing returns.\n- `plot_param_importances(study)`: how much each parameter explains the objective's variation. Focus future tuning on the top few and fix the rest.\n- `plot_slice(study)`: objective against each parameter. If good trials cluster at a range edge, widen the range.\n- `plot_contour(study, params=[\"lr\", \"depth\"])`: interaction between two parameters.\n- `plot_parallel_coordinate(study)`: all parameters at once.\n- `plot_intermediate_values(study)`: learning curves of reported values, useful for checking pruning.\n- `plot_pareto_front(study)`: for multi-objective studies.\n- `plot_timeline(study)`: when each trial ran, revealing parallelism and stragglers.\n\nThe numbers behind the importance plot come from `optuna.importance.get_param_importances(study)`, which uses fANOVA by default; `PedAnovaImportanceEvaluator` is a fast alternative focusing on what distinguishes top trials.\n\nImportance is relative to the ranges you searched: a parameter can look unimportant because its range was too narrow to matter.",
+   "code": "import optuna\n\noptuna.logging.set_verbosity(optuna.logging.WARNING)\n\ndef objective(trial):\n    lr = trial.suggest_float(\"lr\", 1e-4, 1e-1, log=True)\n    depth = trial.suggest_int(\"depth\", 1, 10)\n    noise = trial.suggest_float(\"unused_noise\", 0, 1)   # barely matters\n    return (lr * 100 - 1) ** 2 + (depth - 6) ** 2 * 0.5 + noise * 0.01\n\nstudy = optuna.create_study(sampler=optuna.samplers.TPESampler(seed=0))\nstudy.optimize(objective, n_trials=80)\n\nimp = optuna.importance.get_param_importances(study)\nprint(list(imp)[-1])            # unused_noise  (least important)\n\nfig = optuna.visualization.plot_optimization_history(study)\nfig.write_html(\"history.html\")  # or fig.show() in a notebook\noptuna.visualization.plot_param_importances(study).write_html(\"importance.html\")\noptuna.visualization.plot_slice(study, params=[\"lr\", \"depth\"]).write_html(\"slice.html\")",
+   "code_lang": "python",
+   "takeaways": [
+    "History, importance, slice and contour plots answer different questions",
+    "Use importances to decide which parameters to keep tuning",
+    "Good trials at a range edge mean the range should be widened"
+   ],
+   "pitfalls": [
+    "Concluding a parameter does not matter when its searched range was simply too narrow."
+   ],
+   "quiz": [
+    {
+     "q": "The slice plot shows all good trials at max_depth = 32, the top of the range. What should you do?",
+     "options": [
+      "Remove max_depth from the search",
+      "Fix max_depth at 32 forever",
+      "Widen the max_depth range and continue searching",
+      "Switch to GridSampler"
+     ],
+     "answer": 2,
+     "explain": "Optima at a boundary suggest the true optimum may lie outside the range."
+    }
+   ],
+   "docs": "https://optuna.readthedocs.io/en/stable/tutorial/10_key_features/005_visualization.html",
+   "requires": [
+    "optuna.trials-results"
+   ]
+  },
+  {
+   "id": "optuna.control-callbacks",
+   "name": "Budgets, callbacks and enqueued trials",
+   "module": "pruning",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Control how long a study runs, react to finished trials with callbacks, and seed the search with known-good parameters.",
+   "why": "Real tuning runs need time budgets, early stopping of the whole study, and a head start from prior knowledge.",
+   "body": "`study.optimize` stops when either limit is reached:\n\n- `n_trials=100`: number of trials in this call (not counting earlier ones in a resumed study).\n- `timeout=3600`: seconds; the running trial finishes, no new one starts.\n\nWith neither, it runs until interrupted or `study.stop()` is called.\n\n**Callbacks** are functions `callback(study, frozen_trial)` called after each trial, passed via `optimize(..., callbacks=[...])`. Uses include logging to your experiment tracker, saving the best model, or stopping when no improvement happened for N trials by calling `study.stop()`. `optuna.study.MaxTrialsCallback(n, states=...)` caps the total number of trials across all workers sharing a storage.\n\n**Enqueue known configurations** with `study.enqueue_trial({\"lr\": 1e-3, \"depth\": 6})` before optimizing. The next trial uses those values instead of sampling (missing parameters are sampled), so defaults or previous best results are evaluated first and give the sampler a strong starting point.\n\nOther useful options:\n\n- `show_progress_bar=True` for a tqdm bar.\n- `gc_after_trial=True` to run garbage collection between memory-heavy trials.\n- `study.add_trial(optuna.trial.create_trial(params=..., distributions=..., value=...))` to import results computed outside Optuna.",
+   "code": "import optuna\n\noptuna.logging.set_verbosity(optuna.logging.WARNING)\n\ndef objective(trial):\n    x = trial.suggest_float(\"x\", -10, 10)\n    return (x - 2) ** 2\n\nclass StopWhenStale:\n    def __init__(self, patience):\n        self.patience = patience\n    def __call__(self, study, trial):\n        if trial.number - study.best_trial.number >= self.patience:\n            study.stop()                     # no improvement for `patience` trials\n\nstudy = optuna.create_study(sampler=optuna.samplers.TPESampler(seed=0))\nstudy.enqueue_trial({\"x\": 1.5})              # evaluate a known-good guess first\nstudy.optimize(objective, n_trials=500, timeout=60, callbacks=[StopWhenStale(25)])\n\nprint(study.trials[0].params)                # {'x': 1.5}\nprint(len(study.trials) < 500)               # True: stopped early by the callback",
+   "code_lang": "python",
+   "takeaways": [
+    "`n_trials` and `timeout` bound a run; `study.stop()` ends it from a callback",
+    "Callbacks receive (study, frozen_trial) after every trial",
+    "`enqueue_trial` evaluates chosen parameters before sampling starts"
+   ],
+   "pitfalls": [
+    "Expecting timeout to interrupt a running trial; it only prevents new trials from starting."
+   ],
+   "quiz": [
+    {
+     "q": "What does study.enqueue_trial({'lr': 0.001}) do?",
+     "options": [
+      "Fixes lr to 0.001 for all trials",
+      "Makes the next trial use lr=0.001 instead of sampling it",
+      "Adds a completed trial with lr=0.001",
+      "Removes lr from the search space"
+     ],
+     "answer": 1,
+     "explain": "Enqueued parameters are used by the next trial; afterwards normal sampling resumes."
+    }
+   ],
+   "docs": "https://optuna.readthedocs.io/en/stable/tutorial/20_recipes/008_specify_params.html",
+   "requires": [
+    "optuna.first-study",
+    "optuna.trials-results"
+   ]
+  },
+  {
+   "id": "optuna.multi-objective",
+   "name": "Multi-objective optimization",
+   "module": "advanced",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Optimize several objectives at once, such as accuracy and latency, and pick from the Pareto front.",
+   "why": "Real models trade quality against cost, size or fairness; a single score hides those trade-offs.",
+   "body": "Pass `directions` instead of `direction` and return a tuple:\n\n```python\nstudy = optuna.create_study(directions=[\"maximize\", \"minimize\"])\ndef objective(trial):\n    ...\n    return accuracy, latency_ms\n```\n\nThere is no single best trial anymore. `study.best_trials` returns the **Pareto front**: trials for which no other trial is at least as good on every objective and strictly better on one. Choosing among them is a business decision (e.g. the most accurate model under 20 ms).\n\nSamplers: in Optuna 5 the default is TPE, which supports multiple objectives; `NSGAIISampler` (genetic) is a classic choice for larger budgets, `NSGAIIISampler` for many objectives, and `GPSampler` for small budgets.\n\nThings that change:\n\n- `trial.values` (plural) holds the objective tuple; `study.best_value` and `best_params` raise errors.\n- Pruning is not supported for multi-objective studies.\n- `optuna.visualization.plot_pareto_front(study, target_names=[...])` shows the trade-off curve.\n- `study.set_metric_names([\"accuracy\", \"latency_ms\"])` labels objectives in plots and dataframes.\n\nIf one objective is really a hard limit (e.g. model must be under 50 MB), consider **constraints** instead: a `constraints_func` passed to the sampler marks trials as infeasible, which is simpler than exploring a full front.",
+   "code": "import optuna\n\noptuna.logging.set_verbosity(optuna.logging.WARNING)\n\ndef objective(trial):\n    n_layers = trial.suggest_int(\"n_layers\", 1, 8)\n    width = trial.suggest_int(\"width\", 16, 512, log=True)\n    accuracy = 1 - 1 / (1 + n_layers * width / 200)    # bigger is better...\n    latency_ms = 0.5 + n_layers * width / 100           # ...but slower\n    return accuracy, latency_ms\n\nstudy = optuna.create_study(directions=[\"maximize\", \"minimize\"],\n                            sampler=optuna.samplers.NSGAIISampler(seed=0))\nstudy.set_metric_names([\"accuracy\", \"latency_ms\"])\nstudy.optimize(objective, n_trials=100)\n\nfront = sorted(study.best_trials, key=lambda t: t.values[1])\nprint(len(front) > 1)                       # True: several trade-offs\nfast_enough = [t for t in front if t.values[1] <= 10]\nbest = max(fast_enough, key=lambda t: t.values[0])\nprint(best.params, [round(v, 3) for v in best.values])",
+   "code_lang": "python",
+   "takeaways": [
+    "Use `directions=[...]` and return a tuple of values",
+    "`study.best_trials` is the Pareto front; pick from it with your own rule",
+    "No pruning in multi-objective studies; consider constraints for hard limits"
+   ],
+   "pitfalls": [
+    "Calling study.best_params on a multi-objective study, which raises an error."
+   ],
+   "quiz": [
+    {
+     "q": "What does study.best_trials contain in a two-objective study?",
+     "options": [
+      "The single trial with the best first objective",
+      "The Pareto-optimal trials, none dominated by another",
+      "The top 10 trials by the sum of objectives",
+      "All completed trials"
+     ],
+     "answer": 1,
+     "explain": "best_trials returns the non-dominated set, representing the available trade-offs."
+    }
+   ],
+   "docs": "https://optuna.readthedocs.io/en/stable/tutorial/20_recipes/002_multi_objective.html",
+   "requires": [
+    "optuna.samplers",
+    "optuna.visualization"
+   ]
+  },
+  {
+   "id": "optuna.parallel",
+   "name": "Parallel and distributed optimization",
+   "module": "scale",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Run trials in parallel with threads, multiple processes, or many machines sharing a storage.",
+   "why": "Expensive trials only finish in reasonable time when many run at once.",
+   "body": "Optuna parallelizes by having several workers share one study through storage. Each worker asks the storage for a new trial, the sampler reads completed trials, and results are written back.\n\nThree levels:\n\n- **Threads**: `study.optimize(objective, n_trials=100, n_jobs=4)`. Easy, but Python's GIL means it only helps when the objective releases the GIL (NumPy, scikit-learn with native code, GPU training, I/O).\n- **Processes on one machine**: start the same script several times, each calling `create_study(..., storage=..., load_if_exists=True)` and `optimize`. Use JournalStorage with a file backend, or a database.\n- **Many machines**: point all workers at PostgreSQL or MySQL (or a gRPC proxy server in front of the database for very many workers, via `run_grpc_proxy_server` and `GrpcStorageProxy`). Kubernetes jobs or a cluster scheduler simply launch N copies.\n\nCaveats:\n\n- Model-based samplers lose some efficiency when many trials run simultaneously, since they cannot learn from unfinished ones. TPE's `constant_liar` option (on by default in Optuna 5) treats running trials as if they had a poor result to avoid sampling the same region repeatedly.\n- Use `MaxTrialsCallback` to cap total trials across workers, because each worker's `n_trials` counts only its own.\n- Do not rely on seeds for reproducibility in parallel runs.\n- Configure heartbeats so trials from crashed workers do not stay RUNNING forever.",
+   "code": "import optuna\nfrom optuna.storages import JournalStorage\nfrom optuna.storages.journal import JournalFileBackend\nfrom optuna.study import MaxTrialsCallback\nfrom optuna.trial import TrialState\n\noptuna.logging.set_verbosity(optuna.logging.WARNING)\n\ndef objective(trial):\n    x = trial.suggest_float(\"x\", -10, 10)\n    return (x - 1) ** 2\n\n# Each worker process runs this same code (e.g. `python tune.py` started 4 times).\nstorage = JournalStorage(JournalFileBackend(\"parallel_journal.log\"))\nstudy = optuna.create_study(study_name=\"shared\", storage=storage, load_if_exists=True)\nstudy.optimize(\n    objective,\n    n_jobs=2,                                 # threads inside this worker\n    callbacks=[MaxTrialsCallback(40, states=(TrialState.COMPLETE,))],\n)\nprint(len(study.get_trials(states=(TrialState.COMPLETE,))) >= 40)   # True",
+   "code_lang": "python",
+   "takeaways": [
+    "Workers coordinate only through shared storage",
+    "`n_jobs` uses threads (GIL-bound); separate processes or machines scale further",
+    "Cap total trials with MaxTrialsCallback; constant_liar reduces duplicate sampling"
+   ],
+   "pitfalls": [
+    "Expecting n_jobs=8 to speed up a pure-Python objective; threads share the GIL, so use processes."
+   ],
+   "quiz": [
+    {
+     "q": "Four worker processes each call optimize(n_trials=50) on the same shared study. How many trials run in total?",
+     "options": [
+      "200",
+      "It depends on the sampler",
+      "4",
+      "50"
+     ],
+     "answer": 0,
+     "explain": "n_trials counts per optimize call, so each of the four workers runs 50; use MaxTrialsCallback for a global cap."
+    }
+   ],
+   "docs": "https://optuna.readthedocs.io/en/stable/tutorial/10_key_features/004_distributed.html",
+   "requires": [
+    "optuna.storage-resume",
+    "optuna.control-callbacks"
+   ]
+  },
+  {
+   "id": "optuna.ask-tell-integrations",
+   "name": "Ask-and-tell and integrations",
+   "module": "pruning",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Drive Optuna from your own loop with ask and tell, and use integrations for LightGBM, PyTorch Lightning and trackers.",
+   "why": "When training is controlled by another framework or system, you need Optuna without an objective function.",
+   "body": "`study.optimize` assumes Optuna calls your objective. The **ask-and-tell** interface inverts control:\n\n```python\ntrial = study.ask()                 # new trial\nlr = trial.suggest_float(\"lr\", 1e-5, 1e-1, log=True)\nscore = run_somewhere(lr)           # your loop, job queue, external system\nstudy.tell(trial, score)            # or state=TrialState.PRUNED / FAIL\n```\n\nThis fits training scripts that cannot be wrapped in a function, batch evaluation of several trials at once, or optimization where results arrive asynchronously. You can also pass a **fixed distribution dict** to `study.ask({\"lr\": FloatDistribution(1e-5, 1e-1, log=True)})` to define the space up front.\n\n**Integrations** live in the separate `optuna-integration` package (`pip install optuna-integration[...]`):\n\n- `LightGBMTunerCV` tunes LightGBM's key parameters stepwise.\n- Pruning callbacks for XGBoost, LightGBM, PyTorch Lightning, Keras and others call `trial.report`/`should_prune` for you from inside the framework's training loop.\n- `MLflowCallback` and `WeightsAndBiasesCallback` log every trial to your tracker.\n\nOther frameworks integrate the other way around: Hugging Face `Trainer.hyperparameter_search(backend=\"optuna\")` and Ray Tune's `OptunaSearch` use Optuna as their search engine.\n\nWhatever the interface, the study, samplers, pruners and storage behave identically.",
+   "code": "import optuna\nfrom optuna.distributions import FloatDistribution, IntDistribution\n\noptuna.logging.set_verbosity(optuna.logging.WARNING)\nstudy = optuna.create_study(direction=\"maximize\",\n                            sampler=optuna.samplers.TPESampler(seed=0))\nspace = {\"lr\": FloatDistribution(1e-4, 1e-1, log=True),\n         \"batch\": IntDistribution(16, 128, log=True)}\n\ndef external_training(lr, batch):          # stand-in for any training system\n    return 0.9 - abs(lr - 0.01) * 5 - abs(batch - 64) / 1000\n\nfor round_ in range(5):                      # e.g. launch 4 jobs at a time\n    trials = [study.ask(space) for _ in range(4)]\n    for t in trials:\n        score = external_training(t.params[\"lr\"], t.params[\"batch\"])\n        study.tell(t, score)\n\nprint(len(study.trials), round(study.best_value, 3))   # 20 and a value near 0.9",
+   "code_lang": "python",
+   "takeaways": [
+    "`ask()` creates a trial, `tell(trial, value)` finishes it",
+    "Pass a distribution dict to `ask` to define the space without suggest calls",
+    "optuna-integration provides pruning callbacks and tracker callbacks"
+   ],
+   "pitfalls": [
+    "Forgetting to call tell for an asked trial, leaving it RUNNING and confusing samplers and counts."
+   ],
+   "quiz": [
+    {
+     "q": "When is ask-and-tell preferable to study.optimize?",
+     "options": [
+      "Only for multi-objective studies",
+      "When using GridSampler",
+      "Never; it is a deprecated API",
+      "When an external loop or system controls training and you cannot wrap it in an objective"
+     ],
+     "answer": 3,
+     "explain": "Ask-and-tell lets your own code or infrastructure decide when and how trials run."
+    }
+   ],
+   "docs": "https://optuna.readthedocs.io/en/stable/tutorial/20_recipes/009_ask_and_tell.html",
+   "requires": [
+    "optuna.control-callbacks",
+    "optuna.pruning"
+   ]
+  },
+  {
+   "id": "optuna.tpe-internals",
+   "name": "How TPE works",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Understand the Tree-structured Parzen Estimator: good/bad splits, density ratios, multivariate modelling and constant liar.",
+   "why": "Knowing TPE's mechanics explains its behaviour on small budgets, conditional spaces and parallel runs, and which options to tune.",
+   "body": "Bayesian optimization usually models `p(score | params)`. **TPE** instead models the parameters given the score:\n\n1. After `n_startup_trials` random trials, sort completed trials by objective value and split them into a **good** group (the top fraction, controlled by `gamma`) and a **bad** group.\n2. Fit two densities over parameter values: `l(x)` from good trials and `g(x)` from bad trials, using Parzen estimators (mixtures of kernels centred on observed values, plus a broad prior component).\n3. Draw `n_ei_candidates` samples from `l(x)` and choose the one maximizing `l(x) / g(x)`, which is proportional to expected improvement.\n\nConsequences:\n\n- **Independent vs multivariate**: classic TPE models each parameter separately and misses interactions. Optuna 5 enables multivariate TPE by default for single-objective studies, modelling parameters jointly. `group=True` additionally decomposes conditional spaces into subspaces that are modelled jointly.\n- **Conditional spaces** are natural because each parameter's density only uses trials where it was sampled.\n- **Startup**: the first trials are random, so very small budgets gain little from TPE.\n- **Parallelism**: with `constant_liar=True` running trials are treated as bad results, discouraging other workers from sampling the same spot.\n- **Categoricals** use weighted category frequencies rather than kernels.\n\nTPE's cost per trial grows with the number of completed trials but stays small, which is why it scales to thousands of trials where Gaussian processes become slow.",
+   "code": "import optuna\n\noptuna.logging.set_verbosity(optuna.logging.WARNING)\n\ndef objective(trial):                       # strong interaction between x and y\n    x = trial.suggest_float(\"x\", -5, 5)\n    y = trial.suggest_float(\"y\", -5, 5)\n    return (x - y) ** 2 + 0.1 * (x + y - 4) ** 2\n\ndef run(**kw):\n    vals = []\n    for seed in range(5):\n        s = optuna.create_study(sampler=optuna.samplers.TPESampler(seed=seed, **kw))\n        s.optimize(objective, n_trials=60)\n        vals.append(s.best_value)\n    return sum(vals) / len(vals)\n\nprint(f\"independent : {run(multivariate=False):.3f}\")\nprint(f\"multivariate: {run(multivariate=True):.3f}\")   # usually lower (better)\nprint(f\"short warmup: {run(multivariate=True, n_startup_trials=5):.3f}\")",
+   "code_lang": "python",
+   "takeaways": [
+    "TPE splits trials into good and bad and maximizes the density ratio l(x)/g(x)",
+    "Multivariate TPE (default for single objective in Optuna 5) captures parameter interactions",
+    "constant_liar improves parallel runs; the first n_startup_trials are random"
+   ],
+   "pitfalls": [
+    "Expecting TPE to beat random search with only 10 to 15 trials, when most of them are random startup trials."
+   ],
+   "quiz": [
+    {
+     "q": "In TPE, which candidate parameter values are preferred?",
+     "options": [
+      "Those farthest from all previous trials",
+      "Uniformly random values after startup",
+      "Those with the highest density under bad trials",
+      "Those maximizing l(x)/g(x): likely under good trials, unlikely under bad ones"
+     ],
+     "answer": 3,
+     "explain": "The ratio of good-trial to bad-trial densities is proportional to expected improvement."
+    }
+   ],
+   "docs": "https://optuna.readthedocs.io/en/stable/reference/samplers/generated/optuna.samplers.TPESampler.html",
+   "requires": [
+    "optuna.samplers",
+    "optuna.parallel"
+   ]
+  },
+  {
+   "id": "optuna.custom-extensions",
+   "name": "Custom samplers, pruners and constraints",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Extend Optuna with your own sampler or pruner classes and handle constrained optimization.",
+   "why": "Research ideas, domain-specific search strategies and hard constraints all require going beyond built-ins.",
+   "body": "**Custom samplers** subclass `optuna.samplers.BaseSampler` and implement three methods:\n\n- `infer_relative_search_space(study, trial)`: which parameters to sample jointly (return `{}` to sample everything independently),\n- `sample_relative(study, trial, search_space)`: joint sampling for that space, returning a dict,\n- `sample_independent(study, trial, param_name, param_distribution)`: one parameter at a time, for parameters outside the relative space (for example ones discovered during define-by-run).\n\nRead history with `study.get_trials(deepcopy=False, states=...)`. Many custom samplers delegate `sample_independent` to a `RandomSampler`.\n\n**Custom pruners** subclass `BasePruner` and implement `prune(study, trial) -> bool`, using `trial.intermediate_values` and other trials' values. They plug into `should_prune` unchanged.\n\n**Constraints**: TPE, NSGA-II/III and GP samplers accept `constraints_func(frozen_trial) -> sequence of floats`, where a value of 0 or less means satisfied. Store the constraint quantities as user attributes inside the objective and read them back in the function. Infeasible trials still complete but are deprioritized, and `best_trials` (multi-objective) or your own filtering returns feasible ones.\n\n**Ablation and reuse**: `optuna.samplers.PartialFixedSampler` fixes some parameters while another sampler handles the rest, and `optuna.copy_study` or `add_trials` move history between studies, for example to warm-start a related problem.",
+   "code": "import numpy as np\nimport optuna\n\noptuna.logging.set_verbosity(optuna.logging.WARNING)\n\nclass LocalSearchSampler(optuna.samplers.BaseSampler):\n    # Sample near the best trial so far; fall back to random sampling.\n    def __init__(self, seed=None):\n        self._random = optuna.samplers.RandomSampler(seed=seed)\n        self._rng = np.random.default_rng(seed)\n    def infer_relative_search_space(self, study, trial):\n        return {}\n    def sample_relative(self, study, trial, search_space):\n        return {}\n    def sample_independent(self, study, trial, name, dist):\n        done = study.get_trials(deepcopy=False, states=(optuna.trial.TrialState.COMPLETE,))\n        if len(done) < 5 or not isinstance(dist, optuna.distributions.FloatDistribution):\n            return self._random.sample_independent(study, trial, name, dist)\n        center = study.best_params[name]\n        width = (dist.high - dist.low) * 0.05\n        return float(min(max(self._rng.normal(center, width), dist.low), dist.high))\n\nstudy = optuna.create_study(sampler=LocalSearchSampler(seed=0))\nstudy.optimize(lambda t: (t.suggest_float(\"x\", -10, 10) - 4.2) ** 2, n_trials=60)\nprint(round(study.best_params[\"x\"], 2))      # close to 4.2",
+   "code_lang": "python",
+   "takeaways": [
+    "BaseSampler: infer_relative_search_space, sample_relative, sample_independent",
+    "BasePruner: implement prune(study, trial) using intermediate values",
+    "constraints_func returns values <= 0 for satisfied constraints"
+   ],
+   "pitfalls": [
+    "Returning values outside the distribution's bounds from a custom sampler, which Optuna rejects."
+   ],
+   "quiz": [
+    {
+     "q": "In a constraints_func, what does returning [0.3] for a trial mean?",
+     "options": [
+      "The trial's objective is 0.3",
+      "The constraint is satisfied",
+      "The constraint is violated by 0.3",
+      "The trial should be pruned"
+     ],
+     "answer": 2,
+     "explain": "Values greater than zero indicate violation; zero or negative means feasible."
+    }
+   ],
+   "docs": "https://optuna.readthedocs.io/en/stable/tutorial/20_recipes/005_user_defined_sampler.html",
+   "requires": [
+    "optuna.tpe-internals",
+    "optuna.pruning",
+    "optuna.multi-objective"
+   ]
+  },
+  {
+   "id": "optuna.fault-tolerance",
+   "name": "Fault tolerance: heartbeats and retries",
+   "module": "scale",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Keep long distributed studies healthy when workers crash or are preempted, using heartbeats, stale-trial handling and retries.",
+   "why": "On spot instances and shared clusters workers die mid-trial; without heartbeats those trials hang as RUNNING forever.",
+   "body": "When a worker process is killed (OOM, preemption, a node failure), its trial never reports back. Without extra configuration it stays `RUNNING` indefinitely: it pollutes counts, `MaxTrialsCallback` miscounts, and the sampler may treat it as still in progress.\n\n**Heartbeats** solve this for RDB storage:\n\n```python\nstorage = optuna.storages.RDBStorage(\n    url, heartbeat_interval=60, grace_period=120,\n    heartbeat_stale_trial_callback=RetryHeartbeatStaleTrialCallback(max_retry=3))\n```\n\n- Each running trial records a heartbeat every `heartbeat_interval` seconds from a background thread.\n- A trial whose last heartbeat is older than `grace_period` is **stale**. Other workers check for stale trials when they start a new trial (or you call `optuna.storages.fail_stale_trials(study)`), and mark them `FAIL`.\n- `RetryHeartbeatStaleTrialCallback(max_retry=3)` then re-enqueues the same parameters as a `WAITING` trial so the configuration is retried. `RetryHeartbeatStaleTrialCallback.retried_trial_number(trial)` and `retry_history(trial)` link retries to the original. (It replaces the older `RetryFailedTrialCallback`, deprecated in 4.9.)\n\nOther robustness practices:\n\n- Make objectives **idempotent and checkpointed**: save model checkpoints keyed by trial number so a retry can resume, and store paths in user attributes.\n- Treat expected failures inside the objective (`catch=`, returning NaN) separately from infrastructure failures (heartbeats).\n- Keep the database healthy: connection pooling via `engine_kwargs`, a gRPC proxy for hundreds of workers, regular backups.\n- Clean up abandoned studies with `optuna.delete_study`.",
+   "code": "import multiprocessing as mp\nimport time\nimport optuna\nfrom optuna.storages import RDBStorage, RetryHeartbeatStaleTrialCallback\n\ndef make_storage():\n    return RDBStorage(\"sqlite:///ft_demo.db\", heartbeat_interval=1, grace_period=3,\n        heartbeat_stale_trial_callback=RetryHeartbeatStaleTrialCallback(max_retry=2))\n\ndef worker():                                 # a trial that never finishes\n    study = optuna.load_study(study_name=\"ft\", storage=make_storage())\n    study.optimize(lambda t: time.sleep(t.suggest_float(\"x\", 0, 1) + 60), n_trials=1)\n\nif __name__ == \"__main__\":\n    optuna.logging.set_verbosity(optuna.logging.WARNING)\n    study = optuna.create_study(study_name=\"ft\", storage=make_storage())\n    p = mp.Process(target=worker); p.start(); time.sleep(4)\n    p.kill()                                  # simulate preemption mid-trial\n    time.sleep(4)                             # heartbeat goes stale\n    optuna.storages.fail_stale_trials(study)  # other workers do this automatically\n    print([t.state.name for t in study.get_trials()])   # ['FAIL', 'WAITING']\n    retry = study.get_trials()[-1]\n    print(RetryHeartbeatStaleTrialCallback.retried_trial_number(retry))   # 0\n    optuna.delete_study(study_name=\"ft\", storage=make_storage())",
+   "code_lang": "python",
+   "takeaways": [
+    "Without heartbeats, crashed trials stay RUNNING forever",
+    "Stale trials (no heartbeat within grace_period) are marked FAIL by other workers",
+    "RetryHeartbeatStaleTrialCallback re-queues their parameters as WAITING trials"
+   ],
+   "pitfalls": [
+    "Setting grace_period shorter than the heartbeat interval plus normal delays, so healthy trials get marked stale."
+   ],
+   "quiz": [
+    {
+     "q": "A preempted worker leaves a trial RUNNING. With heartbeats and RetryHeartbeatStaleTrialCallback configured, what eventually happens?",
+     "options": [
+      "Nothing until the study is deleted",
+      "Another worker marks it FAIL and enqueues a WAITING retry with the same parameters",
+      "It is marked COMPLETE with value 0",
+      "The whole study is stopped"
+     ],
+     "answer": 1,
+     "explain": "Stale detection fails the trial and the callback re-enqueues its parameters for another attempt."
+    }
+   ],
+   "docs": "https://optuna.readthedocs.io/en/stable/reference/generated/optuna.storages.RDBStorage.html",
+   "requires": [
+    "optuna.parallel"
+   ]
+  }
+ ]
+}

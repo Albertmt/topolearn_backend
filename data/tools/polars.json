@@ -1,0 +1,808 @@
+{
+ "tool": {
+  "id": "polars",
+  "name": "Polars",
+  "category": "library",
+  "tagline": "Fast multi-threaded DataFrames with a lazy, optimizing query engine",
+  "description": "Polars is a DataFrame library written in Rust with a Python API, built on the Apache Arrow memory format. Its expression API and lazy query engine let it optimize whole queries, use every CPU core and process data larger than memory with streaming. Learn it when pandas becomes too slow or too memory-hungry, or when you want cleaner, SQL-like data pipelines in Python.",
+  "icon": "pl",
+  "color": "#0075FF",
+  "official_docs": "https://docs.pola.rs/",
+  "version": "2.0",
+  "aliases": [
+   "pl",
+   "polars dataframe",
+   "py-polars"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "DataFrames and expressions"
+  },
+  {
+   "id": "io",
+   "name": "Reading and writing data"
+  },
+  {
+   "id": "transform",
+   "name": "Transforming data"
+  },
+  {
+   "id": "types",
+   "name": "Strings, dates and nested types"
+  },
+  {
+   "id": "lazy",
+   "name": "Lazy queries"
+  },
+  {
+   "id": "internals",
+   "name": "Performance and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "polars.dataframe-series",
+   "name": "DataFrame, Series and schema",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Create a Polars DataFrame, read its schema, and look at the data with head, describe and glimpse.",
+   "why": "Everything in Polars starts with a DataFrame of typed, named columns, so you need to read its shape and schema fluently.",
+   "body": "A Polars **DataFrame** is a table of named columns, and each column is a **Series**: a typed, one-dimensional array stored in the Apache Arrow format. Every column has exactly one data type, such as `Int64`, `Float64`, `String`, `Boolean` or `Date`. The mapping of names to types is the **schema**.\n\nThe quickest way to build one is from a dict of lists: `pl.DataFrame({\"name\": [...], \"age\": [...]})`. Polars infers the types, or you can pass `schema={\"age\": pl.Int32}` to choose them.\n\nThings to know straight away:\n\n- `df.shape`, `df.height`, `df.width` give the size; `df.columns` the names; `df.schema` the names with types.\n- `df.head(n)`, `df.tail(n)` and `df.sample(n)` show rows; `df.glimpse()` shows one line per column, handy for wide tables.\n- `df.describe()` gives count, null count, mean, min, max and quantiles.\n- `df[\"age\"]` returns a Series; `df.to_dicts()` and `df.rows()` give plain Python data.\n\nUnlike pandas there is **no index**. Rows are identified by position or by the values in your columns, which makes joins and group-bys explicit and removes a whole class of alignment surprises. Polars also never mutates a frame in place: methods return a new DataFrame, and the underlying column buffers are shared rather than copied, so this is cheap.\n\nImport it as `import polars as pl`, the universal convention.",
+   "code": "import polars as pl\n\ndf = pl.DataFrame(\n    {\n        \"name\": [\"Ana\", \"Ben\", \"Cy\"],\n        \"age\": [34, 28, None],\n        \"city\": [\"Oslo\", \"Lima\", \"Oslo\"],\n    },\n    schema_overrides={\"age\": pl.Int32},\n)\nprint(df.shape)                 # (3, 3)\nprint(df.schema)\n# Schema({'name': String, 'age': Int32, 'city': String})\nprint(df[\"age\"].null_count())   # 1\nprint(df.head(2).rows())        # [('Ana', 34, 'Oslo'), ('Ben', 28, 'Lima')]\nprint(df.to_dicts()[2])         # {'name': 'Cy', 'age': None, 'city': 'Oslo'}",
+   "code_lang": "python",
+   "takeaways": [
+    "A DataFrame is a set of named, typed Series sharing one length",
+    "Check `df.schema` early: types drive everything else",
+    "There is no index; rows are found by their values"
+   ],
+   "pitfalls": [
+    "Expecting `df.loc` / index alignment from pandas: Polars has neither."
+   ],
+   "quiz": [
+    {
+     "q": "What does a Polars DataFrame have that a pandas DataFrame also has, and what does it lack?",
+     "options": [
+      "Both have typed columns; Polars has no row index",
+      "Both have an index; Polars lacks dtypes",
+      "Polars has a MultiIndex but no schema",
+      "Both mutate in place by default"
+     ],
+     "answer": 0,
+     "explain": "Polars columns are typed Arrow arrays like pandas columns, but there is no row index."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/concepts/data-types-and-structures/",
+   "requires": [
+    "python.dicts",
+    "python.modules-imports"
+   ]
+  },
+  {
+   "id": "polars.expressions",
+   "name": "Expressions and contexts",
+   "module": "basics",
+   "level": 1,
+   "minutes": 15,
+   "summary": "Describe column computations with pl.col expressions and run them in select, with_columns and filter.",
+   "why": "Expressions are the heart of Polars: almost every operation is written as one, and they are what the engine optimizes and parallelizes.",
+   "body": "An **expression** such as `pl.col(\"price\") * 1.2` is not a result: it is a recipe describing how to compute a column. Nothing runs until you hand it to a **context**, a DataFrame method that evaluates expressions:\n\n- `df.select(...)` returns only the columns you compute.\n- `df.with_columns(...)` returns all existing columns plus new or replaced ones.\n- `df.filter(...)` keeps rows where a boolean expression is true.\n- `df.group_by(...).agg(...)` evaluates expressions per group (next lessons).\n\nBuild expressions from `pl.col(\"name\")`, literals `pl.lit(5)`, and operators (`+`, `*`, `>`, `&`, `|`, `~`). Methods chain: `pl.col(\"name\").str.to_uppercase()`, `pl.col(\"x\").round(1)`, `pl.col(\"x\").cast(pl.Float32)`. Name the output with `.alias(\"new\")`, or use keyword arguments: `with_columns(total=pl.col(\"a\") + pl.col(\"b\"))`.\n\nExpressions inside one context are **independent**, so Polars runs them in parallel on different cores. The flip side is that a column created in a `with_columns` call is not visible to other expressions in that same call; chain a second `with_columns` if one new column depends on another.\n\nBecause an expression is just a value, you can store it in a variable or return it from a function and reuse it across queries, which keeps pipelines short and readable.",
+   "code": "import polars as pl\n\ndf = pl.DataFrame({\"item\": [\"tea\", \"cake\", \"jam\"],\n                   \"price\": [3.0, 4.5, 2.0], \"qty\": [2, 1, 5]})\n\nrevenue = pl.col(\"price\") * pl.col(\"qty\")      # a reusable recipe\n\nout = (\n    df.with_columns(revenue.alias(\"revenue\"),\n                    item=pl.col(\"item\").str.to_uppercase())\n      .with_columns(big=pl.col(\"revenue\") > 5)  # needs the column above\n      .filter(pl.col(\"qty\") > 1)\n      .select(\"item\", \"revenue\", \"big\")\n)\nprint(out.rows())   # [('TEA', 6.0, True), ('JAM', 10.0, True)]",
+   "code_lang": "python",
+   "takeaways": [
+    "An expression describes a computation; a context runs it",
+    "`select` keeps only computed columns, `with_columns` adds to the frame",
+    "Expressions in one context run in parallel and can't see each other's outputs"
+   ],
+   "pitfalls": [
+    "Referring to a column created earlier in the same `with_columns` call: it doesn't exist yet."
+   ],
+   "quiz": [
+    {
+     "q": "df.with_columns(a2=pl.col('a') * 2, a4=pl.col('a2') * 2) fails. Why?",
+     "options": [
+      "`*` is not allowed in with_columns",
+      "a2 is not visible inside the same context; chain another with_columns",
+      "Aliases must use .alias()",
+      "with_columns cannot create two columns"
+     ],
+     "answer": 1,
+     "explain": "Expressions in one context are evaluated independently against the input frame, which has no a2 yet."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/concepts/expressions-and-contexts/",
+   "requires": [
+    "polars.dataframe-series",
+    "python.functions"
+   ]
+  },
+  {
+   "id": "polars.reading-writing",
+   "name": "Reading and writing CSV and Parquet",
+   "module": "io",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Load files with read_csv and read_parquet, fix types on the way in, and save results as Parquet.",
+   "why": "Getting data in with the right types, and saving it in a fast typed format, is the first step of every real job.",
+   "body": "Polars has eager readers that return a DataFrame: `pl.read_csv`, `pl.read_parquet`, `pl.read_json`, `pl.read_ndjson`, `pl.read_excel` and `pl.read_database`. Writers mirror them: `df.write_csv`, `df.write_parquet`, `df.write_json`.\n\nUseful `read_csv` options:\n\n- `separator=\";\"`, `has_header=False`\n- `columns=[\"a\", \"b\"]` to read only some columns\n- `schema_overrides={\"zip\": pl.String}` to stop codes with leading zeros becoming integers\n- `try_parse_dates=True` to turn ISO date strings into `Date`/`Datetime`\n- `null_values=[\"\", \"NA\", \"-\"]` for extra missing markers\n\nIn Polars 2, `read_csv` is literally `scan_csv(...).collect()`, so it runs on the same multi-threaded engine as lazy queries, and it accepts a list of files or a glob such as `\"data/*.csv\"`.\n\n**Parquet** is the format to prefer: it is columnar, compressed and stores the schema, so reads are fast, exact and need no type guessing. `pl.read_parquet(path, columns=[...])` reads only the columns you ask for. When you will reread data, convert CSV to Parquet once.\n\nFor files bigger than memory, or when you only need part of a file, use the lazy `scan_*` functions instead; they come up in the lazy lessons.",
+   "code": "import polars as pl\n\nwith open(\"orders.csv\", \"w\") as f:\n    f.write(\"id;day;zip;qty\\n1;2026-03-01;02134;2\\n2;2026-03-02;10001;NA\\n\")\n\ndf = pl.read_csv(\n    \"orders.csv\",\n    separator=\";\",\n    schema_overrides={\"zip\": pl.String},   # keep the leading zero\n    null_values=[\"NA\"],\n    try_parse_dates=True,\n)\nprint(df.schema)\n# Schema({'id': Int64, 'day': Date, 'zip': String, 'qty': Int64})\n\ndf.write_parquet(\"orders.parquet\")\nback = pl.read_parquet(\"orders.parquet\", columns=[\"zip\", \"qty\"])\nprint(back.rows())   # [('02134', 2), ('10001', None)]",
+   "code_lang": "python",
+   "takeaways": [
+    "`schema_overrides`, `null_values` and `try_parse_dates` fix most CSV typing issues",
+    "Parquet keeps the schema exactly and reads only requested columns",
+    "Eager `read_*` loads everything; lazy `scan_*` is for big or partial reads"
+   ],
+   "pitfalls": [
+    "Letting ID or postal-code columns be inferred as integers and losing leading zeros."
+   ],
+   "quiz": [
+    {
+     "q": "Why is Parquet usually better than CSV for data you load repeatedly?",
+     "options": [
+      "It is human-readable",
+      "Polars cannot write CSV",
+      "It stores types and compressed columns, so loads are fast and exact",
+      "It can only hold one column"
+     ],
+     "answer": 2,
+     "explain": "Parquet is typed, columnar and compressed: no type inference and you can read just some columns."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/io/csv/",
+   "requires": [
+    "polars.dataframe-series",
+    "python.files"
+   ]
+  },
+  {
+   "id": "polars.filter-sort",
+   "name": "Filtering, sorting and selecting rows",
+   "module": "transform",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Keep rows with filter, combine conditions with & and |, and order rows with sort, head and top_k.",
+   "why": "Most questions about data start with 'which rows' and 'in what order'.",
+   "body": "`df.filter(expr)` keeps the rows where a boolean expression is true. Combine conditions with `&` (and), `|` (or) and `~` (not), wrapping each comparison in parentheses because of Python operator precedence. Passing several expressions, `df.filter(cond1, cond2)`, means all of them must hold. Rows where the condition is **null** are dropped, the same as SQL's `WHERE`.\n\nHandy predicates:\n\n- `pl.col(\"city\").is_in([\"Oslo\", \"Lima\"])`\n- `pl.col(\"age\").is_between(18, 65)` (inclusive by default)\n- `pl.col(\"name\").str.starts_with(\"A\")`\n- `pl.col(\"x\").is_null()` / `.is_not_null()`\n\nSorting: `df.sort(\"age\")`, `df.sort(\"age\", descending=True)`, or several keys `df.sort([\"city\", \"age\"], descending=[False, True])`. Nulls go first by default; pass `nulls_last=True` to change that. For the n largest values use `df.top_k(3, by=\"score\")` or `df.bottom_k(...)`, which is faster than a full sort.\n\nPositional slicing still exists for quick looks: `df.head(5)`, `df.slice(10, 5)`, `df[2:4]`. But because Polars has no index, real logic should select rows by values, not positions.\n\nRemoving duplicates is `df.unique(subset=[\"email\"], keep=\"first\", maintain_order=True)`.",
+   "code": "import polars as pl\n\ndf = pl.DataFrame({\n    \"name\": [\"Ana\", \"Ben\", \"Cy\", \"Di\"],\n    \"age\": [34, 17, None, 52],\n    \"city\": [\"Oslo\", \"Lima\", \"Oslo\", \"Rome\"],\n})\n\nadults_oslo_or_rome = df.filter(\n    (pl.col(\"age\") >= 18) & pl.col(\"city\").is_in([\"Oslo\", \"Rome\"])\n)\nprint(adults_oslo_or_rome[\"name\"].to_list())     # ['Ana', 'Di']  (Cy's null age is dropped)\n\nprint(df.sort(\"age\", descending=True, nulls_last=True)[\"name\"].to_list())\n# ['Di', 'Ana', 'Ben', 'Cy']\nprint(df.top_k(2, by=\"age\")[\"name\"].to_list())   # ['Di', 'Ana']",
+   "code_lang": "python",
+   "takeaways": [
+    "Combine conditions with `&`, `|`, `~` and parentheses",
+    "Rows whose condition is null are filtered out",
+    "`top_k` beats sort-then-head for the largest n"
+   ],
+   "pitfalls": [
+    "Writing `cond1 and cond2`: Python's `and` doesn't work on expressions; use `&`."
+   ],
+   "quiz": [
+    {
+     "q": "Which filter keeps people aged 18 or over who do NOT live in Oslo?",
+     "options": [
+      "pl.col('age') >= 18 and pl.col('city') != 'Oslo'",
+      "(pl.col('age') >= 18) | ~(pl.col('city') == 'Oslo')",
+      "pl.col('age') >= 18 & pl.col('city') != 'Oslo'",
+      "(pl.col('age') >= 18) & ~(pl.col('city') == 'Oslo')"
+     ],
+     "answer": 3,
+     "explain": "Use & for and, ~ for not, and parentheses around each comparison."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/expressions/basic-operations/",
+   "requires": [
+    "polars.expressions"
+   ]
+  },
+  {
+   "id": "polars.conditionals",
+   "name": "Conditional columns with when/then",
+   "module": "transform",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Build if/else column logic with pl.when().then().otherwise(), chaining several branches.",
+   "why": "Bucketing, flags and business rules are everywhere, and when/then is the vectorized way to write them.",
+   "body": "Python `if` statements can't decide per row inside an expression. Polars uses `pl.when(condition).then(value).otherwise(default)` instead, which is like SQL's `CASE WHEN`.\n\nChain more branches with extra `.when(...).then(...)` pairs; the first condition that is true wins, top to bottom. If you leave out `.otherwise(...)`, rows that match no branch become null.\n\n```python\npl.when(pl.col(\"score\") >= 90).then(pl.lit(\"A\"))\n  .when(pl.col(\"score\") >= 75).then(pl.lit(\"B\"))\n  .otherwise(pl.lit(\"C\"))\n```\n\nValues in `then` and `otherwise` can be literals or other expressions, so you can pick between columns: `pl.when(pl.col(\"discount\").is_not_null()).then(pl.col(\"discount\")).otherwise(pl.col(\"price\"))`. For that particular \"first non-null\" pattern, `pl.coalesce(\"discount\", \"price\")` is shorter.\n\nA string passed to `then(\"x\")` is read as a **column name**, not a literal. Wrap text in `pl.lit(\"x\")` when you mean the string itself.\n\nAll branches are computed for all rows and then combined, which is fast because it's vectorized. The result type is the common supertype of the branches, so mixing ints and floats gives floats.",
+   "code": "import polars as pl\n\ndf = pl.DataFrame({\"name\": [\"Ana\", \"Ben\", \"Cy\", \"Di\"],\n                   \"score\": [95, 80, 60, None]})\n\ngraded = df.with_columns(\n    grade=pl.when(pl.col(\"score\") >= 90).then(pl.lit(\"A\"))\n            .when(pl.col(\"score\") >= 75).then(pl.lit(\"B\"))\n            .when(pl.col(\"score\").is_not_null()).then(pl.lit(\"C\"))\n            # no otherwise: rows matching nothing become null\n)\nprint(graded[\"grade\"].to_list())   # ['A', 'B', 'C', None]\n\nbonus = pl.when(pl.col(\"grade\") == \"A\").then(10).otherwise(0)\nprint(graded.select(bonus.alias(\"bonus\"))[\"bonus\"].to_list())   # [10, 0, 0, 0]",
+   "code_lang": "python",
+   "takeaways": [
+    "`pl.when(...).then(...).otherwise(...)` is a vectorized CASE WHEN",
+    "The first true branch wins; no otherwise means null",
+    "Wrap string values in `pl.lit()`; bare strings are column names"
+   ],
+   "pitfalls": [
+    "`then(\"A\")` when you meant the text A: Polars looks for a column called A."
+   ],
+   "quiz": [
+    {
+     "q": "What does pl.when(pl.col('x') > 0).then(pl.lit('pos')) give for a row where x is -3?",
+     "options": [
+      "null",
+      "an error",
+      "'pos'",
+      "'neg'"
+     ],
+     "answer": 0,
+     "explain": "Without otherwise, rows matching no branch get null."
+    }
+   ],
+   "docs": "https://docs.pola.rs/api/python/stable/reference/expressions/api/polars.when.html",
+   "requires": [
+    "polars.filter-sort"
+   ]
+  },
+  {
+   "id": "polars.group-by-agg",
+   "name": "Group by and aggregate",
+   "module": "transform",
+   "level": 1,
+   "minutes": 15,
+   "summary": "Summarize data per group with group_by().agg(), using several aggregation expressions at once.",
+   "why": "Per-group totals, counts and averages are the most common analysis there is.",
+   "body": "`df.group_by(\"key\").agg(...)` splits the rows by key, evaluates each aggregation expression within every group, and returns one row per group. Group by several columns with `group_by(\"a\", \"b\")`.\n\nInside `agg`, any expression works:\n\n- `pl.col(\"amount\").sum()`, `.mean()`, `.median()`, `.min()`, `.max()`, `.std()`\n- `pl.len()` for the row count, `pl.col(\"user\").n_unique()` for distinct values\n- `pl.col(\"amount\").filter(pl.col(\"type\") == \"refund\").sum()` to aggregate a subset\n- `pl.col(\"item\").first()` or `pl.col(\"item\")` alone, which collects each group's values into a **list**\n\nName results with `.alias()` or keyword arguments, e.g. `agg(total=pl.col(\"amount\").sum())`. All aggregations in one `agg` run in parallel.\n\n**Order is not guaranteed.** Group-by output comes back in whatever order the parallel engine finishes, and in Polars 2 the streaming engine is the default, so don't rely on first-seen order. Sort the result, or pass `maintain_order=True` (slower) when order matters.\n\nCompared with pandas there is no index to reset afterwards: the keys are ordinary columns in the result. If you know SQL, `group_by().agg()` is exactly `GROUP BY` with the select list inside `agg`.",
+   "code": "import polars as pl\n\nsales = pl.DataFrame({\n    \"shop\": [\"A\", \"B\", \"A\", \"B\", \"A\"],\n    \"kind\": [\"sale\", \"sale\", \"refund\", \"sale\", \"sale\"],\n    \"amount\": [10.0, 5.0, -3.0, 7.0, 4.0],\n})\n\nsummary = (\n    sales.group_by(\"shop\")\n    .agg(\n        n=pl.len(),\n        net=pl.col(\"amount\").sum(),\n        refunds=pl.col(\"amount\").filter(pl.col(\"kind\") == \"refund\").sum(),\n        kinds=pl.col(\"kind\").unique().sort(),\n    )\n    .sort(\"shop\")                      # output order is not guaranteed\n)\nprint(summary.rows())\n# [('A', 3, 11.0, -3.0, ['refund', 'sale']), ('B', 2, 12.0, 0.0, ['sale'])]",
+   "code_lang": "python",
+   "takeaways": [
+    "`group_by(keys).agg(exprs)` gives one row per group",
+    "Any expression can be an aggregation, including filtered ones",
+    "Sort the result or use `maintain_order=True`; order is not guaranteed"
+   ],
+   "pitfalls": [
+    "Assuming groups come back in first-appearance order."
+   ],
+   "quiz": [
+    {
+     "q": "What is the type of the column produced by df.group_by('k').agg(pl.col('v')) (no aggregation applied)?",
+     "options": [
+      "The same type as v",
+      "A List of v's type",
+      "A Struct",
+      "It raises an error"
+     ],
+     "answer": 1,
+     "explain": "An un-aggregated column in agg collects each group's values into a list."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/expressions/aggregation/",
+   "requires": [
+    "polars.expressions"
+   ]
+  },
+  {
+   "id": "polars.missing-data",
+   "name": "Missing data: null and NaN",
+   "module": "transform",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Understand null versus NaN in Polars and handle gaps with is_null, fill_null, drop_nulls and coalesce.",
+   "why": "Real data has gaps, and mixing up null and NaN gives silently wrong counts and averages.",
+   "body": "Polars has one missing-value marker for every type: **null**. It works the same in integer, string, date and boolean columns, so an integer column with a gap stays an integer column, unlike classic pandas where it turns into float.\n\n**NaN** is different: it is a real floating-point value meaning \"not a number\", produced by things like `0.0 / 0.0`. Polars does not treat NaN as missing. `is_null()` is false for NaN, `null_count()` doesn't count it, and `mean()` of a column containing NaN is NaN. Use `is_nan()` and `fill_nan()` for those, or convert with `fill_nan(None)`.\n\nTools for nulls:\n\n- `pl.col(\"x\").is_null()`, `.is_not_null()`, `df.null_count()`\n- `pl.col(\"x\").fill_null(0)`, `.fill_null(strategy=\"forward\")` or `\"mean\"`\n- `df.drop_nulls()` or `df.drop_nulls(subset=[\"x\"])`\n- `pl.coalesce(\"a\", \"b\", pl.lit(0))` takes the first non-null value\n\nAggregations skip nulls: `sum`, `mean`, `min` and friends ignore them, and `count()` counts only non-null values while `pl.len()` counts rows. Comparisons with null return null, which `filter` treats as false.\n\nWhen reading pandas data, `pl.from_pandas(pdf, nan_to_null=True)` (the default) converts NaN markers into proper nulls.",
+   "code": "import polars as pl\n\ndf = pl.DataFrame({\"x\": [1.0, None, float(\"nan\"), 4.0]})\n\nprint(df.select(\n    nulls=pl.col(\"x\").null_count(),\n    nans=pl.col(\"x\").is_nan().sum(),\n    count=pl.col(\"x\").count(),        # non-null values, NaN included\n    rows=pl.len(),\n).row(0))                             # (1, 1, 3, 4)\n\nprint(df[\"x\"].mean())                 # nan  (NaN poisons the mean)\nclean = df.with_columns(pl.col(\"x\").fill_nan(None))\nprint(clean[\"x\"].mean())              # 2.5  (nulls are skipped)\nprint(clean[\"x\"].fill_null(strategy=\"forward\").to_list())\n# [1.0, 1.0, 1.0, 4.0]",
+   "code_lang": "python",
+   "takeaways": [
+    "null is the missing marker for every dtype; NaN is a float value",
+    "Aggregations skip nulls but not NaN",
+    "`count()` counts non-null values; `pl.len()` counts rows"
+   ],
+   "pitfalls": [
+    "Using `is_null()` to find NaN values in float columns: it returns false for NaN."
+   ],
+   "quiz": [
+    {
+     "q": "A Float64 column holds [2.0, NaN, null]. What is its null_count()?",
+     "options": [
+      "0",
+      "1",
+      "2",
+      "3"
+     ],
+     "answer": 1,
+     "explain": "Only the null is missing; NaN is an ordinary float value to Polars."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/expressions/missing-data/",
+   "requires": [
+    "polars.expressions"
+   ]
+  },
+  {
+   "id": "polars.lazy-api",
+   "name": "The lazy API: scan and collect",
+   "module": "lazy",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Build a LazyFrame with scan_* or .lazy(), chain operations into a query plan, and run it with collect().",
+   "why": "Lazy mode is how Polars gets its biggest speed and memory wins, and it is the recommended way to write pipelines.",
+   "body": "In **eager** mode every method runs immediately. In **lazy** mode methods only build a **query plan**, and nothing happens until you call `.collect()`. Get a `LazyFrame` from `pl.scan_parquet(...)`, `pl.scan_csv(...)`, `pl.scan_ndjson(...)` or `df.lazy()`.\n\nBecause Polars sees the whole query before running it, it can optimize: read only the columns and row groups the query needs, push filters down into the file reader, drop unused computations, and run steps in parallel. Code reads the same as eager code; the only difference is where the query starts and the `collect()` at the end.\n\n```python\nq = (pl.scan_parquet(\"events/*.parquet\")\n       .filter(pl.col(\"country\") == \"NO\")\n       .group_by(\"day\").agg(pl.len()))\ndf = q.collect()\n```\n\nIn Polars 2, `collect()` uses the **streaming engine** by default: it processes data in batches across all cores, so it can handle inputs bigger than RAM. A consequence is that row order after joins, group-bys and unpivots is not guaranteed; sort explicitly when it matters. `collect(engine=\"in-memory\")` selects the older engine if you need it.\n\n`lf.collect_schema()` returns the result schema without running anything, and `lf.head(5).collect()` is the quick way to peek. Mixing is fine: collect, do something eager, then `.lazy()` again.",
+   "code": "import polars as pl\n\npl.DataFrame({\n    \"day\": [\"mon\", \"mon\", \"tue\", \"tue\", \"tue\"],\n    \"country\": [\"NO\", \"SE\", \"NO\", \"NO\", \"SE\"],\n    \"ms\": [120, 80, 95, 130, 70],\n}).write_parquet(\"events.parquet\")\n\nq = (\n    pl.scan_parquet(\"events.parquet\")          # nothing is read yet\n    .filter(pl.col(\"country\") == \"NO\")\n    .group_by(\"day\")\n    .agg(n=pl.len(), avg_ms=pl.col(\"ms\").mean())\n    .sort(\"day\")\n)\nprint(type(q).__name__)          # LazyFrame\nprint(q.collect_schema())        # Schema({'day': String, 'n': UInt32, 'avg_ms': Float64})\nprint(q.collect().rows())        # [('mon', 1, 120.0), ('tue', 2, 112.5)]",
+   "code_lang": "python",
+   "takeaways": [
+    "LazyFrames build a plan; `collect()` executes it",
+    "Start from `scan_*` so the optimizer can prune columns and rows at the source",
+    "Polars 2 collects with the streaming engine by default; sort if order matters"
+   ],
+   "pitfalls": [
+    "Calling `collect()` after every step, which throws away most of the optimization."
+   ],
+   "quiz": [
+    {
+     "q": "Why does pl.scan_parquet(...).select('a').collect() usually read less data than pl.read_parquet(...).select('a')?",
+     "options": [
+      "scan_parquet compresses the file",
+      "read_parquet is single-threaded",
+      "The lazy plan pushes the column selection into the reader, so only column a is read",
+      "select is ignored in eager mode"
+     ],
+     "answer": 2,
+     "explain": "Projection pushdown lets the scan read only the columns the query uses; the eager call reads them all first."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/concepts/lazy-api/",
+   "requires": [
+    "polars.reading-writing",
+    "polars.group-by-agg"
+   ]
+  },
+  {
+   "id": "polars.joins",
+   "name": "Joins and concatenation",
+   "module": "transform",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Combine tables with join (inner, left, full, semi, anti) and stack them with pl.concat.",
+   "why": "Real analyses pull together several tables, and choosing the right join type decides which rows survive.",
+   "body": "`left.join(right, on=\"key\", how=...)` matches rows by key columns. Use `left_on=`/`right_on=` when the names differ, and a list for composite keys.\n\n- `how=\"inner\"` (default): only keys present in both.\n- `how=\"left\"`: every left row, nulls where the right has no match. `\"right\"` is the mirror.\n- `how=\"full\"`: everything from both; pass `coalesce=True` to merge the key columns into one.\n- `how=\"semi\"`: left rows that have a match, without adding right columns (like SQL `EXISTS`).\n- `how=\"anti\"`: left rows with no match, perfect for \"customers who never ordered\".\n- `how=\"cross\"`: every combination.\n\nClashing non-key column names get a `_right` suffix (change it with `suffix=`). Null keys don't match each other unless you pass `nulls_equal=True`.\n\nDuplicated keys multiply rows. Guard against that with `validate=\"m:1\"` (or `\"1:1\"`, `\"1:m\"`), which raises if the right side isn't unique, a cheap check that catches many bugs.\n\nJoin output order is not guaranteed by default; pass `maintain_order=\"left\"` or sort afterwards.\n\nTo stack frames, use `pl.concat([a, b])` (same columns) or `how=\"diagonal\"` to union different columns, filling gaps with null. `how=\"horizontal\"` puts frames side by side and, in Polars 2, requires equal heights.",
+   "code": "import polars as pl\n\nusers = pl.DataFrame({\"uid\": [1, 2, 3], \"name\": [\"Ana\", \"Ben\", \"Cy\"]})\norders = pl.DataFrame({\"uid\": [1, 1, 3, 4], \"total\": [10, 5, 7, 9]})\n\nleft = users.join(orders, on=\"uid\", how=\"left\", maintain_order=\"left\")\nprint(left.rows())\n# [(1, 'Ana', 10), (1, 'Ana', 5), (2, 'Ben', None), (3, 'Cy', 7)]\n\nnever = users.join(orders, on=\"uid\", how=\"anti\")\nprint(never[\"name\"].to_list())        # ['Ben']\n\ntry:\n    orders.join(users, on=\"uid\", how=\"left\", validate=\"1:1\")\nexcept Exception as e:\n    print(type(e).__name__)           # ComputeError (uid repeats in orders)\n\nstacked = pl.concat([users, pl.DataFrame({\"uid\": [9]})], how=\"diagonal\")\nprint(stacked.tail(1).rows())         # [(9, None)]",
+   "code_lang": "python",
+   "takeaways": [
+    "Pick the join type by which rows must survive: inner, left, full, semi, anti",
+    "`validate=\"m:1\"` catches unexpected duplicate keys",
+    "`pl.concat(how=\"diagonal\")` unions frames with different columns"
+   ],
+   "pitfalls": [
+    "Joining on a key that repeats on both sides and silently multiplying rows."
+   ],
+   "quiz": [
+    {
+     "q": "You want customers that have at least one order, with only the customer columns. Which join?",
+     "options": [
+      "inner",
+      "left",
+      "anti",
+      "semi"
+     ],
+     "answer": 3,
+     "explain": "A semi join filters the left side to rows with a match and adds no right-side columns or duplicates."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/transformations/joins/",
+   "requires": [
+    "polars.filter-sort",
+    "polars.group-by-agg"
+   ]
+  },
+  {
+   "id": "polars.expression-expansion",
+   "name": "Selecting many columns: selectors",
+   "module": "basics",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Apply one expression to many columns with pl.all, pl.col lists, dtype selection and polars.selectors.",
+   "why": "Wide tables need column-wise operations without writing one line per column.",
+   "body": "One expression can expand into many. `pl.col(\"a\", \"b\").round(1)` applies to both columns; `pl.col(pl.Float64)` picks every Float64 column; `pl.all()` picks everything; `pl.col(\"^sales_.*$\")` picks by regex (the pattern must start with `^` and end with `$`). `pl.all().exclude(\"id\")` drops some.\n\nThe **selectors** module, imported as `import polars.selectors as cs`, is more expressive and composes with set operations:\n\n- `cs.numeric()`, `cs.string()`, `cs.temporal()`, `cs.boolean()`\n- `cs.starts_with(\"sales_\")`, `cs.ends_with(\"_id\")`, `cs.contains(\"price\")`, `cs.matches(regex)`\n- `cs.by_name(\"a\", \"b\")`, `cs.first()`, `cs.last()`\n- combine with `|` (union), `&` (intersection), `-` (difference) and `~` (complement)\n\nExpanded outputs keep their original names, so in `with_columns` they overwrite the inputs. To keep both, rename with the `.name` namespace: `.name.suffix(\"_z\")`, `.name.prefix(...)`, `.name.map(func)`.\n\nIn Polars 2, combining a selector with `pl.col(...)` using `&`, `|` or `^` is an element-wise boolean operation, not a column selection. Stay within selectors, using `cs.by_name(...)`, when you mean set logic.\n\n`cs.expand_selector(df, selector)` shows which columns a selector picks, handy for debugging.",
+   "code": "import polars as pl\nimport polars.selectors as cs\n\ndf = pl.DataFrame({\n    \"id\": [1, 2], \"name\": [\"a\", \"b\"],\n    \"sales_q1\": [10.0, 20.0], \"sales_q2\": [30.0, 10.0], \"rate\": [0.5, 0.25],\n})\n\nprint(cs.expand_selector(df, cs.numeric() - cs.by_name(\"id\")))\n# ('sales_q1', 'sales_q2', 'rate')\n\nout = df.with_columns(\n    (cs.starts_with(\"sales_\") / 10).name.suffix(\"_k\"),\n    pl.col(pl.String).str.to_uppercase(),\n)\nprint(out.columns)\n# ['id', 'name', 'sales_q1', 'sales_q2', 'rate', 'sales_q1_k', 'sales_q2_k']\nprint(out.select(pl.sum_horizontal(cs.ends_with(\"_k\"))).to_series().to_list())\n# [4.0, 3.0]",
+   "code_lang": "python",
+   "takeaways": [
+    "`pl.col(dtype)`, `pl.all()` and regex names expand into many columns",
+    "`polars.selectors` compose with `|`, `&`, `-`, `~`",
+    "Use `.name.suffix()` to keep originals when transforming many columns"
+   ],
+   "pitfalls": [
+    "Forgetting `^...$` around a regex in `pl.col`, so it is read as a plain column name."
+   ],
+   "quiz": [
+    {
+     "q": "What does df.with_columns(cs.numeric() * 2) do to the numeric columns?",
+     "options": [
+      "Replaces them in place, keeping their names",
+      "Adds new columns named *_2",
+      "Raises because of duplicate names",
+      "Returns only the numeric columns"
+     ],
+     "answer": 0,
+     "explain": "Expanded expressions keep their input names, so with_columns overwrites the originals."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/expressions/expression-expansion/",
+   "requires": [
+    "polars.expressions"
+   ]
+  },
+  {
+   "id": "polars.strings-dates",
+   "name": "Strings, dates and casting",
+   "module": "types",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Use the str and dt namespaces, parse text into dates with str.to_date, and convert types with cast.",
+   "why": "Text and timestamps arrive messy in every dataset; parsing and cleaning them vectorized is a daily task.",
+   "body": "Type-specific methods live in **namespaces** on expressions.\n\nThe `str` namespace: `len_chars()`, `to_lowercase()`, `strip_chars()`, `contains(pattern)`, `replace(pattern, value)` (first match) and `replace_all`, `extract(pattern, group)`, `split(\",\")` (returns a list), `slice(offset, length)`, `starts_with()`. Patterns are regular expressions unless you pass `literal=True`.\n\nParsing text into time types uses the `str` namespace: `str.to_date(\"%d/%m/%Y\")`, `str.to_datetime(...)`, `str.to_time(...)`. In Polars 2, `cast(pl.Date)` on a string column raises, so always parse explicitly. `strict=False` turns unparseable values into null instead of failing.\n\nThe `dt` namespace works on `Date`, `Datetime` and `Duration`: `year()`, `month()`, `weekday()` (Monday = 1), `truncate(\"1mo\")`, `offset_by(\"2d\")`, `strftime(fmt)`, `total_days()`, plus `convert_time_zone()` and `replace_time_zone()` for zone-aware datetimes. Subtracting two dates gives a `Duration`.\n\nGeneral conversions use `cast`: `pl.col(\"x\").cast(pl.Int32)`. A failing cast raises by default; `cast(..., strict=False)` gives null instead. Shrinking ints and using `pl.Categorical` or `pl.Enum` for repeated strings saves memory.",
+   "code": "import polars as pl\n\ndf = pl.DataFrame({\n    \"raw\": [\"  Oslo-2026/03/01 \", \"lima-2026/12/24\", \"rome-bad\"],\n    \"qty\": [\"3\", \"x\", \"5\"],\n})\n\nout = df.select(\n    city=pl.col(\"raw\").str.strip_chars().str.extract(r\"^(\\w+)-\", 1)\n            .str.to_titlecase(),\n    day=pl.col(\"raw\").str.extract(r\"(\\d{4}/\\d{2}/\\d{2})\", 1)\n           .str.to_date(\"%Y/%m/%d\", strict=False),\n    qty=pl.col(\"qty\").cast(pl.Int64, strict=False),\n).with_columns(\n    month=pl.col(\"day\").dt.month(),\n    weekday=pl.col(\"day\").dt.weekday(),\n)\nprint(out.rows())\n# [('Oslo', datetime.date(2026, 3, 1), 3, 3, 7),\n#  ('Lima', datetime.date(2026, 12, 24), None, 12, 4),\n#  ('Rome', None, 5, None, None)]",
+   "code_lang": "python",
+   "takeaways": [
+    "`str` and `dt` namespaces give vectorized text and time methods",
+    "Parse with `str.to_date/to_datetime`; Polars 2 won't cast strings to dates",
+    "`strict=False` turns bad values into null instead of raising"
+   ],
+   "pitfalls": [
+    "Expecting `str.replace` to replace every match: it replaces the first; use `replace_all`."
+   ],
+   "quiz": [
+    {
+     "q": "In Polars 2, how should you turn a String column like '2026-03-01' into a Date?",
+     "options": [
+      "pl.col('d').cast(pl.Date)",
+      "pl.col('d').str.to_date('%Y-%m-%d')",
+      "pl.col('d').dt.date()",
+      "pl.Date(pl.col('d'))"
+     ],
+     "answer": 1,
+     "explain": "String to temporal casts now raise; parse with str.to_date (or to_datetime) instead."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/expressions/strings/",
+   "requires": [
+    "polars.missing-data",
+    "polars.conditionals"
+   ]
+  },
+  {
+   "id": "polars.window-functions",
+   "name": "Window functions with over()",
+   "module": "transform",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Compute per-group values without collapsing rows using .over(), including ranks, shares and running totals.",
+   "why": "Comparisons like 'share of the group total' or 'rank within category' need group results next to each row.",
+   "body": "`expr.over(\"group\")` evaluates an expression within each group but returns a value for every row, like SQL's `OVER (PARTITION BY ...)`. Rows are not collapsed, so you can use it in `with_columns` or `select` alongside ordinary columns.\n\n- Broadcast an aggregate: `pl.col(\"sales\").sum().over(\"region\")` puts the region total on each row.\n- Shares: `pl.col(\"sales\") / pl.col(\"sales\").sum().over(\"region\")`.\n- Rank within group: `pl.col(\"sales\").rank(\"dense\", descending=True).over(\"region\")`.\n- Running values: `pl.col(\"sales\").cum_sum().over(\"region\", order_by=\"day\")`.\n- Previous row: `pl.col(\"price\").shift(1).over(\"ticker\", order_by=\"ts\")`.\n\nSeveral partition keys work: `.over(\"region\", \"year\")`. The `order_by=` argument sorts within each group just for that computation, so you don't have to pre-sort the whole frame.\n\n`mapping_strategy` controls how results map back: the default `\"group_to_rows\"` puts results back on the original rows; `\"explode\"` is faster but reorders rows by group; `\"join\"` puts a list per group on each row.\n\nFiltering by a window value is a classic pattern: keep the top two per group with `df.filter(pl.col(\"sales\").rank(\"ordinal\", descending=True).over(\"region\") <= 2)`.",
+   "code": "import polars as pl\n\ndf = pl.DataFrame({\n    \"region\": [\"N\", \"N\", \"N\", \"S\", \"S\"],\n    \"day\": [3, 1, 2, 1, 2],\n    \"sales\": [30, 10, 20, 5, 15],\n})\n\nout = df.with_columns(\n    share=(pl.col(\"sales\") / pl.col(\"sales\").sum().over(\"region\")).round(2),\n    rank=pl.col(\"sales\").rank(\"dense\", descending=True).over(\"region\"),\n    running=pl.col(\"sales\").cum_sum().over(\"region\", order_by=\"day\"),\n)\nprint(out.rows())\n# [('N', 3, 30, 0.5, 1, 60), ('N', 1, 10, 0.17, 3, 10), ('N', 2, 20, 0.33, 2, 30),\n#  ('S', 1, 5, 0.25, 2, 5), ('S', 2, 15, 0.75, 1, 20)]",
+   "code_lang": "python",
+   "takeaways": [
+    "`.over(keys)` = per-group computation, one value per row",
+    "Use `order_by=` for running totals and lags within groups",
+    "Filter on a window rank for top-n per group"
+   ],
+   "pitfalls": [
+    "Using group_by + join to broadcast totals, when one `.over()` does it."
+   ],
+   "quiz": [
+    {
+     "q": "df has 10 rows in 3 regions. How many rows does df.select(pl.col('x').mean().over('region')) return?",
+     "options": [
+      "3",
+      "1",
+      "10",
+      "13"
+     ],
+     "answer": 2,
+     "explain": "over() keeps every row and places each region's mean on the rows of that region."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/expressions/window-functions/",
+   "requires": [
+    "polars.group-by-agg",
+    "polars.expression-expansion"
+   ]
+  },
+  {
+   "id": "polars.pivot-unpivot",
+   "name": "Reshaping: pivot and unpivot",
+   "module": "transform",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Turn long data wide with pivot and wide data long with unpivot, and know which shape each task wants.",
+   "why": "Reports want wide tables while plotting and grouping want long ones, so you'll convert constantly.",
+   "body": "**Long** (tidy) data has one row per observation: `(store, month, sales)`. **Wide** data spreads one variable across columns: `store, jan, feb, mar`.\n\n`df.pivot(on=\"month\", index=\"store\", values=\"sales\", aggregate_function=\"sum\")` makes it wide: each distinct value of `on` becomes a column. If several rows share the same `index` and `on` pair you must say how to combine them with `aggregate_function` (`\"sum\"`, `\"mean\"`, `\"first\"`, `\"len\"`, or an expression). Combinations with no rows become null, except with `\"sum\"` or `\"len\"`, where they become 0.\n\nPivot is eager-only, since the output columns depend on the data. For a lazy query, compute the distinct values first, or use group_by with filtered aggregations like `pl.col(\"sales\").filter(pl.col(\"month\") == \"jan\").sum().alias(\"jan\")`.\n\n`df.unpivot(index=\"store\", on=[\"jan\", \"feb\"], variable_name=\"month\", value_name=\"sales\")` goes back to long form. Leaving out `on` unpivots every non-index column, and selectors work: `on=cs.numeric()`. This used to be called `melt`, which was removed in Polars 2.\n\nRule of thumb: keep data long while computing (group_by, joins and plots are all easier) and pivot only at the end for presentation.",
+   "code": "import polars as pl\n\nlong = pl.DataFrame({\n    \"store\": [\"A\", \"A\", \"A\", \"B\"],\n    \"month\": [\"jan\", \"feb\", \"feb\", \"jan\"],\n    \"sales\": [10, 4, 6, 7],\n})\n\nwide = long.pivot(on=\"month\", index=\"store\", values=\"sales\",\n                  aggregate_function=\"sum\").sort(\"store\")\nprint(wide.rows())      # [('A', 10, 10), ('B', 7, 0)]  (sum of nothing is 0)\nprint(wide.columns)     # ['store', 'jan', 'feb']\n\nback = wide.unpivot(index=\"store\", variable_name=\"month\",\n                    value_name=\"sales\").sort(\"store\", \"month\")\nprint(back.rows())\n# [('A', 'feb', 10), ('A', 'jan', 10), ('B', 'feb', 0), ('B', 'jan', 7)]",
+   "code_lang": "python",
+   "takeaways": [
+    "`pivot` = long to wide; `unpivot` = wide to long (formerly `melt`)",
+    "Pass `aggregate_function` when index/on pairs repeat",
+    "Compute in long form, pivot at the end for display"
+   ],
+   "pitfalls": [
+    "Pivoting a column with thousands of distinct values and getting a frame with thousands of columns."
+   ],
+   "quiz": [
+    {
+     "q": "Why can't pivot be part of a lazy query plan directly?",
+     "options": [
+      "Pivot is too slow",
+      "Pivot requires pandas",
+      "LazyFrames have no columns",
+      "The output column names depend on the data, so the schema is unknown until it runs"
+     ],
+     "answer": 3,
+     "explain": "A lazy plan needs a known schema; pivot's columns come from the values in the data."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/transformations/pivot/",
+   "requires": [
+    "polars.group-by-agg",
+    "polars.expression-expansion"
+   ]
+  },
+  {
+   "id": "polars.query-optimization",
+   "name": "Query plans and optimizations",
+   "module": "lazy",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Read a lazy query plan with explain(), and see predicate pushdown, projection pushdown and common-subplan elimination at work.",
+   "why": "Knowing what the optimizer does lets you write queries it can speed up and spot why one is slow.",
+   "body": "`lf.explain()` prints the **optimized** plan as text; `lf.explain(optimized=False)` shows your query as written. Read the plan bottom-up: the scan is at the bottom, the final operation at the top. `lf.show_graph()` draws it (needs graphviz).\n\nThe main optimizations:\n\n- **Projection pushdown**: only columns the query uses are read. In the plan the scan shows something like `PROJECT 2/5 COLUMNS`.\n- **Predicate pushdown**: filters move as early as possible, ideally into the scan (`SELECTION:` on the scan node), where Parquet statistics can skip whole row groups.\n- **Slice pushdown**: `head(n)` stops reading early.\n- **Simplification and type coercion**: constant folding, cheaper equivalent expressions.\n- **Common subplan / subexpression elimination**: a sub-query or expression used twice is computed once.\n\nSome things block optimizations. A Python UDF (`map_elements`, `map_batches`) is opaque, so filters can't move past it. Collecting in the middle of a pipeline cuts the plan in two. Reading CSV can't skip row groups the way Parquet can.\n\nWhen two outputs share work, collect them together with `pl.collect_all([q1, q2])` so the shared part runs once. Turning optimizations off (`collect(optimizations=...)`) is useful only when debugging a suspected optimizer bug.",
+   "code": "import polars as pl\n\npl.DataFrame({\"a\": range(6), \"b\": list(\"xyxyxy\"), \"c\": [1.0] * 6,\n              \"d\": [0] * 6}).write_parquet(\"t.parquet\")\n\nq = (\n    pl.scan_parquet(\"t.parquet\")\n    .with_columns(a2=pl.col(\"a\") * 2)\n    .filter(pl.col(\"b\") == \"x\")\n    .select(\"a2\", \"b\")\n)\nplan = q.explain()\nprint(plan)\n# The filter on b and the column list are pushed into the Parquet scan;\n# look for the scan node showing PROJECT 2/4 COLUMNS and a SELECTION.\nprint(q.collect()[\"a2\"].to_list())   # [0, 4, 8]",
+   "code_lang": "python",
+   "takeaways": [
+    "`explain()` shows the optimized plan; read it bottom-up",
+    "Projection and predicate pushdown move work into the scan",
+    "Python UDFs and early collects block optimizations"
+   ],
+   "pitfalls": [
+    "Putting a `map_elements` early in the pipeline and wondering why filters are not pushed down."
+   ],
+   "quiz": [
+    {
+     "q": "A query reads a 50-column Parquet file but only uses 3 columns. Which optimization keeps the other 47 unread?",
+     "options": [
+      "Projection pushdown",
+      "Predicate pushdown",
+      "Slice pushdown",
+      "Common subexpression elimination"
+     ],
+     "answer": 0,
+     "explain": "Projection pushdown limits the scan to the columns the query references."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/lazy/optimizations/",
+   "requires": [
+    "polars.lazy-api",
+    "polars.joins"
+   ]
+  },
+  {
+   "id": "polars.nested-types",
+   "name": "Lists, arrays and structs",
+   "module": "types",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Work with List, Array and Struct columns: list namespace, explode, implode, unnest and struct fields.",
+   "why": "JSON data, group results and multi-output computations all produce nested columns, and handling them natively is far faster than Python loops.",
+   "body": "Polars has three nested types:\n\n- **List**: a variable-length list per row, e.g. tags or the result of `str.split`. Methods live in `.list`: `len()`, `get(0)`, `contains(x)`, `sum()`, `sort()`, `unique()`, `join(\",\")`, `eval(expr)`.\n- **Array**: a fixed-size list (`pl.Array(pl.Float32, 3)`), good for embeddings or coordinates; methods in `.arr`.\n- **Struct**: named fields per row, like a small row inside a cell. Methods in `.struct`: `field(\"x\")`, `rename_fields`, `with_fields`; `df.unnest(\"col\")` spreads the fields into columns, and `pl.struct(\"a\", \"b\")` packs columns into one.\n\nMoving between shapes: `explode(\"tags\")` gives one row per list element (empty lists now produce zero rows in Polars 2; pass `empty_as_null=True` for the old behaviour). The reverse is `group_by(...).agg(pl.col(\"tags\"))` or `.implode()`.\n\n`pl.element()` refers to each element inside `list.eval`, so `pl.col(\"scores\").list.eval(pl.element().rank())` runs any expression per list in parallel. Prefer that to a Python lambda.\n\nStructs are also how multi-output functions return several columns at once, like `value_counts()`, `str.extract_groups()` or `struct.field` on JSON decoded with `str.json_decode()`.",
+   "code": "import polars as pl\n\ndf = pl.DataFrame({\n    \"user\": [\"ana\", \"ben\"],\n    \"tags\": [\"py,sql\", \"rust\"],\n    \"geo\": [{\"lat\": 59.9, \"lon\": 10.7}, {\"lat\": -12.0, \"lon\": -77.0}],\n})\n\nout = df.with_columns(pl.col(\"tags\").str.split(\",\"))\nprint(out.select(n=pl.col(\"tags\").list.len(),\n                 has_py=pl.col(\"tags\").list.contains(\"py\")).rows())\n# [(2, True), (1, False)]\n\nprint(out.explode(\"tags\").select(\"user\", \"tags\").rows())\n# [('ana', 'py'), ('ana', 'sql'), ('ben', 'rust')]\n\nprint(out.unnest(\"geo\").columns)          # ['user', 'tags', 'lat', 'lon']\nprint(df.select(pl.col(\"geo\").struct.field(\"lat\")).to_series().to_list())\n# [59.9, -12.0]",
+   "code_lang": "python",
+   "takeaways": [
+    "List = variable length, Array = fixed size, Struct = named fields",
+    "`explode` and `implode` move between nested and flat rows",
+    "`list.eval(pl.element()...)` runs expressions inside each list"
+   ],
+   "pitfalls": [
+    "Looping over a list column in Python instead of using the `list` namespace or `list.eval`."
+   ],
+   "quiz": [
+    {
+     "q": "What does explode('tags') do to a row whose tags list is empty, in Polars 2 by default?",
+     "options": [
+      "Keeps it with tags = null",
+      "Removes the row (zero output rows)",
+      "Raises an error",
+      "Keeps it with tags = []"
+     ],
+     "answer": 1,
+     "explain": "Polars 2 changed empty_as_null to False by default, so empty lists produce no rows."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/expressions/lists-and-arrays/",
+   "requires": [
+    "polars.strings-dates",
+    "polars.group-by-agg"
+   ]
+  },
+  {
+   "id": "polars.time-series",
+   "name": "Time series: dynamic groups, rolling and asof",
+   "module": "transform",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Resample with group_by_dynamic, compute time-based rolling windows, and match events with join_asof.",
+   "why": "Metrics, logs and financial data are time series, and these three tools cover most of what analyses need.",
+   "body": "**`group_by_dynamic`** buckets rows into time windows, like pandas `resample`:\n\n```python\ndf.sort(\"ts\").group_by_dynamic(\"ts\", every=\"1h\", group_by=\"sensor\").agg(pl.col(\"v\").mean())\n```\n\n`every` sets the step, `period` the window length (defaults to `every`; make it longer for overlapping windows), `closed` and `label` decide window edges and labels. Durations are strings like `\"30m\"`, `\"1d\"`, `\"1w\"`, `\"1mo\"`, `\"1q\"`. The time column must be sorted.\n\n**Rolling** windows look back from each row. `df.rolling(\"ts\", period=\"2d\").agg(...)` computes over the last 2 days at every row, and expressions such as `pl.col(\"v\").rolling_mean_by(\"ts\", window_size=\"2d\")` do the same inside `with_columns`. The fixed-count variants, `rolling_mean(window_size=3)`, count rows instead of time.\n\n**`join_asof`** joins each left row to the nearest right row by a sorted key, typically \"the last quote at or before each trade\": `trades.join_asof(quotes, on=\"ts\", by=\"ticker\", strategy=\"backward\", tolerance=\"5s\")`. `strategy` can be `\"backward\"`, `\"forward\"` or `\"nearest\"`.\n\nTo fill gaps, `df.upsample(\"ts\", every=\"1d\")` inserts missing timestamps, and `fill_null(strategy=\"forward\")` or `interpolate()` fill the values.",
+   "code": "import polars as pl\nfrom datetime import datetime as dt\n\ntrades = pl.DataFrame({\n    \"ts\": [dt(2026, 1, 1, 9, 0, 5), dt(2026, 1, 1, 9, 0, 40), dt(2026, 1, 1, 10, 30)],\n    \"qty\": [100, 50, 70],\n})\nquotes = pl.DataFrame({\n    \"ts\": [dt(2026, 1, 1, 9, 0, 0), dt(2026, 1, 1, 9, 0, 30)],\n    \"bid\": [10.0, 10.5],\n})\n\nhourly = trades.group_by_dynamic(\"ts\", every=\"1h\").agg(qty=pl.col(\"qty\").sum())\nprint(hourly.rows())\n# [(datetime(2026, 1, 1, 9, 0), 150), (datetime(2026, 1, 1, 10, 0), 70)]\n\nmatched = trades.join_asof(quotes, on=\"ts\", strategy=\"backward\", tolerance=\"1m\")\nprint(matched[\"bid\"].to_list())   # [10.0, 10.5, None]  (last trade: quote too old)",
+   "code_lang": "python",
+   "takeaways": [
+    "`group_by_dynamic` = calendar windows (resampling); `rolling` = look-back windows",
+    "`join_asof` matches the nearest earlier (or later) row by time",
+    "Sort by the time column first; these operations require it"
+   ],
+   "pitfalls": [
+    "Running `group_by_dynamic` or `join_asof` on unsorted timestamps."
+   ],
+   "quiz": [
+    {
+     "q": "For each trade you need the most recent quote at or before the trade time. Which tool?",
+     "options": [
+      "join(how='left') on ts",
+      "group_by_dynamic",
+      "join_asof(strategy='backward')",
+      "rolling_mean_by"
+     ],
+     "answer": 2,
+     "explain": "An asof join matches the last right row whose key is less than or equal to the left key."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/transformations/time-series/rolling/",
+   "requires": [
+    "polars.window-functions",
+    "polars.strings-dates"
+   ]
+  },
+  {
+   "id": "polars.sql-interface",
+   "name": "Running SQL on DataFrames",
+   "module": "lazy",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Query DataFrames and LazyFrames with SQL through pl.sql, SQLContext and LazyFrame.sql.",
+   "why": "SQL lets analysts and existing queries use Polars directly, and mixing SQL with expressions is often the clearest code.",
+   "body": "Polars includes a SQL engine that translates SQL into the same lazy query plans as the expression API, so it gets the same optimizations and speed.\n\n- `pl.sql(\"SELECT ... FROM df\")` finds DataFrames and LazyFrames by their Python variable names in the calling scope and returns a LazyFrame (pass `eager=True` for a DataFrame).\n- `df.sql(\"SELECT ... FROM self\")` queries one frame, which is called `self`.\n- `pl.SQLContext(orders=lf1, users=lf2)` registers tables under explicit names; `ctx.execute(query)` runs a query. Use it in applications, where implicit variable lookup is too magical.\n\nSupported SQL covers `SELECT`, `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT`, joins, `UNION`, CTEs (`WITH`), window functions with `OVER`, `CASE`, and many string, math and date functions. `scan_parquet` sources work as tables too, so `SELECT ... FROM read_parquet('file.parquet')` style table functions also exist.\n\nIn Polars 2 resolution is deferred: syntax, table and column errors appear when you collect or call `collect_schema()`, not when you call `sql()`. Also note that numeric literals without exponents, like `1.5`, are exact `Decimal` values.\n\nSQL and expressions mix freely: run a SQL query, then keep chaining `.with_columns(...)` on the LazyFrame it returns.",
+   "code": "import polars as pl\n\norders = pl.DataFrame({\"uid\": [1, 1, 2, 3], \"total\": [10, 5, 7, 9]})\nusers = pl.DataFrame({\"uid\": [1, 2, 3], \"country\": [\"NO\", \"SE\", \"NO\"]})\n\nctx = pl.SQLContext(orders=orders, users=users)\nq = ctx.execute(\"\"\"\n    SELECT u.country, SUM(o.total) AS revenue, COUNT(*) AS n\n    FROM orders o JOIN users u ON o.uid = u.uid\n    GROUP BY u.country\n    ORDER BY revenue DESC\n\"\"\")\nprint(type(q).__name__)                     # LazyFrame\nout = q.with_columns(avg=pl.col(\"revenue\") / pl.col(\"n\")).collect()\nprint(out.rows())   # [('NO', 24, 3, 8.0), ('SE', 7, 1, 7.0)]",
+   "code_lang": "python",
+   "takeaways": [
+    "SQL compiles to the same optimized lazy plans as expressions",
+    "Use `SQLContext` with explicit table names in real code",
+    "Errors surface at collect time in Polars 2"
+   ],
+   "pitfalls": [
+    "Expecting `pl.sql` to validate column names immediately: in Polars 2 it fails only when collected."
+   ],
+   "quiz": [
+    {
+     "q": "What does SQLContext.execute(query) return by default?",
+     "options": [
+      "A DataFrame",
+      "A pandas DataFrame",
+      "A list of tuples",
+      "A LazyFrame you can keep chaining or collect"
+     ],
+     "answer": 3,
+     "explain": "Queries are lazy by default; pass eager=True to get a DataFrame."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/sql/intro/",
+   "requires": [
+    "polars.lazy-api",
+    "polars.joins"
+   ]
+  },
+  {
+   "id": "polars.streaming-out-of-core",
+   "name": "Streaming and larger-than-memory data",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Process data bigger than RAM with the streaming engine, sink_* outputs, batches and hive-partitioned datasets.",
+   "why": "When data outgrows memory, streaming lets one machine do work that would otherwise need a cluster.",
+   "body": "The **streaming engine**, the default for `collect()` in Polars 2, splits data into small batches called morsels and pushes them through the plan on all cores. Operators like filter, select and with_columns are naturally streaming. Group-bys, joins and sorts keep state, and spill or partition as needed, so most queries run in memory bounded well below the input size.\n\nTo avoid ever holding the result, write it directly with a **sink**: `lf.sink_parquet(\"out.parquet\")`, `sink_csv`, `sink_ipc`, `sink_ndjson`. Sinks can write partitioned output, for example `pl.PartitionBy(\"out/\", key=\"country\")`, producing hive-style directories. To consume results piece by piece in Python, iterate `lf.collect_batches()`.\n\nInputs scale the same way. `pl.scan_parquet(\"data/**/*.parquet\", hive_partitioning=True)` reads directory trees like `year=2026/month=03/` and turns the path segments into columns, so a filter on `year` skips whole directories. Cloud URLs (`s3://`, `gs://`, `az://`) work with `storage_options`.\n\nThings that defeat streaming: Python UDFs that need the whole column, operations that need global order (some `over` and `rolling` patterns), and pulling a huge result back with `collect()`. Check with `lf.explain()` and keep memory flat by finishing with a sink.\n\nTune with `pl.Config.set_streaming_chunk_size` only after measuring; the defaults are usually right.",
+   "code": "import os\nimport polars as pl\n\nos.makedirs(\"raw\", exist_ok=True)\nfor i in range(3):   # pretend these are huge files\n    pl.DataFrame({\"country\": [\"NO\", \"SE\"] * 2, \"amount\": [i, i + 1, i + 2, i + 3]}) \\\n      .write_parquet(f\"raw/part{i}.parquet\")\n\nq = (\n    pl.scan_parquet(\"raw/*.parquet\")\n    .filter(pl.col(\"amount\") > 1)\n    .group_by(\"country\")\n    .agg(total=pl.col(\"amount\").sum())\n)\nq.sink_parquet(\"totals.parquet\")        # result streamed straight to disk\nprint(pl.read_parquet(\"totals.parquet\").sort(\"country\").rows())\n# [('NO', 11), ('SE', 17)]\n\nfor batch in pl.scan_parquet(\"raw/*.parquet\").collect_batches():\n    print(batch.height, end=\" \")        # batches arrive one by one, e.g. 4 4 4",
+   "code_lang": "python",
+   "takeaways": [
+    "Polars 2 collects with the streaming engine: batched, multi-core, bounded memory",
+    "Finish with `sink_*` so the result never has to fit in RAM",
+    "Hive-partitioned scans skip directories when you filter on partition columns"
+   ],
+   "pitfalls": [
+    "Streaming a huge query and then calling `collect()` on a result that is itself too large for memory."
+   ],
+   "quiz": [
+    {
+     "q": "Why end a large pipeline with sink_parquet instead of collect().write_parquet()?",
+     "options": [
+      "The result is written batch by batch and never fully held in memory",
+      "sink_parquet compresses better",
+      "collect() cannot read Parquet",
+      "write_parquet is deprecated"
+     ],
+     "answer": 0,
+     "explain": "A sink streams output to disk, so peak memory stays bounded even if the result is large."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/concepts/streaming/",
+   "requires": [
+    "polars.query-optimization",
+    "polars.time-series"
+   ]
+  },
+  {
+   "id": "polars.udfs-plugins",
+   "name": "Python UDFs vs native code and plugins",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Know the cost of map_elements and map_batches, how to stay native, and when to write a Rust expression plugin.",
+   "why": "One careless Python lambda can make a Polars query 10 to 100 times slower; experts know when to avoid them and what to use instead.",
+   "body": "Polars runs expressions in Rust on Arrow buffers across many threads. Python code breaks that model:\n\n- **`map_elements(f, return_dtype=...)`** calls a Python function once per value. It holds the GIL, runs single-threaded, converts each value to a Python object, and is opaque to the optimizer. It is the last resort. Polars even warns when it recognizes a lambda it could translate into a native expression.\n- **`map_batches(f)`** calls the function once per whole Series (or batch), so a NumPy-vectorized function stays fast. NumPy ufuncs can be applied directly: `np.log(pl.col(\"x\"))` dispatches without leaving the engine. Batch-wise functions must not depend on how data is chunked unless you account for it.\n- **`pl.struct(...).map_batches`** passes several columns at once.\n\nBefore writing a UDF, look for a native path: the `str`, `list`, `dt` and `struct` namespaces, `pl.when`, `list.eval`, `fold`/`reduce` across columns, or `replace` and `replace_strict` for mappings.\n\nWhen you genuinely need custom logic at native speed, write an **expression plugin**: a Rust function compiled with `pyo3-polars` and registered with `polars.plugins.register_plugin_function`. Plugins run in parallel without the GIL and appear in query plans like built-ins. Always set `return_dtype` on Python UDFs so the lazy schema is known.",
+   "code": "import time\nimport numpy as np\nimport polars as pl\n\ndf = pl.DataFrame({\"x\": np.arange(1, 1_000_001, dtype=np.float64)})\n\nt = time.perf_counter()\nslow = df.select(pl.col(\"x\").map_elements(lambda v: v * 2 + 1,\n                                          return_dtype=pl.Float64))\nt_slow = time.perf_counter() - t\n\nt = time.perf_counter()\nfast = df.select(pl.col(\"x\") * 2 + 1)          # native expression\nt_fast = time.perf_counter() - t\n\nbatch = df.select(pl.col(\"x\").map_batches(np.log, return_dtype=pl.Float64))\nprint(slow.equals(fast), round(batch[\"x\"][0], 3))   # True 0.0\nprint(f\"native ~{t_slow / t_fast:.0f}x faster\")     # often 10-100x, machine-dependent",
+   "code_lang": "python",
+   "takeaways": [
+    "`map_elements` = per-value Python: slow, single-threaded, opaque",
+    "`map_batches` with vectorized NumPy code is acceptable",
+    "Rust expression plugins give custom logic at native speed"
+   ],
+   "pitfalls": [
+    "Using `map_elements` for logic that a namespace method, `when/then` or `replace` already covers."
+   ],
+   "quiz": [
+    {
+     "q": "Why does a map_elements lambda block predicate pushdown?",
+     "options": [
+      "It changes the column names",
+      "The optimizer cannot see inside Python code, so it can't move filters across it",
+      "It always returns strings",
+      "It forces eager mode"
+     ],
+     "answer": 1,
+     "explain": "UDFs are opaque to the optimizer, so it must assume they depend on every row."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/expressions/user-defined-python-functions/",
+   "requires": [
+    "polars.query-optimization",
+    "polars.nested-types",
+    "python.first-class-functions"
+   ]
+  },
+  {
+   "id": "polars.arrow-memory-model",
+   "name": "Arrow memory, chunks and interop",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Understand Polars' Arrow-based columns, chunking and rechunk, string views, categoricals, and zero-copy exchange with pandas, NumPy and PyArrow.",
+   "why": "Memory layout explains Polars' performance, its interop costs, and many surprises around copies and types.",
+   "body": "Each Polars Series is a **ChunkedArray**: a list of Arrow arrays, each with a values buffer and a validity bitmap marking nulls. Concatenating or reading many files appends chunks rather than copying. Many chunks slow down some operations, so `df.rechunk()` merges them into one contiguous buffer; `df.n_chunks()` shows the count.\n\nStrings use Arrow's **string view** layout: short strings sit inline in a 16-byte view, longer ones point into shared buffers, which makes slicing and filtering strings cheap. For repeated labels use `pl.Categorical` (a dictionary of strings plus integer codes) or `pl.Enum([...])` when the categories are fixed and known; both save memory and speed up group-bys and joins. In Polars 2, categoricals are always ordered lexically when sorted.\n\nInterop follows the Arrow layout:\n\n- `df.to_arrow()` and `pl.from_arrow(table)` are usually zero-copy.\n- `s.to_numpy()` is zero-copy for numeric columns without nulls and a single chunk; otherwise it copies (nulls become NaN in floats).\n- `df.to_pandas()` copies by default; `use_pyarrow_extension_array=True` keeps Arrow-backed columns.\n- Polars supports the Arrow PyCapsule interface (`__arrow_c_stream__`), so libraries like DuckDB and PyArrow exchange data with no copy. The old DataFrame interchange protocol was removed in Polars 2.\n\n`df.estimated_size(\"mb\")` reports memory use so you can check the effect of types and rechunking.",
+   "code": "import polars as pl\nimport pyarrow as pa\n\na = pl.DataFrame({\"x\": [1, 2, 3]})\nb = pl.DataFrame({\"x\": [4, 5]})\ndf = pl.concat([a, b], rechunk=False)\nprint(df.n_chunks())                    # 2  (no copy was made)\nprint(df.rechunk().n_chunks())          # 1\n\nlabels = pl.Series(\"city\", [\"Oslo, Norway (capital)\", \"Lima, Peru (capital)\"] * 150_000)\nenum = pl.Enum([\"Lima, Peru (capital)\", \"Oslo, Norway (capital)\"])\nprint([round(labels.cast(t).estimated_size(\"kb\")) for t in (pl.String, pl.Categorical, enum)])\n# [6152, 1172, 293]  (codes + one dictionary beat repeated strings)\n\ntbl = df.rechunk().to_arrow()           # zero-copy Arrow table\nprint(isinstance(tbl, pa.Table), tbl.num_rows)   # True 5\narr = df.rechunk()[\"x\"].to_numpy()      # zero-copy: numeric, no nulls, 1 chunk\nprint(arr.flags.writeable)              # False  (it views Polars' memory)",
+   "code_lang": "python",
+   "takeaways": [
+    "A Series is a list of Arrow chunks; `rechunk()` makes it contiguous",
+    "Categorical and Enum shrink repeated strings",
+    "Arrow and PyCapsule exchange is zero-copy; pandas conversion usually copies"
+   ],
+   "pitfalls": [
+    "Writing to a NumPy array obtained from `to_numpy()` and expecting it to be a private copy."
+   ],
+   "quiz": [
+    {
+     "q": "When is Series.to_numpy() zero-copy?",
+     "options": [
+      "Always",
+      "Only for strings",
+      "For numeric data without nulls stored in a single chunk",
+      "Never; it always copies"
+     ],
+     "answer": 2,
+     "explain": "NumPy needs one contiguous buffer with no validity mask, so multi-chunk or null-containing data must be copied."
+    }
+   ],
+   "docs": "https://docs.pola.rs/user-guide/misc/arrow/",
+   "requires": [
+    "polars.nested-types",
+    "polars.strings-dates"
+   ]
+  }
+ ]
+}

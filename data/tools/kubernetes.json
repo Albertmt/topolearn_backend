@@ -1,0 +1,1335 @@
+{
+ "tool": {
+  "id": "kubernetes",
+  "name": "Kubernetes",
+  "category": "tool",
+  "tagline": "Run and scale containerised applications across a cluster of machines",
+  "description": "Kubernetes is the open-source container orchestrator: you declare the desired state of your applications in YAML and its controllers keep the cluster matching it, scheduling containers, replacing failed ones, rolling out new versions and wiring up networking and storage. It is the common platform behind managed services such as EKS, GKE and AKS.",
+  "icon": "K8s",
+  "color": "#326CE5",
+  "official_docs": "https://kubernetes.io/docs/home/",
+  "version": "1.35",
+  "aliases": [
+   "k8s",
+   "kubectl",
+   "kube"
+  ],
+  "requires": [
+   {
+    "tool": "docker",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "foundations",
+   "name": "Foundations"
+  },
+  {
+   "id": "workloads",
+   "name": "Workloads"
+  },
+  {
+   "id": "networking",
+   "name": "Networking"
+  },
+  {
+   "id": "config-storage",
+   "name": "Configuration and storage"
+  },
+  {
+   "id": "operations",
+   "name": "Operating applications"
+  },
+  {
+   "id": "scheduling-security",
+   "name": "Scheduling and security"
+  },
+  {
+   "id": "internals",
+   "name": "Internals and extending"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "kubernetes.what-is-kubernetes",
+   "name": "What Kubernetes is for",
+   "module": "foundations",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Kubernetes runs containers across many machines and keeps them in the state you declared.",
+   "why": "Knowing what problem it solves tells you when it is worth its complexity and when Docker Compose is enough.",
+   "body": "Docker runs containers on one machine. In production you need more: run ten copies of a service across several servers, restart them when they crash, move them when a server dies, roll out a new version without downtime, and give them a stable network address. **Kubernetes** (k8s) is the system that does this.\n\nThe central idea is **declarative desired state**. You don't say \"start three containers\"; you submit an object that says \"there should be three replicas of this image\". Controllers inside Kubernetes constantly compare the actual state with the desired state and act to close the gap. If a node dies, the replicas on it vanish, the controller notices only one is running and creates two more elsewhere.\n\nEverything is an **object** in the Kubernetes API: Pods, Deployments, Services, ConfigMaps and so on. You create and change them with `kubectl` or any API client, usually from YAML files kept in git.\n\nWhen it is worth it:\n\n- several services, several machines, or a need for zero-downtime deploys and self-healing,\n- a team that wants one standard platform (EKS, GKE, AKS or self-hosted).\n\nFor a single small app on one server, Docker Compose is far simpler.",
+   "code": "# Imperative: you do each step and must react to failures yourself\ndocker run -d --name web nginx:1.27\n\n# Declarative: you state the goal; Kubernetes keeps it true\nkubectl create deployment web --image=nginx:1.27 --replicas=3\nkubectl get pods\n# NAME                   READY   STATUS    RESTARTS   AGE\n# web-6d4cf56db6-2xk8p   1/1     Running   0          10s\n# web-6d4cf56db6-7qv9z   1/1     Running   0          10s\n# web-6d4cf56db6-mm5rt   1/1     Running   0          10s\n\nkubectl delete pod web-6d4cf56db6-2xk8p\nkubectl get pods        # a replacement pod appears within seconds",
+   "code_lang": "bash",
+   "takeaways": [
+    "You declare desired state; controllers reconcile reality towards it",
+    "Everything is an API object, usually written as YAML",
+    "Worth it for multi-service, multi-node, self-healing needs; overkill for one small app"
+   ],
+   "pitfalls": [
+    "Adopting Kubernetes for a single small service where Compose on one VM would do."
+   ],
+   "quiz": [
+    {
+     "q": "You delete one pod of a Deployment with 3 replicas. What happens?",
+     "options": [
+      "A new pod is created to get back to 3",
+      "The Deployment is deleted too",
+      "Nothing; the Deployment now has 2 replicas",
+      "kubectl refuses to delete it"
+     ],
+     "answer": 0,
+     "explain": "The desired state is still 3 replicas, so the controller creates a replacement."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/overview/",
+   "requires": []
+  },
+  {
+   "id": "kubernetes.architecture",
+   "name": "Cluster architecture",
+   "module": "foundations",
+   "level": 1,
+   "minutes": 10,
+   "summary": "The control plane (API server, etcd, scheduler, controllers) decides; kubelets on worker nodes run the containers.",
+   "why": "Every debugging session eventually asks which component is responsible; you need the map.",
+   "body": "A cluster has a **control plane** and **worker nodes**.\n\nThe control plane:\n\n- `kube-apiserver`: the front door. Every client (kubectl, controllers, kubelets) talks only to it, over HTTPS. It validates and stores objects.\n- `etcd`: a consistent key-value store holding all cluster state. Only the API server talks to it.\n- `kube-scheduler`: picks a node for each new pod that has no node yet.\n- `kube-controller-manager`: runs the built-in controllers (Deployment, ReplicaSet, Node, Job...), each a loop that reconciles one kind of object.\n- `cloud-controller-manager` (on cloud): creates load balancers and handles node lifecycle via the cloud API.\n\nEach worker node runs:\n\n- `kubelet`: watches the API for pods assigned to its node and starts them through a container runtime (usually containerd) via the CRI interface.\n- `kube-proxy` (or a CNI plugin that replaces it): implements Service virtual IPs.\n- a **CNI** network plugin giving every pod its own IP.\n\nComponents never call each other directly; they all watch and update objects through the API server. The scheduler writes `spec.nodeName` on a pod; the kubelet on that node sees it and starts the containers.\n\nOn managed services (EKS, GKE, AKS) the provider runs the control plane; you see only your nodes.",
+   "code": "kubectl cluster-info\n# Kubernetes control plane is running at https://127.0.0.1:6443\n\nkubectl get nodes -o wide\n# NAME            STATUS  ROLES          VERSION  INTERNAL-IP\n# control-plane   Ready   control-plane  v1.35.0  172.18.0.2\n# worker-1        Ready   <none>         v1.35.0  172.18.0.3\n\n# On kubeadm/kind clusters the control plane itself runs as pods:\nkubectl get pods -n kube-system\n# etcd-control-plane, kube-apiserver-control-plane,\n# kube-scheduler-..., kube-controller-manager-..., kube-proxy-..., coredns-...",
+   "code_lang": "bash",
+   "takeaways": [
+    "All components talk only through the API server",
+    "etcd stores the state; the scheduler assigns nodes; controllers reconcile",
+    "kubelet on each node turns assigned pods into running containers"
+   ],
+   "pitfalls": [
+    "Thinking the scheduler starts containers: it only sets the pod's node; the kubelet runs it."
+   ],
+   "quiz": [
+    {
+     "q": "Which component actually starts a pod's containers on a node?",
+     "options": [
+      "kube-scheduler",
+      "kubelet via the container runtime",
+      "kube-apiserver",
+      "etcd"
+     ],
+     "answer": 1,
+     "explain": "The scheduler only chooses the node; the kubelet there asks the runtime to start the containers."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/architecture/",
+   "requires": [
+    "kubernetes.what-is-kubernetes"
+   ]
+  },
+  {
+   "id": "kubernetes.local-cluster",
+   "name": "A local cluster with kind or minikube",
+   "module": "foundations",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Run a disposable Kubernetes cluster on your laptop to learn and test safely.",
+   "why": "You learn Kubernetes by doing; a local cluster you can delete costs nothing and breaks nothing.",
+   "body": "You don't need a cloud account to practise. Two popular options:\n\n- **kind** (Kubernetes in Docker): each node is a Docker container. Fast to create, easy to make multi-node, and used heavily in CI.\n- **minikube**: a single-node cluster in a VM or container, with handy add-ons (ingress, metrics-server, dashboard).\n\nDocker Desktop and Rancher Desktop can also enable a built-in cluster.\n\nYou also need `kubectl`, the command-line client. Keep its version within one minor version of the cluster's.\n\nWith kind, a cluster is one command, and a config file lets you add worker nodes or map ports. Because nodes are containers, an image you built locally isn't automatically visible inside the cluster: load it with `kind load docker-image myapp:dev`, or push it to a registry the nodes can reach.\n\nWhen you are done, delete the cluster; creating a fresh one takes under a minute. Treat local clusters as cattle: if something is odd, recreate rather than repair.\n\nLocal clusters differ from production in a few ways: no cloud load balancer (Services of type LoadBalancer stay pending unless you add something like MetalLB or cloud-provider-kind), simple storage, and a single control-plane node.",
+   "code": "# kind-config.yaml\nkind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nnodes:\n  - role: control-plane\n  - role: worker\n  - role: worker\n\n# then, in a shell:\n#   kind create cluster --name dev --config kind-config.yaml\n#   kubectl get nodes            # 3 nodes, Ready\n#   kind load docker-image myapp:dev --name dev\n#   kind delete cluster --name dev",
+   "code_lang": "yaml",
+   "takeaways": [
+    "kind runs nodes as Docker containers; minikube offers add-ons",
+    "Load local images into kind, or push them to a registry",
+    "Delete and recreate local clusters freely"
+   ],
+   "pitfalls": [
+    "Expecting a locally built image to be pullable inside kind without kind load or a registry."
+   ],
+   "quiz": [
+    {
+     "q": "Your pod on a kind cluster shows ErrImagePull for myapp:dev, which you just built with docker build. Most likely fix?",
+     "options": [
+      "Restart Docker",
+      "Add a Service",
+      "Run kind load docker-image myapp:dev",
+      "Increase memory limits"
+     ],
+     "answer": 2,
+     "explain": "kind nodes have their own image store; load the image into them (or use a registry)."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/tasks/tools/",
+   "requires": [
+    "kubernetes.what-is-kubernetes"
+   ]
+  },
+  {
+   "id": "kubernetes.kubectl",
+   "name": "kubectl and kubeconfig",
+   "module": "foundations",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Use kubectl's get, describe, apply and delete verbs, and switch clusters and namespaces with contexts.",
+   "why": "kubectl is the tool you will type a thousand times a day; its patterns are worth learning once.",
+   "body": "`kubectl` reads connection details from a **kubeconfig** file (`~/.kube/config`, or the `KUBECONFIG` variable). It holds **clusters** (API URL, CA), **users** (credentials) and **contexts** that pair a cluster, a user and a default namespace.\n\n- `kubectl config get-contexts` lists them; `kubectl config use-context prod` switches.\n- `kubectl config set-context --current --namespace=shop` changes the default namespace.\n\nCommands follow `kubectl <verb> <resource> [name] [flags]`:\n\n- `get pods`, `get deploy,svc`, `get pods -o wide`, `-o yaml` to see the full object, `-w` to watch.\n- `describe pod web-123`: human-readable detail plus recent **events**, the first place to look when something is wrong.\n- `apply -f file.yaml`: create or update from a file or directory.\n- `delete -f file.yaml` or `delete pod web-123`.\n- `-n ns` targets a namespace, `-A` all namespaces, `-l app=web` filters by label.\n\n`kubectl explain deployment.spec.strategy` prints the schema documentation for any field, straight from the cluster. `kubectl api-resources` lists every kind and its short name (`po`, `deploy`, `svc`, `cm`).\n\nAlways know which context you're in before running a destructive command: many people show it in their shell prompt.",
+   "code": "kubectl config get-contexts\n# CURRENT  NAME      CLUSTER   NAMESPACE\n# *        kind-dev  kind-dev  default\n#          prod      prod-eks  shop\n\nkubectl get deploy,svc -n kube-system\nkubectl get pods -l app=web -o wide\nkubectl get pod web-6d4cf56db6-7qv9z -o yaml | head -20\nkubectl describe pod web-6d4cf56db6-7qv9z     # read the Events at the bottom\nkubectl explain pod.spec.containers.ports\nkubectl api-resources | grep -i deploy\n# deployments  deploy  apps/v1  true  Deployment",
+   "code_lang": "bash",
+   "takeaways": [
+    "A context = cluster + user + default namespace",
+    "describe shows events; -o yaml shows the full object",
+    "kubectl explain documents any field from the live API"
+   ],
+   "pitfalls": [
+    "Running kubectl delete or apply against prod because the current context was not the one you thought."
+   ],
+   "quiz": [
+    {
+     "q": "Where do you first look to see why a pod is stuck in Pending?",
+     "options": [
+      "kubectl logs",
+      "kubectl config view",
+      "kubectl api-resources",
+      "The Events section of kubectl describe pod"
+     ],
+     "answer": 3,
+     "explain": "A pending pod has no running container to log; the scheduler's reasons appear as events."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/reference/kubectl/",
+   "requires": [
+    "kubernetes.architecture"
+   ]
+  },
+  {
+   "id": "kubernetes.manifests",
+   "name": "Manifests and kubectl apply",
+   "module": "foundations",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Describe objects in YAML with apiVersion, kind, metadata and spec, and manage them declaratively with apply.",
+   "why": "Version-controlled manifests are how real teams run Kubernetes; imperative commands don't scale.",
+   "body": "Every object in a **manifest** has four top-level fields:\n\n- `apiVersion`: the API group and version, such as `v1` (core) or `apps/v1`.\n- `kind`: `Pod`, `Deployment`, `Service`...\n- `metadata`: `name`, `namespace`, `labels`, `annotations`.\n- `spec`: the desired state. The cluster adds `status`, the observed state, which you never write.\n\nSeveral objects can share a file, separated by `---`.\n\n`kubectl apply -f` is **declarative**: it creates objects that don't exist and updates those that do, changing only fields you manage. Apply a whole directory with `-f k8s/` (add `-R` for subdirectories). Keep the files in git and you have a reviewable history of your infrastructure.\n\nUseful habits:\n\n- `kubectl diff -f k8s/` shows what apply would change.\n- `kubectl apply --dry-run=server -f x.yaml` validates against the real API without saving.\n- Generate a starting manifest instead of typing it: `kubectl create deployment web --image=nginx --dry-run=client -o yaml > web.yaml`.\n\nIndentation matters, lists use `- `, and field names are camelCase. A typo in a field name is rejected by the API server's strict field validation, which is on by default and reports unknown fields.",
+   "code": "# web.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  labels: {app: web}\nspec:\n  replicas: 2\n  selector:\n    matchLabels: {app: web}\n  template:\n    metadata:\n      labels: {app: web}\n    spec:\n      containers:\n        - name: nginx\n          image: nginx:1.27\n# shell:\n#   kubectl diff -f web.yaml     # preview\n#   kubectl apply -f web.yaml    # deployment.apps/web created\n#   (edit replicas: 3)  kubectl apply -f web.yaml   # deployment.apps/web configured",
+   "code_lang": "yaml",
+   "takeaways": [
+    "apiVersion, kind, metadata, spec; status is written by the cluster",
+    "apply creates or updates; diff previews; dry-run=server validates",
+    "Generate skeletons with --dry-run=client -o yaml"
+   ],
+   "pitfalls": [
+    "Editing live objects with kubectl edit and then losing the change on the next apply from git."
+   ],
+   "quiz": [
+    {
+     "q": "Which field of an object should you never set in your manifest?",
+     "options": [
+      "status",
+      "spec",
+      "metadata.labels",
+      "apiVersion"
+     ],
+     "answer": 0,
+     "explain": "status is the observed state reported by controllers; you declare spec."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/overview/working-with-objects/",
+   "requires": [
+    "kubernetes.kubectl"
+   ]
+  },
+  {
+   "id": "kubernetes.pods",
+   "name": "Pods",
+   "module": "workloads",
+   "level": 1,
+   "minutes": 10,
+   "summary": "A pod is one or more containers that share a network namespace and volumes, scheduled together on one node.",
+   "why": "Every workload ends up as pods; understanding them explains IPs, restarts, logs and sidecars.",
+   "body": "A **pod** is the smallest thing Kubernetes schedules. It wraps one or more containers that:\n\n- share one IP address and port space (they reach each other on `localhost`),\n- can share volumes,\n- always land on the same node and live and die together.\n\nMost pods have one main container. Extra containers are for tightly coupled helpers: **init containers** run to completion before the app starts (wait for a database, run migrations), and **sidecar containers** (init containers with `restartPolicy: Always`) run alongside it for things like log shipping or proxies.\n\nPods are **ephemeral**. Each gets a new IP when recreated, and a pod is never moved: if its node dies, a controller creates a new pod elsewhere. That is why you almost never create bare pods; you create a Deployment, Job or StatefulSet that manages them.\n\nKey container fields: `image`, `command`/`args` (override the image's ENTRYPOINT/CMD), `ports` (documentation only), `env`, `resources`, probes.\n\nA pod's `status.phase` is Pending, Running, Succeeded, Failed or Unknown; the `STATUS` column of `kubectl get pods` also shows reasons like `ContainerCreating` or `CrashLoopBackOff`. `restartPolicy` (`Always`, `OnFailure`, `Never`) decides whether the kubelet restarts exited containers in place.",
+   "code": "apiVersion: v1\nkind: Pod\nmetadata:\n  name: hello\n  labels: {app: hello}\nspec:\n  initContainers:\n    - name: wait-db\n      image: busybox:1.37\n      command: [\"sh\", \"-c\", \"until nc -z db 5432; do sleep 2; done\"]\n  containers:\n    - name: app\n      image: python:3.13-slim\n      command: [\"python\", \"-m\", \"http.server\", \"8000\"]\n      ports:\n        - containerPort: 8000\n# kubectl apply -f pod.yaml\n# kubectl get pod hello      # Init:0/1 until a \"db\" service answers, then Running",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Containers in a pod share IP, localhost and volumes",
+    "Pods are disposable: new pod, new IP, never moved",
+    "Use controllers (Deployment, Job...) rather than bare pods"
+   ],
+   "pitfalls": [
+    "Putting two independent services in one pod so they can talk on localhost: they then can't scale or deploy separately."
+   ],
+   "quiz": [
+    {
+     "q": "Two containers in the same pod need to talk. What address works?",
+     "options": [
+      "The node's IP only",
+      "localhost",
+      "They can't talk directly",
+      "A Service is required"
+     ],
+     "answer": 1,
+     "explain": "Containers in a pod share a network namespace, so localhost reaches the other container's ports."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/workloads/pods/",
+   "requires": [
+    "kubernetes.manifests",
+    "docker.images-containers"
+   ]
+  },
+  {
+   "id": "kubernetes.labels-selectors",
+   "name": "Labels, selectors and annotations",
+   "module": "workloads",
+   "level": 1,
+   "minutes": 7,
+   "summary": "Labels are key-value tags that selectors use to group objects; annotations hold non-identifying metadata.",
+   "why": "Services, Deployments and policies find their pods only through label selectors.",
+   "body": "**Labels** are short key-value pairs in `metadata.labels`, such as `app: web`, `tier: frontend`, `env: prod`. They don't do anything by themselves; they let other objects and people select groups.\n\nA **selector** matches labels:\n\n- equality: `app=web`, `env!=prod`\n- set-based: `env in (staging,prod)`, `tier notin (cache)`, `!canary`\n\nOn the command line: `kubectl get pods -l app=web,env=prod`. In objects: a Service's `spec.selector` picks the pods that receive its traffic, and a Deployment's `spec.selector.matchLabels` (or `matchExpressions`) picks the pods it owns.\n\nThis loose coupling is powerful: relabel a pod and it leaves a Service's endpoints, which is handy for pulling a misbehaving pod out of rotation for debugging. It's also a trap: two Deployments with overlapping selectors fight over the same pods.\n\nThe recommended common labels are `app.kubernetes.io/name`, `app.kubernetes.io/instance`, `app.kubernetes.io/version`, `app.kubernetes.io/component` and `app.kubernetes.io/part-of`; tools like Helm set them.\n\n**Annotations** are for data that is not used to select things: build info, a change cause, tool configuration (ingress controllers and Prometheus read annotations). They can be large; labels are limited to 63-character values.",
+   "code": "kubectl get pods --show-labels\n# NAME        READY  STATUS   LABELS\n# web-7f9-a   1/1    Running  app=web,pod-template-hash=7f9...\n# api-5c4-b   1/1    Running  app=api,tier=backend\n\nkubectl get pods -l 'app in (web,api)'\nkubectl get pods -l tier!=backend\n\n# take a pod out of its Service's endpoints for debugging\nkubectl label pod web-7f9-a app=web-debug --overwrite\n# the ReplicaSet no longer matches it and creates a replacement\n\nkubectl annotate deploy web team=payments",
+   "code_lang": "bash",
+   "takeaways": [
+    "Selectors connect Services and controllers to pods",
+    "Equality and set-based selectors; -l on the CLI",
+    "Annotations hold non-selecting metadata, often read by tools"
+   ],
+   "pitfalls": [
+    "Overlapping selectors between two Deployments, which then fight over each other's pods."
+   ],
+   "quiz": [
+    {
+     "q": "A Service has selector app=web. You change a pod's label to app=web-debug. What happens?",
+     "options": [
+      "The pod is deleted",
+      "The Service's selector changes too",
+      "The pod stops receiving the Service's traffic",
+      "Nothing; selectors are evaluated only at creation"
+     ],
+     "answer": 2,
+     "explain": "Selectors are evaluated continuously, so the pod drops out of the Service's endpoints."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/",
+   "requires": [
+    "kubernetes.pods"
+   ]
+  },
+  {
+   "id": "kubernetes.deployments",
+   "name": "Deployments and ReplicaSets",
+   "module": "workloads",
+   "level": 1,
+   "minutes": 10,
+   "summary": "A Deployment keeps N identical pods running through a ReplicaSet and manages rollouts between versions.",
+   "why": "It's the default way to run any stateless service on Kubernetes.",
+   "body": "A **Deployment** declares a pod template and a replica count. It doesn't manage pods directly: it creates a **ReplicaSet** for each version of the template, and the ReplicaSet keeps exactly `replicas` matching pods alive.\n\nThe chain is Deployment, then ReplicaSet (named `web-<hash>`), then Pods (`web-<hash>-<random>`). The hash comes from the pod template, so changing the template (image, env, resources) creates a new ReplicaSet; changing only `replicas` doesn't.\n\nRules of the spec:\n\n- `spec.selector.matchLabels` must match `spec.template.metadata.labels`, and the selector is immutable after creation.\n- `spec.template` is a full pod spec without `apiVersion`/`kind`.\n\nScale with `kubectl scale deploy web --replicas=5` or by editing `replicas` and re-applying. Prefer the file, otherwise the next apply undoes the manual scale (unless an autoscaler owns `replicas`, in which case leave it out of your manifest).\n\nDeployments are for **stateless**, interchangeable pods: any replica can serve any request and can be killed at any time. For stable identities and per-replica storage use a StatefulSet; for one pod per node use a DaemonSet; for run-to-completion work use a Job.\n\n`kubectl get deploy` shows READY (ready/desired), UP-TO-DATE and AVAILABLE replicas.",
+   "code": "kubectl create deployment web --image=nginx:1.27 --replicas=3\nkubectl get deploy,rs,pods -l app=web\n# deployment.apps/web             3/3   3   3\n# replicaset.apps/web-5d8f7b9c4   3     3   3\n# pod/web-5d8f7b9c4-4jx2l   1/1   Running ...\n\nkubectl scale deploy web --replicas=5        # same ReplicaSet, 2 more pods\nkubectl set image deploy/web nginx=nginx:1.28  # new template: new ReplicaSet\nkubectl get rs -l app=web\n# web-5d8f7b9c4   0   0   0     (old, kept for rollback)\n# web-7c6d9f8b5   5   5   5",
+   "code_lang": "bash",
+   "takeaways": [
+    "Deployment manages ReplicaSets; ReplicaSets manage pods",
+    "Template change = new ReplicaSet; replica change = same one",
+    "Use Deployments for stateless, interchangeable pods"
+   ],
+   "pitfalls": [
+    "Selector labels that don't match the template labels: the API rejects the Deployment."
+   ],
+   "quiz": [
+    {
+     "q": "Which change to a Deployment creates a new ReplicaSet?",
+     "options": [
+      "Changing replicas from 3 to 5",
+      "Adding an annotation to the Deployment's metadata",
+      "Running kubectl get deploy",
+      "Changing the container image"
+     ],
+     "answer": 3,
+     "explain": "Only pod template changes produce a new template hash and therefore a new ReplicaSet."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/",
+   "requires": [
+    "kubernetes.pods",
+    "kubernetes.labels-selectors"
+   ]
+  },
+  {
+   "id": "kubernetes.services",
+   "name": "Services",
+   "module": "networking",
+   "level": 1,
+   "minutes": 10,
+   "summary": "A Service gives a set of pods one stable virtual IP and DNS name, load-balancing across the ready ones.",
+   "why": "Pod IPs change constantly; Services are how anything reliably reaches your app.",
+   "body": "A **Service** selects pods by label and gives them a stable address. Clients connect to the Service; traffic is spread over the matching pods that are **ready**. The list of backends is kept in **EndpointSlice** objects, updated as pods come and go.\n\nTypes:\n\n- `ClusterIP` (default): a virtual IP reachable only inside the cluster. The workhorse for service-to-service calls.\n- `NodePort`: also opens a port (30000-32767) on every node, forwarding to the Service.\n- `LoadBalancer`: also asks the cloud for an external load balancer pointing at the nodes.\n- `ExternalName`: a DNS CNAME to an outside name; no proxying.\n\nPorts: `port` is what clients use on the Service, `targetPort` is the container port (a number or a named port), and `nodePort` the node port for NodePort/LoadBalancer.\n\nA **headless** Service (`clusterIP: None`) has no virtual IP; its DNS name returns the pod IPs directly, which StatefulSets and client-side load balancers use.\n\nFor HTTP from outside the cluster, you usually don't give every service a LoadBalancer: you put an Ingress or Gateway in front of ClusterIP Services.\n\n`kubectl port-forward svc/web 8080:80` tunnels to a Service from your laptop, perfect for testing.",
+   "code": "apiVersion: v1\nkind: Service\nmetadata:\n  name: web\nspec:\n  type: ClusterIP\n  selector:\n    app: web\n  ports:\n    - name: http\n      port: 80          # clients use web:80\n      targetPort: 8080  # the containers listen on 8080\n# kubectl apply -f svc.yaml\n# kubectl get endpointslices -l kubernetes.io/service-name=web\n# kubectl run tmp --rm -it --image=busybox:1.37 -- wget -qO- http://web\n# kubectl port-forward svc/web 8080:80   # then open http://localhost:8080",
+   "code_lang": "yaml",
+   "takeaways": [
+    "A Service = stable virtual IP + DNS name over label-selected ready pods",
+    "ClusterIP inside, NodePort/LoadBalancer to expose",
+    "port is the Service's port, targetPort the container's"
+   ],
+   "pitfalls": [
+    "A selector that doesn't match the pod labels: the Service exists but has no endpoints."
+   ],
+   "quiz": [
+    {
+     "q": "A Service resolves but every request times out, and its EndpointSlice lists no addresses. Most likely cause?",
+     "options": [
+      "Its selector matches no ready pods",
+      "The Service type is ClusterIP",
+      "DNS is broken",
+      "port and targetPort are equal"
+     ],
+     "answer": 0,
+     "explain": "No endpoints means no ready pod matches the selector: wrong labels, or pods failing readiness."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/services-networking/service/",
+   "requires": [
+    "kubernetes.labels-selectors",
+    "kubernetes.deployments"
+   ]
+  },
+  {
+   "id": "kubernetes.namespaces",
+   "name": "Namespaces",
+   "module": "foundations",
+   "level": 1,
+   "minutes": 6,
+   "summary": "Namespaces partition one cluster into named scopes for names, access control and quotas.",
+   "why": "Teams and environments share clusters through namespaces; most kubectl mistakes involve the wrong one.",
+   "body": "A **namespace** is a scope for names: you can have a `web` Deployment in `shop` and another in `blog`. Most objects (pods, Services, Deployments, ConfigMaps, Secrets) are namespaced; some are cluster-wide (Nodes, PersistentVolumes, StorageClasses, ClusterRoles, Namespaces themselves). `kubectl api-resources --namespaced=false` lists the latter.\n\nBuilt-in namespaces:\n\n- `default`: where things go if you don't say.\n- `kube-system`: control-plane and add-on components.\n- `kube-public` and `kube-node-lease`: rarely touched.\n\nNamespaces are the unit for:\n\n- **RBAC**: a Role grants rights inside one namespace.\n- **ResourceQuota** and **LimitRange**: cap total CPU/memory/objects and set default container limits per namespace.\n- **NetworkPolicy**: policies apply to pods in their namespace.\n\nThey are not a strong security boundary by themselves: pods in different namespaces can talk to each other unless NetworkPolicies say otherwise, and they share nodes.\n\nDeleting a namespace deletes everything in it, which makes per-branch preview environments easy to clean up and makes `kubectl delete ns` dangerous.\n\nSet `metadata.namespace` in manifests or use `-n`; avoid relying on the context's default for anything important.",
+   "code": "kubectl create namespace shop\nkubectl get ns\nkubectl -n shop create deployment web --image=nginx:1.27\nkubectl get deploy -A              # all namespaces\nkubectl config set-context --current --namespace=shop\n\n# cap what the namespace may consume\nkubectl -n shop create quota team-quota \\\n  --hard=requests.cpu=4,requests.memory=8Gi,pods=40\nkubectl -n shop describe quota team-quota",
+   "code_lang": "bash",
+   "takeaways": [
+    "Names are unique per namespace, not per cluster",
+    "RBAC, quotas and network policies are scoped by namespace",
+    "Namespaces don't isolate network traffic by default"
+   ],
+   "pitfalls": [
+    "Assuming separate namespaces mean pods can't reach each other."
+   ],
+   "quiz": [
+    {
+     "q": "Which of these is cluster-scoped, not namespaced?",
+     "options": [
+      "Deployment",
+      "PersistentVolume",
+      "ConfigMap",
+      "Service"
+     ],
+     "answer": 1,
+     "explain": "PersistentVolumes (like Nodes and StorageClasses) are cluster-wide; claims to them are namespaced."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/",
+   "requires": [
+    "kubernetes.kubectl"
+   ]
+  },
+  {
+   "id": "kubernetes.configmaps-secrets",
+   "name": "ConfigMaps and Secrets",
+   "module": "config-storage",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Keep configuration and credentials outside the image and inject them as environment variables or files.",
+   "why": "The same image should run in every environment; only its configuration should differ.",
+   "body": "A **ConfigMap** holds non-secret key-value configuration; a **Secret** holds sensitive data such as passwords, tokens and TLS keys. Both are namespaced and consumed by pods in two ways:\n\n- as **environment variables**: one key with `valueFrom.configMapKeyRef`/`secretKeyRef`, or all keys with `envFrom`,\n- as **files**: mount the object as a volume and each key becomes a file.\n\nMounted files are updated automatically (after a short delay) when the object changes; environment variables are fixed at container start, so a change needs a rollout (`kubectl rollout restart deploy/web`). Mounts using `subPath` don't update either.\n\nAbout Secrets: values are **base64-encoded, not encrypted**. Anyone who can read the Secret object can read the password. Protection comes from RBAC (restrict `get`/`list` on secrets), encryption at rest in etcd (configured by the cluster admin; managed services often provide it), and keeping secrets out of git (External Secrets Operator, Sealed Secrets, or a cloud secret manager with the CSI driver).\n\nCreate them from literals or files: `kubectl create configmap app-config --from-file=app.conf` or `kubectl create secret generic db --from-literal=password=...`. In manifests, `stringData` lets you write plain text that the API stores base64-encoded.\n\nMark a ConfigMap or Secret `immutable: true` when it should never change.",
+   "code": "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: app-config}\ndata: {LOG_LEVEL: info, app.conf: \"workers = 4\"}\n---\napiVersion: v1\nkind: Secret\nmetadata: {name: db}\nstringData: {password: s3cr3t}      # stored base64-encoded\n---\napiVersion: v1\nkind: Pod\nmetadata: {name: app}\nspec:\n  containers:\n    - name: app\n      image: busybox:1.37\n      command: [\"sh\", \"-c\", \"env; cat /etc/app/app.conf; sleep 3600\"]\n      env:\n        - {name: LOG_LEVEL, valueFrom: {configMapKeyRef: {name: app-config, key: LOG_LEVEL}}}\n        - {name: DB_PASSWORD, valueFrom: {secretKeyRef: {name: db, key: password}}}\n      volumeMounts: [{name: conf, mountPath: /etc/app}]\n  volumes:\n    - {name: conf, configMap: {name: app-config}}",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Inject config as env vars or mounted files",
+    "Env vars need a restart to change; mounted files update",
+    "Secrets are base64, not encrypted: protect them with RBAC and encryption at rest"
+   ],
+   "pitfalls": [
+    "Committing Secret manifests with real passwords to git because they look encoded."
+   ],
+   "quiz": [
+    {
+     "q": "You update a ConfigMap used via envFrom. When do running pods see the new values?",
+     "options": [
+      "Immediately",
+      "Within a minute, automatically",
+      "Only after the containers restart",
+      "Never; ConfigMaps are immutable"
+     ],
+     "answer": 2,
+     "explain": "Environment variables are read at container start; trigger a rollout restart to pick up changes."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/configuration/configmap/",
+   "requires": [
+    "kubernetes.pods",
+    "docker.env-config"
+   ]
+  },
+  {
+   "id": "kubernetes.logs-exec-debug",
+   "name": "Logs, exec, events and port-forward",
+   "module": "operations",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Inspect running apps with kubectl logs, exec, describe, events, port-forward and ephemeral debug containers.",
+   "why": "These five commands solve most day-to-day 'why isn't it working' questions.",
+   "body": "Your basic toolkit:\n\n- `kubectl logs pod/web-abc` prints a container's stdout/stderr. `-f` follows, `--since=10m` limits, `-c name` picks a container, `--previous` shows the **last crashed** instance, the key to crash loops. `kubectl logs deploy/web` picks one pod; `-l app=web --prefix` reads many.\n- `kubectl describe pod web-abc`: state, restart count, last termination reason (e.g. `OOMKilled`), and events.\n- `kubectl events --for pod/web-abc` or `kubectl get events --sort-by=.lastTimestamp`: what the scheduler, kubelet and controllers reported. Events expire after about an hour.\n- `kubectl exec -it web-abc -- sh` opens a shell inside the container, if the image has one.\n- `kubectl port-forward pod/web-abc 8080:80` reaches a pod or Service from your laptop without exposing it.\n- `kubectl debug -it web-abc --image=busybox:1.37 --target=app` adds an **ephemeral container** sharing the pod's namespaces: debugging tools for distroless images that have no shell.\n- `kubectl cp web-abc:/tmp/dump.txt ./dump.txt` copies files (needs `tar` in the container).\n\nLogs are kept only for the current and previous container on the node; for history, ship logs to a central system (Loki, Elasticsearch, CloudWatch).",
+   "code": "kubectl get pods\n# web-7f9c-x2   0/1   CrashLoopBackOff   5   4m\n\nkubectl logs web-7f9c-x2 --previous      # output of the crashed run\nkubectl describe pod web-7f9c-x2 | sed -n '/Last State/,/Exit Code/p'\n#   Last State: Terminated  Reason: Error  Exit Code: 1\n\nkubectl events --for pod/web-7f9c-x2\nkubectl exec -it deploy/web -- env | grep DB_\nkubectl port-forward svc/web 8080:80\nkubectl debug -it web-7f9c-x2 --image=busybox:1.37 --target=app -- sh",
+   "code_lang": "bash",
+   "takeaways": [
+    "logs --previous shows why the last container died",
+    "describe and events explain scheduling and startup problems",
+    "kubectl debug adds tools to minimal images without rebuilding"
+   ],
+   "pitfalls": [
+    "Reading logs of the fresh container in a crash loop instead of --previous."
+   ],
+   "quiz": [
+    {
+     "q": "A pod restarts every minute. Which command most directly shows what the crashed container printed?",
+     "options": [
+      "kubectl port-forward POD 8080",
+      "kubectl get pod POD",
+      "kubectl exec POD -- cat /var/log",
+      "kubectl logs POD --previous"
+     ],
+     "answer": 3,
+     "explain": "--previous returns the logs of the previous (crashed) container instance."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/",
+   "requires": [
+    "kubernetes.pods"
+   ]
+  },
+  {
+   "id": "kubernetes.rolling-updates",
+   "name": "Rolling updates and rollbacks",
+   "module": "operations",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Ship new versions with zero downtime using the RollingUpdate strategy, and undo bad ones with rollout undo.",
+   "why": "Deploying safely and rolling back quickly is the main daily job Kubernetes does for you.",
+   "body": "When a Deployment's pod template changes, the controller performs a **rollout**: it scales the new ReplicaSet up and the old one down step by step.\n\n`spec.strategy` controls it:\n\n- `RollingUpdate` (default) with `maxSurge` (extra pods allowed above `replicas`, default 25%) and `maxUnavailable` (pods allowed below, default 25%). `maxSurge: 1, maxUnavailable: 0` never drops capacity.\n- `Recreate`: kill all old pods first, then start new ones. Use when two versions must never run together.\n\nOld pods are removed only as new ones become **ready**, so a readiness probe is what makes a rollout safe. `minReadySeconds` adds a wait after ready, and `progressDeadlineSeconds` marks the rollout as failed if it stalls (it does not roll back automatically).\n\nCommands:\n\n- `kubectl rollout status deploy/web` waits and exits non-zero on failure, ideal in CI.\n- `kubectl rollout history deploy/web` lists revisions (old ReplicaSets, up to `revisionHistoryLimit`).\n- `kubectl rollout undo deploy/web [--to-revision=3]` goes back.\n- `kubectl rollout restart deploy/web` recreates pods with the same spec.\n- `kubectl rollout pause/resume` batches several changes.\n\nRemember that undo changes the live object; if your git manifests still say the bad version, the next apply reintroduces it.",
+   "code": "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: web}\nspec:\n  replicas: 4\n  revisionHistoryLimit: 5\n  strategy:\n    type: RollingUpdate\n    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}\n  selector: {matchLabels: {app: web}}\n  template:\n    metadata: {labels: {app: web}}\n    spec:\n      containers:\n        - name: web\n          image: ghcr.io/acme/web:1.4.2\n          readinessProbe: {httpGet: {path: /healthz, port: 8080}}\n# kubectl set image deploy/web web=ghcr.io/acme/web:1.5.0\n# kubectl rollout status deploy/web --timeout=5m || kubectl rollout undo deploy/web",
+   "code_lang": "yaml",
+   "takeaways": [
+    "maxSurge/maxUnavailable tune speed versus spare capacity",
+    "Readiness gates the rollout; rollout status for CI",
+    "rollout undo reverts the live object, not your git"
+   ],
+   "pitfalls": [
+    "No readiness probe: pods count as ready on start, so a broken version replaces all good pods."
+   ],
+   "quiz": [
+    {
+     "q": "With replicas: 4, maxSurge: 1 and maxUnavailable: 0, how many pods can exist at most during a rollout?",
+     "options": [
+      "5",
+      "4",
+      "6",
+      "8"
+     ],
+     "answer": 0,
+     "explain": "maxSurge 1 allows one pod above the desired 4, and none may go unavailable."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#updating-a-deployment",
+   "requires": [
+    "kubernetes.deployments"
+   ]
+  },
+  {
+   "id": "kubernetes.probes",
+   "name": "Liveness, readiness and startup probes",
+   "module": "operations",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Tell Kubernetes when a container is ready for traffic, when it is stuck, and how long it may take to start.",
+   "why": "Probes are what make rollouts safe and self-healing real; wrong probes cause outages.",
+   "body": "The kubelet runs three kinds of **probe** against each container:\n\n- **readinessProbe**: may this container receive traffic? Failing removes the pod from Service endpoints; nothing is restarted. Runs for the container's whole life.\n- **livenessProbe**: is it alive? Failing `failureThreshold` times in a row makes the kubelet **restart** the container. Use it for deadlocks, not slowness.\n- **startupProbe**: has it finished starting? While it hasn't succeeded, the other probes are disabled. Use it for slow starters instead of a huge `initialDelaySeconds`.\n\nEach probe is an `httpGet` (2xx/3xx is success), `tcpSocket`, `exec` command, or `grpc` check, with `periodSeconds`, `timeoutSeconds` (default 1s), `failureThreshold` and `successThreshold`.\n\nGood practice:\n\n- Readiness checks what this pod needs to serve (warm caches loaded, can accept connections).\n- Liveness should be cheap and check only the process itself. Never make liveness depend on a database or another service: if the DB blips, every pod restarts at once and turns a small incident into an outage.\n- Give liveness a generous threshold; a restart is a heavy action.\n- Many apps don't need a liveness probe at all if they exit on fatal errors.",
+   "code": "containers:\n  - name: api\n    image: ghcr.io/acme/api:2.1.0\n    ports: [{name: http, containerPort: 8080}]\n    startupProbe:             # up to 30 x 5s = 150s to start\n      httpGet: {path: /healthz, port: http}\n      periodSeconds: 5\n      failureThreshold: 30\n    readinessProbe:           # may include dependency checks\n      httpGet: {path: /ready, port: http}\n      periodSeconds: 5\n    livenessProbe:            # process-only check, generous\n      httpGet: {path: /healthz, port: http}\n      periodSeconds: 10\n      timeoutSeconds: 2\n      failureThreshold: 6",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Readiness: in or out of load balancing; liveness: restart; startup: protects slow starts",
+    "Never make liveness depend on external services",
+    "Probe failures show up as events in describe"
+   ],
+   "pitfalls": [
+    "A liveness probe that checks the database, so a DB outage restarts every pod in a loop."
+   ],
+   "quiz": [
+    {
+     "q": "Your service takes 2 minutes to load a model at startup, and liveness restarts it before it finishes. Best fix?",
+     "options": [
+      "Remove the readiness probe",
+      "Add a startupProbe with enough failureThreshold x periodSeconds",
+      "Set restartPolicy: Never",
+      "Lower the liveness timeout"
+     ],
+     "answer": 1,
+     "explain": "A startup probe holds off liveness until the app has started, without slowing failure detection later."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/",
+   "requires": [
+    "kubernetes.deployments",
+    "docker.healthchecks-restart"
+   ]
+  },
+  {
+   "id": "kubernetes.resources",
+   "name": "Requests, limits and QoS",
+   "module": "operations",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Requests reserve CPU and memory for scheduling; limits cap usage; together they set a pod's QoS class.",
+   "why": "Wrong resource settings cause most mysterious OOMKills, throttling and unschedulable pods.",
+   "body": "Each container can declare `resources.requests` and `resources.limits` for `cpu` (cores: `500m` = half a core) and `memory` (`256Mi`, `1Gi`).\n\n- **Requests** are what the scheduler uses: a pod fits on a node only if the sum of requests fits the node's allocatable capacity. They also set the CPU share under contention.\n- **Limits** are enforced by the kernel through cgroups. Exceeding the **memory limit** gets the container **OOMKilled** (exit code 137). Exceeding the **CPU limit** only **throttles** it; it slows down but isn't killed.\n\nThe combination gives a **QoS class**:\n\n- `Guaranteed`: every container has requests equal to limits for CPU and memory.\n- `Burstable`: some requests or limits set.\n- `BestEffort`: none at all; first to be evicted when a node runs short of memory.\n\nPractical advice:\n\n- Always set memory requests, and a memory limit close to it; memory isn't compressible.\n- Set CPU requests from measured usage. Many teams omit CPU limits to avoid needless throttling of latency-sensitive services.\n- Use `kubectl top pods` (needs metrics-server) to see real usage.\n- A `LimitRange` can give defaults in a namespace and a `ResourceQuota` caps its total.\n\nRuntimes such as recent JVMs, Go and Node read the cgroup limits; check yours does before relying on that.",
+   "code": "containers:\n  - name: api\n    image: ghcr.io/acme/api:2.1.0\n    resources:\n      requests:\n        cpu: 250m        # scheduler reserves a quarter core\n        memory: 512Mi\n      limits:\n        memory: 512Mi    # above this: OOMKilled\n        # no cpu limit: may burst into idle CPU\n# kubectl top pod -l app=api\n# NAME        CPU(cores)  MEMORY(bytes)\n# api-6f-x1   180m        430Mi\n# kubectl get pod api-6f-x1 -o jsonpath='{.status.qosClass}'   # Burstable",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Requests drive scheduling; limits are enforced at runtime",
+    "Memory over limit = OOMKilled; CPU over limit = throttled",
+    "QoS: Guaranteed, Burstable, BestEffort (evicted first)"
+   ],
+   "pitfalls": [
+    "Setting no requests at all: pods get packed onto nodes and are evicted or starved under load."
+   ],
+   "quiz": [
+    {
+     "q": "A container keeps exiting with reason OOMKilled. Which setting is it hitting?",
+     "options": [
+      "Its CPU limit",
+      "Its CPU request",
+      "Its memory limit (or node memory pressure)",
+      "The ResourceQuota"
+     ],
+     "answer": 2,
+     "explain": "Going over the memory limit makes the kernel kill the process; CPU over-use only throttles."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/",
+   "requires": [
+    "kubernetes.pods",
+    "docker.resource-limits"
+   ]
+  },
+  {
+   "id": "kubernetes.ingress-gateway",
+   "name": "Ingress and the Gateway API",
+   "module": "networking",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Route external HTTP(S) traffic to Services by host and path with an Ingress or Gateway API resources.",
+   "why": "One entry point with TLS and routing rules is how web apps are exposed, not a load balancer per Service.",
+   "body": "An **Ingress** describes HTTP routing: hosts, paths, and the backend Service for each, plus TLS certificates from Secrets. It does nothing on its own: an **ingress controller** (Traefik, HAProxy, a cloud load balancer controller, ingress-nginx...) watches Ingress objects and configures a proxy. `ingressClassName` picks the controller. Many features (rewrites, timeouts) live in controller-specific annotations, which is the Ingress API's weakness. The once-default community ingress-nginx controller has been retired, so check what your platform supports.\n\nThe **Gateway API** is the newer, more expressive standard, now the recommended direction:\n\n- `GatewayClass`: a kind of load balancer, provided by an implementation (Envoy Gateway, Istio, Cilium, cloud controllers).\n- `Gateway`: an instance with listeners (ports, protocols, TLS), usually owned by the platform team.\n- `HTTPRoute` (also `GRPCRoute` and others): routing rules owned by app teams, attached to a Gateway, with header matching, traffic splitting by weight, redirects and rewrites built in.\n\nThe role split (infrastructure vs routes) and the portable features are why new setups tend to choose it. Gateway API CRDs are installed separately from Kubernetes itself.\n\nFor certificates, **cert-manager** can issue and renew Let's Encrypt certificates for both Ingress and Gateway resources.",
+   "code": "apiVersion: gateway.networking.k8s.io/v1\nkind: HTTPRoute\nmetadata:\n  name: shop\nspec:\n  parentRefs:\n    - name: public-gw          # a Gateway run by the platform team\n      namespace: infra\n  hostnames: [\"shop.example.com\"]\n  rules:\n    - matches: [{path: {type: PathPrefix, value: /api}}]\n      backendRefs:\n        - {name: api, port: 80, weight: 90}\n        - {name: api-canary, port: 80, weight: 10}   # 10% canary\n    - backendRefs:\n        - {name: web, port: 80}\n# kubectl get httproute shop -o yaml   # status.parents shows Accepted / ResolvedRefs",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Ingress and Gateway need a controller/implementation to do anything",
+    "Gateway API splits Gateway (infra) from routes (apps)",
+    "Weighted backends make canaries possible without extra tools"
+   ],
+   "pitfalls": [
+    "Creating an Ingress in a cluster with no ingress controller and wondering why nothing listens."
+   ],
+   "quiz": [
+    {
+     "q": "You applied an Ingress but nothing serves traffic, and its ADDRESS stays empty. Most likely cause?",
+     "options": [
+      "The Service is ClusterIP",
+      "The namespace is wrong for DNS",
+      "The pods lack liveness probes",
+      "No ingress controller handles its ingressClassName"
+     ],
+     "answer": 3,
+     "explain": "An Ingress is just configuration; a controller must pick it up and report an address."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/services-networking/gateway/",
+   "requires": [
+    "kubernetes.services"
+   ]
+  },
+  {
+   "id": "kubernetes.dns-discovery",
+   "name": "DNS and service discovery",
+   "module": "networking",
+   "level": 2,
+   "minutes": 8,
+   "summary": "Pods find Services by DNS names like api.shop.svc.cluster.local, served by CoreDNS.",
+   "why": "Every service-to-service call relies on cluster DNS; its search paths explain cross-namespace surprises.",
+   "body": "Clusters run **CoreDNS** (in `kube-system`) and every pod's `/etc/resolv.conf` points at it. Each Service gets a name:\n\n`<service>.<namespace>.svc.cluster.local`\n\nSo from a pod in namespace `shop`, these all reach the `api` Service in `shop`: `api`, `api.shop`, `api.shop.svc`, `api.shop.svc.cluster.local`. From another namespace you need at least `api.shop`. This works because resolv.conf has **search domains** (`shop.svc.cluster.local svc.cluster.local cluster.local`) and `ndots:5`.\n\nRecord types:\n\n- ClusterIP Service: an A/AAAA record with the virtual IP.\n- Headless Service: A records for each ready pod IP, and for StatefulSet pods stable names like `db-0.db.shop.svc.cluster.local`.\n- Named ports get SRV records.\n\nThe `ndots:5` default means a name with fewer than five dots, like `api.github.com`, is first tried with each search suffix, causing several wasted lookups. For hot external calls use a trailing dot (`api.github.com.`) or lower `ndots` in the pod's `dnsConfig`.\n\nKubernetes also injects `<SERVICE>_SERVICE_HOST`/`_PORT` environment variables for Services that existed when the pod started; DNS is preferred because it doesn't depend on creation order.",
+   "code": "kubectl -n shop run dns --rm -it --image=busybox:1.37 -- sh\n/ # cat /etc/resolv.conf\n# search shop.svc.cluster.local svc.cluster.local cluster.local\n# nameserver 10.96.0.10\n# options ndots:5\n/ # nslookup api                      # same namespace\n# Name:   api.shop.svc.cluster.local\n# Address: 10.96.112.7\n/ # nslookup postgres.data            # Service postgres in namespace data\n/ # nslookup db-0.db.data.svc.cluster.local   # one StatefulSet pod",
+   "code_lang": "bash",
+   "takeaways": [
+    "Service DNS: name.namespace.svc.cluster.local",
+    "Short names work only within the same namespace",
+    "Headless Services resolve to pod IPs; ndots:5 adds lookups for external names"
+   ],
+   "pitfalls": [
+    "Calling http://api from another namespace and getting NXDOMAIN; use api.<namespace>."
+   ],
+   "quiz": [
+    {
+     "q": "A pod in namespace web calls http://db:5432, but the db Service lives in namespace data. What happens?",
+     "options": [
+      "Name resolution fails unless web also has a db Service",
+      "It works; names are cluster-wide",
+      "It reaches the node's port 5432",
+      "DNS returns all db pods in all namespaces"
+     ],
+     "answer": 0,
+     "explain": "Short names expand with the pod's own namespace first, so db resolves to db.web.svc..., which doesn't exist."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/",
+   "requires": [
+    "kubernetes.services",
+    "kubernetes.namespaces"
+   ]
+  },
+  {
+   "id": "kubernetes.volumes-pvc",
+   "name": "Volumes, PersistentVolumes and claims",
+   "module": "config-storage",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Pods request durable storage with a PersistentVolumeClaim; a StorageClass provisions the actual disk.",
+   "why": "Containers lose their filesystem on restart; anything that must survive needs a volume.",
+   "body": "A pod's `volumes` list makes storage available to its containers through `volumeMounts`. Some volume types are temporary: `emptyDir` lives as long as the pod (scratch space, sharing files between containers), `configMap`/`secret` project config as files.\n\nFor **durable** data, Kubernetes separates request from supply:\n\n- A **PersistentVolumeClaim** (PVC, namespaced) asks for storage: size, `accessModes`, optional `storageClassName`.\n- A **PersistentVolume** (PV, cluster-wide) is an actual piece of storage: a cloud disk, an NFS share.\n- A **StorageClass** names a provisioner (the CSI driver for EBS, Persistent Disk, Azure Disk, Longhorn...) and its parameters. With **dynamic provisioning**, creating a PVC makes the driver create a disk and a PV, and binds them.\n\nAccess modes: `ReadWriteOnce` (one node at a time; typical block disks), `ReadWriteOncePod` (one pod), `ReadOnlyMany`, `ReadWriteMany` (shared filesystems like NFS or EFS).\n\n`reclaimPolicy` decides what happens when the PVC is deleted: `Delete` (default for dynamic classes; the disk is gone) or `Retain`. `volumeBindingMode: WaitForFirstConsumer` delays creating the disk until a pod is scheduled, so it lands in the right zone.\n\nPVCs can usually be expanded by increasing the size, if the class has `allowVolumeExpansion: true`; they can't shrink.",
+   "code": "apiVersion: v1\nkind: PersistentVolumeClaim\nmetadata: {name: uploads}\nspec:\n  accessModes: [ReadWriteOnce]\n  storageClassName: standard     # kubectl get storageclass\n  resources:\n    requests: {storage: 10Gi}\n---\napiVersion: v1\nkind: Pod\nmetadata: {name: uploader}\nspec:\n  containers:\n    - name: app\n      image: busybox:1.37\n      command: [\"sh\", \"-c\", \"date >> /data/log; sleep 3600\"]\n      volumeMounts: [{name: data, mountPath: /data}]\n  volumes:\n    - name: data\n      persistentVolumeClaim: {claimName: uploads}\n# kubectl get pvc uploads     # STATUS Bound, VOLUME pvc-3f1c...",
+   "code_lang": "yaml",
+   "takeaways": [
+    "PVC = request, PV = supply, StorageClass = how to provision",
+    "ReadWriteOnce disks attach to one node at a time",
+    "Default reclaimPolicy Delete removes the disk with the PVC"
+   ],
+   "pitfalls": [
+    "Scaling a Deployment with one ReadWriteOnce PVC to several replicas on different nodes: the extra pods can't mount it."
+   ],
+   "quiz": [
+    {
+     "q": "Why is WaitForFirstConsumer useful for zonal cloud disks?",
+     "options": [
+      "It makes disks bigger",
+      "It creates the disk only once the pod's node, and so its zone, is known",
+      "It enables ReadWriteMany",
+      "It retains disks after deletion"
+     ],
+     "answer": 1,
+     "explain": "Provisioning before scheduling might create the disk in a zone where the pod can't run."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/storage/persistent-volumes/",
+   "requires": [
+    "kubernetes.pods",
+    "docker.volumes"
+   ]
+  },
+  {
+   "id": "kubernetes.statefulsets",
+   "name": "StatefulSets",
+   "module": "workloads",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Run stateful apps with stable pod names, stable DNS and a dedicated volume per replica.",
+   "why": "Databases, queues and clustered systems need identity and storage that survive rescheduling.",
+   "body": "A **StatefulSet** is like a Deployment, but each replica has an identity:\n\n- **Stable names**: `db-0`, `db-1`, `db-2`. A replacement for `db-1` is again `db-1`.\n- **Stable DNS** through a headless Service named in `serviceName`: `db-0.db.<ns>.svc.cluster.local`.\n- **Stable storage** through `volumeClaimTemplates`: each replica gets its own PVC (`data-db-0`, `data-db-1`) that follows it when it is rescheduled.\n- **Ordering**: by default pods are created one at a time in order (0, 1, 2) and removed in reverse; `podManagementPolicy: Parallel` relaxes this.\n\nUpdates roll from the highest ordinal down. `updateStrategy.rollingUpdate.partition: N` updates only pods with ordinal at or above N, a simple way to canary one replica.\n\nScaling down does **not** delete the PVCs by default, so data survives a mistaken scale-down; `persistentVolumeClaimRetentionPolicy` can change that.\n\nA StatefulSet gives identity, not clustering: the application still has to handle replication, leader election and failover. Running production databases on Kubernetes is very doable, usually through an **operator** (CloudNativePG, Strimzi for Kafka) that knows the database's procedures, or simply by using a managed database.",
+   "code": "apiVersion: apps/v1\nkind: StatefulSet\nmetadata: {name: db}\nspec:\n  serviceName: db            # headless Service (clusterIP: None) named db\n  replicas: 3\n  selector: {matchLabels: {app: db}}\n  template:\n    metadata: {labels: {app: db}}\n    spec:\n      containers:\n        - name: postgres\n          image: postgres:17\n          env: [{name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: db, key: password}}}]\n          volumeMounts: [{name: data, mountPath: /var/lib/postgresql/data}]\n  volumeClaimTemplates:\n    - metadata: {name: data}\n      spec:\n        accessModes: [ReadWriteOnce]\n        resources: {requests: {storage: 20Gi}}\n# pods: db-0, db-1, db-2   PVCs: data-db-0, data-db-1, data-db-2",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Stable ordinal names, DNS and per-replica PVCs",
+    "Needs a headless Service named in serviceName",
+    "PVCs survive scale-down; replication logic is still the app's job"
+   ],
+   "pitfalls": [
+    "Expecting three StatefulSet replicas of Postgres to replicate data automatically."
+   ],
+   "quiz": [
+    {
+     "q": "Pod db-1 of a StatefulSet is deleted. What does its replacement get?",
+     "options": [
+      "A random name and a new empty volume",
+      "The name db-3",
+      "The name db-1 and the same PVC data-db-1",
+      "It isn't replaced until you scale"
+     ],
+     "answer": 2,
+     "explain": "StatefulSet replicas keep their ordinal identity and reattach their own claim."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/",
+   "requires": [
+    "kubernetes.volumes-pvc",
+    "kubernetes.services"
+   ]
+  },
+  {
+   "id": "kubernetes.jobs-cronjobs",
+   "name": "Jobs and CronJobs",
+   "module": "workloads",
+   "level": 2,
+   "minutes": 8,
+   "summary": "Run tasks to completion with Jobs, retries and parallelism, and on a schedule with CronJobs.",
+   "why": "Migrations, batch processing and nightly reports need run-to-completion semantics, not always-on pods.",
+   "body": "A **Job** creates pods until a given number finish successfully. Its pods use `restartPolicy: OnFailure` or `Never`.\n\n- `completions`: how many successful pods are needed (default 1).\n- `parallelism`: how many run at once.\n- `completionMode: Indexed`: each pod gets `JOB_COMPLETION_INDEX`, handy for splitting work into shards.\n- `backoffLimit`: retries before the Job is marked failed (default 6, with exponential back-off).\n- `activeDeadlineSeconds`: a hard time limit.\n- `ttlSecondsAfterFinished`: delete the Job and its pods automatically after it ends.\n\nA **CronJob** creates a Job on a schedule in cron syntax (`\"0 3 * * *\"`), with `timeZone` (e.g. `\"Europe/Berlin\"`) supported. Important settings:\n\n- `concurrencyPolicy`: `Allow`, `Forbid` (skip if the previous run is still going) or `Replace`.\n- `startingDeadlineSeconds`: how late a missed run may still start.\n- `successfulJobsHistoryLimit` / `failedJobsHistoryLimit`.\n\nJobs can run more than once: a pod may be retried after doing part of its work, and a CronJob can occasionally create two Jobs for one slot. Make the work **idempotent**.\n\nTrigger a CronJob by hand with `kubectl create job --from=cronjob/report report-manual`.",
+   "code": "apiVersion: batch/v1\nkind: CronJob\nmetadata: {name: nightly-report}\nspec:\n  schedule: \"0 3 * * *\"\n  timeZone: \"Europe/Berlin\"\n  concurrencyPolicy: Forbid\n  jobTemplate:\n    spec:\n      backoffLimit: 3\n      activeDeadlineSeconds: 1800\n      ttlSecondsAfterFinished: 86400\n      template:\n        spec:\n          restartPolicy: OnFailure\n          containers:\n            - name: report\n              image: ghcr.io/acme/report:1.2.0\n              args: [\"--date\", \"yesterday\"]\n# kubectl create job --from=cronjob/nightly-report test-run\n# kubectl get jobs -w      # COMPLETIONS 1/1",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Jobs retry up to backoffLimit and finish after completions succeed",
+    "CronJobs: schedule, timeZone, concurrencyPolicy",
+    "Make job work idempotent: it can run more than once"
+   ],
+   "pitfalls": [
+    "Leaving restartPolicy at Always in a Job template: the API rejects it."
+   ],
+   "quiz": [
+    {
+     "q": "A nightly CronJob sometimes runs longer than 24 hours and two runs overlap. Which setting prevents that?",
+     "options": [
+      "backoffLimit: 0",
+      "ttlSecondsAfterFinished",
+      "parallelism: 1",
+      "concurrencyPolicy: Forbid"
+     ],
+     "answer": 3,
+     "explain": "Forbid skips a new run while the previous Job is still active."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/workloads/controllers/job/",
+   "requires": [
+    "kubernetes.pods"
+   ]
+  },
+  {
+   "id": "kubernetes.daemonsets",
+   "name": "DaemonSets",
+   "module": "workloads",
+   "level": 2,
+   "minutes": 6,
+   "summary": "Run one copy of a pod on every node (or a selected set) for agents like log shippers and CNI plugins.",
+   "why": "Node-level agents for logging, monitoring, networking and storage are all DaemonSets.",
+   "body": "A **DaemonSet** ensures one pod runs on each eligible node. When a node joins, it gets a pod; when it leaves, the pod goes with it. There is no `replicas` field.\n\nTypical uses:\n\n- log collectors (Fluent Bit, Vector) reading `/var/log` from the host,\n- metrics agents (node-exporter, Datadog agent),\n- network plugins (Cilium, Calico) and kube-proxy,\n- CSI storage node plugins.\n\nRestrict which nodes run it with `nodeSelector` or node affinity in the pod template (only GPU nodes, only Linux nodes). Control-plane and specially tainted nodes are skipped unless the DaemonSet's pods have matching **tolerations**; agents that must run everywhere usually tolerate everything.\n\nDaemonSet pods often need host access: `hostPath` volumes, `hostNetwork: true`, or extra privileges. Grant only what is needed; these are high-value targets.\n\nUpdates use `RollingUpdate` with `maxUnavailable` (default 1 node at a time), or `OnDelete` to update a node only when you delete its pod by hand.\n\nSet resource requests carefully: a DaemonSet's requests are reserved on every node, so 200Mi times 100 nodes adds up.",
+   "code": "apiVersion: apps/v1\nkind: DaemonSet\nmetadata: {name: node-logs, namespace: logging}\nspec:\n  selector: {matchLabels: {app: node-logs}}\n  template:\n    metadata: {labels: {app: node-logs}}\n    spec:\n      tolerations:\n        - {operator: Exists}            # run on tainted nodes too\n      containers:\n        - name: fluent-bit\n          image: fluent/fluent-bit:4.0\n          resources: {requests: {cpu: 50m, memory: 64Mi}, limits: {memory: 128Mi}}\n          volumeMounts: [{name: varlog, mountPath: /var/log, readOnly: true}]\n      volumes:\n        - {name: varlog, hostPath: {path: /var/log}}\n# kubectl -n logging get ds node-logs   # DESIRED = number of nodes",
+   "code_lang": "yaml",
+   "takeaways": [
+    "One pod per eligible node; follows nodes in and out",
+    "Use nodeSelector/affinity to target, tolerations to reach tainted nodes",
+    "Requests are paid on every node"
+   ],
+   "pitfalls": [
+    "Forgetting tolerations, so the agent silently skips tainted node pools."
+   ],
+   "quiz": [
+    {
+     "q": "A new node joins the cluster. What does a DaemonSet do?",
+     "options": [
+      "Schedules its pod onto the new node if eligible",
+      "Nothing until you scale it",
+      "Moves an existing pod to it",
+      "Restarts all its pods"
+     ],
+     "answer": 0,
+     "explain": "DaemonSets track nodes and add a pod to each new eligible node."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/",
+   "requires": [
+    "kubernetes.deployments"
+   ]
+  },
+  {
+   "id": "kubernetes.kustomize",
+   "name": "Kustomize overlays",
+   "module": "config-storage",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Customise plain YAML per environment with bases, overlays and patches, built into kubectl.",
+   "why": "You need dev, staging and prod variants of the same manifests without copy-pasting them.",
+   "body": "**Kustomize** builds manifests from a `kustomization.yaml` without templates: the YAML stays valid Kubernetes YAML, and changes are layered on top. It is built into kubectl (`kubectl apply -k dir/`, `kubectl kustomize dir/` to print the result).\n\nThe usual layout is a **base** with the shared manifests and an **overlay** per environment that references it:\n\n- `resources`: files or directories to include (an overlay lists the base).\n- `namespace`, `namePrefix`/`nameSuffix`, `labels`: applied to everything.\n- `images`: change image names or tags without touching the Deployment.\n- `replicas`: change replica counts.\n- `patches`: strategic-merge or JSON 6902 patches for anything else.\n- `configMapGenerator` / `secretGenerator`: build ConfigMaps from files or literals, adding a content hash to the name and updating references, so a config change triggers a rolling update automatically.\n\nKustomize versus Helm: Kustomize is great for your own apps' environment differences and for patching third-party YAML; Helm is better for distributing configurable packages to others. Many teams use both, for example applying a Kustomize patch on top of a rendered Helm chart.\n\nCI pipelines and GitOps tools (Argo CD, Flux) understand Kustomize directories natively.",
+   "code": "# base/kustomization.yaml\nresources: [deployment.yaml, service.yaml]\n\n# overlays/prod/kustomization.yaml\nresources: [../../base]\nnamespace: shop-prod\nimages:\n  - name: ghcr.io/acme/web\n    newTag: \"1.5.0\"\nreplicas:\n  - {name: web, count: 6}\nconfigMapGenerator:\n  - name: web-config\n    literals: [LOG_LEVEL=warn]\npatches:\n  - target: {kind: Deployment, name: web}\n    patch: |-\n      - op: add\n        path: /spec/template/spec/containers/0/resources\n        value: {requests: {cpu: 500m, memory: 1Gi}}\n# kubectl kustomize overlays/prod | less ; kubectl apply -k overlays/prod",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Base plus per-environment overlays, no templating",
+    "images, replicas, patches and generators cover most changes",
+    "Generated ConfigMaps get a hash suffix, so changes roll pods"
+   ],
+   "pitfalls": [
+    "Copying the whole base into each environment instead of patching only the differences."
+   ],
+   "quiz": [
+    {
+     "q": "Why does configMapGenerator append a hash to the ConfigMap's name?",
+     "options": [
+      "To avoid name collisions between namespaces",
+      "So that content changes alter the pod template and trigger a rollout",
+      "Because ConfigMap names must be unique cluster-wide",
+      "To encrypt the data"
+     ],
+     "answer": 1,
+     "explain": "The new name is substituted into the Deployment, changing its template and rolling the pods."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/",
+   "requires": [
+    "kubernetes.manifests",
+    "kubernetes.configmaps-secrets"
+   ]
+  },
+  {
+   "id": "kubernetes.rbac",
+   "name": "RBAC and service accounts",
+   "module": "scheduling-security",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Grant people and workloads exactly the API permissions they need with Roles, ClusterRoles and bindings.",
+   "why": "A cluster without tight RBAC lets any compromised pod or laptop do anything.",
+   "body": "Every API request is made by a **subject**: a user (from your identity provider or certificates), a group, or a **ServiceAccount** (an identity for pods). RBAC decides what it may do. Permissions are additive; there are no deny rules.\n\n- A **Role** lists rules in one namespace: `apiGroups`, `resources`, `verbs` (`get`, `list`, `watch`, `create`, `update`, `patch`, `delete`), optionally specific `resourceNames`.\n- A **ClusterRole** is the same but not namespaced: for cluster-scoped resources, or as a reusable rule set.\n- A **RoleBinding** grants a Role or ClusterRole to subjects within one namespace.\n- A **ClusterRoleBinding** grants a ClusterRole across the whole cluster.\n\nBuilt-in ClusterRoles `view`, `edit` and `admin` cover common needs; bind them per namespace with a RoleBinding.\n\nPods run as the namespace's `default` ServiceAccount unless you set `serviceAccountName`. Their token is mounted as a short-lived, auto-rotated projected token; set `automountServiceAccountToken: false` when a pod never calls the API.\n\nCheck permissions with `kubectl auth can-i list secrets -n shop --as=system:serviceaccount:shop:web`.\n\nDangerous grants: `list` or `get` on secrets, `create` on pods (can mount any secret or run privileged), `escalate`/`bind`, `impersonate`, and wildcards.",
+   "code": "apiVersion: v1\nkind: ServiceAccount\nmetadata: {name: deployer, namespace: shop}\n---\napiVersion: rbac.authorization.k8s.io/v1\nkind: Role\nmetadata: {name: deploy-updater, namespace: shop}\nrules:\n  - apiGroups: [\"apps\"]\n    resources: [\"deployments\"]\n    verbs: [\"get\", \"list\", \"patch\"]\n---\napiVersion: rbac.authorization.k8s.io/v1\nkind: RoleBinding\nmetadata: {name: deployer-can-update, namespace: shop}\nsubjects:\n  - {kind: ServiceAccount, name: deployer, namespace: shop}\nroleRef: {kind: Role, name: deploy-updater, apiGroup: rbac.authorization.k8s.io}\n# kubectl auth can-i patch deploy -n shop --as=system:serviceaccount:shop:deployer  # yes\n# kubectl auth can-i delete deploy -n shop --as=system:serviceaccount:shop:deployer # no",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Role/ClusterRole say what; bindings say who and where",
+    "RBAC is additive: no deny rules",
+    "kubectl auth can-i --as tests any subject"
+   ],
+   "pitfalls": [
+    "Granting cluster-admin to a CI service account because a narrower Role took effort."
+   ],
+   "quiz": [
+    {
+     "q": "You want a ClusterRole's rules to apply in only one namespace. What do you create?",
+     "options": [
+      "A ClusterRoleBinding",
+      "A copy as a namespaced Role is the only way",
+      "A RoleBinding in that namespace referencing the ClusterRole",
+      "A NetworkPolicy"
+     ],
+     "answer": 2,
+     "explain": "A RoleBinding can reference a ClusterRole and grants it only within its own namespace."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/reference/access-authn-authz/rbac/",
+   "requires": [
+    "kubernetes.namespaces",
+    "kubernetes.pods"
+   ]
+  },
+  {
+   "id": "kubernetes.autoscaling",
+   "name": "Autoscaling: HPA, VPA and nodes",
+   "module": "operations",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Scale pod counts on metrics with the HorizontalPodAutoscaler, right-size requests with VPA, and add nodes automatically.",
+   "why": "Traffic changes; autoscaling keeps latency stable without paying for peak capacity all day.",
+   "body": "Three layers of autoscaling work together:\n\n- **HorizontalPodAutoscaler** (`autoscaling/v2`) changes a Deployment's or StatefulSet's `replicas` to keep a metric near a target. CPU and memory utilisation are measured **relative to requests**, from metrics-server. Custom or external metrics (queue length, requests per second) come through an adapter such as Prometheus Adapter or **KEDA**, which can also scale to zero.\n- **VerticalPodAutoscaler** (an add-on) recommends or applies better requests based on observed usage. Don't let VPA and HPA both act on CPU for the same workload.\n- **Node autoscaling**: the Cluster Autoscaler or **Karpenter** adds nodes when pods are Pending for lack of room and removes underused ones.\n\nHPA details that matter:\n\n- It needs resource requests; without them utilisation can't be computed.\n- `minReplicas`/`maxReplicas` bound it.\n- `behavior` controls scale speed: scale-down has a 5-minute stabilisation window by default to avoid flapping.\n- Remove `replicas` from your Deployment manifest (or the next apply fights the HPA).\n\nThe formula is roughly `desired = ceil(current * currentMetric / target)`. Scaling is reactive and new pods need time to start, so keep some headroom and fast startup.",
+   "code": "apiVersion: autoscaling/v2\nkind: HorizontalPodAutoscaler\nmetadata: {name: api}\nspec:\n  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: api}\n  minReplicas: 3\n  maxReplicas: 30\n  metrics:\n    - type: Resource\n      resource:\n        name: cpu\n        target: {type: Utilization, averageUtilization: 70}  # % of requests\n  behavior:\n    scaleDown:\n      stabilizationWindowSeconds: 300\n      policies: [{type: Percent, value: 50, periodSeconds: 60}]\n# kubectl get hpa api\n# NAME  REFERENCE       TARGETS       MINPODS  MAXPODS  REPLICAS\n# api   Deployment/api  cpu: 85%/70%  3        30       4",
+   "code_lang": "yaml",
+   "takeaways": [
+    "HPA scales replicas on metrics relative to requests",
+    "KEDA/adapters for queue- or traffic-based scaling",
+    "Node autoscalers add nodes when pods are Pending"
+   ],
+   "pitfalls": [
+    "Keeping replicas: 3 in the Deployment manifest so every deploy resets what the HPA chose."
+   ],
+   "quiz": [
+    {
+     "q": "4 pods average 90% CPU utilisation against a 60% target. Roughly how many replicas will the HPA want?",
+     "options": [
+      "4",
+      "5",
+      "9",
+      "6"
+     ],
+     "answer": 3,
+     "explain": "ceil(4 x 90 / 60) = 6."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/",
+   "requires": [
+    "kubernetes.resources",
+    "kubernetes.rolling-updates"
+   ]
+  },
+  {
+   "id": "kubernetes.scheduling",
+   "name": "Scheduling: affinity, taints and spread",
+   "module": "scheduling-security",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Steer pods onto or away from nodes with node selectors, affinity, taints, tolerations and topology spread.",
+   "why": "High availability and special hardware both depend on putting pods in the right places.",
+   "body": "The scheduler filters nodes that can run a pod (enough requested resources, matching constraints) and scores the rest. You influence it with:\n\n- `nodeSelector`: the simplest rule, node labels that must match (`kubernetes.io/os: linux`, `node.kubernetes.io/instance-type`, your own `pool: gpu`).\n- **Node affinity**: richer expressions, `requiredDuringSchedulingIgnoredDuringExecution` (hard) or `preferred...` with weights (soft).\n- **Pod affinity / anti-affinity**: place pods near or away from other pods by label within a `topologyKey` (a node, a zone).\n- **Taints and tolerations**: a taint on a node (`dedicated=gpu:NoSchedule`) repels pods without a matching toleration. Tolerating a taint only allows a pod there; combine it with affinity to also attract it. `NoExecute` taints also evict running pods.\n- **topologySpreadConstraints**: keep replicas evenly spread across zones and nodes with `maxSkew`, the usual tool for HA.\n\n\"IgnoredDuringExecution\" means rules are checked only when scheduling; a running pod isn't moved if labels change later. The descheduler add-on can rebalance.\n\n**PriorityClass** sets pod priority: when the cluster is full, a high-priority pending pod can preempt lower-priority ones.\n\nIf a pod is Pending, `kubectl describe` shows messages like `0/5 nodes are available: 3 node(s) had untolerated taint...`.",
+   "code": "spec:\n  replicas: 6\n  template:\n    metadata: {labels: {app: api}}\n    spec:\n      topologySpreadConstraints:\n        - maxSkew: 1\n          topologyKey: topology.kubernetes.io/zone\n          whenUnsatisfiable: DoNotSchedule\n          labelSelector: {matchLabels: {app: api}}\n      affinity:\n        nodeAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n            nodeSelectorTerms:\n              - matchExpressions:\n                  - {key: pool, operator: In, values: [general]}\n      tolerations:\n        - {key: spot, operator: Equal, value: \"true\", effect: NoSchedule}\n# kubectl taint nodes node-7 spot=true:NoSchedule",
+   "code_lang": "yaml",
+   "takeaways": [
+    "nodeSelector/affinity attract; taints repel unless tolerated",
+    "Topology spread keeps replicas across zones",
+    "Rules apply at scheduling time only"
+   ],
+   "pitfalls": [
+    "Adding a toleration and expecting pods to go to the tainted nodes: tolerations permit, they don't attract."
+   ],
+   "quiz": [
+    {
+     "q": "GPU nodes are tainted gpu=true:NoSchedule. How do you make an ML pod run only on them?",
+     "options": [
+      "A toleration plus a nodeSelector/affinity for the GPU label",
+      "Node affinity only",
+      "A toleration only",
+      "A PriorityClass"
+     ],
+     "answer": 0,
+     "explain": "The toleration lets it onto GPU nodes; the selector keeps it off the others."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/",
+   "requires": [
+    "kubernetes.labels-selectors",
+    "kubernetes.resources"
+   ]
+  },
+  {
+   "id": "kubernetes.network-policies",
+   "name": "NetworkPolicies",
+   "module": "scheduling-security",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Restrict which pods may talk to which, starting from default-deny, enforced by the CNI plugin.",
+   "why": "By default every pod can reach every other pod; one compromised pod can then reach your database.",
+   "body": "Without policies the pod network is flat: any pod can connect to any other in any namespace. A **NetworkPolicy** selects pods with `podSelector` and lists what traffic is allowed for them.\n\nSemantics to get right:\n\n- Once any policy selects a pod for `Ingress` (or `Egress`), that direction becomes **deny by default** for it, and only listed traffic is allowed. Policies are additive allow-lists.\n- Sources/destinations: `podSelector` (same namespace), `namespaceSelector` (whole namespaces, e.g. `kubernetes.io/metadata.name: monitoring`), both in one entry (pods with label X in namespaces Y), or `ipBlock`.\n- `ports` narrow by protocol and port.\n- Replies to allowed connections are allowed automatically.\n\nA common baseline per namespace: a **default-deny** policy (`podSelector: {}` with `policyTypes: [Ingress, Egress]`), then explicit allows. With egress deny, remember to allow DNS (UDP and TCP 53 to kube-dns) or nothing resolves.\n\nEnforcement is done by the **CNI plugin**. Calico, Cilium and most managed offerings enforce policies; some simple CNIs (like kind's default) don't, and then policies are silently ignored.\n\nStandard NetworkPolicy works at L3/L4. For HTTP-level rules or mTLS identities, look at Cilium policies or a service mesh.",
+   "code": "apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata: {name: default-deny, namespace: shop}\nspec:\n  podSelector: {}\n  policyTypes: [Ingress]\n---\napiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata: {name: db-from-api, namespace: shop}\nspec:\n  podSelector: {matchLabels: {app: db}}\n  policyTypes: [Ingress]\n  ingress:\n    - from:\n        - podSelector: {matchLabels: {app: api}}\n      ports:\n        - {protocol: TCP, port: 5432}\n# from an api pod: nc -zv db 5432  -> open\n# from a web pod:  nc -zv db 5432  -> times out",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Pods selected by any policy become default-deny for that direction",
+    "Policies only add allowed traffic",
+    "The CNI must support NetworkPolicy; with egress deny, allow DNS"
+   ],
+   "pitfalls": [
+    "Applying an egress default-deny and breaking all DNS lookups."
+   ],
+   "quiz": [
+    {
+     "q": "Two policies select the db pods: one allows from app=api, one allows from app=worker. Which pods can connect?",
+     "options": [
+      "Only api pods (first policy wins)",
+      "Both api and worker pods",
+      "Neither: conflicting policies deny all",
+      "Every pod"
+     ],
+     "answer": 1,
+     "explain": "Policies are unioned; each one adds allowed sources."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/services-networking/network-policies/",
+   "requires": [
+    "kubernetes.services",
+    "kubernetes.namespaces"
+   ]
+  },
+  {
+   "id": "kubernetes.pod-security",
+   "name": "Pod security contexts and admission",
+   "module": "scheduling-security",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Run containers as non-root with minimal privileges, and enforce baseline or restricted standards per namespace.",
+   "why": "A container escape usually starts with a privileged or root container; defaults are too permissive.",
+   "body": "The `securityContext` (pod-level and per container) controls what a container may do:\n\n- `runAsNonRoot: true`, `runAsUser: 10001`: never run as UID 0.\n- `allowPrivilegeEscalation: false`: blocks setuid tricks.\n- `readOnlyRootFilesystem: true`: write only to mounted volumes (`emptyDir` for `/tmp`).\n- `capabilities: {drop: [\"ALL\"]}`: remove Linux capabilities, adding back only what's needed (`NET_BIND_SERVICE`).\n- `seccompProfile: {type: RuntimeDefault}`: filter dangerous syscalls.\n- Never `privileged: true`, `hostPID`, `hostNetwork` or `hostPath` mounts for ordinary apps.\n\n**Pod Security Admission** (built in) enforces the **Pod Security Standards** per namespace via labels:\n\n- `privileged`: no restrictions (system namespaces),\n- `baseline`: blocks known privilege escalations (privileged, host namespaces, hostPath),\n- `restricted`: requires the hardened settings above.\n\nEach level can be applied in `enforce` (reject), `audit` (log) or `warn` (kubectl warning) mode, so you can roll out `restricted` gradually.\n\nFor custom rules (allowed registries, required labels, no `latest` tags) use **ValidatingAdmissionPolicy** with CEL expressions (built in) or a policy engine like Kyverno or OPA Gatekeeper.",
+   "code": "# kubectl label ns shop pod-security.kubernetes.io/enforce=restricted \\\n#   pod-security.kubernetes.io/warn=restricted\napiVersion: v1\nkind: Pod\nmetadata: {name: api, namespace: shop}\nspec:\n  securityContext:\n    runAsNonRoot: true\n    runAsUser: 10001\n    seccompProfile: {type: RuntimeDefault}\n  containers:\n    - name: api\n      image: ghcr.io/acme/api:2.1.0\n      securityContext:\n        allowPrivilegeEscalation: false\n        readOnlyRootFilesystem: true\n        capabilities: {drop: [\"ALL\"]}\n      volumeMounts: [{name: tmp, mountPath: /tmp}]\n  volumes: [{name: tmp, emptyDir: {}}]",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Non-root, no escalation, drop all capabilities, read-only root FS, RuntimeDefault seccomp",
+    "Pod Security Admission: privileged/baseline/restricted per namespace",
+    "warn/audit modes let you roll out safely"
+   ],
+   "pitfalls": [
+    "Images that need root to start: build them to run as a non-root user instead of relaxing the namespace."
+   ],
+   "quiz": [
+    {
+     "q": "A namespace enforces restricted. A pod without allowPrivilegeEscalation: false is applied. What happens?",
+     "options": [
+      "It runs with a warning",
+      "It runs but is evicted later",
+      "It is rejected at admission",
+      "The field is set automatically"
+     ],
+     "answer": 2,
+     "explain": "enforce mode rejects pods that violate the level; warn and audit only report."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/security/pod-security-standards/",
+   "requires": [
+    "kubernetes.rbac",
+    "docker.image-hardening"
+   ]
+  },
+  {
+   "id": "kubernetes.disruptions",
+   "name": "PodDisruptionBudgets and node drains",
+   "module": "operations",
+   "level": 3,
+   "minutes": 8,
+   "summary": "Keep enough replicas up during voluntary disruptions like node upgrades with PodDisruptionBudgets.",
+   "why": "Cluster upgrades and autoscaler scale-downs evict pods; without a PDB they can take down a whole service.",
+   "body": "**Voluntary disruptions** are evictions someone chose: `kubectl drain` before node maintenance, cluster upgrades, the autoscaler removing a node. **Involuntary** ones are crashes, kernel panics and hardware failure.\n\nA **PodDisruptionBudget** limits voluntary disruptions for pods matching a selector, with either `minAvailable` (e.g. `2` or `\"50%\"`) or `maxUnavailable`. The **Eviction API**, used by drain and autoscalers, refuses an eviction that would break the budget, so the drain waits and retries until other pods become ready elsewhere.\n\nPoints to know:\n\n- PDBs don't protect against involuntary failures, and they don't stop a direct `kubectl delete pod` or a Deployment rollout (which has its own maxUnavailable).\n- A PDB that can never be satisfied (`minAvailable: 1` on a single-replica Deployment, or `maxUnavailable: 0`) blocks drains forever, a classic cause of stuck node upgrades. Run at least two replicas for anything with a PDB.\n- `unhealthyPodEvictionPolicy: AlwaysAllow` lets already-unhealthy pods be evicted, so a broken app can't block maintenance.\n\n`kubectl drain node-3 --ignore-daemonsets --delete-emptydir-data` cordons the node (no new pods), then evicts its pods respecting PDBs. `kubectl uncordon node-3` returns it to service.",
+   "code": "apiVersion: policy/v1\nkind: PodDisruptionBudget\nmetadata: {name: api}\nspec:\n  minAvailable: 2\n  selector: {matchLabels: {app: api}}\n  unhealthyPodEvictionPolicy: AlwaysAllow\n# kubectl get pdb api\n# NAME  MIN AVAILABLE  MAX UNAVAILABLE  ALLOWED DISRUPTIONS\n# api   2              N/A              1      (3 healthy replicas)\n#\n# kubectl drain node-3 --ignore-daemonsets --delete-emptydir-data\n# evicting pod shop/api-6f-x1\n# error when evicting ... would violate the pod's disruption budget (retrying)",
+   "code_lang": "yaml",
+   "takeaways": [
+    "PDBs limit voluntary evictions (drains, upgrades, scale-down)",
+    "They don't cover crashes or direct deletes",
+    "An unsatisfiable PDB blocks node drains"
+   ],
+   "pitfalls": [
+    "A PDB with minAvailable: 1 on a single-replica Deployment, which makes every node drain hang."
+   ],
+   "quiz": [
+    {
+     "q": "Which action does a PodDisruptionBudget protect against?",
+     "options": [
+      "A node losing power",
+      "An OOMKill",
+      "kubectl delete pod",
+      "kubectl drain during a cluster upgrade"
+     ],
+     "answer": 3,
+     "explain": "Drains use the Eviction API, which checks PDBs; the others bypass it."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/workloads/pods/disruptions/",
+   "requires": [
+    "kubernetes.rolling-updates",
+    "kubernetes.scheduling"
+   ]
+  },
+  {
+   "id": "kubernetes.troubleshooting",
+   "name": "Troubleshooting pods systematically",
+   "module": "operations",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Diagnose Pending, ImagePullBackOff, CrashLoopBackOff, OOMKilled and not-ready pods with a fixed routine.",
+   "why": "Most incidents are one of a handful of failure states, each with a known first check.",
+   "body": "Start from the pod's status and follow the matching path.\n\n- **Pending**: not scheduled. `describe` shows why: insufficient CPU/memory (requests too big or cluster full), untolerated taints, affinity mismatch, or an unbound PVC (wrong StorageClass, zone).\n- **ContainerCreating** for long: volume attach or mount problems, missing ConfigMap/Secret, CNI issues. Check events.\n- **ErrImagePull / ImagePullBackOff**: wrong image name or tag, private registry without `imagePullSecrets`, or registry rate limits.\n- **CrashLoopBackOff**: the container keeps exiting. Read `logs --previous` and the last state's exit code: 1 is an app error, 137 is SIGKILL (often `OOMKilled`), 143 is SIGTERM, 127 is command not found (wrong `command`/`args`).\n- **Running but 0/1 READY**: readiness probe failing; probe events show the HTTP status or timeout.\n- **Running and ready but unreachable**: check the Service's endpoints (`kubectl get endpointslices`), selector vs labels, `targetPort`, NetworkPolicies, then DNS from a debug pod.\n\nHabits: look at events first, change one thing at a time, and check the controller (Deployment, ReplicaSet) too, as some errors, such as quota exceeded, appear only on the ReplicaSet because the pod was never created.",
+   "code": "kubectl get pods -o wide\nkubectl describe pod api-7d9-k2 | tail -20           # events\nkubectl get pod api-7d9-k2 -o jsonpath='{.status.containerStatuses[0].lastState}'\n# {\"terminated\":{\"exitCode\":137,\"reason\":\"OOMKilled\",...}}\n\nkubectl logs api-7d9-k2 --previous | tail\nkubectl describe rs -l app=api | grep -A3 Events      # e.g. exceeded quota\nkubectl get endpointslices -l kubernetes.io/service-name=api\nkubectl run net --rm -it --image=nicolaka/netshoot -- curl -sv http://api.shop",
+   "code_lang": "bash",
+   "takeaways": [
+    "Status tells you which path to follow",
+    "Exit codes: 137 SIGKILL/OOM, 143 SIGTERM, 127 command not found",
+    "Check endpoints, selectors and policies when ready pods are unreachable"
+   ],
+   "pitfalls": [
+    "Restarting things before reading events and previous logs, which destroys the evidence."
+   ],
+   "quiz": [
+    {
+     "q": "A pod is Running but shows READY 0/1, and the Service gets no traffic to it. What should you check first?",
+     "options": [
+      "The readiness probe's failures in the pod's events",
+      "Node CPU",
+      "The image tag",
+      "RBAC bindings"
+     ],
+     "answer": 0,
+     "explain": "0/1 ready with Running means the readiness probe fails, which also removes it from endpoints."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/tasks/debug/debug-application/",
+   "requires": [
+    "kubernetes.logs-exec-debug",
+    "kubernetes.probes",
+    "kubernetes.resources"
+   ]
+  },
+  {
+   "id": "kubernetes.controllers-reconcile",
+   "name": "Controllers, watches and reconciliation",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "How controllers use list-watch, informers and level-triggered reconcile loops, and why that design is resilient.",
+   "why": "Understanding reconciliation explains Kubernetes behaviour under failure and is the basis for writing operators.",
+   "body": "Every controller follows the same pattern: **observe** desired and actual state, **diff**, **act**, repeat. It's **level-triggered**: it reacts to the current state, not to individual events, so a missed event or a controller restart loses nothing; the next reconcile sees the same state and does the right thing.\n\nMechanics:\n\n- Controllers **list** objects once, then **watch** the API server for changes from that `resourceVersion`. client-go's **informers** keep a local cache and call handlers on add/update/delete, which push object keys (`namespace/name`) onto a **work queue**. Workers pop keys and run `Reconcile(key)`, retrying with back-off on errors. Duplicate keys collapse, so bursts don't overload.\n- **Optimistic concurrency**: every write includes the object's `resourceVersion`; if someone else changed it, the API returns 409 Conflict and the controller re-reads and retries.\n- **Owner references** link children to parents (ReplicaSet to Deployment, Pod to ReplicaSet). The **garbage collector** deletes dependents when the owner goes, in background or foreground mode.\n- **Finalizers** on an object block its deletion until a controller has cleaned up external resources and removed its finalizer. A stuck finalizer is why objects hang in Terminating.\n- `metadata.generation` increments on spec changes; controllers write `status.observedGeneration` so clients know status reflects the latest spec.\n\nLeader election via Lease objects ensures only one replica of a controller acts at a time.",
+   "code": "# Watch the raw event stream a controller sees\nkubectl get deploy web --watch --output-watch-events -o name\n# ADDED     deployment.apps/web\n# MODIFIED  deployment.apps/web\n\nkubectl get pod web-7c6d9f8b5-abcde -o jsonpath='{.metadata.ownerReferences[0].kind}'\n# ReplicaSet\nkubectl get deploy web -o jsonpath='{.metadata.generation} {.status.observedGeneration}'\n# 7 7\n\n# Why is this namespace stuck Terminating?\nkubectl get ns old -o jsonpath='{.spec.finalizers} {.status.conditions[*].message}'\nkubectl get lease -n kube-system     # leader election locks",
+   "code_lang": "bash",
+   "takeaways": [
+    "Level-triggered reconcile: act on current state, tolerate missed events",
+    "Informers cache; work queues dedupe and retry",
+    "resourceVersion conflicts, owner references, finalizers, observedGeneration"
+   ],
+   "pitfalls": [
+    "Removing finalizers by hand to 'fix' a stuck delete, leaking the external resources they guarded."
+   ],
+   "quiz": [
+    {
+     "q": "Why is a controller that crashes and restarts unlikely to leave things inconsistent?",
+     "options": [
+      "The API server replays every missed event exactly once",
+      "It reconciles from the current observed state, not from an event log",
+      "etcd rolls back partial changes",
+      "Pods pause while it is down"
+     ],
+     "answer": 1,
+     "explain": "Level-triggered design means the next reconcile computes what to do from present state."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/architecture/controller/",
+   "requires": [
+    "kubernetes.rolling-updates",
+    "kubernetes.rbac"
+   ]
+  },
+  {
+   "id": "kubernetes.crds-operators",
+   "name": "CRDs and operators",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Extend the API with CustomResourceDefinitions and automate software operations with operator controllers.",
+   "why": "Most platform tooling (cert-manager, Argo CD, database operators) is CRDs plus controllers.",
+   "body": "A **CustomResourceDefinition** adds a new resource type to the API server: a group, a kind, versions, and an **OpenAPI v3 schema** for validation. Once applied, `kubectl get certificates` works like a built-in resource, with RBAC, watch and storage in etcd for free.\n\nCRD features worth knowing:\n\n- **Structural schemas** with defaults, enums and `x-kubernetes-validations` **CEL rules** (e.g. `self.minReplicas <= self.maxReplicas`) validated by the API server.\n- The `status` **subresource** separates spec (users) from status (controller) writes, and `scale` enables HPA and `kubectl scale`.\n- `additionalPrinterColumns` for `kubectl get` output.\n- Several versions with one **storage version**; converting between them needs a conversion webhook when schemas differ.\n\nA CRD alone stores data. An **operator** is a controller that reconciles those custom resources into real things: a `PostgresCluster` object becomes StatefulSets, Services, backups and failover logic. It encodes the operational knowledge a human SRE would apply.\n\nOperators are written with **controller-runtime** via Kubebuilder or Operator SDK in Go, or with frameworks like kopf (Python). The reconcile function should be idempotent, set owner references on what it creates, use finalizers for external cleanup and report conditions in status.\n\nBefore writing one, check whether a ConfigMap plus a Job, or an existing operator, already solves the problem.",
+   "code": "apiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata: {name: backups.ops.example.com}\nspec:\n  group: ops.example.com\n  names: {kind: Backup, plural: backups, singular: backup}\n  scope: Namespaced\n  versions:\n    - name: v1\n      served: true\n      storage: true\n      subresources: {status: {}}\n      schema:\n        openAPIV3Schema:\n          type: object\n          properties:\n            spec:\n              type: object\n              required: [database, schedule]\n              properties:\n                database: {type: string}\n                schedule: {type: string}\n                keep: {type: integer, minimum: 1, default: 7}\n# kubectl get backups   (a controller must still act on them)",
+   "code_lang": "yaml",
+   "takeaways": [
+    "A CRD adds an API type with schema validation and CEL rules",
+    "An operator is a controller reconciling custom resources",
+    "Use status subresource, owner refs, finalizers and conditions"
+   ],
+   "pitfalls": [
+    "Writing an operator for something a Helm chart or CronJob would handle."
+   ],
+   "quiz": [
+    {
+     "q": "You apply a CRD and create a custom resource, but nothing happens in the cluster. Why?",
+     "options": [
+      "CRDs need a cluster restart",
+      "Custom resources must be in kube-system",
+      "A CRD only stores objects; a controller must act on them",
+      "The schema is ignored"
+     ],
+     "answer": 2,
+     "explain": "Behaviour comes from a controller watching the resource; the CRD only defines and stores it."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/",
+   "requires": [
+    "kubernetes.controllers-reconcile"
+   ]
+  },
+  {
+   "id": "kubernetes.api-admission",
+   "name": "API requests, admission and server-side apply",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Follow a request through authentication, authorization, admission and etcd, and understand field ownership with server-side apply.",
+   "why": "Webhooks, policy engines and apply conflicts all live on this path; it explains many confusing errors.",
+   "body": "Every write to the API server passes through stages:\n\n1. **Authentication**: client certificates, bearer tokens (service account JWTs, OIDC) or webhooks establish who you are.\n2. **Authorization**: RBAC (plus Node and webhook authorizers) checks the verb on the resource.\n3. **Mutating admission**: built-in plugins (defaulting ServiceAccounts, LimitRanger) and **MutatingAdmissionWebhooks** (sidecar injection, defaults) and MutatingAdmissionPolicies may change the object.\n4. Schema validation.\n5. **Validating admission**: ResourceQuota, PodSecurity, **ValidatingAdmissionPolicy** (CEL, in-process) and ValidatingAdmissionWebhooks can reject it.\n6. Persisted to **etcd**, which assigns the new `resourceVersion`; watchers are notified.\n\nWebhooks are on the critical path: a down webhook with `failurePolicy: Fail` can block all pod creation. Scope them with selectors, set short timeouts, and exclude kube-system.\n\n**Server-side apply** (`kubectl apply --server-side`) moves the merge into the API server. It tracks **field ownership** in `metadata.managedFields`: each manager (kubectl, an HPA, Helm, a controller) owns the fields it set. Applying a different value for a field someone else owns is a **conflict**; you either drop the field from your config or `--force-conflicts` to take ownership. This is how a GitOps tool and an HPA can share one Deployment safely when your manifest omits `replicas`.",
+   "code": "kubectl apply --server-side --field-manager=ci -f deploy.yaml\nkubectl get deploy web --show-managed-fields -o yaml | grep -E 'manager:|operation:'\n#   manager: ci                         operation: Apply\n#   manager: kube-controller-manager    operation: Update\n# Conflict example:\nkubectl apply --server-side --field-manager=other -f deploy-replicas-5.yaml\n# error: Apply failed with 1 conflict: conflict with \"ci\": .spec.replicas\n\nkubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations\nkubectl get --raw /metrics | grep apiserver_admission_webhook_rejection_count | head -3",
+   "code_lang": "bash",
+   "takeaways": [
+    "authn, authz, mutating admission, validation, validating admission, etcd",
+    "Webhooks can block the cluster: scope them and set timeouts",
+    "Server-side apply tracks field owners and reports conflicts"
+   ],
+   "pitfalls": [
+    "A cluster-wide failing webhook with failurePolicy: Fail that blocks even kube-system pods."
+   ],
+   "quiz": [
+    {
+     "q": "With server-side apply, your CI manifest sets replicas: 3 while an HPA manages replicas. What is the right fix?",
+     "options": [
+      "Always use --force-conflicts",
+      "Switch back to kubectl create",
+      "Delete the HPA",
+      "Remove replicas from the CI manifest"
+     ],
+     "answer": 3,
+     "explain": "Not declaring a field you don't want to own lets the HPA own it without conflicts."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/reference/using-api/server-side-apply/",
+   "requires": [
+    "kubernetes.controllers-reconcile",
+    "kubernetes.pod-security"
+   ]
+  },
+  {
+   "id": "kubernetes.kubelet-runtime",
+   "name": "kubelet, CRI and the pod sandbox",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "How the kubelet turns a pod spec into containers via CRI, containerd, runc, cgroups and the pause sandbox.",
+   "why": "Node-level failures, evictions and resource behaviour make sense only with this picture.",
+   "body": "The kubelet watches pods bound to its node and drives the container runtime through the **Container Runtime Interface** (CRI), a gRPC API. Dockershim was removed in 1.24, so nodes run **containerd** or **CRI-O** directly; images built with Docker still work, since they're OCI images.\n\nFor each pod the kubelet asks the runtime to create a **pod sandbox**: a set of Linux namespaces (network, IPC, UTS) held by a tiny **pause** container, and calls the **CNI** plugin to give the sandbox an IP. Each app container is then created by the runtime via **runc** (or another OCI runtime such as gVisor or Kata via RuntimeClass) inside that sandbox, sharing its network namespace. That's why containers in a pod share `localhost` and the IP survives container restarts.\n\nResources map onto **cgroups v2**: a hierarchy of `kubepods` slices per QoS class, then per pod and container. Memory limits become `memory.max`; CPU requests become `cpu.weight` and limits `cpu.max` quotas.\n\nThe kubelet also:\n\n- runs probes and restarts containers with exponential back-off (the CrashLoopBackOff delay),\n- performs **node-pressure eviction** when memory, disk or PIDs cross thresholds, picking victims by QoS and usage over requests,\n- garbage-collects images and dead containers,\n- reports node status and renews a Lease every 10s as its heartbeat.\n\n`crictl` talks CRI directly on a node for debugging when the API is no help.",
+   "code": "# on a node (e.g. docker exec -it kind-worker bash)\ncrictl pods | head -3\n# POD ID   CREATED  STATE  NAME            NAMESPACE\n# 4b1c...  2h       Ready  web-7c6d9-abc   default\ncrictl ps --pod 4b1c                     # app containers of that sandbox\ncrictl inspectp 4b1c | grep -m1 '\"ip\"'   # sandbox IP from CNI\n\n# cgroup of a Burstable pod (cgroup v2, systemd driver)\nls /sys/fs/cgroup/kubepods.slice/kubepods-burstable.slice/ | head -3\ncat /sys/fs/cgroup/kubepods.slice/kubepods-burstable.slice/*/memory.max | head -1\n\njournalctl -u kubelet --since -10m | grep -i evict",
+   "code_lang": "bash",
+   "takeaways": [
+    "kubelet speaks CRI to containerd/CRI-O; runc creates containers",
+    "The pause sandbox holds the pod's shared namespaces and IP",
+    "Requests and limits become cgroup v2 weights and maxima; kubelet evicts under pressure"
+   ],
+   "pitfalls": [
+    "Thinking Kubernetes still needs Docker on nodes; it uses containerd or CRI-O directly."
+   ],
+   "quiz": [
+    {
+     "q": "Why does a pod keep its IP when its app container restarts?",
+     "options": [
+      "The IP belongs to the pod sandbox's network namespace, not the app container",
+      "The Service pins it",
+      "CoreDNS caches it",
+      "The kubelet reserves it in etcd"
+     ],
+     "answer": 0,
+     "explain": "The pause/sandbox holds the network namespace, so restarting app containers doesn't change it."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/concepts/architecture/cri/",
+   "requires": [
+    "kubernetes.troubleshooting",
+    "docker.containerd-runc",
+    "docker.namespaces-cgroups"
+   ]
+  },
+  {
+   "id": "kubernetes.service-internals",
+   "name": "Service networking internals",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "How kube-proxy (iptables, IPVS, nftables) or eBPF dataplanes implement ClusterIPs on top of the CNI pod network.",
+   "why": "Debugging odd latency, connection resets or lost source IPs requires knowing what the packets really do.",
+   "body": "The **Kubernetes network model** requires every pod to have its own IP and reach every other pod without NAT. The **CNI** plugin implements this: overlays (VXLAN, Geneve), routed networks (BGP with Calico), or cloud-native VPC IPs per pod (AWS VPC CNI, Azure CNI).\n\nA **ClusterIP** isn't bound to any interface. **kube-proxy** on each node watches Services and EndpointSlices and programs the kernel so that packets to `ClusterIP:port` are DNATed to one ready backend pod:\n\n- **iptables mode**: a chain per Service picking a backend at random; rule updates get slow with many thousands of Services.\n- **IPVS mode**: kernel load balancer with hash tables and more algorithms.\n- **nftables mode** (GA since 1.33): the modern replacement for iptables mode, with better update performance.\n\neBPF dataplanes such as **Cilium** can replace kube-proxy entirely, doing the translation at socket or TC level.\n\nConsequences:\n\n- Load balancing is per **connection**, not per request: long-lived HTTP/2 or gRPC connections stick to one pod. Use client-side balancing (headless Service) or a mesh/L7 proxy.\n- Traffic from outside through NodePort/LoadBalancer may hop nodes and be SNATed, hiding the client IP. `externalTrafficPolicy: Local` preserves it and avoids the hop, but only nodes with local pods receive traffic.\n- `internalTrafficPolicy` and topology-aware routing can keep traffic in-zone to save cross-zone costs.",
+   "code": "# On a node using kube-proxy in iptables mode:\niptables -t nat -L KUBE-SERVICES -n | grep shop/api\n# KUBE-SVC-XYZ  tcp -- 0.0.0.0/0  10.96.112.7  /* shop/api:http cluster IP */ tcp dpt:80\niptables -t nat -L KUBE-SVC-XYZ -n\n# KUBE-SEP-AAA  statistic mode random probability 0.33333\n# KUBE-SEP-BBB  statistic mode random probability 0.50000\n# KUBE-SEP-CCC\nkubectl -n kube-system get cm kube-proxy -o yaml | grep -m1 'mode:'\n\n# preserve client source IPs for an external Service\nkubectl patch svc web -p '{\"spec\":{\"externalTrafficPolicy\":\"Local\"}}'",
+   "code_lang": "bash",
+   "takeaways": [
+    "CNI gives pods routable IPs; kube-proxy or eBPF implements ClusterIPs",
+    "Balancing is per connection: watch out with gRPC/HTTP2",
+    "externalTrafficPolicy: Local keeps the client IP and avoids an extra hop"
+   ],
+   "pitfalls": [
+    "Expecting a ClusterIP to spread gRPC requests across pods when clients hold one long connection."
+   ],
+   "quiz": [
+    {
+     "q": "A gRPC client sends all requests to one of five backend pods behind a ClusterIP. Why?",
+     "options": [
+      "The Service is misconfigured",
+      "kube-proxy balances connections, and the client reuses one HTTP/2 connection",
+      "Readiness probes failed on four pods",
+      "DNS caching"
+     ],
+     "answer": 1,
+     "explain": "L4 balancing picks a backend per connection; HTTP/2 multiplexes all requests over it."
+    }
+   ],
+   "docs": "https://kubernetes.io/docs/reference/networking/virtual-ips/",
+   "requires": [
+    "kubernetes.network-policies",
+    "kubernetes.dns-discovery"
+   ]
+  }
+ ]
+}

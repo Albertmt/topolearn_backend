@@ -1,0 +1,769 @@
+{
+ "tool": {
+  "id": "nltk",
+  "name": "NLTK",
+  "category": "library",
+  "tagline": "The Natural Language Toolkit: classic NLP algorithms, corpora and teaching tools",
+  "description": "NLTK is a Python library of classic natural language processing building blocks: tokenizers, stemmers, taggers, parsers, WordNet, sentiment lexicons and many text corpora. It is widely used for teaching, research prototypes and lightweight text preprocessing. Learning it gives you a clear, hands-on understanding of how NLP pipelines work under the hood.",
+  "icon": "NL",
+  "color": "#2E7D32",
+  "official_docs": "https://www.nltk.org/",
+  "version": "3.9+",
+  "aliases": [
+   "natural language toolkit"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "setup",
+   "name": "Setup and corpora"
+  },
+  {
+   "id": "tokens",
+   "name": "Tokens and counts"
+  },
+  {
+   "id": "normalize",
+   "name": "Normalising words"
+  },
+  {
+   "id": "tagging",
+   "name": "Tagging and structure"
+  },
+  {
+   "id": "semantics",
+   "name": "Meaning and sentiment"
+  },
+  {
+   "id": "models",
+   "name": "Models and evaluation"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "nltk.setup-data",
+   "name": "Installing NLTK and its data",
+   "module": "setup",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Install the library, download the data packages (tokenizer models, corpora, lexicons) and control where NLTK looks for them.",
+   "why": "Most NLTK errors on a new machine are LookupErrors for missing data, not bugs in your code.",
+   "body": "NLTK is two things: the Python package (`pip install nltk`) and a separate collection of **data packages** such as tokenizer models, tagger weights, word lists and corpora. The code alone can't tokenize a sentence until the relevant data is downloaded.\n\n`nltk.download(\"name\")` fetches a package into an `nltk_data` directory, usually in your home folder. Packages you'll need early:\n\n- `punkt_tab`: sentence tokenizer models (replaced the older pickled `punkt` in NLTK 3.9)\n- `stopwords`, `wordnet`, `averaged_perceptron_tagger_eng` (the POS tagger)\n- `vader_lexicon` for sentiment; corpora such as `gutenberg`, `brown`, `movie_reviews`\n\nWhen something is missing you get a `LookupError` whose message names the exact package to download. Read it: it is the fix.\n\n`nltk.data.path` lists the directories searched, in order. Point NLTK at a project-local or shared directory with the `NLTK_DATA` environment variable, or download to a specific place with `nltk.download(\"stopwords\", download_dir=path)`. In Docker images and CI, download data during the build step, not at request time, so production never depends on network access.\n\nRecent releases harden data loading against path tricks and network abuse. Behind a corporate proxy, newer versions may refuse downloads until you opt in (the error names the setting, such as the `NLTK_ALLOW_PROXIED_URLOPEN` variable). `python -m nltk.downloader stopwords punkt_tab` downloads from the command line.",
+   "code": "import nltk\n\nfor pkg in [\"punkt_tab\", \"stopwords\", \"wordnet\"]:\n    nltk.download(pkg, quiet=True)          # no-op if already present\n\nprint(nltk.__version__)                     # e.g. 3.9.2\nprint(nltk.data.path[0])                    # first directory searched\n\ntry:\n    nltk.data.find(\"corpora/not_a_real_corpus\")\nexcept LookupError as e:\n    print(\"LookupError:\", \"not_a_real_corpus\" in str(e))   # True\n\nprint(nltk.data.find(\"corpora/stopwords\") is not None)     # True: installed\n\n# Shell equivalents:\n#   python -m nltk.downloader punkt_tab stopwords wordnet\n#   NLTK_DATA=/opt/nltk_data python app.py",
+   "code_lang": "python",
+   "takeaways": [
+    "The pip package and the data packages are installed separately",
+    "`nltk.download(name)` fetches data; LookupError messages name what is missing",
+    "`NLTK_DATA` and `nltk.data.path` control where data is found",
+    "Download data at build time for servers and containers"
+   ],
+   "pitfalls": [
+    "Calling nltk.download inside a web request handler, so production depends on network access and slows down."
+   ],
+   "quiz": [
+    {
+     "q": "`word_tokenize` raises a LookupError mentioning 'punkt_tab'. What is the fix?",
+     "options": [
+      "Run nltk.download('punkt_tab')",
+      "Reinstall nltk with pip",
+      "Upgrade Python",
+      "Use str.split instead"
+     ],
+     "answer": 0,
+     "explain": "The tokenizer's model data is a separate package that must be downloaded."
+    },
+    {
+     "q": "How do you make NLTK use data from /opt/nltk_data on a server?",
+     "options": [
+      "Copy it into site-packages/nltk",
+      "Pass data= to every function",
+      "Set the NLTK_DATA environment variable to that directory",
+      "It is impossible; data must be in the home folder"
+     ],
+     "answer": 2,
+     "explain": "NLTK_DATA adds directories to the search path used by nltk.data."
+    }
+   ],
+   "docs": "https://www.nltk.org/data.html",
+   "requires": [
+    "python.modules-imports",
+    "python.venv-pip"
+   ]
+  },
+  {
+   "id": "nltk.tokenization",
+   "name": "Sentence and word tokenization",
+   "module": "tokens",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Split text into sentences with sent_tokenize and into words and punctuation with word_tokenize.",
+   "why": "Tokens are the unit every later step counts, tags or classifies, and naive splitting gets punctuation and abbreviations wrong.",
+   "body": "**Tokenization** splits raw text into units. NLTK's two workhorses:\n\n- `nltk.sent_tokenize(text)`: splits into sentences using the pretrained **Punkt** model, which learned that `Dr.` or `U.S.` usually don't end a sentence.\n- `nltk.word_tokenize(text)`: splits each sentence into words and punctuation using Treebank-style rules.\n\nWhy not `text.split()`? Splitting on spaces leaves punctuation attached (`\"world!\"`) and can't separate contractions. `word_tokenize` gives `\"Don't\"` as `[\"Do\", \"n't\"]` and `\"$3.50\"` as `[\"$\", \"3.50\"]`, the conventions expected by NLTK's taggers and parsers trained on the Penn Treebank.\n\nBoth functions accept `language=` (for example `\"german\"`) to use other Punkt models.\n\nOther tokenizers for special cases:\n\n- `TweetTokenizer` keeps emoticons, hashtags and @handles intact and can shorten elongated words (`reduce_len=True`).\n- `RegexpTokenizer(r\"\\w+\")` keeps only what matches a pattern, a quick way to drop punctuation.\n- `wordpunct_tokenize` splits on every punctuation boundary.\n\nTokenizers don't change case. Lowercasing, stopword removal and stemming are separate normalisation steps you choose based on the task, because a sentiment model may need `\"NOT\"` and `\"!\"` that a topic model would throw away.",
+   "code": "from nltk.tokenize import (sent_tokenize, word_tokenize,\n                           TweetTokenizer, RegexpTokenizer)\n\ntext = \"Dr. Smith paid $3.50 in the U.S. yesterday. Don't worry, it's fine!\"\nprint(sent_tokenize(text))\n# ['Dr. Smith paid $3.50 in the U.S. yesterday.', \"Don't worry, it's fine!\"]\n\nprint(word_tokenize(\"Don't worry, it's fine!\"))\n# ['Do', \"n't\", 'worry', ',', 'it', \"'s\", 'fine', '!']\n\nprint(\"Don't worry, it's fine!\".split())\n# [\"Don't\", 'worry,', \"it's\", 'fine!']\n\ntweet = \"@ana loving #NLP sooooo much :-)\"\nprint(TweetTokenizer(strip_handles=True, reduce_len=True).tokenize(tweet))\n# ['loving', '#NLP', 'sooo', 'much', ':-)']\n\nprint(RegexpTokenizer(r\"\\w+\").tokenize(\"Hello, world! 42 times.\"))\n# ['Hello', 'world', '42', 'times']",
+   "code_lang": "python",
+   "takeaways": [
+    "sent_tokenize uses Punkt to handle abbreviations; word_tokenize uses Treebank rules",
+    "word_tokenize splits punctuation and contractions ('n't', \"'s\")",
+    "TweetTokenizer and RegexpTokenizer handle social text and custom patterns",
+    "Tokenizing doesn't lowercase or filter; that is a separate step"
+   ],
+   "pitfalls": [
+    "Using str.split() and then counting 'fine!' and 'fine' as different words."
+   ],
+   "quiz": [
+    {
+     "q": "What does `word_tokenize(\"can't\")` return?",
+     "options": [
+      "[\"can't\"]",
+      "['can', \"'t\"]",
+      "['can', 't']",
+      "['ca', \"n't\"]"
+     ],
+     "answer": 3,
+     "explain": "Treebank tokenization splits the 'n't' clitic, leaving 'ca'."
+    },
+    {
+     "q": "Why does sent_tokenize not split after 'Dr.' in 'Dr. Smith arrived.'?",
+     "options": [
+      "It never splits on periods",
+      "The Punkt model learned that 'Dr.' is an abbreviation",
+      "It only splits on newlines",
+      "Capital letters are ignored"
+     ],
+     "answer": 1,
+     "explain": "Punkt is trained to recognise abbreviations that don't end sentences."
+    }
+   ],
+   "docs": "https://www.nltk.org/api/nltk.tokenize.html",
+   "requires": [
+    "nltk.setup-data",
+    "python.strings"
+   ]
+  },
+  {
+   "id": "nltk.frequency-stopwords",
+   "name": "Frequency counts and stopwords",
+   "module": "tokens",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Count tokens with FreqDist, remove stopwords, and find the most characteristic words of a text.",
+   "why": "Word counts are the first look at any corpus and the basis of keyword extraction and bag-of-words features.",
+   "body": "`nltk.FreqDist(tokens)` counts how often each token occurs. It is a subclass of `collections.Counter`, so `fd[\"word\"]`, `fd.most_common(10)` and arithmetic work as usual, plus extras: `fd.N()` (total tokens), `fd.B()` (distinct tokens), `fd.freq(w)` (relative frequency), `fd.hapaxes()` (words seen once) and `fd.plot(20)` with matplotlib.\n\nRaw counts are dominated by **stopwords**: \"the\", \"of\", \"and\", which say little about the topic. `nltk.corpus.stopwords.words(\"english\")` returns a list of about 180 common English words; put it in a `set` for fast membership tests. Lists exist for many other languages.\n\nA typical cleanup before counting:\n\n- lowercase tokens so \"The\" and \"the\" merge,\n- keep only alphabetic tokens (`w.isalpha()`) to drop punctuation and numbers,\n- remove stopwords.\n\nBe deliberate. The stopword list includes negations such as \"not\", \"no\" and \"nor\", and removing them flips meaning for sentiment tasks. Domain texts also have their own uninformative words (\"patient\" in clinical notes), which you add to the set.\n\n`ConditionalFreqDist` counts per condition, for example word frequencies per genre or per author: `ConditionalFreqDist((genre, w) for genre in genres for w in words(genre))`, then `cfd[\"news\"].most_common(5)`.",
+   "code": "import nltk\nfrom nltk.corpus import stopwords\nfrom nltk.tokenize import word_tokenize\n\ntext = '''The cat sat on the mat. The dog sat on the log.\nThe cat and the dog are not friends, but the cat likes the mat.'''\n\ntokens = [w.lower() for w in word_tokenize(text) if w.isalpha()]\nfd = nltk.FreqDist(tokens)\nprint(fd.most_common(3))       # [('the', 8), ('cat', 3), ('sat', 2)]\nprint(fd.N(), fd.B())          # 26 13\n\nstop = set(stopwords.words(\"english\"))\nprint(len(stop), \"not\" in stop)                # 198 True (count varies by version)\ncontent = [w for w in tokens if w not in stop]\nprint(nltk.FreqDist(content).most_common(3))   # [('cat', 3), ('sat', 2), ('mat', 2)]\n\ncfd = nltk.ConditionalFreqDist((len(w), w) for w in content)\nprint(sorted(cfd[3]))          # ['cat', 'dog', 'log', 'mat', 'sat']",
+   "code_lang": "python",
+   "takeaways": [
+    "FreqDist is a Counter with extras: most_common, N, B, freq, hapaxes",
+    "Lowercase and filter non-alphabetic tokens before counting",
+    "Use a set of stopwords; the English list includes negations",
+    "ConditionalFreqDist counts separately per condition"
+   ],
+   "pitfalls": [
+    "Removing NLTK stopwords before sentiment analysis, which deletes 'not' and inverts meanings."
+   ],
+   "quiz": [
+    {
+     "q": "Why convert `stopwords.words('english')` to a set before filtering?",
+     "options": [
+      "Membership tests on a set are O(1) instead of scanning a list",
+      "Sets remove the stopwords automatically",
+      "The list contains duplicates that break filtering",
+      "FreqDist only accepts sets"
+     ],
+     "answer": 0,
+     "explain": "Checking `w in a_set` is a hash lookup; `w in a_list` scans every element."
+    }
+   ],
+   "docs": "https://www.nltk.org/book/ch01.html",
+   "requires": [
+    "nltk.tokenization",
+    "python.collections",
+    "python.comprehensions"
+   ]
+  },
+  {
+   "id": "nltk.corpus-readers",
+   "name": "Built-in corpora and corpus readers",
+   "module": "setup",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Explore Gutenberg, Brown, movie_reviews and others through corpus readers, and load your own files the same way.",
+   "why": "Corpora give you labelled text to practise on, and corpus readers are how NLTK loads any collection of documents.",
+   "body": "NLTK ships access to dozens of corpora through `nltk.corpus`, each downloaded on first use like other data. A **corpus reader** exposes a consistent API:\n\n- `fileids()`: the documents in the corpus\n- `raw(fileid)`: the text as one string\n- `words(fileid)`: a list of word tokens; `sents(fileid)` a list of tokenized sentences\n- `categories()` and `words(categories=\"news\")` for categorised corpora such as `brown` and `movie_reviews`\n- tagged corpora add `tagged_words()` and `tagged_sents()`\n\nSome favourites: `gutenberg` (classic books), `brown` (a balanced corpus of 15 genres, POS-tagged), `movie_reviews` (2000 labelled positive/negative reviews), `reuters`, `inaugural` and `treebank`.\n\nReader methods return **lazy corpus views**: they look like lists but stream from disk on demand, so even big corpora don't fill memory until you iterate or convert with `list()`.\n\nTo use your own documents, point a reader at a folder: `PlaintextCorpusReader(root, r\".*\\.txt\")` tokenizes plain text files, and `CategorizedPlaintextCorpusReader` derives categories from file names or folders with a `cat_pattern`. Since NLTK 3.10, readers only open files under trusted data roots, so add your folder to `nltk.data.path` (or `NLTK_DATA`) first. You then get the same `words()`, `sents()` and `categories()` interface, which plugs straight into frequency counts and classifiers.\n\n`nltk.Text(words)` wraps tokens for exploration: `concordance(\"word\")` shows each occurrence in context, `similar()` and `collocations()` find related words.",
+   "code": "import os\nimport nltk\nfrom nltk.corpus import brown, gutenberg, movie_reviews\nfrom nltk.corpus.reader import PlaintextCorpusReader\n\nprint(gutenberg.fileids()[:3])     # ['austen-emma.txt', 'austen-persuasion.txt', 'austen-sense.txt']\nprint(len(gutenberg.words(\"austen-emma.txt\")))   # 192427\n\nprint(brown.categories()[:4])      # ['adventure', 'belles_lettres', 'editorial', 'fiction']\nprint(brown.tagged_words(categories=\"news\")[:2])  # [('The', 'AT'), ('Fulton', 'NP-TL')]\n\nprint(movie_reviews.categories())  # ['neg', 'pos']\nprint(len(movie_reviews.fileids(\"pos\")))         # 1000\n\nos.makedirs(\"mydocs\", exist_ok=True)\nnltk.data.path.append(os.path.abspath(\"mydocs\"))   # NLTK 3.10+: trusted roots only\nwith open(\"mydocs/a.txt\", \"w\") as f:\n    f.write(\"Small corpora are easy. Readers tokenize for you.\")\nmine = PlaintextCorpusReader(\"mydocs\", r\".*\\.txt\")\nprint(mine.fileids(), len(mine.sents(\"a.txt\")))  # ['a.txt'] 2\nprint(mine.words()[:4])            # ['Small', 'corpora', 'are', 'easy']",
+   "code_lang": "python",
+   "takeaways": [
+    "Corpus readers share fileids, raw, words, sents and categories",
+    "Results are lazy views that stream from disk",
+    "brown, movie_reviews and treebank come labelled or tagged",
+    "PlaintextCorpusReader turns your own folder into a corpus"
+   ],
+   "pitfalls": [
+    "Calling list() on very large corpus views repeatedly instead of iterating once."
+   ],
+   "quiz": [
+    {
+     "q": "What does `movie_reviews.words(categories='pos')` give you?",
+     "options": [
+      "The file names of positive reviews",
+      "A single string of positive text",
+      "Tokens from all positive reviews, as a lazy list-like view",
+      "A frequency distribution"
+     ],
+     "answer": 2,
+     "explain": "words() returns tokens and the categories filter selects positive files."
+    }
+   ],
+   "docs": "https://www.nltk.org/howto/corpus.html",
+   "requires": [
+    "nltk.setup-data",
+    "python.files"
+   ]
+  },
+  {
+   "id": "nltk.stemming",
+   "name": "Stemming with Porter and Snowball",
+   "module": "normalize",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Reduce words to crude stems with PorterStemmer, SnowballStemmer and LancasterStemmer, and know their limits.",
+   "why": "Stemming merges word variants cheaply, shrinking vocabularies for search and classic bag-of-words models.",
+   "body": "A **stemmer** chops affixes off words using rules, so variants map to one key: \"connect\", \"connected\", \"connecting\" and \"connection\" all become \"connect\". The stem need not be a real word: \"studies\" becomes \"studi\".\n\nNLTK provides:\n\n- `PorterStemmer`: the classic 1980 algorithm, moderate and widely used\n- `SnowballStemmer(\"english\")`: \"Porter2\", slightly better, and available for many languages (`SnowballStemmer.languages`)\n- `LancasterStemmer`: very aggressive, often over-stems (\"maximum\" to \"maxim\")\n- `RegexpStemmer` for your own suffix rules\n\nStemmers process one token at a time: `stemmer.stem(word)`. They lowercase by default.\n\nStemming has two failure modes. **Over-stemming** merges unrelated words (\"universe\" and \"university\" both become \"univers\"). **Under-stemming** misses true relatives, especially irregular forms (\"ran\" stays \"ran\", \"better\" stays \"better\").\n\nWhen to use it: search indexes and simple text classifiers where speed matters and a slightly odd vocabulary is fine. When you need real dictionary words, or correct handling of irregular forms, use lemmatization instead. Modern transformer models need neither, because their subword tokenizers handle variants themselves.",
+   "code": "from nltk.stem import LancasterStemmer, PorterStemmer, SnowballStemmer\n\nwords = [\"connect\", \"connected\", \"connecting\", \"connection\",\n         \"studies\", \"running\", \"ran\", \"university\", \"universe\", \"maximum\"]\nporter = PorterStemmer()\nsnow = SnowballStemmer(\"english\")\nlanc = LancasterStemmer()\n\nfor w in words:\n    print(f\"{w:11} {porter.stem(w):9} {snow.stem(w):9} {lanc.stem(w)}\")\n# connection  connect   connect   connect\n# studies     studi     studi     study\n# ran         ran       ran       ran\n# university  univers   univers   univers\n# maximum     maximum   maximum   maxim\n\nprint(\"german\" in SnowballStemmer.languages)       # True\nprint(SnowballStemmer(\"german\").stem(\"Häuser\"))    # haus",
+   "code_lang": "python",
+   "takeaways": [
+    "Stemmers strip affixes by rule; stems need not be real words",
+    "Snowball (Porter2) is the usual default and supports many languages",
+    "Over-stemming merges unrelated words; under-stemming misses irregular forms",
+    "Use lemmatization when you need dictionary words"
+   ],
+   "pitfalls": [
+    "Showing stems such as 'studi' to end users, for example as keywords."
+   ],
+   "quiz": [
+    {
+     "q": "Which statement about `PorterStemmer().stem('studies')` returning 'studi' is true?",
+     "options": [
+      "It is a bug in NLTK",
+      "Porter only works on verbs",
+      "You must lowercase the input first",
+      "Stems are not required to be dictionary words"
+     ],
+     "answer": 3,
+     "explain": "Rule-based stemming only needs variants to map to the same key."
+    },
+    {
+     "q": "'university' and 'universe' both stem to 'univers'. This is an example of...",
+     "options": [
+      "under-stemming",
+      "over-stemming",
+      "lemmatization",
+      "tokenization"
+     ],
+     "answer": 1,
+     "explain": "Merging words with different meanings is over-stemming."
+    }
+   ],
+   "docs": "https://www.nltk.org/howto/stem.html",
+   "requires": [
+    "nltk.tokenization",
+    "python.loops"
+   ]
+  },
+  {
+   "id": "nltk.lemmatization",
+   "name": "Lemmatization with WordNet",
+   "module": "normalize",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Map words to dictionary forms with WordNetLemmatizer, and pass the part of speech to get correct results.",
+   "why": "Lemmas give clean, readable vocabulary for features and keywords and handle irregular forms that stemmers miss.",
+   "body": "A **lemma** is the dictionary form of a word: \"ran\" to \"run\", \"mice\" to \"mouse\", \"better\" to \"good\". `WordNetLemmatizer().lemmatize(word, pos)` looks words up in WordNet and applies its morphology rules (it needs the `wordnet` data package).\n\nThe crucial detail is the **`pos`** argument. It defaults to noun (`\"n\"`), so verbs and adjectives are left alone: `lemmatize(\"running\")` returns \"running\", while `lemmatize(\"running\", pos=\"v\")` returns \"run\". Valid values are `\"n\"`, `\"v\"`, `\"a\"` (adjective), `\"r\"` (adverb) and `\"s\"` (satellite adjective).\n\nIn practice you get the POS from a tagger and map Penn Treebank tags to WordNet's letters: tags starting with `J` are adjectives, `V` verbs, `N` nouns, `R` adverbs.\n\nThe lemmatizer expects lowercase input for most words and returns the word unchanged when WordNet doesn't know it, so names and typos pass through.\n\nCompared with stemming, lemmatization is slower and needs the POS, but produces real words, handles irregular forms and doesn't over-merge. Use it when output is shown to people or when vocabulary quality matters, for example topic models and keyword extraction. spaCy's lemmatizer does the tagging step automatically if you are building a fuller pipeline.",
+   "code": "from nltk import pos_tag, word_tokenize\nfrom nltk.corpus import wordnet as wn\nfrom nltk.stem import WordNetLemmatizer\n\nlem = WordNetLemmatizer()\nprint(lem.lemmatize(\"mice\"))               # mouse\nprint(lem.lemmatize(\"running\"))            # running  (treated as a noun!)\nprint(lem.lemmatize(\"running\", pos=\"v\"))   # run\nprint(lem.lemmatize(\"better\", pos=\"a\"))    # good\n\ndef to_wn(tag):\n    return {\"J\": wn.ADJ, \"V\": wn.VERB, \"R\": wn.ADV}.get(tag[0], wn.NOUN)\n\nsent = \"The striped bats were hanging on their feet\"\ntagged = pos_tag(word_tokenize(sent))\nprint([lem.lemmatize(w.lower(), to_wn(t)) for w, t in tagged])\n# ['the', 'striped', 'bat', 'be', 'hang', 'on', 'their', 'foot']",
+   "code_lang": "python",
+   "takeaways": [
+    "WordNetLemmatizer returns dictionary forms such as run, mouse, good",
+    "pos defaults to noun: pass 'v', 'a' or 'r' for other word classes",
+    "Map Penn Treebank tags (J, V, N, R) to WordNet POS from a tagger",
+    "Unknown words are returned unchanged"
+   ],
+   "pitfalls": [
+    "Calling lemmatize without a POS on verbs and wondering why nothing changes."
+   ],
+   "quiz": [
+    {
+     "q": "What does `WordNetLemmatizer().lemmatize('was')` return?",
+     "options": [
+      "wa",
+      "be",
+      "was",
+      "is"
+     ],
+     "answer": 0,
+     "explain": "Without pos='v' the word is treated as a noun, and noun rules strip the final 's' to give 'wa'."
+    },
+    {
+     "q": "Why does lemmatization usually need a POS tagger in front of it?",
+     "options": [
+      "WordNet stores only nouns",
+      "Tagging lowercases the text",
+      "The correct lemma depends on the word class, and the default is noun",
+      "It speeds up the lookup"
+     ],
+     "answer": 2,
+     "explain": "'saw' is 'see' as a verb but 'saw' as a noun, so the POS decides."
+    }
+   ],
+   "docs": "https://www.nltk.org/api/nltk.stem.wordnet.html",
+   "requires": [
+    "nltk.stemming",
+    "nltk.pos-tagging"
+   ]
+  },
+  {
+   "id": "nltk.pos-tagging",
+   "name": "Part-of-speech tagging",
+   "module": "tagging",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Tag tokens with nltk.pos_tag, read Penn Treebank tags, and use the universal tagset for simpler categories.",
+   "why": "POS tags feed lemmatization, chunking, keyword extraction and many rule-based text patterns.",
+   "body": "**Part-of-speech tagging** assigns each token a grammatical class. `nltk.pos_tag(tokens)` takes a tokenized sentence and returns `(word, tag)` pairs using a pretrained averaged perceptron model (data package `averaged_perceptron_tagger_eng`).\n\nTags follow the **Penn Treebank** tagset, which is fine-grained:\n\n- nouns: `NN` (singular), `NNS` (plural), `NNP` (proper)\n- verbs: `VB` (base), `VBD` (past), `VBG` (-ing), `VBN` (past participle), `VBZ` (3rd person singular)\n- `JJ` adjective, `RB` adverb, `DT` determiner, `IN` preposition, `PRP` pronoun, `CD` number\n\n`nltk.help.upenn_tagset(\"VB.*\")` explains tags (needs the `tagsets_json` data). If you only need coarse classes, download `universal_tagset` and pass `tagset=\"universal\"` to get `NOUN`, `VERB`, `ADJ`, `ADV`, `DET`, `ADP` and so on.\n\nTag **whole sentences**, not isolated words or lists of keywords: the tagger uses context, which is how it can tell that \"permit\" is a verb in \"refuse to permit us\" and a noun in \"the permit\". It is still a statistical model and makes mistakes, especially on words much more common in one role. Tagging after removing stopwords or lowercasing everything hurts accuracy too.\n\nUse `pos_tag_sents` to tag many sentences efficiently. The built-in tagger is fast and reasonable on news-like English; for other languages, informal text or higher accuracy, a spaCy or transformer pipeline is the usual upgrade. You can also train your own taggers from tagged corpora.",
+   "code": "import nltk\nfrom nltk import pos_tag, pos_tag_sents, word_tokenize\n\nprint(pos_tag(word_tokenize(\"They refuse to permit us to obtain the refuse permit\")))\n# [('They', 'PRP'), ('refuse', 'VBP'), ('to', 'TO'), ('permit', 'VB'), ('us', 'PRP'),\n#  ('to', 'TO'), ('obtain', 'VB'), ('the', 'DT'), ('refuse', 'NN'), ('permit', 'NN')]\nprint(pos_tag(word_tokenize(\"I want to book a flight\"))[3])\n# ('book', 'NN')  -- taggers make mistakes: here it should be VB\n\nnltk.download(\"universal_tagset\", quiet=True)          # mapping table\nprint(pos_tag(word_tokenize(\"Dogs bark loudly\"), tagset=\"universal\"))\n# [('Dogs', 'NOUN'), ('bark', 'VERB'), ('loudly', 'ADV')]\n\nsents = [word_tokenize(s) for s in [\"Time flies.\", \"She sold 3 cars.\"]]\nfor tagged in pos_tag_sents(sents):\n    nouns = [w for w, t in tagged if t.startswith(\"NN\")]\n    print(nouns)\n# ['Time', 'flies']   ('flies' tagged as a plural noun here)\n# ['cars']",
+   "code_lang": "python",
+   "takeaways": [
+    "pos_tag returns (word, Penn Treebank tag) pairs",
+    "Tags encode detail: NNS plural noun, VBD past verb, JJ adjective",
+    "tagset='universal' gives coarse classes",
+    "Tag full sentences in their original form; context drives accuracy"
+   ],
+   "pitfalls": [
+    "Tagging a bag of lowercased keywords without context and trusting the tags."
+   ],
+   "quiz": [
+    {
+     "q": "Which tag would the Penn Treebank assign to 'running' in 'She is running'?",
+     "options": [
+      "VB",
+      "NN",
+      "VBN",
+      "VBG"
+     ],
+     "answer": 3,
+     "explain": "VBG marks gerunds and present participles ending in -ing."
+    },
+    {
+     "q": "Why should you POS-tag before removing stopwords?",
+     "options": [
+      "Stopwords carry no tags",
+      "The tagger relies on surrounding words as context",
+      "pos_tag fails on short lists",
+      "Removing stopwords changes the tagset"
+     ],
+     "answer": 1,
+     "explain": "Neighbouring words like 'to' and 'a' are strong clues for the tag of the next word."
+    }
+   ],
+   "docs": "https://www.nltk.org/book/ch05.html",
+   "requires": [
+    "nltk.tokenization"
+   ]
+  },
+  {
+   "id": "nltk.ngrams-collocations",
+   "name": "N-grams and collocations",
+   "module": "tokens",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Build bigrams and n-grams, and find statistically significant phrases with collocation finders and association measures.",
+   "why": "Phrases like 'New York' or 'machine learning' carry meaning that single words lose, and n-grams are the basis of language models.",
+   "body": "An **n-gram** is a run of n consecutive tokens. `nltk.ngrams(tokens, n)` yields tuples; `nltk.bigrams` and `nltk.trigrams` are shortcuts. Counting them with `FreqDist` shows frequent phrases, but raw counts favour boring pairs such as (\"of\", \"the\").\n\nA **collocation** is a pair that occurs together more often than chance predicts. `BigramCollocationFinder.from_words(tokens)` collects counts, and an **association measure** scores each pair:\n\n- `BigramAssocMeasures.pmi` (pointwise mutual information): high when words rarely appear apart, but it overrates rare pairs\n- `likelihood_ratio` and `chi_sq`: more robust for typical corpora\n- `raw_freq`: plain frequency\n\nBefore scoring, filter: `finder.apply_freq_filter(3)` drops pairs seen fewer than 3 times (essential for PMI), and `finder.apply_word_filter(lambda w: w in stop)` removes pairs containing stopwords. Then `finder.nbest(measure, 10)` returns the top pairs. Trigram versions exist too.\n\n`nltk.Text(tokens).collocation_list()` gives a quick default list.\n\nUses: phrase detection before topic modelling, building keyword lists, and features for classifiers. `MWETokenizer` can then merge discovered phrases such as `(\"New\", \"York\")` into single tokens.",
+   "code": "import nltk\nfrom nltk.collocations import BigramAssocMeasures, BigramCollocationFinder\nfrom nltk.corpus import gutenberg, stopwords\n\ntokens = [\"machine\", \"learning\", \"is\", \"fun\", \"and\", \"machine\", \"learning\", \"is\", \"hard\"]\nprint(list(nltk.bigrams(tokens))[:3])\n# [('machine', 'learning'), ('learning', 'is'), ('is', 'fun')]\nprint(nltk.FreqDist(nltk.ngrams(tokens, 3)).most_common(1))\n# [(('machine', 'learning', 'is'), 2)]\n\nwords = [w.lower() for w in gutenberg.words(\"austen-emma.txt\") if w.isalpha()]\nstop = set(stopwords.words(\"english\"))\nfinder = BigramCollocationFinder.from_words(words)\nfinder.apply_freq_filter(5)\nfinder.apply_word_filter(lambda w: w in stop)\nm = BigramAssocMeasures()\nprint(finder.nbest(m.likelihood_ratio, 4))\n# [('mr', 'knightley'), ('mrs', 'weston'), ('frank', 'churchill'), ('mr', 'elton')]\n\nmwe = nltk.MWETokenizer([(\"machine\", \"learning\")])\nprint(mwe.tokenize(tokens)[:2])    # ['machine_learning', 'is']",
+   "code_lang": "python",
+   "takeaways": [
+    "nltk.ngrams/bigrams produce tuples of consecutive tokens",
+    "Collocation finders score pairs with PMI, likelihood ratio, chi-square",
+    "Apply frequency and stopword filters before ranking",
+    "MWETokenizer merges known phrases into single tokens"
+   ],
+   "pitfalls": [
+    "Ranking by PMI without a frequency filter, so pairs of one-off rare words dominate."
+   ],
+   "quiz": [
+    {
+     "q": "Why does PMI without a frequency filter often rank strange pairs first?",
+     "options": [
+      "Two rare words seen together once get a very high score",
+      "PMI ignores word order",
+      "PMI favours stopwords",
+      "It only works on trigrams"
+     ],
+     "answer": 0,
+     "explain": "PMI compares joint to individual probability, which is extreme for rare words that co-occur once."
+    }
+   ],
+   "docs": "https://www.nltk.org/howto/collocations.html",
+   "requires": [
+    "nltk.frequency-stopwords"
+   ]
+  },
+  {
+   "id": "nltk.vader-sentiment",
+   "name": "Sentiment analysis with VADER",
+   "module": "semantics",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Score the sentiment of short texts with VADER's lexicon and rules, and interpret its compound score.",
+   "why": "VADER gives a solid, training-free sentiment baseline for reviews and social media in a few lines.",
+   "body": "**VADER** (Valence Aware Dictionary and sEntiment Reasoner) is a rule-based sentiment model tuned for social media. It needs the `vader_lexicon` data package. Create `SentimentIntensityAnalyzer()` and call `polarity_scores(text)` to get a dict:\n\n- `neg`, `neu`, `pos`: the proportions of the text that fall in each class (they sum to about 1)\n- `compound`: a normalised overall score from -1 (most negative) to +1 (most positive)\n\nThe usual thresholds: compound >= 0.05 is positive, <= -0.05 negative, otherwise neutral.\n\nVADER is more than a word list. Its rules handle:\n\n- **negation**: \"not good\" flips polarity\n- **intensifiers**: \"very good\" > \"good\"; \"kind of good\" < \"good\"\n- **capitalisation and punctuation**: \"GOOD!!!\" scores higher than \"good\"\n- **\"but\"**: the clause after \"but\" weighs more\n- emoticons, common slang and emoji descriptions\n\nFeed it raw text, not stemmed or lowercased tokens, because case, punctuation and stopwords like \"not\" carry signal.\n\nLimitations: it doesn't understand sarcasm, domain-specific terms (\"unpredictable\" is good for a thriller, bad for a car) or long documents well. Score per sentence and aggregate for longer texts, and validate against labelled examples from your domain before trusting it; a trained classifier or transformer model usually beats it when labels exist.",
+   "code": "from nltk.sentiment import SentimentIntensityAnalyzer\n\nsia = SentimentIntensityAnalyzer()\n\ndef label(text):\n    c = sia.polarity_scores(text)[\"compound\"]\n    return \"pos\" if c >= 0.05 else \"neg\" if c <= -0.05 else \"neu\"\n\nprint(sia.polarity_scores(\"The food was good.\"))\n# {'neg': 0.0, 'neu': 0.508, 'pos': 0.492, 'compound': 0.4404}\n\nfor t in [\"The food was good.\", \"The food was not good.\",\n          \"The food was VERY GOOD!!!\", \"The food was good, but the service was awful.\",\n          \"The table is made of wood.\"]:\n    print(f\"{sia.polarity_scores(t)['compound']:+.3f} {label(t)}  {t}\")\n# +0.440 pos  The food was good.\n# -0.341 neg  The food was not good.\n# +0.760 pos  The food was VERY GOOD!!!\n# -0.468 neg  The food was good, but the service was awful.\n# +0.000 neu  The table is made of wood.",
+   "code_lang": "python",
+   "takeaways": [
+    "polarity_scores returns neg/neu/pos proportions and a compound score",
+    "compound >= 0.05 positive, <= -0.05 negative is the usual rule",
+    "Rules handle negation, intensifiers, caps, punctuation and 'but'",
+    "Give it raw text and validate on your own domain"
+   ],
+   "pitfalls": [
+    "Lowercasing and stripping punctuation before VADER, which throws away intensity cues."
+   ],
+   "quiz": [
+    {
+     "q": "Which input will get the highest compound score from VADER?",
+     "options": [
+      "the movie was good",
+      "The movie was not good",
+      "The movie was GOOD!!!",
+      "The movie was kind of good"
+     ],
+     "answer": 2,
+     "explain": "Capitalisation and exclamation marks are treated as intensifiers."
+    }
+   ],
+   "docs": "https://www.nltk.org/api/nltk.sentiment.vader.html",
+   "requires": [
+    "nltk.tokenization",
+    "python.dicts"
+   ]
+  },
+  {
+   "id": "nltk.classification",
+   "name": "Text classification with Naive Bayes",
+   "module": "models",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Turn documents into feature dicts, train NLTK's NaiveBayesClassifier, evaluate accuracy and inspect informative features.",
+   "why": "Building a classifier end to end shows the core supervised NLP workflow: features, train/test split, evaluation.",
+   "body": "NLTK classifiers work on **featuresets**: each example is a `dict` of feature names to values, paired with a label. You write a **feature extractor** function that turns a document into that dict, for example `{\"contains(great)\": True, \"contains(awful)\": False, ...}` over a chosen vocabulary.\n\nThe workflow:\n\n- build `(features, label)` pairs for every document,\n- shuffle and split into training and test sets (never evaluate on training data),\n- `clf = nltk.NaiveBayesClassifier.train(train_set)`,\n- `nltk.classify.accuracy(clf, test_set)`,\n- `clf.classify(features)` for one prediction, `clf.prob_classify(...)` for probabilities,\n- `clf.show_most_informative_features(10)` to see which features drive decisions.\n\n**Naive Bayes** assumes features are independent given the label. That's false for language, but it trains instantly, works well with many sparse features and is a strong baseline for sentiment and topic tasks.\n\nThe vocabulary is a design choice: the 2000 most frequent words is a common start. With True/False features for every vocabulary word, inputs should resemble the training documents: a five-word snippet is mostly \"absent\" features and gets classified poorly. Restrict it to training data only; picking features using the test set leaks information.\n\n`nltk.classify.SklearnClassifier` wraps any scikit-learn estimator (such as `LogisticRegression` or `LinearSVC`) so it accepts the same featuresets, which usually beats Naive Bayes. For real projects with more data, scikit-learn's vectorizers or transformer models are the usual next step.",
+   "code": "import random\nimport nltk\nfrom nltk.corpus import movie_reviews as mr\n\ndocs = [(list(mr.words(f)), cat) for cat in mr.categories() for f in mr.fileids(cat)]\nrandom.seed(0)\nrandom.shuffle(docs)\ntrain_docs, test_docs = docs[:1600], docs[1600:]\n\nfd = nltk.FreqDist(w.lower() for words, _ in train_docs for w in words if w.isalpha())\nvocab = [w for w, _ in fd.most_common(2000)]          # from training data only\n\ndef features(words):\n    present = set(w.lower() for w in words)\n    return {f\"has({w})\": (w in present) for w in vocab}\n\ntrain_set = [(features(d), c) for d, c in train_docs]\ntest_set = [(features(d), c) for d, c in test_docs]\nclf = nltk.NaiveBayesClassifier.train(train_set)\nprint(round(nltk.classify.accuracy(clf, test_set), 2))   # about 0.8\nprint(clf.classify(test_set[0][0]), test_set[0][1])  # predicted vs gold label\nclf.show_most_informative_features(3)\n# has(outstanding) = True   pos : neg = 22.2 : 1.0 ...",
+   "code_lang": "python",
+   "takeaways": [
+    "Features are dicts produced by your own extractor function",
+    "Train on one split, measure accuracy on a held-out split",
+    "NaiveBayesClassifier is fast and interpretable via most_informative_features",
+    "SklearnClassifier plugs scikit-learn models into the same workflow"
+   ],
+   "pitfalls": [
+    "Building the vocabulary from all documents, including the test set, which inflates accuracy."
+   ],
+   "quiz": [
+    {
+     "q": "What is the input format NLTK's NaiveBayesClassifier.train expects?",
+     "options": [
+      "A list of raw strings",
+      "A NumPy matrix and a label vector",
+      "A FreqDist",
+      "A list of (feature_dict, label) pairs"
+     ],
+     "answer": 3,
+     "explain": "Each training example is a featureset dict paired with its label."
+    },
+    {
+     "q": "Why is Naive Bayes called 'naive'?",
+     "options": [
+      "It ignores word frequency",
+      "It assumes features are independent given the class",
+      "It only supports two classes",
+      "It cannot output probabilities"
+     ],
+     "answer": 1,
+     "explain": "It multiplies per-feature probabilities as if features didn't influence each other."
+    }
+   ],
+   "docs": "https://www.nltk.org/book/ch06.html",
+   "requires": [
+    "nltk.corpus-readers",
+    "nltk.frequency-stopwords",
+    "python.functions"
+   ]
+  },
+  {
+   "id": "nltk.chunking-ner",
+   "name": "Chunking and named entities",
+   "module": "tagging",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Group tagged words into phrases with RegexpParser grammars and find named entities with ne_chunk.",
+   "why": "Chunks such as noun phrases and entities such as people and places are what most information extraction is after.",
+   "body": "**Chunking** (shallow parsing) groups POS-tagged tokens into non-overlapping phrases without building a full parse tree. `nltk.RegexpParser(grammar)` takes rules written as regular expressions over **tags**:\n\n```text\nNP: {<DT>?<JJ>*<NN.*>+}\n```\n\nThis says a noun phrase is an optional determiner, any adjectives, then one or more nouns. `<NN.*>` matches NN, NNS, NNP, NNPS. Rules can also **chink** (remove) with `}...{` and you can define several labels, applied in order.\n\n`parser.parse(tagged)` returns an `nltk.Tree`: the root `S` contains subtrees for chunks and plain `(word, tag)` tuples for everything else. Iterate with `tree.subtrees(filter=lambda t: t.label() == \"NP\")` and get words with `t.leaves()`.\n\n**Named entity recognition**: `nltk.ne_chunk(tagged)` uses a pretrained maximum entropy chunker (data `maxent_ne_chunker_tab` plus `words`) and labels `PERSON`, `ORGANIZATION`, `GPE` (geo-political entity), `LOCATION` and others. `binary=True` collapses them all to `NE`.\n\n`nltk.chunk.tree2conlltags(tree)` converts to IOB tags (`B-NP`, `I-NP`, `O`), the standard format for training and evaluating chunkers.\n\nNLTK's NER is dated and noticeably less accurate than spaCy or transformer models; the example shows it splitting a person's name and mislabelling a company. Use it to learn the concepts or for quick experiments; RegexpParser remains handy for precise, rule-based phrase patterns.",
+   "code": "import nltk\nfrom nltk import ne_chunk, pos_tag, word_tokenize\n\ntagged = pos_tag(word_tokenize(\"The little yellow dog barked at the old cat\"))\nparser = nltk.RegexpParser(\"NP: {<DT>?<JJ>*<NN.*>+}\")\ntree = parser.parse(tagged)\nfor np_ in tree.subtrees(filter=lambda t: t.label() == \"NP\"):\n    print(\" \".join(w for w, t in np_.leaves()))\n# The little yellow dog\n# the old cat\n\nprint(nltk.chunk.tree2conlltags(tree)[:3])\n# [('The', 'DT', 'B-NP'), ('little', 'JJ', 'I-NP'), ('yellow', 'JJ', 'I-NP')]\n\nsent = \"Barack Obama visited Microsoft in Seattle last week.\"\nents = ne_chunk(pos_tag(word_tokenize(sent)))\nfor t in ents.subtrees(filter=lambda t: t.label() != \"S\"):\n    print(t.label(), \" \".join(w for w, _ in t.leaves()))\n# PERSON Barack\n# PERSON Obama\n# PERSON Microsoft     <- wrong label, and the name above was split in two\n# GPE Seattle          (output from NLTK 3.10's model)",
+   "code_lang": "python",
+   "takeaways": [
+    "RegexpParser rules are regular expressions over POS tags",
+    "Chunk results are nltk.Tree objects; filter subtrees by label",
+    "ne_chunk labels PERSON, ORGANIZATION, GPE and more",
+    "IOB tags (B-, I-, O) are the standard chunk annotation format"
+   ],
+   "pitfalls": [
+    "Writing chunk patterns over words instead of tags, e.g. <dog> rather than <NN>."
+   ],
+   "quiz": [
+    {
+     "q": "Which tokens does the rule `NP: {<DT>?<JJ>*<NN>}` chunk in 'a big red ball' tagged DT JJ JJ NN?",
+     "options": [
+      "'a big red ball'",
+      "Only 'ball'",
+      "'big red ball'",
+      "Nothing, because JJ appears twice"
+     ],
+     "answer": 0,
+     "explain": "The optional determiner, any number of adjectives and the noun all match."
+    },
+    {
+     "q": "In NLTK's NER output, what does the label GPE stand for?",
+     "options": [
+      "General Proper Entity",
+      "Grammatical Phrase Element",
+      "Geo-Political Entity, such as a country or city",
+      "Generic Person Entity"
+     ],
+     "answer": 2,
+     "explain": "GPE covers places with governments: countries, states, cities."
+    }
+   ],
+   "docs": "https://www.nltk.org/book/ch07.html",
+   "requires": [
+    "nltk.pos-tagging"
+   ]
+  },
+  {
+   "id": "nltk.wordnet",
+   "name": "WordNet: synsets and word relations",
+   "module": "semantics",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Navigate WordNet synsets, definitions, synonyms, hypernyms and similarity scores.",
+   "why": "WordNet adds lexical knowledge (meanings, synonyms, is-a hierarchies) to rule-based NLP, query expansion and data augmentation.",
+   "body": "**WordNet** is a lexical database of English that groups words into **synsets**: sets of synonyms expressing one meaning. Access it with `from nltk.corpus import wordnet as wn` (data package `wordnet`).\n\n- `wn.synsets(\"bank\")` lists every sense, as names like `bank.n.01` (lemma, POS, sense number). Filter with `pos=wn.VERB`.\n- `syn.definition()` and `syn.examples()` explain a sense.\n- `syn.lemmas()` gives the words in the synset; `lemma.name()` the text, and `lemma.antonyms()` opposites.\n\nSynsets are linked by relations:\n\n- **hypernyms** (more general: dog to canine) and **hyponyms** (more specific)\n- **meronyms** and **holonyms** (part and whole: tree has trunk)\n- `syn.hypernym_paths()` gives the chains up to the root `entity.n.01`, and `lowest_common_hypernyms(other)` the closest shared ancestor\n\nSimilarity measures compare senses through the hierarchy: `path_similarity` (0 to 1, based on the shortest path), `wup_similarity` (Wu-Palmer, based on depth of the common ancestor), and information-content measures such as `res_similarity` that need corpus counts.\n\nWord sense is the hard part: a word has several synsets, and picking the right one needs context. `nltk.wsd.lesk(context_tokens, word)` is a simple baseline for that. With the Open Multilingual WordNet data (`omw-1.4`, or `omw-2.0` in the newest releases), `lemma_names(lang=\"fra\")` gives words in other languages.",
+   "code": "from nltk.corpus import wordnet as wn\n\nsenses = wn.synsets(\"bank\")\nprint(len(senses) > 10, senses[0].name())     # True bank.n.01\nprint(wn.synset(\"bank.n.02\").definition())\n# a financial institution that accepts deposits and channels the money ...\n\ndog = wn.synset(\"dog.n.01\")\nprint(dog.hypernyms())         # [Synset('domestic_animal.n.01'), Synset('canine.n.02')]\nprint([l.name() for l in wn.synset(\"good.a.01\").lemmas()[0].antonyms()])   # ['bad']\n\ncat, car = wn.synset(\"cat.n.01\"), wn.synset(\"car.n.01\")\nprint(round(dog.path_similarity(cat), 2), round(dog.path_similarity(car), 2))\n# 0.2 0.08  (dog is closer to cat than to car)\nprint(round(dog.wup_similarity(cat), 2))      # 0.86\nprint(dog.lowest_common_hypernyms(cat))       # [Synset('carnivore.n.01')]\nprint(dog.lemma_names(\"fra\"))  # ['canis_familiaris', 'chien'] (needs omw data)",
+   "code_lang": "python",
+   "takeaways": [
+    "Synsets are meanings; a word usually has several",
+    "definition(), examples(), lemmas() describe a synset",
+    "Hypernyms/hyponyms form an is-a hierarchy you can walk",
+    "path_similarity and wup_similarity compare senses, not words"
+   ],
+   "pitfalls": [
+    "Taking `wn.synsets(word)[0]` as the meaning without considering context."
+   ],
+   "quiz": [
+    {
+     "q": "What is a hypernym of 'dog.n.01'?",
+     "options": [
+      "puppy.n.01",
+      "bark.v.04",
+      "cat.n.01",
+      "canine.n.02"
+     ],
+     "answer": 3,
+     "explain": "A hypernym is a more general concept; canine is a broader category containing dogs."
+    },
+    {
+     "q": "Why do similarity functions take synsets rather than words?",
+     "options": [
+      "Words are too long to compare",
+      "A word can have many senses, and similarity is defined between specific meanings",
+      "Synsets are faster to load",
+      "WordNet stores no words"
+     ],
+     "answer": 1,
+     "explain": "'bank' as a river edge and as a lender would have very different similarities to 'money'."
+    }
+   ],
+   "docs": "https://www.nltk.org/howto/wordnet.html",
+   "requires": [
+    "nltk.lemmatization"
+   ]
+  },
+  {
+   "id": "nltk.grammars-parsing",
+   "name": "Context-free grammars and parsing",
+   "module": "tagging",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Write a context-free grammar, parse sentences into trees with chart parsers, and see why ambiguity makes parsing hard.",
+   "why": "Parsing shows how sentence structure is represented and why ambiguity is the central problem of NLP.",
+   "body": "A **context-free grammar** (CFG) describes sentence structure with rewrite rules. `nltk.CFG.fromstring` reads them:\n\n```text\nS -> NP VP\nNP -> Det N | Det N PP | 'I'\nVP -> V NP | VP PP\nPP -> P NP\n```\n\nNon-terminals (S, NP, VP) are expanded until only terminals (quoted words) remain. A **parser** finds every tree that derives a given token list from the start symbol.\n\n`nltk.ChartParser(grammar)` uses dynamic programming to store partial results in a chart, avoiding the exponential re-work of naive recursive descent; `RecursiveDescentParser` and `ShiftReduceParser` exist for teaching but are slower or incomplete (the recursive descent parser loops on left-recursive rules like `VP -> VP PP`).\n\n`parser.parse(tokens)` yields `nltk.Tree` objects. Trees support `tree.label()`, `tree.leaves()`, indexing into children, `tree.pretty_print()` for an ASCII drawing, and `tree.productions()`.\n\nThe classic lesson is **ambiguity**: \"I shot an elephant in my pajamas\" has two parses depending on whether the PP attaches to the verb or the noun. Real grammars give sentences hundreds or thousands of parses. Probabilistic CFGs (`nltk.PCFG` with `ViterbiParser`) rank them by rule probabilities, and modern parsers (spaCy, Stanza) learn dependency structures from treebanks instead of hand-written rules.\n\nHand-written CFGs remain useful for small controlled languages, such as command interfaces and form-like queries.",
+   "code": "import nltk\n\ngrammar = nltk.CFG.fromstring('''\nS -> NP VP\nPP -> P NP\nNP -> Det N | Det N PP | 'I'\nVP -> V NP | VP PP\nDet -> 'an' | 'my'\nN -> 'elephant' | 'pajamas'\nV -> 'shot'\nP -> 'in'\n''')\nparser = nltk.ChartParser(grammar)\ntokens = \"I shot an elephant in my pajamas\".split()\ntrees = list(parser.parse(tokens))\nprint(len(trees))                    # 2  -- structurally ambiguous\nfor t in trees:\n    print(t)\n# (S (NP I) (VP (VP (V shot) (NP (Det an) (N elephant))) (PP (P in) ...)))\n# (S (NP I) (VP (V shot) (NP (Det an) (N elephant) (PP (P in) ...))))\nprint(trees[0].label(), trees[0].leaves()[:2])   # S ['I', 'shot']",
+   "code_lang": "python",
+   "takeaways": [
+    "CFG rules rewrite non-terminals until words remain",
+    "ChartParser finds all parses efficiently with dynamic programming",
+    "Parse results are nltk.Tree objects with label(), leaves(), pretty_print()",
+    "Ambiguity yields many trees; PCFGs and learned parsers rank them"
+   ],
+   "pitfalls": [
+    "Using RecursiveDescentParser with a left-recursive rule like VP -> VP PP, which never terminates."
+   ],
+   "quiz": [
+    {
+     "q": "Why does 'I shot an elephant in my pajamas' get two parse trees?",
+     "options": [
+      "'in my pajamas' can attach either to the verb phrase or to the noun phrase",
+      "The grammar has a bug",
+      "'shot' is both a noun and a verb",
+      "ChartParser always returns two trees"
+     ],
+     "answer": 0,
+     "explain": "PP attachment ambiguity: who is in the pajamas depends on where the PP attaches."
+    }
+   ],
+   "docs": "https://www.nltk.org/book/ch08.html",
+   "requires": [
+    "nltk.chunking-ner"
+   ]
+  },
+  {
+   "id": "nltk.language-models",
+   "name": "N-gram language models with nltk.lm",
+   "module": "models",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Train MLE, Laplace and Kneser-Ney n-gram models, handle padding and unknown words, generate text and compute perplexity.",
+   "why": "N-gram LMs are the conceptual ancestor of today's large language models and still teach smoothing, sparsity and evaluation.",
+   "body": "A **language model** assigns probabilities to word sequences. An n-gram model approximates `P(word | history)` using only the previous n-1 words, estimated from counts.\n\n`nltk.lm` structures this:\n\n- `padded_everygram_pipeline(n, sentences)` pads each sentence with `<s>` and `</s>` and produces all 1..n-grams for training plus a flat vocabulary stream.\n- Model classes: `MLE` (raw relative frequencies), `Laplace` (add-one), `Lidstone(gamma)`, `KneserNeyInterpolated` and `WittenBellInterpolated`.\n- `lm.fit(train, vocab)`, then `lm.score(word, context)`, `lm.logscore` (base 2), `lm.generate(n, text_seed=..., random_seed=...)`.\n\n**Sparsity** is the core problem. MLE gives probability 0 to any unseen n-gram, so a single new bigram makes a test sentence impossible and perplexity infinite. **Smoothing** moves some probability mass to unseen events: Laplace does it crudely; Kneser-Ney, which also accounts for how many contexts a word appears in, is the classic best performer.\n\nThe `Vocabulary` maps rare or unseen words to `<UNK>` (controlled by `unk_cutoff`), which keeps out-of-vocabulary words from breaking scoring.\n\n**Perplexity**, `lm.perplexity(test_ngrams)`, is 2 to the power of the average negative log2 probability: lower is better and roughly means \"how many choices the model is confused between\". Compare perplexities only between models with the same vocabulary.",
+   "code": "from nltk.lm import MLE, KneserNeyInterpolated, Laplace\nfrom nltk.lm.preprocessing import padded_everygram_pipeline\nfrom nltk.util import bigrams, pad_sequence\n\ncorpus = [s.split() for s in [\"the cat sat on the mat\", \"the dog sat on the log\",\n                              \"the cat saw the dog\", \"a dog sat on a mat\"]]\nmodels = {}\nfor name, cls in [(\"mle\", MLE), (\"laplace\", Laplace), (\"kn\", KneserNeyInterpolated)]:\n    train, vocab = padded_everygram_pipeline(2, corpus)\n    models[name] = cls(2)\n    models[name].fit(train, vocab)\n\nmle = models[\"mle\"]\nprint(mle.counts[[\"the\"]][\"cat\"], round(mle.score(\"cat\", [\"the\"]), 3))   # 2 0.333\nprint(mle.score(\"log\", [\"a\"]))                                          # 0.0 unseen\n\ntest = list(bigrams(pad_sequence(\"a cat sat on the log\".split(), 2,\n                                 pad_left=True, left_pad_symbol=\"<s>\",\n                                 pad_right=True, right_pad_symbol=\"</s>\")))\nfor name, m in models.items():\n    print(name, round(m.perplexity(test), 2))\n# mle inf   (one unseen bigram ruins it)\n# laplace 7.04\n# kn 4.09\nprint(mle.generate(5, text_seed=[\"the\"], random_seed=3))   # e.g. ['cat', 'saw', 'the', 'dog', 'sat']",
+   "code_lang": "python",
+   "takeaways": [
+    "N-gram LMs estimate P(word | previous n-1 words) from counts",
+    "padded_everygram_pipeline pads sentences and builds training n-grams",
+    "MLE gives zero to unseen n-grams; Laplace and Kneser-Ney smooth",
+    "Perplexity (lower is better) compares models on the same vocabulary"
+   ],
+   "pitfalls": [
+    "Comparing perplexities of models trained with different vocabularies or UNK handling."
+   ],
+   "quiz": [
+    {
+     "q": "An MLE bigram model reports infinite perplexity on a test sentence. Why?",
+     "options": [
+      "The test sentence is too long",
+      "MLE cannot compute perplexity",
+      "At least one bigram in it never occurred in training, so its probability is 0",
+      "The vocabulary was too large"
+     ],
+     "answer": 2,
+     "explain": "log(0) is minus infinity, so a single unseen n-gram makes perplexity infinite without smoothing."
+    }
+   ],
+   "docs": "https://www.nltk.org/api/nltk.lm.html",
+   "requires": [
+    "nltk.ngrams-collocations",
+    "nltk.classification"
+   ]
+  },
+  {
+   "id": "nltk.custom-tokenizers",
+   "name": "Training Punkt and building custom tokenizers",
+   "module": "tokens",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Adapt sentence splitting to your domain by training Punkt or adding abbreviations, and compose regex and multi-word tokenizers.",
+   "why": "Pretrained tokenizers break on legal, medical or technical text full of unusual abbreviations, silently corrupting every later step.",
+   "body": "**Punkt** is an unsupervised algorithm: it learns from raw text which tokens ending in a period are abbreviations, which words commonly start sentences, and which period-word pairs are collocations. The shipped models were trained on news text, so domain abbreviations such as `approx.`, `Fig.` or `cf.` can cause false sentence breaks.\n\nTwo ways to adapt it:\n\n- **Train** on a large sample of your own raw text: `PunktTrainer().train(text, finalize=False)`, call `finalize_training()`, then build `PunktSentenceTokenizer(trainer.get_params())`. More text gives better statistics; a few hundred kilobytes is a reasonable start.\n- **Patch** parameters directly: add lowercase abbreviation types without the period to `tokenizer._params.abbrev_types`. Quick and predictable, but it touches a private attribute.\n\n`span_tokenize(text)` returns character offsets instead of strings, which you need for mapping results back to the original document (highlighting, annotation).\n\nFor words, `RegexpTokenizer(pattern, gaps=False)` gives full control. With `gaps=True` the pattern describes separators instead of tokens. Write verbose patterns with `(?x)` to handle tricky cases: abbreviations like `U.S.A.`, hyphenated words, currency and percentages. `MWETokenizer` then merges multi-word expressions, and `TreebankWordDetokenizer` turns tokens back into readable text.\n\nTest tokenizers on real examples from your corpus and compare output before and after changes; small changes ripple through every downstream count.",
+   "code": "from nltk.tokenize import RegexpTokenizer, sent_tokenize\nfrom nltk.tokenize.punkt import PunktSentenceTokenizer, PunktTrainer\n\ntext = \"Results are shown in Fig. 3 of the paper. Values were approx. 5 mm.\"\nprint(sent_tokenize(text))\n# ['Results are shown in Fig.', '3 of the paper.', 'Values were approx.', '5 mm.']\n\ntrainer = PunktTrainer()\ntrainer.INCLUDE_ALL_COLLOCS = True\ntrainer.train(\"See Fig. 1 and Fig. 2 here. It was approx. 3 cm long. \" * 50, finalize=False)\ntrainer.finalize_training()\ntok = PunktSentenceTokenizer(trainer.get_params())\ntok._params.abbrev_types.update({\"fig\", \"approx\"})   # make sure\nprint(tok.tokenize(text))\n# ['Results are shown in Fig. 3 of the paper.', 'Values were approx. 5 mm.']\nprint(list(tok.span_tokenize(text)))    # [(0, 41), (42, 67)]\n\npattern = r'''(?x) (?:[A-Z]\\.)+ | \\$?\\d+(?:\\.\\d+)?%? | \\w+(?:-\\w+)* | [^\\w\\s]'''\nprint(RegexpTokenizer(pattern).tokenize(\"The U.S.A. grew 3.5% in well-known $12 deals.\"))\n# ['The', 'U.S.A.', 'grew', '3.5%', 'in', 'well-known', '$12', 'deals', '.']",
+   "code_lang": "python",
+   "takeaways": [
+    "Punkt learns abbreviations and sentence starters from raw text",
+    "Train with PunktTrainer on your domain or add abbreviations to the params",
+    "span_tokenize returns character offsets for mapping back",
+    "Verbose (?x) regexes in RegexpTokenizer give precise word rules"
+   ],
+   "pitfalls": [
+    "Assuming the default sentence splitter works on technical or legal text without checking a sample."
+   ],
+   "quiz": [
+    {
+     "q": "Scientific text is split after 'Fig.' and 'approx.'. What is the most direct fix?",
+     "options": [
+      "Lowercase the text",
+      "Use word_tokenize instead",
+      "Remove all periods",
+      "Train Punkt on domain text or add those abbreviations to the tokenizer's parameters"
+     ],
+     "answer": 3,
+     "explain": "Punkt decides sentence ends from its abbreviation list, which you can learn or extend."
+    }
+   ],
+   "docs": "https://www.nltk.org/api/nltk.tokenize.punkt.html",
+   "requires": [
+    "nltk.tokenization",
+    "nltk.corpus-readers"
+   ]
+  },
+  {
+   "id": "nltk.evaluation-metrics",
+   "name": "Evaluation: metrics, agreement and BLEU",
+   "module": "models",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Measure NLP systems with precision, recall, F1, confusion matrices, edit distance, inter-annotator agreement and BLEU.",
+   "why": "Choosing and computing the right metric is what separates a convincing NLP result from a misleading one.",
+   "body": "Accuracy alone hides a lot. NLTK includes the tools to measure systems properly.\n\n**Classification metrics** in `nltk.metrics.scores` work on **sets** of item ids: `precision(reference, test)`, `recall`, `f_measure`. Build one set of ids per label for gold and predicted, then compute per class. `nltk.ConfusionMatrix(gold, predicted)` shows which labels get mixed up and offers `.evaluate()` for a per-label report.\n\n**String distance**: `nltk.edit_distance(a, b)` is the Levenshtein distance (with `transpositions=True` for Damerau), `jaccard_distance(set_a, set_b)` compares sets. Useful for spelling correction and fuzzy matching.\n\n**Annotation agreement**: before trusting labels, measure whether humans agree. `nltk.metrics.agreement.AnnotationTask(data)` takes `(coder, item, label)` triples and computes `kappa()`, `pi()` and `alpha()`. Cohen's kappa corrects for chance agreement: 0.8+ is strong, below about 0.6 means the guidelines need work. The model can't be more reliable than its labels.\n\n**Machine translation and generation**: `nltk.translate.bleu_score.sentence_bleu(references, hypothesis)` scores n-gram overlap (1 to 4) with a brevity penalty; `corpus_bleu` aggregates properly over a test set (not the average of sentence scores). Short sentences with no 4-gram matches score 0, so pass a `SmoothingFunction().method1` when scoring single sentences. `meteor_score` and `nist_score` exist too.\n\nReport metrics with their exact settings, and always on a held-out set.",
+   "code": "import nltk\nfrom nltk.metrics import precision, recall, f_measure\nfrom nltk.metrics.agreement import AnnotationTask\nfrom nltk.translate.bleu_score import SmoothingFunction, sentence_bleu\n\ngold = [\"pos\", \"pos\", \"neg\", \"neg\", \"pos\", \"neg\"]\npred = [\"pos\", \"neg\", \"neg\", \"neg\", \"pos\", \"pos\"]\nref = {i for i, g in enumerate(gold) if g == \"pos\"}\nhyp = {i for i, p in enumerate(pred) if p == \"pos\"}\nprint(round(precision(ref, hyp), 2), round(recall(ref, hyp), 2), round(f_measure(ref, hyp), 2))\n# 0.67 0.67 0.67\nprint(nltk.ConfusionMatrix(gold, pred)[\"pos\", \"neg\"])     # 1  gold pos predicted neg\n\nprint(nltk.edit_distance(\"kitten\", \"sitting\"))           # 3\n\ndata = [(\"a1\", i, g) for i, g in enumerate(gold)] + [(\"a2\", i, p) for i, p in enumerate(pred)]\nprint(round(AnnotationTask(data=data).kappa(), 2))        # 0.33  weak agreement\n\nreference = [\"the cat is on the mat\".split()]\nsmooth = SmoothingFunction().method1\nprint(round(sentence_bleu(reference, \"the cat is on the mat\".split()), 2))   # 1.0\nprint(round(sentence_bleu(reference, \"the cat sat on mat\".split(), smoothing_function=smooth), 2))\n# 0.11  low but non-zero thanks to smoothing",
+   "code_lang": "python",
+   "takeaways": [
+    "precision, recall and f_measure take sets of item ids per class",
+    "ConfusionMatrix shows which labels are confused",
+    "Kappa/alpha check that human labels are reliable",
+    "Use corpus_bleu for test sets; smooth sentence-level BLEU"
+   ],
+   "pitfalls": [
+    "Averaging sentence_bleu scores over a test set instead of computing corpus_bleu."
+   ],
+   "quiz": [
+    {
+     "q": "Two annotators agree on 85% of items, but one label covers 80% of the data. Why report Cohen's kappa?",
+     "options": [
+      "Kappa is always higher than raw agreement",
+      "Kappa corrects for agreement expected by chance, which is high with a dominant label",
+      "Raw agreement can't be computed with two annotators",
+      "Kappa measures model accuracy"
+     ],
+     "answer": 1,
+     "explain": "With a skewed label distribution, much of the raw agreement would occur by chance."
+    },
+    {
+     "q": "Why can sentence_bleu return 0 for a reasonable short translation?",
+     "options": [
+      "With no matching 4-grams the geometric mean collapses to 0 unless smoothing is used",
+      "BLEU only works on corpora",
+      "Short sentences are ignored",
+      "The brevity penalty is always 0"
+     ],
+     "answer": 0,
+     "explain": "BLEU multiplies n-gram precisions; a zero 4-gram precision zeroes the whole score."
+    }
+   ],
+   "docs": "https://www.nltk.org/api/nltk.metrics.html",
+   "requires": [
+    "nltk.classification"
+   ]
+  }
+ ]
+}

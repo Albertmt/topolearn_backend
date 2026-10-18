@@ -1,0 +1,971 @@
+{
+ "tool": {
+  "id": "database-design",
+  "name": "Database design",
+  "category": "tool",
+  "tagline": "Model data, choose keys and indexes, and reason about transactions and scale",
+  "description": "Database design is the craft of turning a problem domain into tables, keys, constraints and indexes that stay correct and fast as data grows. It also covers how databases keep data safe under concurrency (transactions, isolation, MVCC) and how systems scale out with replication and sharding. These ideas apply to every relational database and shape when a NoSQL store is the better fit.",
+  "icon": "DB",
+  "color": "#4A5A8C",
+  "official_docs": "https://www.postgresql.org/docs/current/ddl.html",
+  "version": "Vendor-neutral (examples in PostgreSQL 16+)",
+  "aliases": [
+   "data modelling",
+   "data modeling",
+   "schema design",
+   "database architecture",
+   "db design"
+  ],
+  "requires": [
+   {
+    "tool": "sql",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "modelling",
+   "name": "Data modelling"
+  },
+  {
+   "id": "normalisation",
+   "name": "Normalisation and schema shape"
+  },
+  {
+   "id": "indexing",
+   "name": "Indexes and query planning"
+  },
+  {
+   "id": "transactions",
+   "name": "Transactions and concurrency"
+  },
+  {
+   "id": "distributed",
+   "name": "Replication and scale-out"
+  },
+  {
+   "id": "choosing",
+   "name": "Consistency and choosing a store"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "database-design.data-modelling",
+   "name": "Entities, attributes and relationships",
+   "module": "modelling",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Describe a domain as entities with attributes and the relationships between them before writing any SQL.",
+   "why": "A clear conceptual model is what keeps a schema small, correct and easy to change later.",
+   "body": "**Data modelling** is deciding what your system needs to remember and how those facts relate. Start away from SQL, in the language of the domain: an online shop has *customers*, *products* and *orders*. These are **entities** — things with identity that you store many of. Each has **attributes** (a customer has an email and a name) and they are connected by **relationships** (a customer *places* orders; an order *contains* products).\n\nA useful way to work is in three passes:\n\n- **Conceptual**: entities and relationships, often drawn as an entity-relationship (ER) diagram. No types, no tables.\n- **Logical**: tables, columns, keys and constraints for a relational model, still independent of a particular product.\n- **Physical**: types, indexes, partitioning and settings for the actual database you run.\n\nGood questions while modelling: what uniquely identifies this thing? Can this attribute have several values (then it is probably its own entity)? Does this fact belong to the entity or to the relationship? The price a customer actually paid belongs to the order line, not the product, because the product's price changes later.\n\nModel the facts, not the screens. A UI shows a \"customer dashboard\", but the database stores customers, orders and payments; the dashboard is a query. Schemas built around screens end up duplicating data and break when the UI changes.",
+   "code": "-- Conceptual: Customer places Order; Order contains Product (many-to-many)\nCREATE TABLE customer (\n    id     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    email  text NOT NULL UNIQUE,\n    name   text NOT NULL\n);\nCREATE TABLE product (\n    id     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    name   text NOT NULL,\n    price  numeric(10,2) NOT NULL          -- current list price\n);\nCREATE TABLE orders (\n    id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    customer_id bigint NOT NULL REFERENCES customer(id),\n    placed_at   timestamptz NOT NULL DEFAULT now()\n);\nCREATE TABLE order_line (\n    order_id   bigint NOT NULL REFERENCES orders(id),\n    product_id bigint NOT NULL REFERENCES product(id),\n    quantity   int NOT NULL CHECK (quantity > 0),\n    unit_price numeric(10,2) NOT NULL,      -- price actually paid: a fact of the sale\n    PRIMARY KEY (order_id, product_id)\n);",
+   "code_lang": "sql",
+   "takeaways": [
+    "Entities have identity, attributes describe them, relationships connect them",
+    "Work conceptual, then logical, then physical",
+    "Store facts where they belong: the paid price lives on the order line"
+   ],
+   "pitfalls": [
+    "Designing tables to mirror UI screens instead of the domain's facts."
+   ],
+   "quiz": [
+    {
+     "q": "Where should the price a customer paid for an item be stored?",
+     "options": [
+      "Only on the product row",
+      "On the customer row",
+      "On the order line for that item",
+      "It should be recomputed from the current product price"
+     ],
+     "answer": 2,
+     "explain": "The paid price is a fact of that sale and must not change when the product's list price changes later."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/ddl.html",
+   "requires": [
+    "sql.create-table"
+   ]
+  },
+  {
+   "id": "database-design.relationships",
+   "name": "One-to-many and many-to-many",
+   "module": "modelling",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Represent 1:1, 1:N and M:N relationships with foreign keys and junction tables.",
+   "why": "Getting cardinality right is the most common modelling decision and the hardest to undo once data exists.",
+   "body": "Every relationship has a **cardinality**: how many rows on each side can be linked.\n\n- **One-to-many (1:N)**: a customer has many orders, each order has one customer. Put a foreign key on the *many* side: `orders.customer_id`. This is by far the most common shape.\n- **Many-to-many (M:N)**: a student takes many courses and a course has many students. Relational tables can't hold a list in a column, so you add a **junction table** (also called an associative or join table) with a foreign key to each side. Its primary key is usually the pair, which also prevents duplicates.\n- **One-to-one (1:1)**: a user has at most one profile. Use a foreign key that is also `UNIQUE` (or make the child's primary key the foreign key). Often 1:1 tables are simply merged, unless one side is optional, large or has different access rules.\n\nJunction tables frequently grow attributes of their own: an enrollment has a grade and an enrolled date. When that happens the relationship has become an entity, which is fine — give it a name from the domain.\n\nOptionality matters too. `NOT NULL` on the foreign key says \"every order must have a customer\"; a nullable one says the link is optional. Decide deliberately, because the constraint is what stops orphaned or half-linked data.",
+   "code": "CREATE TABLE student (id int PRIMARY KEY, name text NOT NULL);\nCREATE TABLE course  (id int PRIMARY KEY, title text NOT NULL);\n\n-- M:N via a junction table that carries its own attributes\nCREATE TABLE enrollment (\n    student_id  int NOT NULL REFERENCES student(id) ON DELETE CASCADE,\n    course_id   int NOT NULL REFERENCES course(id),\n    enrolled_on date NOT NULL DEFAULT current_date,\n    grade       text,\n    PRIMARY KEY (student_id, course_id)       -- no duplicate enrollments\n);\n\n-- 1:1 optional: at most one profile per student\nCREATE TABLE profile (\n    student_id int PRIMARY KEY REFERENCES student(id),\n    bio        text\n);",
+   "code_lang": "sql",
+   "takeaways": [
+    "1:N: foreign key on the many side",
+    "M:N: junction table with a composite primary key",
+    "1:1: a foreign key that is also unique (or the primary key)"
+   ],
+   "pitfalls": [
+    "Storing comma-separated ids in a column instead of a junction table."
+   ],
+   "quiz": [
+    {
+     "q": "Students take many courses and courses have many students. How is this modelled?",
+     "options": [
+      "A junction table with a foreign key to each",
+      "A course_ids column on student",
+      "A student_id column on course",
+      "A single table with every student-course pair as columns"
+     ],
+     "answer": 0,
+     "explain": "M:N needs a junction table; each row links one student to one course."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-FK",
+   "requires": [
+    "database-design.data-modelling",
+    "sql.foreign-keys"
+   ]
+  },
+  {
+   "id": "database-design.keys",
+   "name": "Natural, surrogate and composite keys",
+   "module": "modelling",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Choose primary keys: natural vs surrogate, composite keys, and why you still need unique constraints.",
+   "why": "The key you pick is referenced everywhere, so changing it later touches every related table.",
+   "body": "A **candidate key** is any minimal set of columns that uniquely identifies a row. You pick one as the **primary key**; the others should still be enforced with `UNIQUE` constraints.\n\n- A **natural key** comes from the domain: an ISO country code, an ISBN, an email. It is meaningful but can change (people change emails) or turn out not to be unique.\n- A **surrogate key** is generated by the database: an identity integer or a UUID. It never changes and is cheap to reference, so most application tables use one.\n- A **composite key** spans several columns; junction tables are the classic case: `(student_id, course_id)`.\n\nThe important rule: a surrogate key doesn't remove the need to enforce the natural one. If emails must be unique, declare `UNIQUE (email)`, otherwise two rows for the same person will appear the first time a form is double-submitted.\n\nInteger vs UUID: `bigint` identities are small and index-friendly; UUIDs can be generated anywhere (clients, other services) and don't reveal row counts. Random UUIDv4 values scatter inserts across a B-tree index; time-ordered UUIDv7 keeps inserts mostly sequential and is now the usual choice when you want UUIDs.\n\nKeep keys immutable. If a value can change, don't make it the primary key.",
+   "code": "CREATE TABLE country (\n    code char(2) PRIMARY KEY,               -- natural key: stable ISO code\n    name text NOT NULL\n);\nCREATE TABLE app_user (\n    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,  -- surrogate\n    email      text NOT NULL,\n    country    char(2) NOT NULL REFERENCES country(code),\n    CONSTRAINT app_user_email_uk UNIQUE (email)   -- natural key still enforced\n);\nINSERT INTO country VALUES ('AM', 'Armenia');\nINSERT INTO app_user (email, country) VALUES ('ana@example.com', 'AM');\nINSERT INTO app_user (email, country) VALUES ('ana@example.com', 'AM');\n-- ERROR: duplicate key value violates unique constraint \"app_user_email_uk\"",
+   "code_lang": "sql",
+   "takeaways": [
+    "Primary key = the chosen candidate key; enforce the others with UNIQUE",
+    "Surrogate keys are stable; natural keys carry meaning but may change",
+    "Prefer bigint identities or time-ordered UUIDs over random UUIDs for hot inserts"
+   ],
+   "pitfalls": [
+    "Adding a surrogate id and forgetting the UNIQUE constraint on the real-world key."
+   ],
+   "quiz": [
+    {
+     "q": "A users table has a surrogate id primary key. Emails must be unique. What else do you need?",
+     "options": [
+      "Nothing, the primary key guarantees uniqueness",
+      "An index on id",
+      "A CHECK constraint on id",
+      "A UNIQUE constraint on email"
+     ],
+     "answer": 3,
+     "explain": "The primary key only makes id unique; uniqueness of email has to be declared separately."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-UNIQUE-CONSTRAINTS",
+   "requires": [
+    "database-design.data-modelling",
+    "sql.primary-keys"
+   ]
+  },
+  {
+   "id": "database-design.constraints-as-rules",
+   "name": "Constraints encode business rules",
+   "module": "modelling",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Use NOT NULL, CHECK, UNIQUE and foreign keys so the database itself rejects invalid data.",
+   "why": "Application checks get bypassed by scripts, bugs and race conditions; constraints don't.",
+   "body": "A schema is not just storage; it is a set of rules every row must obey. Declaring those rules as **constraints** means the database rejects bad data no matter which code path wrote it — the web app, a cron job, or a person in a SQL console.\n\n- `NOT NULL` for every column that must always have a value. Make nullable the exception you justify.\n- `CHECK` for row-level rules: `quantity > 0`, `ends_at > starts_at`, `status IN ('new','paid','shipped')`.\n- `UNIQUE` for \"only one of these\": one account per email, one active cart per user (with a partial unique index in databases that support it).\n- **Foreign keys** so references always point to existing rows; choose `ON DELETE` behaviour (`RESTRICT`, `CASCADE`, `SET NULL`) deliberately.\n\nWhy not validate only in the application? Because two requests can both check \"is this email free?\" and both insert. Only a unique constraint closes that race: one insert succeeds, the other gets an error you can turn into a friendly message.\n\nConstraints also document intent. A new developer reading `CHECK (discount BETWEEN 0 AND 100)` learns a business rule without hunting through code. The cost is small: a little work on each write, which is almost always worth it.",
+   "code": "CREATE TABLE booking (\n    id        bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    room      int  NOT NULL,\n    starts_at timestamptz NOT NULL,\n    ends_at   timestamptz NOT NULL,\n    status    text NOT NULL DEFAULT 'new'\n              CHECK (status IN ('new', 'confirmed', 'cancelled')),\n    CHECK (ends_at > starts_at)\n);\nINSERT INTO booking (room, starts_at, ends_at)\nVALUES (101, '2026-05-01 14:00+00', '2026-05-01 12:00+00');\n-- ERROR: new row for relation \"booking\" violates check constraint\n--        \"booking_check\"",
+   "code_lang": "sql",
+   "takeaways": [
+    "Constraints are enforced for every writer, not just your app",
+    "Only a UNIQUE constraint safely prevents concurrent duplicates",
+    "Default to NOT NULL; allow NULL only when 'unknown' is a real state"
+   ],
+   "pitfalls": [
+    "Relying on a SELECT-then-INSERT check in code to prevent duplicates."
+   ],
+   "quiz": [
+    {
+     "q": "Two requests check that a username is free and both try to insert it at the same moment. What reliably stops the duplicate?",
+     "options": [
+      "Checking twice in the application",
+      "A UNIQUE constraint on username",
+      "A CHECK constraint",
+      "Wrapping each request's SELECT in a transaction"
+     ],
+     "answer": 1,
+     "explain": "Only the unique constraint is enforced atomically by the database; the second insert fails."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/ddl-constraints.html",
+   "requires": [
+    "database-design.keys",
+    "sql.constraints"
+   ]
+  },
+  {
+   "id": "database-design.normal-forms",
+   "name": "Normalisation: 1NF to BCNF",
+   "module": "normalisation",
+   "level": 1,
+   "minutes": 14,
+   "summary": "Remove redundancy with the normal forms so each fact is stored exactly once.",
+   "why": "Redundant data drifts out of sync; normalisation is the systematic way to prevent update anomalies.",
+   "body": "**Normalisation** organises tables so each fact is stored in one place. When a fact is copied into many rows, an update that misses one copy leaves the data contradicting itself — an **update anomaly**.\n\nThe normal forms are a checklist, each building on the last:\n\n- **1NF**: every column holds a single value; no repeating groups like `phone1, phone2, phone3` or comma-separated lists. Multi-valued attributes become their own table.\n- **2NF**: no column depends on only *part* of a composite key. In `order_line(order_id, product_id, product_name)`, `product_name` depends on `product_id` alone, so it belongs in `product`.\n- **3NF**: no column depends on another non-key column. If `employee` stores `dept_id` and `dept_name`, then `dept_name` depends on `dept_id`, not on the employee — move it to `department`.\n- **BCNF**: every determinant is a candidate key; a stricter 3NF that matters in rare overlapping-key cases.\n\nThe memorable summary for 3NF: every non-key column depends on \"the key, the whole key, and nothing but the key\".\n\nA normalised schema has more tables and more joins, which relational databases handle very well. Aim for 3NF by default in transactional systems, and denormalise later only for a measured reason.",
+   "code": "-- Not normalised: department name repeated on every employee\n-- employee(id, name, dept_id, dept_name)   -- dept_name depends on dept_id\n\n-- 3NF: each fact once\nCREATE TABLE department (\n    id   int PRIMARY KEY,\n    name text NOT NULL UNIQUE\n);\nCREATE TABLE employee (\n    id      int PRIMARY KEY,\n    name    text NOT NULL,\n    dept_id int NOT NULL REFERENCES department(id)\n);\nINSERT INTO department VALUES (1, 'Sales');\nINSERT INTO employee VALUES (10, 'Ani', 1), (11, 'Narek', 1);\nUPDATE department SET name = 'Sales EMEA' WHERE id = 1;  -- one row changes\nSELECT e.name, d.name AS dept\nFROM employee e JOIN department d ON d.id = e.dept_id;\n-- Ani   | Sales EMEA\n-- Narek | Sales EMEA",
+   "code_lang": "sql",
+   "takeaways": [
+    "Normalise so every fact lives in exactly one place",
+    "1NF: atomic values; 2NF: whole key; 3NF: nothing but the key",
+    "3NF is the sensible default for OLTP schemas"
+   ],
+   "pitfalls": [
+    "Treating normalisation as optional and patching inconsistencies with application code later."
+   ],
+   "quiz": [
+    {
+     "q": "Table order_line(order_id, product_id, quantity, product_name) has primary key (order_id, product_id). Which normal form does product_name violate?",
+     "options": [
+      "1NF",
+      "2NF",
+      "3NF only",
+      "None, it is fine"
+     ],
+     "answer": 1,
+     "explain": "product_name depends on only part of the composite key (product_id), which is a 2NF violation."
+    }
+   ],
+   "requires": [
+    "database-design.relationships",
+    "database-design.keys"
+   ]
+  },
+  {
+   "id": "database-design.workloads",
+   "name": "OLTP vs OLAP workloads",
+   "module": "normalisation",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Recognise transactional and analytical workloads, because they lead to opposite design choices.",
+   "why": "Most design trade-offs (normalise or not, which indexes, row or column store) depend on the workload.",
+   "body": "Before choosing a schema shape or a database, ask what the workload looks like.\n\n**OLTP** (online transaction processing) is what applications do: many small, concurrent reads and writes that touch a few rows by key — place an order, update a profile, fetch a user's cart. It needs low latency, strong correctness under concurrency, and normalised schemas with good indexes. PostgreSQL, MySQL and SQLite are OLTP databases at heart.\n\n**OLAP** (online analytical processing) is reporting and analytics: fewer queries, each scanning millions of rows and aggregating a handful of columns — revenue per region per month. It favours **column-oriented** storage (only the needed columns are read, and they compress well), denormalised **star schemas** (a central fact table plus dimension tables), and batch loading. Warehouses such as BigQuery, Snowflake, ClickHouse or DuckDB are built for this.\n\nMixing them hurts both: a heavy report scanning an OLTP database competes with user traffic for I/O and can hold back cleanup of old row versions. The common architecture is to run the application on an OLTP database and copy data (via replication, change data capture or batch ETL) into an analytical store.\n\nWhen someone says \"the database is slow\", find out which kind of query is slow — the fixes are different.",
+   "code": "CREATE TABLE orders (id bigint PRIMARY KEY, status text, region text,\n                     total numeric, placed_at timestamptz);\n-- OLTP: touch a few rows by key, many times per second\nSELECT id, status FROM orders WHERE id = 48213;\nUPDATE orders SET status = 'paid' WHERE id = 48213;\n\n-- OLAP: scan and aggregate many rows, a few times per hour\nSELECT date_trunc('month', placed_at) AS month,\n       region,\n       sum(total) AS revenue\nFROM   orders\nWHERE  placed_at >= '2026-01-01'\nGROUP  BY 1, 2\nORDER  BY 1, 2;",
+   "code_lang": "sql",
+   "takeaways": [
+    "OLTP: many small keyed reads/writes, normalised, row store",
+    "OLAP: few big scans and aggregates, denormalised, column store",
+    "Keep heavy analytics off the primary OLTP database"
+   ],
+   "pitfalls": [],
+   "quiz": [
+    {
+     "q": "Which storage layout suits queries that aggregate two columns over 500 million rows?",
+     "options": [
+      "Row-oriented, because whole rows are read together",
+      "Key-value, because lookups are by key",
+      "It makes no difference",
+      "Column-oriented, because only the needed columns are read"
+     ],
+     "answer": 3,
+     "explain": "A column store reads and decompresses only the referenced columns, which is ideal for wide scans."
+    }
+   ],
+   "requires": [
+    "database-design.data-modelling"
+   ]
+  },
+  {
+   "id": "database-design.transactions-acid",
+   "name": "Transactions and ACID",
+   "module": "transactions",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Group statements into all-or-nothing transactions and understand what atomicity, consistency, isolation and durability promise.",
+   "why": "ACID is what lets you reason about money transfers, stock counts and any multi-step change safely.",
+   "body": "A **transaction** groups statements so they succeed or fail together. The classic example is a transfer: debit one account and credit another. If the system crashes between the two, you must not lose or create money.\n\n**ACID** names the guarantees:\n\n- **Atomicity**: all statements commit, or none do. On error or `ROLLBACK`, every change is undone.\n- **Consistency**: a transaction takes the database from one valid state to another — every constraint holds at commit. (This is the database's part; your business logic must also be correct.)\n- **Isolation**: concurrent transactions don't see each other's half-done work. How strictly this holds depends on the **isolation level**.\n- **Durability**: once `COMMIT` returns, the change survives a crash, because it was written to a durable log first.\n\nKeep transactions short. A transaction that stays open while waiting for a user or an HTTP call holds locks and old row versions, which blocks other work and bloats storage.\n\nEvery statement runs in a transaction even if you don't write `BEGIN`: in autocommit mode each statement is its own transaction. Explicit transactions are for when several statements must stand or fall together.",
+   "code": "CREATE TABLE account (id int PRIMARY KEY, balance numeric NOT NULL CHECK (balance >= 0));\nINSERT INTO account VALUES (1, 100), (2, 50);\n\nBEGIN;\nUPDATE account SET balance = balance + 80 WHERE id = 2;\nUPDATE account SET balance = balance - 80 WHERE id = 1;\nCOMMIT;            -- both changes become visible and durable together\n\nBEGIN;\nUPDATE account SET balance = balance + 80 WHERE id = 2;\nUPDATE account SET balance = balance - 80 WHERE id = 1;\n-- ERROR: violates check constraint (balance would be -60)\nROLLBACK;          -- the credit to account 2 is undone too\n\nSELECT * FROM account ORDER BY id;   -- 1 | 20   2 | 130",
+   "code_lang": "sql",
+   "takeaways": [
+    "A transaction is all-or-nothing",
+    "ACID = atomicity, consistency, isolation, durability",
+    "Keep transactions short; never wait on users or the network inside one"
+   ],
+   "pitfalls": [
+    "Doing related writes in separate autocommitted statements and hoping nothing fails in between."
+   ],
+   "quiz": [
+    {
+     "q": "Which ACID property guarantees that a committed transfer is still there after a power failure?",
+     "options": [
+      "Durability",
+      "Atomicity",
+      "Consistency",
+      "Isolation"
+     ],
+     "answer": 0,
+     "explain": "Durability: committed changes are on durable storage (via the write-ahead log) before COMMIT returns."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/tutorial-transactions.html",
+   "requires": [
+    "sql.insert-update-delete"
+   ]
+  },
+  {
+   "id": "database-design.index-basics",
+   "name": "What an index is and what it costs",
+   "module": "indexing",
+   "level": 2,
+   "minutes": 10,
+   "summary": "An index is a separate sorted structure that turns full scans into lookups, at a cost on every write.",
+   "why": "Most slow queries are missing an index, and most bloated databases have indexes nobody uses.",
+   "body": "Without an index, finding `WHERE email = 'a@b.com'` means reading every row: a **sequential scan**, fine for a thousand rows and painful for a hundred million. An **index** is a separate data structure, kept in sync with the table, that maps column values to row locations so the database can jump straight to matching rows.\n\nAn index is a trade-off:\n\n- Reads that filter, join or sort on the indexed columns get much faster.\n- Every `INSERT`, `DELETE`, and every `UPDATE` of indexed columns must also update the index, so writes get slower.\n- Indexes take disk space and memory (cache).\n\nWhat to index, in practice:\n\n- Primary keys and unique constraints (databases index these automatically).\n- Foreign-key columns used in joins and in `ON DELETE` checks — many databases do *not* index these automatically.\n- Columns in frequent, selective `WHERE` clauses.\n\n**Selectivity** matters: an index on a column where 90% of rows share one value rarely helps, because reading most of the table through an index is slower than scanning it. The query planner decides whether to use an index based on statistics, so an index existing doesn't mean it will be used.\n\nAdd indexes for real queries you have measured, and periodically drop ones that are never used.",
+   "code": "CREATE TABLE event (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n                    user_id int NOT NULL, kind text NOT NULL);\nINSERT INTO event (user_id, kind)\nSELECT g % 10000, 'click' FROM generate_series(1, 200000) g;\nANALYZE event;\n\nEXPLAIN SELECT * FROM event WHERE user_id = 42;\n-- Seq Scan on event  (filter: user_id = 42)\n\nCREATE INDEX event_user_id_idx ON event (user_id);\nEXPLAIN SELECT * FROM event WHERE user_id = 42;\n-- Bitmap Heap Scan on event ... -> Bitmap Index Scan on event_user_id_idx",
+   "code_lang": "sql",
+   "takeaways": [
+    "Indexes speed up reads on their columns and slow down writes",
+    "Index foreign keys and selective, frequently filtered columns",
+    "The planner may ignore an index when a scan is cheaper"
+   ],
+   "pitfalls": [
+    "Indexing every column just in case, which slows every write and wastes cache."
+   ],
+   "quiz": [
+    {
+     "q": "A status column has the value 'active' in 95% of rows. Why might an index on it not be used for WHERE status = 'active'?",
+     "options": [
+      "Indexes don't work on text columns",
+      "The index must be rebuilt first",
+      "Reading 95% of rows through the index costs more than scanning the table",
+      "Only primary keys can be used for filtering"
+     ],
+     "answer": 2,
+     "explain": "For low-selectivity predicates a sequential scan is cheaper, so the planner chooses it."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/indexes-intro.html",
+   "requires": [
+    "database-design.keys",
+    "sql.indexes"
+   ]
+  },
+  {
+   "id": "database-design.btree-indexes",
+   "name": "B-tree indexes",
+   "module": "indexing",
+   "level": 2,
+   "minutes": 12,
+   "summary": "How B-trees keep keys sorted in shallow, balanced trees so equality, range and ORDER BY queries are fast.",
+   "why": "B-trees are the default index in almost every database; knowing their shape explains which queries they help.",
+   "body": "A **B-tree** (in practice a B+tree) stores keys in sorted order in fixed-size pages. Internal pages hold separator keys and pointers to child pages; leaf pages hold the keys with pointers to rows and are linked to their neighbours. Because each page holds hundreds of keys, the tree is very **shallow**: three or four levels cover hundreds of millions of rows, so a lookup reads only a few pages, and the upper levels are almost always cached.\n\nBecause the keys are sorted, one B-tree supports many operations:\n\n- equality: `WHERE id = 7`\n- ranges: `WHERE created_at >= '2026-01-01' AND created_at < '2026-02-01'`\n- prefix matches: `WHERE name LIKE 'Ana%'` (with a suitable collation or operator class)\n- sorting: `ORDER BY created_at DESC LIMIT 20` can read the index in order and stop early\n- `MIN`/`MAX` of the indexed column\n\nIt does *not* help with `LIKE '%ana%'` (no fixed prefix) or with a function of the column (`WHERE lower(email) = ...`) unless you index that expression.\n\nThe tree stays balanced as rows are inserted by splitting full pages. Inserting increasing keys (identities, timestamps, UUIDv7) appends to the rightmost leaf, which is cache-friendly; random keys (UUIDv4) cause splits all over the tree and a larger working set.",
+   "code": "CREATE TABLE post (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n                   author text NOT NULL, created_at timestamptz NOT NULL);\nINSERT INTO post (author, created_at)\nSELECT 'user' || (g % 500), now() - g * interval '1 minute'\nFROM generate_series(1, 100000) g;\nCREATE INDEX post_created_idx ON post (created_at);\nANALYZE post;\n\nEXPLAIN SELECT * FROM post ORDER BY created_at DESC LIMIT 10;\n-- Limit -> Index Scan Backward using post_created_idx on post\n-- (no sort: rows come out of the index already ordered)\n\nEXPLAIN SELECT * FROM post WHERE author LIKE '%er4%';\n-- Seq Scan on post: no fixed prefix, the B-tree can't help",
+   "code_lang": "sql",
+   "takeaways": [
+    "B-trees are sorted, balanced and shallow: lookups read only a few pages",
+    "They serve equality, ranges, prefix matches and ORDER BY ... LIMIT",
+    "Sequential keys insert cheaply; random keys spread writes across the tree"
+   ],
+   "pitfalls": [
+    "Expecting a B-tree to speed up LIKE '%text%' or a function applied to the column."
+   ],
+   "quiz": [
+    {
+     "q": "Which query can a B-tree index on created_at NOT help with?",
+     "options": [
+      "WHERE created_at > now() - interval '1 day'",
+      "ORDER BY created_at LIMIT 10",
+      "WHERE extract(dow FROM created_at) = 1",
+      "WHERE created_at = '2026-01-01'"
+     ],
+     "answer": 2,
+     "explain": "A function of the column doesn't match the index order; you would need an expression index on extract(dow ...)."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/btree.html",
+   "requires": [
+    "database-design.index-basics"
+   ]
+  },
+  {
+   "id": "database-design.hash-indexes",
+   "name": "Hash indexes",
+   "module": "indexing",
+   "level": 2,
+   "minutes": 8,
+   "summary": "Hash indexes map a hash of the key to rows: only equality lookups, but compact and constant-time.",
+   "why": "Knowing when hashing beats sorting (and when it can't help) clarifies how every index type is a trade-off.",
+   "body": "A **hash index** applies a hash function to the key and stores row pointers in buckets addressed by that hash. A lookup computes the hash and reads one bucket, so cost doesn't grow with the size of the index the way tree depth does (though in practice B-tree depth grows very slowly too).\n\nThe price is that hashing destroys order. A hash index can answer only **equality**: `WHERE token = '...'`. It cannot do ranges, prefix matches, `ORDER BY` or `MIN`/`MAX`, and it usually can't enforce uniqueness or cover multiple columns.\n\nWhere they show up:\n\n- In **PostgreSQL**, `CREATE INDEX ... USING hash` exists and has been crash-safe since version 10. It can be smaller than a B-tree for long keys (it stores only the 4-byte hash), useful for equality lookups on long strings like URLs. Still, B-tree is the default for good reason and is rarely much slower.\n- **MySQL InnoDB** builds B-trees even if you write `USING HASH`; its \"adaptive hash index\" is an internal cache on top of B-trees. The MEMORY engine supports real hash indexes.\n- Hashing is everywhere internally: **hash joins** build an in-memory hash table of one input, and key-value stores and distributed systems use hashing to place keys on nodes.\n\nRule of thumb: use B-tree unless you have measured that a hash index is smaller or faster for a pure-equality workload.",
+   "code": "CREATE TABLE short_link (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n                         long_url text NOT NULL);\nINSERT INTO short_link (long_url)\nSELECT 'https://example.com/articles/' || md5(g::text) || '/' || repeat('x', 100)\nFROM generate_series(1, 50000) g;\nCREATE INDEX link_url_btree ON short_link USING btree (long_url);\nCREATE INDEX link_url_hash  ON short_link USING hash  (long_url);\n\nSELECT relname, pg_size_pretty(pg_relation_size(oid))\nFROM pg_class WHERE relname LIKE 'link_url_%';\n-- the hash index is several times smaller than the B-tree here\n\nEXPLAIN SELECT id FROM short_link\nWHERE long_url BETWEEN 'https://example.com/articles/00' AND 'https://example.com/articles/01';\n-- uses the B-tree: hash indexes can't do ranges",
+   "code_lang": "sql",
+   "takeaways": [
+    "Hash indexes support only equality lookups",
+    "They store the hash, so they can be small for long keys",
+    "B-tree stays the default; hashing matters more inside joins and sharding"
+   ],
+   "pitfalls": [
+    "Choosing a hash index and later needing ORDER BY or range queries on the same column."
+   ],
+   "quiz": [
+    {
+     "q": "Which query could a hash index on email serve?",
+     "options": [
+      "WHERE email = 'ana@example.com'",
+      "WHERE email LIKE 'ana%'",
+      "ORDER BY email",
+      "WHERE email > 'm'"
+     ],
+     "answer": 0,
+     "explain": "Hashing preserves only equality; ranges, prefixes and ordering need a sorted structure."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/indexes-types.html#INDEXES-TYPES-HASH",
+   "requires": [
+    "database-design.index-basics"
+   ]
+  },
+  {
+   "id": "database-design.composite-covering-indexes",
+   "name": "Composite and covering indexes",
+   "module": "indexing",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Order columns in multi-column indexes by how queries filter and sort, and cover queries to skip the table.",
+   "why": "One well-designed composite index often replaces several single-column ones and serves a hot query alone.",
+   "body": "A **composite index** on `(a, b, c)` sorts rows by `a`, then by `b` within equal `a`, then by `c`. Like a phone book sorted by last name then first name, it helps queries that constrain a **leftmost prefix** of the columns:\n\n- `WHERE a = 1` and `WHERE a = 1 AND b = 2` use it well.\n- `WHERE b = 2` alone generally can't use it efficiently (some engines can skip-scan, but don't count on it).\n- `WHERE a = 1 ORDER BY b` reads rows already sorted — no sort step.\n\nRules of thumb for column order: put columns compared with **equality** first, then the column used for a **range** or `ORDER BY` last. Once a range appears (`b > 5`), columns after it can't narrow the search further.\n\nA **covering index** contains every column the query needs, so the database answers from the index without visiting the table (an *index-only scan*). PostgreSQL and SQL Server let you add non-key payload columns with `INCLUDE`; in MySQL InnoDB every secondary index implicitly contains the primary key.\n\nComposite indexes also make some single-column indexes redundant: `(user_id, created_at)` already serves `WHERE user_id = ?`. Before adding an index, check whether an existing one with the same leading column covers it.",
+   "code": "CREATE TABLE message (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n                      chat_id int NOT NULL, sent_at timestamptz NOT NULL,\n                      body text NOT NULL);\nINSERT INTO message (chat_id, sent_at, body)\nSELECT g % 1000, now() - g * interval '1 second', 'hi'\nFROM generate_series(1, 200000) g;\n-- equality column first, then the sort column; INCLUDE makes it covering\nCREATE INDEX message_chat_sent_idx ON message (chat_id, sent_at DESC) INCLUDE (body);\nVACUUM ANALYZE message;\n\nEXPLAIN SELECT sent_at, body FROM message\nWHERE chat_id = 7 ORDER BY sent_at DESC LIMIT 20;\n-- Limit -> Index Only Scan using message_chat_sent_idx on message",
+   "code_lang": "sql",
+   "takeaways": [
+    "Composite indexes serve queries on a leftmost prefix of their columns",
+    "Equality columns first, then the range or ORDER BY column",
+    "Covering indexes let the database skip the table entirely"
+   ],
+   "pitfalls": [
+    "Creating (created_at, user_id) for a query that filters user_id = ? and sorts by created_at."
+   ],
+   "quiz": [
+    {
+     "q": "An index exists on (country, city, created_at). Which WHERE clause uses it most effectively?",
+     "options": [
+      "city = 'Yerevan'",
+      "created_at > '2026-01-01'",
+      "city = 'Yerevan' AND created_at > '2026-01-01'",
+      "country = 'AM' AND city = 'Yerevan'"
+     ],
+     "answer": 3,
+     "explain": "Only this one constrains the leftmost columns of the index in order."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/indexes-multicolumn.html",
+   "requires": [
+    "database-design.btree-indexes"
+   ]
+  },
+  {
+   "id": "database-design.query-planning",
+   "name": "How the query planner chooses a plan",
+   "module": "indexing",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Read execution plans: scans, join algorithms, row estimates and why the planner picks one plan over another.",
+   "why": "You can't tune a query you can't read the plan of; EXPLAIN is the main tool for database performance work.",
+   "body": "SQL says *what* you want, not *how* to get it. The **query planner** (optimizer) enumerates possible plans — which index or scan to use, which order to join tables, which join algorithm — estimates the cost of each from **table statistics**, and runs the cheapest.\n\nThe building blocks you'll see in a plan:\n\n- **Scans**: sequential scan (read everything), index scan (follow index to rows), index-only scan, bitmap scan (collect row locations from an index, then read pages in order).\n- **Joins**: *nested loop* (for each outer row, look up matches — great when the outer side is small and the inner side indexed), *hash join* (build a hash table of the smaller input, probe with the other — great for large unsorted inputs and equality joins), *merge join* (walk two sorted inputs together).\n- **Sort**, **aggregate**, **limit** nodes on top.\n\n`EXPLAIN` shows the chosen plan with **estimated** rows and cost; `EXPLAIN ANALYZE` actually runs the query and adds **actual** rows and timings. The single most useful thing to look for is a big gap between estimated and actual rows: the planner chose based on a wrong guess. Fixes include refreshing statistics (`ANALYZE`), adding a missing index, rewriting a predicate so it can use an index, or extended statistics for correlated columns.\n\nPlans change as data grows, so a query that was fast at launch can flip to a different plan later.",
+   "code": "CREATE TABLE author (id int PRIMARY KEY, name text);\nCREATE TABLE book (id int PRIMARY KEY, author_id int REFERENCES author(id), title text);\nINSERT INTO author SELECT g, 'a' || g FROM generate_series(1, 1000) g;\nINSERT INTO book SELECT g, 1 + g % 1000, 't' || g FROM generate_series(1, 100000) g;\nCREATE INDEX book_author_idx ON book (author_id);\nANALYZE author; ANALYZE book;\n\nEXPLAIN ANALYZE\nSELECT a.name, b.title FROM author a JOIN book b ON b.author_id = a.id\nWHERE a.id = 5;\n-- Nested Loop (rows=100)  -- one author, then index lookups into book\n--   -> Index Scan using author_pkey on author a (rows=1)\n--   -> Bitmap Heap Scan on book b (rows=100)\n\nEXPLAIN SELECT a.name, count(*) FROM author a JOIN book b ON b.author_id = a.id\nGROUP BY a.name;\n-- HashAggregate -> Hash Join (big inputs: build a hash table of author)",
+   "code_lang": "sql",
+   "takeaways": [
+    "The planner picks the cheapest plan using estimated row counts",
+    "Nested loop for small outer + indexed inner; hash join for big equality joins",
+    "Compare estimated vs actual rows in EXPLAIN ANALYZE to find bad plans"
+   ],
+   "pitfalls": [
+    "Running EXPLAIN ANALYZE on a data-modifying query outside a rolled-back transaction: it really executes."
+   ],
+   "quiz": [
+    {
+     "q": "EXPLAIN ANALYZE shows estimated rows=5 but actual rows=400000 on a join input. What is the most likely root cause of a slow plan?",
+     "options": [
+      "The server needs more CPU",
+      "Stale or insufficient statistics led to a bad plan choice",
+      "The query has too many columns",
+      "Hash joins are always slow"
+     ],
+     "answer": 1,
+     "explain": "The planner chose its strategy for 5 rows; with 400000 a different join or scan would be far cheaper."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/using-explain.html",
+   "requires": [
+    "database-design.btree-indexes",
+    "sql.joins"
+   ]
+  },
+  {
+   "id": "database-design.denormalisation",
+   "name": "Denormalisation on purpose",
+   "module": "normalisation",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Duplicate or precompute data deliberately for read performance, and keep the copies correct.",
+   "why": "Real systems denormalise; doing it on purpose with a sync strategy is what separates a design from a mess.",
+   "body": "**Denormalisation** stores redundant or derived data to make reads cheaper: a `comment_count` on posts, a customer's name copied onto invoices, a precomputed daily totals table. It trades write complexity and consistency risk for fewer joins and less computation at read time.\n\nDenormalise when you have a **measured** read problem that indexes and query tuning didn't solve, or when the copy is semantically a snapshot rather than a duplicate. That second case is important: an invoice *should* keep the billing address as it was when issued, so copying it isn't redundancy at all — it is a different fact.\n\nCommon techniques:\n\n- **Counters and aggregates** kept on the parent row (`posts.comment_count`).\n- **Summary or rollup tables** refreshed periodically, or materialized views.\n- **Embedding** a few columns from a related table to avoid a hot join.\n- **Star schemas** in analytics, where dimension data is deliberately flattened.\n\nEvery copy needs a plan to stay correct: update it in the same transaction as the source, use a trigger, or accept staleness and recompute on a schedule. Also have a way to rebuild it from the source of truth, because drift will happen. Counters updated by many concurrent writers can become lock hot spots; batching or periodic recomputation can be better than incrementing on every write.",
+   "code": "CREATE TABLE post    (id int PRIMARY KEY, title text,\n                      comment_count int NOT NULL DEFAULT 0);   -- denormalised\nCREATE TABLE comment (id int PRIMARY KEY, post_id int REFERENCES post(id), body text);\nINSERT INTO post (id, title) VALUES (1, 'Hello');\n\n-- keep the copy in sync in the same transaction as the source write\nBEGIN;\nINSERT INTO comment VALUES (100, 1, 'First!');\nUPDATE post SET comment_count = comment_count + 1 WHERE id = 1;\nCOMMIT;\n\n-- and keep a way to rebuild it from the source of truth\nUPDATE post p SET comment_count = (SELECT count(*) FROM comment c WHERE c.post_id = p.id);\nSELECT id, comment_count FROM post;   -- 1 | 1",
+   "code_lang": "sql",
+   "takeaways": [
+    "Denormalise for a measured read problem, not by default",
+    "Snapshots (invoice addresses) are facts, not redundancy",
+    "Every copy needs a sync strategy and a rebuild path"
+   ],
+   "pitfalls": [
+    "Adding a cached column with no code path that keeps it updated on every write."
+   ],
+   "quiz": [
+    {
+     "q": "Which is NOT really denormalisation but a separate fact?",
+     "options": [
+      "A comment_count column on posts",
+      "The shipping address copied onto an order when it ships",
+      "A customer's name copied onto every log row for speed",
+      "A nightly sales totals table"
+     ],
+     "answer": 1,
+     "explain": "The address at shipping time is a historical fact of the order and must not follow later changes."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/rules-materializedviews.html",
+   "requires": [
+    "database-design.normal-forms",
+    "database-design.workloads"
+   ]
+  },
+  {
+   "id": "database-design.isolation-levels",
+   "name": "Isolation levels and anomalies",
+   "module": "transactions",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Read uncommitted to serializable: which anomalies each level allows and what your database actually defaults to.",
+   "why": "Most concurrency bugs in business logic are anomalies the chosen isolation level permits.",
+   "body": "Perfect isolation (every transaction behaves as if it ran alone) costs throughput, so SQL defines weaker **isolation levels** by the **anomalies** they allow:\n\n- **Dirty read**: seeing another transaction's uncommitted changes.\n- **Non-repeatable read**: reading the same row twice and getting different values because someone committed in between.\n- **Phantom read**: re-running a query and getting new rows that match.\n- **Lost update**: two transactions read a value, both write back a modified copy, and one write silently wins.\n- **Write skew**: two transactions read overlapping data, each makes a decision based on it, and together they break a rule (two doctors both go off call because each saw the other on call).\n\nThe standard levels, weakest to strongest: **Read Uncommitted**, **Read Committed**, **Repeatable Read**, **Serializable**. Real databases differ: PostgreSQL defaults to Read Committed and never allows dirty reads; its Repeatable Read is snapshot isolation (no phantoms, but write skew possible); its Serializable detects dangerous patterns and aborts one transaction. MySQL InnoDB defaults to Repeatable Read; SQLite is serializable.\n\nPractical patterns: use atomic statements (`SET stock = stock - 1 WHERE stock > 0`), lock the rows you'll update (`SELECT ... FOR UPDATE`), or run at Serializable and **retry** transactions that fail with a serialization error.",
+   "code": "CREATE TABLE item (id int PRIMARY KEY, stock int NOT NULL);\nINSERT INTO item VALUES (1, 10);\n-- Lost update at Read Committed, two sessions A and B:\n-- A: BEGIN; SELECT stock FROM item WHERE id = 1;   -- 10\n-- B: BEGIN; SELECT stock FROM item WHERE id = 1;   -- 10\n-- A: UPDATE item SET stock = 9 WHERE id = 1; COMMIT;\n-- B: UPDATE item SET stock = 9 WHERE id = 1; COMMIT;  -- one sale lost\n\n-- Fix 1: let the database do the read-modify-write atomically\nUPDATE item SET stock = stock - 1 WHERE id = 1 AND stock > 0;\n\n-- Fix 2: lock the row you are about to change\nBEGIN;\nSELECT stock FROM item WHERE id = 1 FOR UPDATE;   -- B waits here\nUPDATE item SET stock = stock - 1 WHERE id = 1;\nCOMMIT;\n\n-- Fix 3: BEGIN ISOLATION LEVEL SERIALIZABLE; and retry on SQLSTATE 40001",
+   "code_lang": "sql",
+   "takeaways": [
+    "Isolation levels are defined by which anomalies they allow",
+    "Know your default: PostgreSQL Read Committed, MySQL Repeatable Read",
+    "Prefer atomic updates or row locks; at Serializable, retry on failure"
+   ],
+   "pitfalls": [
+    "Read-then-write in application code at Read Committed, causing lost updates under load."
+   ],
+   "quiz": [
+    {
+     "q": "Two transactions each read the on-call list, see the other doctor on call, and each removes themselves. What anomaly is this?",
+     "options": [
+      "Dirty read",
+      "Phantom read",
+      "Non-repeatable read",
+      "Write skew"
+     ],
+     "answer": 3,
+     "explain": "Each transaction's decision was valid on its snapshot, but together they violate the rule: that is write skew."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/transaction-iso.html",
+   "requires": [
+    "database-design.transactions-acid"
+   ]
+  },
+  {
+   "id": "database-design.modelling-patterns",
+   "name": "Common modelling patterns",
+   "module": "modelling",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Soft deletes, history tables, polymorphic links, enums and EAV: when each pattern helps and what it costs.",
+   "why": "These patterns appear in nearly every product schema, and each has a well-known trap.",
+   "body": "A few recurring problems and their usual solutions:\n\n- **Soft delete**: mark rows `deleted_at` instead of removing them, for undo and audit. Cost: every query must filter it out, and unique constraints must ignore deleted rows (use a partial unique index `WHERE deleted_at IS NULL`). Often an archive table is cleaner.\n- **History / audit**: keep previous versions in a `*_history` table with `valid_from`/`valid_to`, written by a trigger or by the application. Lets you answer \"what was the price on March 3rd?\".\n- **Status and enums**: a lookup table or a `CHECK (status IN (...))` keeps values valid; a lookup table is easier to extend and can carry labels.\n- **Polymorphic association**: a comment that can belong to a post *or* a photo. The tempting `(commentable_type, commentable_id)` pair can't have a foreign key. Safer: separate nullable foreign keys with a `CHECK` that exactly one is set, or a separate junction table per parent type.\n- **Entity-attribute-value (EAV)**: rows of `(entity, attribute, value)` for arbitrary fields. Flexible, but you lose types, constraints and readable queries. A `JSON` column for genuinely free-form attributes is usually better, with real columns for anything you filter on.\n- **Trees**: an adjacency list (`parent_id`) queried with recursive CTEs covers most hierarchies.\n\nChoose the pattern that keeps the database able to enforce your rules.",
+   "code": "CREATE TABLE post  (id int PRIMARY KEY);\nCREATE TABLE photo (id int PRIMARY KEY);\n-- polymorphic comment with real foreign keys: exactly one parent\nCREATE TABLE comment (\n    id       int PRIMARY KEY,\n    post_id  int REFERENCES post(id),\n    photo_id int REFERENCES photo(id),\n    body     text NOT NULL,\n    deleted_at timestamptz,                       -- soft delete\n    CHECK (num_nonnulls(post_id, photo_id) = 1)\n);\n-- usernames unique among live rows only\nCREATE TABLE member (id int PRIMARY KEY, username text NOT NULL, deleted_at timestamptz);\nCREATE UNIQUE INDEX member_username_live ON member (username) WHERE deleted_at IS NULL;\nINSERT INTO member VALUES (1, 'ani', now()), (2, 'ani', NULL);   -- ok\nINSERT INTO member VALUES (3, 'ani', NULL);\n-- ERROR: duplicate key value violates unique constraint \"member_username_live\"",
+   "code_lang": "sql",
+   "takeaways": [
+    "Soft deletes need filtered queries and partial unique indexes",
+    "Polymorphic links: separate FKs plus a CHECK keep referential integrity",
+    "Prefer JSON columns to EAV for free-form attributes"
+   ],
+   "pitfalls": [
+    "A (type, id) polymorphic pair with no foreign key, which silently accumulates orphans."
+   ],
+   "quiz": [
+    {
+     "q": "Why is (commentable_type, commentable_id) risky for polymorphic comments?",
+     "options": [
+      "No foreign key can enforce that the referenced row exists",
+      "It uses too much disk",
+      "It can't be indexed",
+      "It violates 1NF"
+     ],
+     "answer": 0,
+     "explain": "A foreign key must reference one table, so the database can't check that the target exists."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/indexes-partial.html",
+   "requires": [
+    "database-design.relationships",
+    "database-design.constraints-as-rules"
+   ]
+  },
+  {
+   "id": "database-design.locking-mvcc",
+   "name": "Locking vs MVCC",
+   "module": "transactions",
+   "level": 3,
+   "minutes": 14,
+   "summary": "How databases implement isolation: lock-based concurrency control versus multi-version snapshots.",
+   "why": "Explains why readers don't block writers in modern databases, and where blocking and deadlocks still happen.",
+   "body": "There are two broad ways to keep concurrent transactions isolated.\n\n**Lock-based concurrency control** (classic two-phase locking) makes transactions take shared locks to read and exclusive locks to write, holding them until commit. It is simple to reason about, but readers and writers block each other and **deadlocks** — A waits for B while B waits for A — must be detected and one victim aborted.\n\n**MVCC** (multi-version concurrency control) keeps several versions of a row. A write creates a new version instead of overwriting; each transaction reads from a **snapshot**, seeing the versions that were committed when its snapshot was taken. Result: **readers never block writers and writers never block readers**. PostgreSQL, MySQL InnoDB, Oracle and SQL Server (with snapshot isolation) all use MVCC.\n\nMVCC doesn't remove locks entirely. Two transactions updating the *same row* still conflict: the second waits for the first to commit or roll back. Explicit row locks (`SELECT ... FOR UPDATE`) and table locks taken by schema changes still exist, so deadlocks still happen — usually because transactions lock the same rows in different orders. Lock rows in a consistent order (for example by id) to avoid them.\n\nMVCC's cost is garbage: old versions must be cleaned up once no snapshot needs them (VACUUM in PostgreSQL, purge of undo logs in InnoDB). Long-running transactions hold back that cleanup and cause bloat.",
+   "code": "-- Session A                                 -- Session B\nBEGIN;\nUPDATE account SET balance = balance - 10\nWHERE id = 1;                                -- row 1 locked by A\n                                             SELECT balance FROM account WHERE id = 1;\n                                             -- returns old value at once (MVCC snapshot)\n                                             UPDATE account SET balance = 0 WHERE id = 1;\n                                             -- waits: same row, write-write conflict\nCOMMIT;                                      -- B's update now proceeds\n\n-- Deadlock: A locks 1 then 2, B locks 2 then 1 -> one is aborted with\n-- ERROR: deadlock detected. Fix: always lock rows in id order.\nSELECT * FROM account WHERE id IN (1, 2) ORDER BY id FOR UPDATE;",
+   "code_lang": "sql",
+   "takeaways": [
+    "MVCC: writes create new versions; reads use a snapshot",
+    "Readers and writers don't block each other; two writers to one row do",
+    "Lock rows in a consistent order to avoid deadlocks"
+   ],
+   "pitfalls": [
+    "Leaving transactions open for minutes, which blocks MVCC cleanup and causes bloat."
+   ],
+   "quiz": [
+    {
+     "q": "Under MVCC, transaction A has updated row 7 but not committed. What happens when B runs a plain SELECT of row 7?",
+     "options": [
+      "B waits until A commits",
+      "B sees A's uncommitted value",
+      "B sees the last committed version immediately",
+      "B gets a deadlock error"
+     ],
+     "answer": 2,
+     "explain": "Readers use their snapshot of committed versions and don't wait for writers."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/mvcc-intro.html",
+   "requires": [
+    "database-design.isolation-levels"
+   ]
+  },
+  {
+   "id": "database-design.replication",
+   "name": "Replication",
+   "module": "distributed",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Copy data to other nodes for availability and read scaling: leader-follower, sync vs async, and replica lag.",
+   "why": "Every production database runs with replicas, and replica lag causes real, confusing bugs.",
+   "body": "**Replication** keeps copies of the data on several machines. Reasons: survive a machine failure (**high availability**), spread read traffic across **read replicas**, and keep copies in other regions.\n\nThe common setup is **leader-follower** (primary-replica): all writes go to one leader, which ships its change log (PostgreSQL's WAL, MySQL's binlog) to followers that replay it. Alternatives are **multi-leader** (several nodes accept writes and must resolve conflicts) and **leaderless** quorum systems like Cassandra and DynamoDB.\n\nThe key choice is **synchronous vs asynchronous**:\n\n- **Asynchronous**: the leader commits without waiting for followers. Fast, but if the leader dies, the last few committed transactions may never have reached any follower and are lost on failover.\n- **Synchronous**: commit waits until at least one follower confirms. No data loss on failover, but higher latency, and writes stall if the synchronous follower is down. A common compromise is one synchronous follower plus asynchronous others.\n\nWith async replicas, reads can be stale (**replication lag**). Classic bug: a user saves their profile, the page reloads from a replica, and the change \"disappears\". Fixes include reading your own recent writes from the leader, or waiting until the replica has caught up to the write's log position.\n\nReplication is not a backup: a `DROP TABLE` replicates too. You still need backups with point-in-time recovery.",
+   "takeaways": [
+    "Leader-follower: writes to one node, changes streamed to replicas",
+    "Async replication can lose recent commits on failover; sync adds latency",
+    "Replica lag breaks read-your-writes; replication is not a backup"
+   ],
+   "pitfalls": [
+    "Sending a read to a replica right after a write and assuming it reflects that write."
+   ],
+   "quiz": [
+    {
+     "q": "A system uses asynchronous replication and the leader crashes. What risk does failover carry?",
+     "options": [
+      "None, async replication is lossless",
+      "All replicas must be rebuilt from scratch",
+      "Recently committed transactions may be missing on the new leader",
+      "Reads become impossible"
+     ],
+     "answer": 2,
+     "explain": "With async replication the leader doesn't wait for followers, so the latest commits may not have been shipped."
+    },
+    {
+     "q": "Why is a replica not a substitute for backups?",
+     "options": [
+      "Mistakes such as DROP TABLE replicate to the replicas too",
+      "Replicas are read-only",
+      "Replicas use a different file format",
+      "Replicas can't be promoted"
+     ],
+     "answer": 0,
+     "explain": "Replication faithfully copies destructive changes; only backups let you go back in time."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/high-availability.html",
+   "requires": [
+    "database-design.transactions-acid",
+    "database-design.workloads"
+   ]
+  },
+  {
+   "id": "database-design.partitioning-sharding",
+   "name": "Partitioning and sharding",
+   "module": "distributed",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Split big tables into partitions on one server, or shard data across servers, and choose a good partition key.",
+   "why": "When one table or one machine is no longer enough, the partition key decides whether scaling works.",
+   "body": "**Partitioning** splits one logical table into smaller physical pieces on the *same* database server. Common schemes:\n\n- **Range**: by date, e.g. one partition per month. Ideal for time series: queries for last week touch one partition, and dropping old data is an instant `DROP` of a partition instead of a huge `DELETE`.\n- **List**: by a discrete value such as region.\n- **Hash**: by a hash of a key, to spread rows evenly.\n\nThe planner skips partitions that can't match the `WHERE` clause (**partition pruning**), so queries must filter on the partition key to benefit.\n\n**Sharding** splits data across *multiple servers*, each holding a subset of rows. It scales writes and storage beyond one machine, but adds real costs: cross-shard queries and joins are expensive, transactions across shards need coordination, and moving data when adding shards (**rebalancing**) is operationally hard.\n\nChoosing the **shard key** is the critical decision:\n\n- High cardinality and even distribution, to avoid **hot shards** (sharding by country puts most rows on one shard).\n- Matches the access pattern, so most queries hit one shard: shard a multi-tenant SaaS by `tenant_id` so each customer's data lives together.\n- Stable: a row's shard key shouldn't change.\n\nConsistent hashing or a directory of key ranges lets you add shards without moving everything. Exhaust simpler options first — indexes, caching, read replicas, a bigger machine — because sharding is hard to undo.",
+   "code": "CREATE TABLE measurement (\n    sensor_id int NOT NULL,\n    taken_at  timestamptz NOT NULL,\n    value     double precision\n) PARTITION BY RANGE (taken_at);\n\nCREATE TABLE measurement_2026_04 PARTITION OF measurement\n    FOR VALUES FROM ('2026-04-01') TO ('2026-05-01');\nCREATE TABLE measurement_2026_05 PARTITION OF measurement\n    FOR VALUES FROM ('2026-05-01') TO ('2026-06-01');\n\nEXPLAIN SELECT avg(value) FROM measurement\nWHERE taken_at >= '2026-05-10' AND taken_at < '2026-05-11';\n-- only measurement_2026_05 is scanned (partition pruning)\n\nDROP TABLE measurement_2026_04;   -- retention: instant, no bulk DELETE",
+   "code_lang": "sql",
+   "takeaways": [
+    "Partitioning splits a table within one server; sharding across servers",
+    "Queries must filter on the partition key to get pruning",
+    "A good shard key is high-cardinality, evenly spread and matches access patterns"
+   ],
+   "pitfalls": [
+    "Sharding before trying indexes, caching, replicas and vertical scaling."
+   ],
+   "quiz": [
+    {
+     "q": "A multi-tenant SaaS shards its database. Which shard key keeps most queries on a single shard?",
+     "options": [
+      "created_at",
+      "A random UUID per row",
+      "country",
+      "tenant_id"
+     ],
+     "answer": 3,
+     "explain": "Nearly every query is scoped to one tenant, so tenant_id keeps a tenant's data and queries together."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/ddl-partitioning.html",
+   "requires": [
+    "database-design.composite-covering-indexes",
+    "database-design.replication"
+   ]
+  },
+  {
+   "id": "database-design.cap-theorem",
+   "name": "CAP and PACELC",
+   "module": "choosing",
+   "level": 3,
+   "minutes": 12,
+   "summary": "During a network partition a distributed store must choose consistency or availability; otherwise it trades latency for consistency.",
+   "why": "CAP is the vocabulary used to describe every distributed database's behaviour under failure.",
+   "body": "The **CAP theorem** concerns a data store replicated across nodes. Of three properties it can't guarantee all at once when the network fails:\n\n- **Consistency** (here meaning linearizability): every read sees the most recent write.\n- **Availability**: every request to a working node gets a non-error response.\n- **Partition tolerance**: the system keeps operating when messages between nodes are lost.\n\nNetwork partitions *will* happen, so P isn't optional. The real choice is what to do **during a partition**: refuse some requests to stay consistent (**CP**: e.g. a single-leader database where the side without the leader rejects writes, or etcd/ZooKeeper) or keep answering on both sides and reconcile later (**AP**: e.g. Cassandra or DynamoDB in their default eventually consistent modes).\n\nCAP is often oversimplified. It says nothing about the normal case, and real systems offer tunable choices per request (quorum reads, strongly consistent reads). **PACELC** fills the gap: if Partitioned, choose A or C; **E**lse, choose **L**atency or **C**onsistency. Even without failures, waiting for replicas to agree costs latency, so many systems pick lower latency and weaker consistency in normal operation too.\n\nWhen evaluating a database, ask concretely: what happens to writes and reads on each side of a partition, and what does a read return right after a write in normal operation?",
+   "takeaways": [
+    "During a partition you choose consistency (refuse requests) or availability (serve possibly stale data)",
+    "P is not optional in a distributed system",
+    "PACELC adds the everyday trade-off: latency vs consistency"
+   ],
+   "pitfalls": [
+    "Describing a single-node database as 'CA' — CAP is about replicated systems under partition."
+   ],
+   "quiz": [
+    {
+     "q": "A replicated store keeps accepting writes on both sides of a network split and reconciles conflicts afterwards. How is it classified under CAP?",
+     "options": [
+      "CP",
+      "AP",
+      "CA",
+      "It violates CAP"
+     ],
+     "answer": 1,
+     "explain": "It stays available during the partition at the cost of consistency, so it is AP."
+    }
+   ],
+   "requires": [
+    "database-design.replication"
+   ]
+  },
+  {
+   "id": "database-design.sql-vs-nosql",
+   "name": "Choosing SQL vs NoSQL",
+   "module": "choosing",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Match the data model and access patterns to relational, document, key-value, wide-column or graph stores.",
+   "why": "Picking a store for the wrong reasons is expensive; the right choice follows from access patterns and guarantees needed.",
+   "body": "\"NoSQL\" covers several different models, each optimised for something specific:\n\n- **Relational** (PostgreSQL, MySQL): flexible queries and joins, constraints, transactions. The best default when you don't know all future queries, and modern versions handle JSON well.\n- **Document** (MongoDB): self-contained JSON-like documents; great when data is read and written as a whole aggregate (an order with its lines). Cross-document relationships and transactions are weaker or costlier.\n- **Key-value** (Redis, DynamoDB at heart): get/put by key at very low latency; caches, sessions, counters. You must know the key.\n- **Wide-column** (Cassandra): massive write throughput across many nodes, tables designed per query, tunable consistency.\n- **Graph** (Neo4j): traversals over many-hop relationships.\n- **Search** (Elasticsearch, OpenSearch) and **analytical/columnar** stores for full-text and OLAP.\n\nQuestions that decide it:\n\n- Do you know the access patterns up front? NoSQL stores usually want you to design tables per query; relational lets you query new ways later.\n- Do you need multi-row transactions and constraints?\n- Does the data fit one machine (with replicas)? Most applications do, for a long time.\n- What does the team already operate well?\n\nA common, sensible architecture is a relational database as the system of record, plus specialised stores (cache, search index, warehouse) fed from it. Choose NoSQL for a concrete need — scale, latency, a data shape — not because the schema feels inconvenient.",
+   "takeaways": [
+    "Relational is the best default when queries will evolve",
+    "NoSQL stores are optimised for specific shapes and access patterns",
+    "System of record in SQL plus specialised stores is a common, strong design"
+   ],
+   "pitfalls": [
+    "Picking a schemaless store to avoid designing a schema, then reinventing constraints in code."
+   ],
+   "quiz": [
+    {
+     "q": "An app needs flexible ad-hoc reporting, foreign keys and multi-row transactions on a few hundred GB. What fits best?",
+     "options": [
+      "A key-value store",
+      "A relational database",
+      "A wide-column store",
+      "A search engine"
+     ],
+     "answer": 1,
+     "explain": "Joins, constraints, transactions and ad-hoc queries at this size are exactly what relational databases do best."
+    },
+    {
+     "q": "Which workload most clearly favours a key-value store like Redis?",
+     "options": [
+      "Ad-hoc analytics across many tables",
+      "Many-hop friend-of-friend queries",
+      "Full-text search with ranking",
+      "Session lookups by session id with sub-millisecond latency"
+     ],
+     "answer": 3,
+     "explain": "Key-value stores excel at fast get/put by a known key."
+    }
+   ],
+   "requires": [
+    "database-design.denormalisation",
+    "database-design.modelling-patterns",
+    "database-design.cap-theorem"
+   ]
+  },
+  {
+   "id": "database-design.consistency-models",
+   "name": "Consistency models",
+   "module": "choosing",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Linearizability, sequential, causal and eventual consistency, plus session guarantees like read-your-writes.",
+   "why": "Precise consistency vocabulary is how you compare distributed databases and debug anomalies across replicas.",
+   "body": "\"Consistent\" means different things in different contexts. In distributed systems, a **consistency model** defines which values a read may return given the writes that happened. From strongest to weakest:\n\n- **Linearizability** (strong consistency): the system behaves as if there were one copy, and every operation takes effect atomically at some instant between its start and end. Once a write completes, every later read sees it. Needed for locks, leader election, unique usernames. Requires coordination (consensus such as Raft or Paxos), so it costs latency.\n- **Sequential consistency**: all clients see operations in the same order, consistent with each client's own order, but not necessarily real-time order.\n- **Causal consistency**: operations that are causally related (a reply after the message it answers) are seen in that order everywhere; unrelated ones may be seen in different orders. Achievable while staying available during partitions.\n- **Eventual consistency**: if writes stop, replicas eventually converge. Says nothing about what you read meanwhile.\n\nBetween these sit **session guarantees** that fix the most visible problems cheaply: *read-your-writes*, *monotonic reads* (never see time go backwards), *monotonic writes* and *writes-follow-reads*.\n\nDon't confuse this with **serializability**, which is about transactions over multiple objects (isolation), whereas linearizability is about single-object recency. **Strict serializability** combines both, and is what systems like Spanner offer.",
+   "takeaways": [
+    "Linearizable: behaves like a single copy in real time",
+    "Causal consistency preserves cause-and-effect order and survives partitions",
+    "Serializability (isolation) and linearizability (recency) are different guarantees"
+   ],
+   "pitfalls": [
+    "Assuming 'eventually consistent' bounds how stale a read can be."
+   ],
+   "quiz": [
+    {
+     "q": "A user posts a comment, refreshes, and the comment is missing because the read hit a lagging replica. Which guarantee was violated?",
+     "options": [
+      "Read-your-writes",
+      "Linearizability of other users' writes",
+      "Write skew prevention",
+      "Atomicity"
+     ],
+     "answer": 0,
+     "explain": "A client should always see its own writes; this session guarantee is what failed."
+    }
+   ],
+   "requires": [
+    "database-design.cap-theorem",
+    "database-design.locking-mvcc"
+   ]
+  },
+  {
+   "id": "database-design.distributed-transactions",
+   "name": "Distributed transactions, sagas and outbox",
+   "module": "distributed",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Keep data consistent across services and shards: two-phase commit, sagas with compensation, and the transactional outbox.",
+   "why": "Once data lives in several databases, single-database ACID no longer covers a business operation.",
+   "body": "When an operation spans several databases or services (charge a card, reserve stock, create a shipment), a local transaction can't make it atomic.\n\n**Two-phase commit (2PC)** uses a coordinator. Phase 1: every participant prepares (makes the change durable but undecided) and votes yes or no. Phase 2: the coordinator tells all to commit, or all to abort. It gives atomicity, but participants hold locks while waiting, and if the coordinator fails after prepare they are stuck **in doubt** until it recovers. Databases support it (`PREPARE TRANSACTION` in PostgreSQL, XA in MySQL), but it is rarely used across microservices.\n\nA **saga** splits the operation into local transactions, each with a **compensating action** that semantically undoes it (refund the charge, release the reservation). If step 3 fails, run compensations for steps 2 and 1. Sagas give eventual consistency, not isolation: other requests can see intermediate states, so design for that (e.g. a `pending` status).\n\nA recurring sub-problem is **dual writes**: update the database *and* publish an event. If you do both directly, a crash between them loses one. The **transactional outbox** fixes this: write the event into an `outbox` table in the same local transaction as the data change; a separate relay (or change data capture from the log) publishes it to the broker. Consumers must be **idempotent**, because delivery is at-least-once.",
+   "code": "-- Transactional outbox: data change and event committed atomically\nCREATE TABLE orders (id bigint PRIMARY KEY, status text NOT NULL);\nCREATE TABLE outbox (\n    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    topic      text NOT NULL,\n    payload    jsonb NOT NULL,\n    created_at timestamptz NOT NULL DEFAULT now(),\n    sent_at    timestamptz\n);\nBEGIN;\nINSERT INTO orders VALUES (42, 'placed');\nINSERT INTO outbox (topic, payload)\nVALUES ('order.placed', '{\"order_id\": 42}');\nCOMMIT;\n\n-- relay process: claim a batch, publish to the broker, mark as sent\nSELECT id, topic, payload FROM outbox\nWHERE sent_at IS NULL ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED;",
+   "code_lang": "sql",
+   "takeaways": [
+    "2PC gives atomicity across nodes but blocks when the coordinator fails",
+    "Sagas use local transactions plus compensating actions",
+    "The outbox pattern avoids lost events from dual writes; consumers must be idempotent"
+   ],
+   "pitfalls": [
+    "Writing to the database and then publishing to a broker in two independent steps."
+   ],
+   "quiz": [
+    {
+     "q": "Why does the transactional outbox pattern prevent lost events?",
+     "options": [
+      "The broker supports transactions",
+      "Events are sent before the transaction starts",
+      "The event row commits atomically with the data change and is published afterwards",
+      "It uses two-phase commit"
+     ],
+     "answer": 2,
+     "explain": "Both rows commit together in one local transaction, so the event exists if and only if the change does."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/sql-prepare-transaction.html",
+   "requires": [
+    "database-design.partitioning-sharding",
+    "database-design.locking-mvcc"
+   ]
+  },
+  {
+   "id": "database-design.storage-engines",
+   "name": "B-tree vs LSM-tree storage engines",
+   "module": "indexing",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Compare update-in-place B-trees with log-structured merge trees: read, write and space amplification.",
+   "why": "The storage engine explains why some databases ingest writes fast and others read fast, and how to tune each.",
+   "body": "Under every database is a **storage engine** that decides how data is laid out on disk. Two families dominate.\n\n**B-tree engines** (PostgreSQL, InnoDB, SQLite) keep sorted pages and update them in place (PostgreSQL writes new row versions into heap pages, but indexes are B-trees). Reads are predictable: a few page reads per lookup. Writes may dirty a whole page to change a few bytes, plus a write-ahead log entry for crash safety, so random writes cost several disk writes each.\n\n**LSM-tree engines** (RocksDB, Cassandra, ScyllaDB, LevelDB) buffer writes in an in-memory sorted table (memtable) plus a log, then flush it as an immutable sorted file (SSTable). Background **compaction** merges files and discards overwritten and deleted entries (tombstones). Writes are sequential and very fast. Reads may need to check the memtable and several SSTables; **Bloom filters** let most files be skipped quickly.\n\nEngineers compare them by three amplifications:\n\n- **Write amplification**: bytes written to disk per byte of user data (compaction rewrites data repeatedly; B-trees rewrite pages).\n- **Read amplification**: disk reads per lookup (higher for LSM).\n- **Space amplification**: extra disk used by stale versions (LSM before compaction, B-tree page fragmentation or MVCC bloat).\n\nCompaction strategy (leveled vs size-tiered) trades these against each other. Choose LSM-based stores for write-heavy, append-like workloads; B-trees for read-heavy, mixed OLTP with range scans.",
+   "takeaways": [
+    "B-trees update pages in place; LSM trees append and compact",
+    "LSM: fast sequential writes, more read work (mitigated by Bloom filters)",
+    "Compare engines by write, read and space amplification"
+   ],
+   "pitfalls": [],
+   "quiz": [
+    {
+     "q": "Why are LSM-tree engines usually faster for write-heavy workloads?",
+     "options": [
+      "They skip durability",
+      "They keep no indexes",
+      "They turn random writes into sequential appends and flushes",
+      "They store data uncompressed"
+     ],
+     "answer": 2,
+     "explain": "Writes go to memory and a log, then flush as sorted files sequentially; compaction happens in the background."
+    },
+    {
+     "q": "What do Bloom filters do in an LSM engine?",
+     "options": [
+      "Let reads skip SSTables that definitely don't contain a key",
+      "Compress SSTables",
+      "Order compaction",
+      "Encrypt data at rest"
+     ],
+     "answer": 0,
+     "explain": "A Bloom filter answers 'definitely not here' cheaply, cutting read amplification."
+    }
+   ],
+   "requires": [
+    "database-design.btree-indexes",
+    "database-design.locking-mvcc"
+   ]
+  },
+  {
+   "id": "database-design.schema-evolution",
+   "name": "Zero-downtime schema changes",
+   "module": "normalisation",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Evolve a live schema with expand-and-contract migrations, backfills in batches and lock-aware DDL.",
+   "why": "Schema changes are the most common cause of self-inflicted outages on busy databases.",
+   "body": "On a busy database a careless `ALTER TABLE` can take a lock that queues every query behind it, and a schema change deployed at the same moment as code creates a window where old code meets the new schema. The safe method is **expand and contract**:\n\n1. **Expand**: add the new structure in a backward-compatible way — a nullable column, a new table, a new index built online.\n2. **Dual write**: deploy code that writes both old and new shapes.\n3. **Backfill**: copy existing data in small batches (thousands of rows per transaction) to avoid long locks, huge transactions and replica lag.\n4. **Switch reads** to the new shape and verify.\n5. **Contract**: stop writing the old shape, then drop it in a later release.\n\nLock awareness matters as much as the steps:\n\n- Even a fast DDL statement needs a brief exclusive lock; if a long query holds a conflicting lock, the DDL waits *and blocks everyone queued behind it*. Set a short lock timeout (`SET lock_timeout = '2s'` in PostgreSQL) and retry.\n- Build indexes online: `CREATE INDEX CONCURRENTLY` (PostgreSQL), `ALGORITHM=INPLACE, LOCK=NONE` (MySQL).\n- Add constraints in two steps where supported: `NOT VALID` then `VALIDATE CONSTRAINT`, so validation doesn't block writes.\n- Renaming a column is a breaking change; treat it as add-new, backfill, switch, drop-old.\n\nEvery migration should be reviewed for the locks it takes and how long it runs on production-sized data.",
+   "code": "-- Rename users.fullname -> display_name without downtime (PostgreSQL)\nCREATE TABLE users (id bigint PRIMARY KEY, fullname text);\nSET lock_timeout = '2s';                        -- fail fast instead of queueing\nALTER TABLE users ADD COLUMN display_name text; -- expand (metadata only)\n\n-- deploy code that writes both columns, then backfill in batches:\nUPDATE users SET display_name = fullname\nWHERE id IN (SELECT id FROM users\n             WHERE display_name IS NULL AND fullname IS NOT NULL LIMIT 5000);\n-- ...repeat until 0 rows updated\n\nALTER TABLE users ADD CONSTRAINT display_name_nn\n    CHECK (display_name IS NOT NULL) NOT VALID; -- no full scan under lock\nALTER TABLE users VALIDATE CONSTRAINT display_name_nn;  -- scans without blocking writes\n\n-- switch reads, stop writing fullname, then in a later release:\nALTER TABLE users DROP COLUMN fullname;         -- contract",
+   "code_lang": "sql",
+   "takeaways": [
+    "Expand, dual-write, backfill, switch reads, contract",
+    "Set a lock timeout so DDL can't stall the whole table",
+    "Backfill in small batches; build indexes and validate constraints online"
+   ],
+   "pitfalls": [
+    "Renaming or dropping a column in the same deploy as the code that stops using it."
+   ],
+   "quiz": [
+    {
+     "q": "A quick ALTER TABLE waits for a lock held by a long-running report. What happens to new queries on that table in PostgreSQL?",
+     "options": [
+      "They run normally",
+      "They read from a replica",
+      "The report is cancelled automatically",
+      "They queue behind the waiting ALTER"
+     ],
+     "answer": 3,
+     "explain": "Lock requests queue in order, so the pending exclusive lock blocks later queries too; hence lock_timeout."
+    }
+   ],
+   "docs": "https://www.postgresql.org/docs/current/sql-altertable.html",
+   "requires": [
+    "database-design.denormalisation",
+    "database-design.locking-mvcc"
+   ]
+  }
+ ]
+}

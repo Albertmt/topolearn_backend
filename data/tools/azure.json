@@ -1,0 +1,1645 @@
+{
+ "tool": {
+  "id": "azure",
+  "name": "Microsoft Azure",
+  "category": "cloud",
+  "tagline": "Microsoft's cloud: compute, data, identity and networking services",
+  "description": "Microsoft Azure is a public cloud platform offering hundreds of services, from virtual machines and Kubernetes to managed databases, serverless functions, messaging and identity with Microsoft Entra ID. Companies use it to host applications, data platforms and enterprise workloads, especially where Microsoft 365, .NET and Windows Server are already in use. Learning Azure means learning its resource model, identity and RBAC, networking and the managed services that replace undifferentiated infrastructure work.",
+  "icon": "Az",
+  "color": "#0067B8",
+  "official_docs": "https://learn.microsoft.com/en-us/azure/",
+  "version": "2026 (Azure CLI 2.9x, Bicep 0.4x)",
+  "aliases": [
+   "microsoft azure",
+   "azure cloud",
+   "az",
+   "azure cli",
+   "bicep",
+   "entra id"
+  ],
+  "requires": [
+   {
+    "tool": "docker",
+    "level": 1
+   },
+   {
+    "tool": "sql",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "foundations",
+   "name": "Foundations"
+  },
+  {
+   "id": "identity",
+   "name": "Identity and security"
+  },
+  {
+   "id": "governance",
+   "name": "Automation and governance"
+  },
+  {
+   "id": "compute",
+   "name": "Compute"
+  },
+  {
+   "id": "networking",
+   "name": "Networking"
+  },
+  {
+   "id": "data",
+   "name": "Storage and databases"
+  },
+  {
+   "id": "integration",
+   "name": "Messaging and APIs"
+  },
+  {
+   "id": "operations",
+   "name": "Monitoring, cost and reliability"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "azure.resource-hierarchy",
+   "name": "Tenants, subscriptions and resource groups",
+   "module": "foundations",
+   "level": 1,
+   "minutes": 10,
+   "summary": "How Azure organizes everything: a tenant, management groups, subscriptions, resource groups and resources.",
+   "why": "Every permission, policy, budget and deployment in Azure is scoped to one level of this hierarchy.",
+   "body": "Azure organizes resources in a strict hierarchy, and almost every other feature hangs off it.\n\n- **Tenant**: one Microsoft Entra ID directory (users, groups, apps). Your organization usually has exactly one.\n- **Management groups**: optional folders of subscriptions, nested up to six levels under a single **root management group**. Used to apply policy and access to many subscriptions at once.\n- **Subscription**: the unit of billing and a hard boundary for quotas and many limits. A subscription trusts exactly one tenant.\n- **Resource group**: a logical container for resources that share a lifecycle. Every resource lives in exactly one resource group; deleting the group deletes everything inside it.\n- **Resource**: a VM, storage account, database and so on.\n\nAccess (RBAC), Azure Policy and budgets assigned at a level are **inherited by everything below it**. Assign \"Reader\" on a subscription and the person can read every resource group in it.\n\nA resource group has a region, but that only says where its metadata is stored; resources inside can live in any region. Group by lifecycle and ownership, not by resource type: \"orders-api-prod\" (app, database, cache) is better than \"all-databases\".\n\nTeams commonly split environments into separate subscriptions (prod, non-prod) so quotas, costs and access stay isolated.",
+   "code": "az account list --query \"[].{name:name, id:id, tenant:tenantId}\" -o table\naz account set --subscription \"Contoso Dev\"\n\naz group create --name rg-orders-dev --location westeurope\naz group list --query \"[].name\" -o tsv\n# rg-orders-dev\n\n# Deleting the group deletes every resource inside it\naz group delete --name rg-orders-dev --yes --no-wait",
+   "code_lang": "bash",
+   "takeaways": [
+    "Tenant > management groups > subscriptions > resource groups > resources",
+    "Access, policy and budgets inherit downward",
+    "A subscription is the billing and quota boundary",
+    "Group resources by shared lifecycle, not by type"
+   ],
+   "pitfalls": [
+    "Putting unrelated workloads in one resource group, so you cannot delete or grant access to one without the other."
+   ],
+   "quiz": [
+    {
+     "q": "A user is given Contributor on a subscription. What can they modify?",
+     "options": [
+      "Every resource group and resource in that subscription",
+      "Only resource groups they created",
+      "Only the subscription's billing settings",
+      "Nothing until each resource group grants access"
+     ],
+     "answer": 0,
+     "explain": "Role assignments are inherited by every scope below the one they are made at."
+    },
+    {
+     "q": "What happens to a storage account in westeurope inside a resource group whose location is eastus?",
+     "options": [
+      "Deployment fails",
+      "Nothing unusual: the group's location only stores metadata",
+      "The account is moved to eastus",
+      "It is billed at eastus prices"
+     ],
+     "answer": 1,
+     "explain": "Resources in a group may live in any region; the group's location is for its metadata."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/governance/management-groups/overview",
+   "requires": []
+  },
+  {
+   "id": "azure.regions-zones",
+   "name": "Regions, availability zones and pairs",
+   "module": "foundations",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Where Azure resources physically run, and how zones and paired regions protect you from failures.",
+   "why": "Picking regions and zones decides your latency, resilience, data residency and even price.",
+   "body": "A **region** is a set of datacenters in one geography, such as `westeurope` or `eastus2`. You choose a region for each resource; latency to users, data-residency rules, service availability and price all vary by region.\n\nMany regions have **availability zones**: three or more physically separate groups of datacenters with independent power, cooling and networking, connected by low-latency links. Resources use zones in two ways:\n\n- **Zonal**: pinned to one zone you pick (`--zone 1`), e.g. a VM. You spread instances across zones yourself.\n- **Zone-redundant**: the platform replicates across zones for you, e.g. ZRS storage, zone-redundant SQL Database or App Service plans.\n\nZone numbers are mapped per subscription: zone 1 in your subscription may be a different building from zone 1 in someone else's.\n\nMany regions also have a **paired region** in the same geography (West Europe with North Europe). Some services use the pair for geo-replication (GRS storage), and platform updates are rolled out to one region of a pair at a time. Newer regions may have no pair; multi-region designs can choose any secondary region.\n\nRule of thumb: zones protect against a datacenter failure with near-zero data loss; a second region protects against a regional outage but needs asynchronous replication and a failover plan.",
+   "code": "# Which regions does my subscription see, and which have zones?\naz account list-locations \\\n  --query \"[?metadata.regionType=='Physical'].{name:name, pair:metadata.pairedRegion[0].name}\" -o table\n\n# A VM pinned to zone 2\naz vm create -g rg-demo -n vm-z2 --image Ubuntu2404 --zone 2 \\\n  --admin-username azureuser --generate-ssh-keys",
+   "code_lang": "bash",
+   "takeaways": [
+    "Region = where it runs; zone = which independent datacenter group inside the region",
+    "Zonal resources are pinned; zone-redundant ones are replicated for you",
+    "Zones guard against a datacenter failure, regions against a regional outage"
+   ],
+   "pitfalls": [
+    "Deploying three VMs \"for high availability\" all in the same zone (or with no zone at all)."
+   ],
+   "quiz": [
+    {
+     "q": "You need to survive the loss of a single datacenter with no data loss and minimal latency cost. What do you use?",
+     "options": [
+      "Availability zones",
+      "A paired region with asynchronous replication",
+      "A larger VM size",
+      "A second subscription"
+     ],
+     "answer": 0,
+     "explain": "Zones are separate datacenters in one region with synchronous-capable, low-latency links."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/reliability/availability-zones-overview",
+   "requires": []
+  },
+  {
+   "id": "azure.cli-basics",
+   "name": "Azure CLI essentials",
+   "module": "governance",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Sign in, pick a subscription, create resources and shape output with --query and -o.",
+   "why": "The CLI is the fastest way to explore Azure and the glue of most scripts and pipelines.",
+   "body": "The **Azure CLI** (`az`) is a cross-platform command line for everything in Azure Resource Manager. Commands follow `az <group> <subgroup> <verb>`: `az storage account create`, `az vm list`, `az webapp log tail`.\n\nGetting started:\n\n- `az login` opens a browser (or use `--use-device-code`); `az account show` prints the current subscription; `az account set -s <name or id>` switches.\n- `az configure --defaults group=rg-demo location=westeurope` saves you from repeating `-g` and `-l`.\n- Every command has `--help`, and `az find \"create storage\"` suggests examples.\n\nOutput is JSON by default. `-o table`, `-o tsv` and `-o yaml` change the format, and `--query` takes a **JMESPath** expression to filter and reshape it, client side. `-o tsv` with a single field is the idiom for capturing a value in a shell variable.\n\n`az rest` calls any ARM REST endpoint with your login token, which is handy for brand-new API features the CLI doesn't wrap yet. Cloud Shell in the portal has `az` preinstalled and already logged in.\n\nIn automation, never use a personal login: use a service principal or, better, a managed identity or workload identity federation, covered later.",
+   "code": "az login\naz account set --subscription \"Contoso Dev\"\naz configure --defaults group=rg-demo location=westeurope\n\naz group create --name rg-demo\naz storage account create --name stdemo$RANDOM --sku Standard_LRS\n\n# JMESPath: names and SKUs of every storage account\naz storage account list --query \"[].{name:name, sku:sku.name}\" -o table\n\n# Capture one value into a variable\nID=$(az storage account list --query \"[0].id\" -o tsv)\necho \"$ID\"   # /subscriptions/.../resourceGroups/rg-demo/providers/Microsoft.Storage/...",
+   "code_lang": "bash",
+   "takeaways": [
+    "Commands read az <group> <verb>; --help on anything",
+    "--query (JMESPath) filters output; -o tsv captures single values",
+    "az configure --defaults removes repetitive -g/-l flags"
+   ],
+   "pitfalls": [
+    "Parsing JSON output with grep or sed instead of using --query."
+   ],
+   "quiz": [
+    {
+     "q": "Which command prints only the names of all resource groups, one per line?",
+     "options": [
+      "az group list -o table",
+      "az group show --name",
+      "az group list | grep name",
+      "az group list --query \"[].name\" -o tsv"
+     ],
+     "answer": 3,
+     "explain": "--query selects the name field from every element and -o tsv prints plain lines."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/cli/azure/query-azure-cli",
+   "requires": [
+    "azure.resource-hierarchy"
+   ]
+  },
+  {
+   "id": "azure.resource-manager",
+   "name": "Resource Manager, IDs, tags and locks",
+   "module": "foundations",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Azure Resource Manager is the single API behind the portal, CLI and IaC; learn resource IDs, providers, tags and locks.",
+   "why": "Understanding ARM explains why every tool behaves the same and how to protect and label resources.",
+   "body": "Every request to create, change or delete a resource, whether from the portal, CLI, PowerShell, SDK or Bicep, goes through **Azure Resource Manager (ARM)**. ARM authenticates you with Entra ID, checks RBAC and Azure Policy, then forwards the request to a **resource provider** such as `Microsoft.Storage` or `Microsoft.Web`.\n\nEvery resource has a **resource ID**:\n\n`/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{name}`\n\nThe ID encodes the provider namespace and type, and it is what you pass as `--scope` for role assignments, policies and locks. Each provider must be **registered** in a subscription before use; most are registered automatically, but a \"MissingSubscriptionRegistration\" error means running `az provider register`.\n\n**Tags** are name/value pairs (`env=prod`, `costCenter=1234`) used for cost reporting and automation. Tags are not inherited from resource groups by default; Azure Policy can enforce or copy them.\n\n**Locks** guard against accidents: `CanNotDelete` allows changes but blocks deletion, `ReadOnly` blocks all writes. Locks apply to everyone, including Owners, and inherit downward. Note that `ReadOnly` can break things unexpectedly, because some read-like operations (such as listing storage keys) are POST requests that the lock blocks.",
+   "code": "az provider show -n Microsoft.App --query registrationState -o tsv   # NotRegistered\naz provider register -n Microsoft.App\n\naz resource tag --is-incremental --tags env=prod costCenter=1234 \\\n  --ids /subscriptions/$SUB/resourceGroups/rg-prod/providers/Microsoft.Storage/storageAccounts/stprod01\n\n# Find everything tagged env=prod\naz resource list --tag env=prod --query \"[].name\" -o tsv\n\n# Nobody, not even an Owner, can delete the group until the lock is removed\naz lock create --name no-delete --lock-type CanNotDelete --resource-group rg-prod",
+   "code_lang": "bash",
+   "takeaways": [
+    "Portal, CLI, SDKs and Bicep all call the same ARM API",
+    "Resource IDs encode subscription, group, provider, type and name",
+    "Tags label resources for cost and automation; they are not inherited by default",
+    "CanNotDelete and ReadOnly locks apply even to Owners"
+   ],
+   "pitfalls": [
+    "Using `az resource tag` without `--is-incremental`, which replaces all existing tags instead of adding to them."
+   ],
+   "quiz": [
+    {
+     "q": "An Owner tries to delete a resource group with a CanNotDelete lock. What happens?",
+     "options": [
+      "It succeeds because Owners bypass locks",
+      "Only the lock is deleted",
+      "It fails until the lock is removed",
+      "It succeeds after a 7-day soft-delete period"
+     ],
+     "answer": 2,
+     "explain": "Locks apply to all users; an Owner must remove the lock first."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/management/overview",
+   "requires": [
+    "azure.resource-hierarchy"
+   ]
+  },
+  {
+   "id": "azure.entra-id",
+   "name": "Microsoft Entra ID: identities",
+   "module": "identity",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Users, groups, app registrations and service principals: the identities Azure authenticates.",
+   "why": "Every sign-in to Azure, human or machine, is an Entra ID identity, so you need to know the kinds.",
+   "body": "**Microsoft Entra ID** (formerly Azure Active Directory) is the cloud identity provider behind Azure, Microsoft 365 and your own apps. A **tenant** is one directory with its own users, groups and applications.\n\nThe identity types you meet in Azure:\n\n- **Users**: people, either members of the tenant or invited guests (B2B).\n- **Groups**: collections of users and other principals. Assign access to groups, not individuals.\n- **App registration**: the global definition of an application (its client ID, redirect URIs, secrets or certificates, API permissions).\n- **Service principal**: the instance of an app inside a tenant, the thing you actually grant roles to. Creating an app registration creates its service principal in the home tenant (\"Enterprise applications\" in the portal).\n- **Managed identity**: a special service principal whose credentials Azure manages for you (covered later).\n\nKeep two separate permission systems apart. **Entra roles** (Global Administrator, User Administrator) control the directory itself. **Azure RBAC roles** (Owner, Contributor, Reader) control Azure resources. A Global Administrator has no access to subscriptions by default.\n\nEntra ID speaks OAuth 2.0 and OpenID Connect: clients obtain **access tokens** for a resource (audience), such as `https://management.azure.com/` for ARM or `https://vault.azure.net` for Key Vault.",
+   "code": "az ad signed-in-user show --query \"{upn:userPrincipalName, id:id}\"\n\n# Group to assign access to\naz ad group create --display-name \"orders-devs\" --mail-nickname orders-devs\n\n# App registration + its service principal\nAPP_ID=$(az ad app create --display-name orders-ci --query appId -o tsv)\naz ad sp create --id \"$APP_ID\"\n\n# Get an access token for ARM, as the signed-in identity\naz account get-access-token --resource https://management.azure.com/ --query expiresOn",
+   "code_lang": "bash",
+   "takeaways": [
+    "A tenant is one Entra ID directory",
+    "App registration = global definition; service principal = its identity in a tenant",
+    "Entra roles govern the directory; Azure RBAC roles govern resources",
+    "Grant access to groups, not individual users"
+   ],
+   "pitfalls": [
+    "Assuming a Global Administrator can manage subscriptions: they must first elevate access or be granted an Azure role."
+   ],
+   "quiz": [
+    {
+     "q": "What do you assign an Azure role to when a CI pipeline needs to deploy resources?",
+     "options": [
+      "The app registration's client secret",
+      "The application's service principal",
+      "The tenant",
+      "An Entra directory role"
+     ],
+     "answer": 1,
+     "explain": "Role assignments target security principals; for an app that is its service principal."
+    },
+    {
+     "q": "Which statement is true?",
+     "options": [
+      "Entra roles manage the directory, Azure RBAC manages resources",
+      "Global Administrator automatically owns all subscriptions",
+      "Azure RBAC and Entra roles are the same system",
+      "Groups cannot receive Azure roles"
+     ],
+     "answer": 0,
+     "explain": "They are separate systems with separate role definitions and scopes."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/entra/fundamentals/whatis",
+   "requires": [
+    "azure.resource-hierarchy"
+   ]
+  },
+  {
+   "id": "azure.rbac-basics",
+   "name": "Azure RBAC: roles and scopes",
+   "module": "identity",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Grant least-privilege access with role assignments: who (principal), what (role) and where (scope).",
+   "why": "RBAC decides who can do what to every resource; getting it right is the core of Azure security.",
+   "body": "Azure **role-based access control** works through **role assignments**, each with three parts:\n\n- **Security principal**: a user, group, service principal or managed identity.\n- **Role definition**: a list of allowed `Actions` (control plane, e.g. `Microsoft.Storage/storageAccounts/write`) and `DataActions` (data plane, e.g. reading blobs).\n- **Scope**: management group, subscription, resource group or single resource.\n\nAssignments are additive and inherited downward; the effective permission is the union of all roles that apply. Explicit **deny assignments** exist but are created by the platform (for example by deployment stacks or managed apps), not by you directly.\n\nBuilt-in roles to know: **Owner** (everything, including granting access), **Contributor** (everything except granting access), **Reader**, **User Access Administrator**, and many service roles such as **Storage Blob Data Reader** or **Key Vault Secrets User**.\n\nThe control plane versus data plane split matters: Contributor on a storage account lets you manage it, but reading blobs with your Entra identity needs a data role such as Storage Blob Data Reader.\n\nLeast privilege in practice: assign roles to groups, at the narrowest useful scope, prefer specific service roles over Contributor, and use Privileged Identity Management for just-in-time elevation of powerful roles. New assignments can take several minutes to take effect.",
+   "code": "GROUP_ID=$(az ad group show --group orders-devs --query id -o tsv)\nRG_ID=$(az group show -n rg-orders-dev --query id -o tsv)\n\n# Contributor on one resource group only\naz role assignment create --assignee-object-id \"$GROUP_ID\" \\\n  --assignee-principal-type Group --role Contributor --scope \"$RG_ID\"\n\n# Data-plane access to blobs in one storage account\naz role assignment create --assignee-object-id \"$GROUP_ID\" \\\n  --assignee-principal-type Group --role \"Storage Blob Data Reader\" \\\n  --scope \"$RG_ID/providers/Microsoft.Storage/storageAccounts/stordersdev\"\n\naz role assignment list --scope \"$RG_ID\" --query \"[].{who:principalName, role:roleDefinitionName}\" -o table",
+   "code_lang": "bash",
+   "takeaways": [
+    "Role assignment = principal + role + scope",
+    "Permissions are additive and inherit to child scopes",
+    "Management rights (Actions) and data rights (DataActions) are separate",
+    "Owner can grant access; Contributor cannot"
+   ],
+   "pitfalls": [
+    "Giving a workload Contributor on a subscription when it only needs to read secrets from one Key Vault."
+   ],
+   "quiz": [
+    {
+     "q": "A user has Contributor on a storage account and gets 403 reading a blob with Entra auth. Why?",
+     "options": [
+      "Contributor is read-only",
+      "Blobs need a resource lock",
+      "RBAC does not apply to storage",
+      "Contributor grants control-plane actions, not blob DataActions"
+     ],
+     "answer": 3,
+     "explain": "Reading blob data with Entra auth requires a data role such as Storage Blob Data Reader."
+    },
+    {
+     "q": "Which built-in role can manage resources but cannot assign roles to others?",
+     "options": [
+      "Owner",
+      "User Access Administrator",
+      "Contributor",
+      "Global Administrator"
+     ],
+     "answer": 2,
+     "explain": "Contributor excludes Microsoft.Authorization write actions."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/role-based-access-control/overview",
+   "requires": [
+    "azure.entra-id"
+   ]
+  },
+  {
+   "id": "azure.vms",
+   "name": "Virtual machines",
+   "module": "compute",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Create and manage Linux VMs: images, sizes, disks, SSH access and what you pay for.",
+   "why": "VMs are the IaaS building block for anything that doesn't fit a managed platform.",
+   "body": "An Azure **virtual machine** is IaaS: you choose the image, size and disks, and you own the operating system, patches and everything above it.\n\n- **Image**: a marketplace image such as Ubuntu 24.04 (`Ubuntu2404` alias) or Windows Server, or your own from an Azure Compute Gallery.\n- **Size**: the family describes the shape: B (burstable, cheap dev boxes), D (general purpose), E (memory optimized), F (compute optimized), N (GPU). `Standard_D4s_v5` means 4 vCPUs, `s` for premium-storage capable.\n- **Disks**: managed disks; the OS disk plus optional data disks in Standard HDD, Standard SSD, Premium SSD, Premium SSD v2 or Ultra tiers. Size and tier set IOPS and throughput.\n- **Networking**: a NIC in a VNet subnet, an NSG, and optionally a public IP. For admin access prefer Azure Bastion or Entra ID login over exposing SSH to the internet.\n\nBilling is per second of compute while the VM is allocated, plus disks always. The trap: shutting down from inside the OS or `az vm stop` leaves the VM **allocated and billed**; `az vm deallocate` releases the hardware and stops compute charges (disks are still billed).\n\nUse **Spot VMs** for interruptible batch work at deep discounts, and cloud-init (`--custom-data`) to configure a VM on first boot.",
+   "code": "az vm create -g rg-demo -n vm-web01 \\\n  --image Ubuntu2404 --size Standard_B2s \\\n  --admin-username azureuser --generate-ssh-keys \\\n  --public-ip-sku Standard --custom-data cloud-init.yaml\n\naz vm open-port -g rg-demo -n vm-web01 --port 80\naz vm list -d -o table --query \"[].{name:name, state:powerState, ip:publicIps}\"\n# vm-web01  VM running  20.13.x.x\n\naz vm stop -g rg-demo -n vm-web01        # still allocated: compute still billed\naz vm deallocate -g rg-demo -n vm-web01  # compute billing stops; disks still billed",
+   "code_lang": "bash",
+   "takeaways": [
+    "You manage the OS and everything above it",
+    "Size family letters describe the shape (B, D, E, F, N)",
+    "Only deallocate stops compute charges",
+    "Use Bastion or Entra login rather than open SSH"
+   ],
+   "pitfalls": [
+    "Stopping a VM from inside the guest OS and assuming billing has stopped."
+   ],
+   "quiz": [
+    {
+     "q": "Which action stops compute billing for a VM?",
+     "options": [
+      "sudo shutdown -h now in the guest",
+      "az vm deallocate",
+      "az vm stop",
+      "Removing the public IP"
+     ],
+     "answer": 1,
+     "explain": "Only deallocation releases the host; stop leaves the VM allocated."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/virtual-machines/overview",
+   "requires": [
+    "azure.cli-basics",
+    "azure.regions-zones"
+   ]
+  },
+  {
+   "id": "azure.vnet-basics",
+   "name": "VNets, subnets and NSGs",
+   "module": "networking",
+   "level": 1,
+   "minutes": 14,
+   "summary": "Build private networks with address spaces and subnets, and filter traffic with network security groups.",
+   "why": "Almost every production workload sits in a VNet; NSGs are the first layer of network security.",
+   "body": "A **virtual network (VNet)** is your private network in one region, defined by one or more address spaces such as `10.10.0.0/16`. You carve it into **subnets** (`10.10.1.0/24`); Azure reserves 5 addresses in every subnet. Some services require a **dedicated or delegated subnet** (App Service VNet integration, Container Apps environments), so plan address space generously and never overlap with on-premises or other VNets you may peer with.\n\nResources in a VNet can talk to each other by default. Two VNets connect through **peering**, which is not transitive: if A peers with B and B with C, A cannot reach C without routing through an appliance (hub-spoke design).\n\nA **network security group (NSG)** is a stateful set of allow/deny rules attached to a subnet or NIC. Each rule has a priority from 100 to 4096, and the lowest number that matches wins. Default rules allow traffic within the VNet and from the Azure load balancer and deny other inbound traffic; outbound to the internet is allowed by default.\n\nRules can use **service tags** (`Internet`, `AzureLoadBalancer`, `Storage.WestEurope`) and **application security groups** instead of raw IPs. For outbound internet access, use an explicit **NAT gateway** rather than relying on implicit default outbound access, which Azure is retiring.",
+   "code": "az network vnet create -g rg-net -n vnet-app --address-prefixes 10.10.0.0/16 \\\n  --subnet-name snet-web --subnet-prefixes 10.10.1.0/24\n\naz network nsg create -g rg-net -n nsg-web\naz network nsg rule create -g rg-net --nsg-name nsg-web -n allow-https \\\n  --priority 100 --direction Inbound --access Allow --protocol Tcp \\\n  --source-address-prefixes Internet --destination-port-ranges 443\n\naz network vnet subnet update -g rg-net --vnet-name vnet-app -n snet-web \\\n  --network-security-group nsg-web\n\naz network nsg rule list -g rg-net --nsg-name nsg-web --include-default -o table",
+   "code_lang": "bash",
+   "takeaways": [
+    "VNet = regional private address space split into subnets",
+    "NSG rules: lowest priority number wins; stateful, so return traffic is allowed",
+    "Peering is not transitive",
+    "Plan non-overlapping address space up front"
+   ],
+   "pitfalls": [
+    "Picking overlapping CIDR ranges, which makes later peering or VPN connections impossible without re-addressing."
+   ],
+   "quiz": [
+    {
+     "q": "An NSG has rule 200 Deny TCP 443 from Internet and rule 300 Allow TCP 443 from Internet. Is inbound HTTPS from the internet allowed?",
+     "options": [
+      "Yes, allow rules always win",
+      "Yes, the higher number takes precedence",
+      "No, rule 200 has the lower number and matches first",
+      "It depends on the default rules"
+     ],
+     "answer": 2,
+     "explain": "Rules are processed in priority order, lowest number first, and processing stops at the first match."
+    },
+    {
+     "q": "VNet A peers with B, and B peers with C. Can A reach C directly?",
+     "options": [
+      "Yes, peering is transitive",
+      "Only if all are in the same region",
+      "Only for ICMP",
+      "No, peering is not transitive"
+     ],
+     "answer": 3,
+     "explain": "You need a direct peering or a routing appliance/gateway in the hub."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview",
+   "requires": [
+    "azure.regions-zones"
+   ]
+  },
+  {
+   "id": "azure.storage-accounts",
+   "name": "Storage accounts and redundancy",
+   "module": "data",
+   "level": 1,
+   "minutes": 10,
+   "summary": "One storage account hosts blobs, queues, files and tables; choose its kind, performance and redundancy.",
+   "why": "Storage accounts underpin many services, and the redundancy choice decides what failures you survive.",
+   "body": "A **storage account** is a namespace for Azure Storage services: **Blob** (objects), **Queue** (simple messages), **Files** (SMB/NFS shares) and **Table** (key-value). Its name is globally unique, 3 to 24 lowercase letters and digits, and becomes part of every endpoint: `https://<name>.blob.core.windows.net`.\n\nChoices made at creation:\n\n- **Kind/performance**: `StorageV2` (general-purpose v2, Standard performance) for almost everything; Premium kinds (`BlockBlobStorage`, `FileStorage`) for low-latency workloads.\n- **Redundancy (SKU)**:\n  - `LRS`: three copies in one datacenter.\n  - `ZRS`: three copies across availability zones in the region.\n  - `GRS`: LRS plus asynchronous copy to the paired region; `RA-GRS` adds read access to the secondary.\n  - `GZRS` / `RA-GZRS`: ZRS in the primary plus geo copy.\n\nGeo replication is asynchronous, so a regional failover can lose recent writes; check `lastSyncTime`.\n\nSecure defaults to set: disable anonymous blob access, require TLS 1.2, and disable shared key access (`--allow-shared-key-access false`) so every request uses Entra ID instead of account keys, which grant full control to whoever holds them.",
+   "code": "az storage account create -g rg-data -n stordersprod01 \\\n  --kind StorageV2 --sku Standard_ZRS --location westeurope \\\n  --min-tls-version TLS1_2 \\\n  --allow-blob-public-access false \\\n  --allow-shared-key-access false\n\naz storage account show -g rg-data -n stordersprod01 \\\n  --query \"{sku:sku.name, blob:primaryEndpoints.blob}\"\n# { \"sku\": \"Standard_ZRS\", \"blob\": \"https://stordersprod01.blob.core.windows.net/\" }",
+   "code_lang": "bash",
+   "takeaways": [
+    "One account = blob, queue, file and table endpoints under a global name",
+    "LRS < ZRS < GRS/GZRS in resilience and price",
+    "Geo replication is asynchronous",
+    "Prefer Entra ID auth and disable shared keys"
+   ],
+   "pitfalls": [
+    "Choosing LRS for data that must survive a zone outage."
+   ],
+   "quiz": [
+    {
+     "q": "Which SKU keeps data available if one availability zone fails, without a cross-region copy?",
+     "options": [
+      "Standard_LRS",
+      "Standard_GRS",
+      "Standard_ZRS",
+      "Premium_LRS"
+     ],
+     "answer": 2,
+     "explain": "ZRS writes synchronously to three zones in the primary region."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/storage/common/storage-redundancy",
+   "requires": [
+    "azure.regions-zones",
+    "azure.cli-basics"
+   ]
+  },
+  {
+   "id": "azure.blob-storage",
+   "name": "Blob Storage: containers, tiers and SAS",
+   "module": "data",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Store objects in containers, pick hot/cool/cold/archive tiers, and grant temporary access safely.",
+   "why": "Blob Storage is Azure's object store for uploads, backups, static content and data lakes.",
+   "body": "Blobs live in **containers** inside a storage account: `https://<account>.blob.core.windows.net/<container>/<path/name>`. Most blobs are **block blobs** (files of any kind); **append blobs** suit logs, **page blobs** back VM disks. \"Folders\" are just `/` in names, unless you enable the **hierarchical namespace** (Data Lake Storage), which gives real directories and atomic renames.\n\n**Access tiers** trade storage cost against access cost:\n\n- **Hot**: frequent access.\n- **Cool**: infrequent, 30-day minimum retention.\n- **Cold**: rarely accessed, 90-day minimum.\n- **Archive**: offline, 180-day minimum; reading needs **rehydration**, which can take hours.\n\n**Lifecycle management** policies move or delete blobs automatically by age, e.g. cool after 30 days, archive after 180.\n\nTo let a client upload or download without your credentials, issue a **shared access signature (SAS)**: a URL with signed, time-limited permissions. Prefer a **user delegation SAS**, signed with an Entra ID key rather than the account key, so it can be revoked and audited. Keep expiry short and permissions minimal.\n\nProtect data with **soft delete** for blobs and containers, versioning, and immutability policies for compliance.",
+   "code": "az storage container create --account-name stordersprod01 -n invoices --auth-mode login\n\naz storage blob upload --account-name stordersprod01 -c invoices \\\n  -n 2026/10/inv-1001.pdf -f ./inv-1001.pdf --tier Cool --auth-mode login\n\n# Read-only user delegation SAS valid for one hour\nEND=$(date -u -d \"+1 hour\" +%Y-%m-%dT%H:%MZ)\naz storage blob generate-sas --account-name stordersprod01 -c invoices \\\n  -n 2026/10/inv-1001.pdf --permissions r --expiry \"$END\" \\\n  --auth-mode login --as-user --full-uri\n# https://stordersprod01.blob.core.windows.net/invoices/2026/10/inv-1001.pdf?skoid=...&sig=...",
+   "code_lang": "bash",
+   "takeaways": [
+    "Container + blob name = object; folders are name prefixes",
+    "Hot, Cool, Cold, Archive: cheaper storage, costlier and slower access",
+    "Use lifecycle rules to tier and expire automatically",
+    "Prefer short-lived user delegation SAS over account-key SAS"
+   ],
+   "pitfalls": [
+    "Putting blobs in Archive and expecting to read them immediately.",
+    "Issuing long-lived account-key SAS tokens that can only be revoked by rotating the key."
+   ],
+   "quiz": [
+    {
+     "q": "Why prefer a user delegation SAS over a service SAS signed with the account key?",
+     "options": [
+      "It never expires",
+      "It is signed with Entra credentials, so it is auditable and revocable without rotating account keys",
+      "It allows anonymous access",
+      "It is required for the Archive tier"
+     ],
+     "answer": 1,
+     "explain": "User delegation keys come from Entra ID and can be revoked independently of the account keys."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/storage/blobs/storage-blobs-introduction",
+   "requires": [
+    "azure.storage-accounts"
+   ]
+  },
+  {
+   "id": "azure.app-service",
+   "name": "App Service web apps",
+   "module": "compute",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Host web apps and APIs on a managed platform: plans, runtimes, app settings and deployment slots.",
+   "why": "App Service is the quickest production-grade way to run a web app without managing servers.",
+   "body": "**Azure App Service** runs web apps, REST APIs and mobile back ends on managed infrastructure. You deploy code (Python, Node.js, .NET, Java, PHP) or a container; Azure handles the OS, patching, load balancing and TLS.\n\nTwo resources are involved:\n\n- The **App Service plan** is the compute you pay for: OS (Linux or Windows), tier (Free, Basic, Standard, Premium v3/v4, Isolated) and instance count. Several apps can share one plan and its VMs.\n- The **web app** is your site, with a default hostname `<name>.azurewebsites.net`.\n\nConfiguration lives in **app settings**, exposed to your code as environment variables, and **connection strings**. Scale **up** by changing the plan tier and **out** by adding instances, manually or with autoscale rules.\n\n**Deployment slots** (Standard tier and up) are live staging copies of the app, such as `staging`. Deploy to the slot, warm it up, then **swap** it into production with no downtime; swap back to roll back. Mark environment-specific settings as slot settings so they don't move with a swap.\n\nOther features worth knowing: built-in authentication (\"Easy Auth\"), custom domains with free managed certificates, VNet integration for outbound calls to private resources, and Always On to avoid cold starts after idle periods.",
+   "code": "# From a folder containing a Python (Flask/FastAPI/Django) app:\naz webapp up --name orders-web-dev --resource-group rg-web \\\n  --runtime \"PYTHON:3.12\" --sku B1\n\naz webapp config appsettings set -g rg-web -n orders-web-dev \\\n  --settings FEATURE_X=on LOG_LEVEL=info\n\n# Zero-downtime release with a slot (needs Standard or higher)\naz appservice plan update -g rg-web -n <plan-name> --sku S1\naz webapp deployment slot create -g rg-web -n orders-web-dev --slot staging\naz webapp deployment slot swap -g rg-web -n orders-web-dev --slot staging --target-slot production",
+   "code_lang": "bash",
+   "takeaways": [
+    "Plan = compute you pay for; app = site running on it",
+    "App settings become environment variables",
+    "Slots + swap give zero-downtime deploys and instant rollback",
+    "Scale up = bigger tier; scale out = more instances"
+   ],
+   "pitfalls": [
+    "Putting a heavy batch job in the same plan as the production site, so both compete for the same instances."
+   ],
+   "quiz": [
+    {
+     "q": "What is the main benefit of deploying to a staging slot and swapping?",
+     "options": [
+      "Code is warmed up before receiving traffic and rollback is a swap back",
+      "It is cheaper than production",
+      "It disables app settings",
+      "It moves the app to another region"
+     ],
+     "answer": 0,
+     "explain": "The swap redirects traffic to already-running instances, avoiding downtime."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/app-service/overview",
+   "requires": [
+    "azure.cli-basics"
+   ]
+  },
+  {
+   "id": "azure.cost-basics",
+   "name": "Pricing, budgets and cost analysis",
+   "module": "operations",
+   "level": 1,
+   "minutes": 10,
+   "summary": "How Azure bills you, how to estimate costs, and how to watch spending with cost analysis and budgets.",
+   "why": "Cloud bills grow quietly; knowing the meters and setting budgets early avoids nasty surprises.",
+   "body": "Azure charges per **meter**: VM compute per second, storage per GB-month plus per-transaction, outbound data per GB, functions per execution, and so on. The same service can cost very differently by region, tier and redundancy.\n\nTools to know:\n\n- The **pricing calculator** estimates a design before you build it.\n- **Cost Management + Billing**, **Cost analysis**: actual and forecast cost, grouped by subscription, resource group, service, meter or tag.\n- **Budgets**: a monthly, quarterly or yearly amount at a scope with alert thresholds (e.g. 80% actual, 100% forecast) that email people or trigger an action group. A budget **does not stop** spending by itself.\n- **Azure Advisor** cost recommendations: idle or oversized resources.\n\nHabits that keep costs predictable:\n\n- Tag resources with owner, environment and cost center, and enforce tags with Policy.\n- Delete dev resource groups when done; deallocate idle VMs; use auto-shutdown for dev boxes.\n- Watch the classic surprises: data egress, premium disks left after deleting a VM, Log Analytics ingestion, public IPs, and forgotten NAT gateways or firewalls that bill per hour.\n\nPricing for many services changes, so always check the region-specific pricing page rather than memorized numbers.",
+   "code": "az consumption budget create --budget-name dev-monthly \\\n  --amount 500 --category cost --time-grain monthly \\\n  --start-date 2026-11-01 --end-date 2027-10-31 \\\n  --resource-group rg-orders-dev\n\n# Month-to-date cost by resource group (Cost Management query API)\naz rest --method post \\\n  --url \"https://management.azure.com/subscriptions/$SUB/providers/Microsoft.CostManagement/query?api-version=2023-11-01\" \\\n  --body '{\"type\":\"ActualCost\",\"timeframe\":\"MonthToDate\",\n    \"dataset\":{\"granularity\":\"None\",\"aggregation\":{\"cost\":{\"name\":\"Cost\",\"function\":\"Sum\"}},\n    \"grouping\":[{\"type\":\"Dimension\",\"name\":\"ResourceGroupName\"}]}}'",
+   "code_lang": "bash",
+   "takeaways": [
+    "Every service bills per meter; region and tier change the price",
+    "Budgets alert but never stop resources",
+    "Tags make cost allocation possible",
+    "Egress, logs, disks and idle network appliances are common surprises"
+   ],
+   "pitfalls": [
+    "Expecting a budget to cap spending: it only sends alerts or triggers actions you configure."
+   ],
+   "quiz": [
+    {
+     "q": "Your budget of 500 hits 100%. What does Azure do by default?",
+     "options": [
+      "Deallocates all VMs",
+      "Disables the subscription",
+      "Blocks new deployments",
+      "Sends the configured alerts; resources keep running"
+     ],
+     "answer": 3,
+     "explain": "Budgets are notifications; enforcement requires your own automation."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/cost-management-billing/costs/tutorial-acm-create-budgets",
+   "requires": [
+    "azure.resource-hierarchy"
+   ]
+  },
+  {
+   "id": "azure.managed-identities",
+   "name": "Managed identities and DefaultAzureCredential",
+   "module": "identity",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Give Azure-hosted code an Entra identity with no secrets to store, rotate or leak.",
+   "why": "Managed identities remove connection strings and client secrets, the most common cloud credential leak.",
+   "body": "A **managed identity** is a service principal whose credentials Azure creates, stores and rotates for you. Code running on the resource asks the local platform endpoint (the Instance Metadata Service on VMs, an equivalent endpoint on App Service, Functions, Container Apps) for a token and never sees a secret.\n\nTwo kinds:\n\n- **System-assigned**: created with, and deleted with, one resource. Simple, one identity per resource.\n- **User-assigned**: a standalone resource (`Microsoft.ManagedIdentity/userAssignedIdentities`) you attach to many resources. Survives redeployments, can be granted roles *before* the app exists, and can hold **federated credentials**. Prefer it for production and IaC.\n\nThe workflow: enable the identity, grant it a role on the target (Key Vault Secrets User, Storage Blob Data Contributor, a database user), then use the Azure SDK.\n\nIn code, use **`DefaultAzureCredential`** from `azure-identity`. It tries a chain of sources: environment variables, workload identity, managed identity, then developer logins such as the Azure CLI. The same code works on your laptop (as you) and in Azure (as the identity). For a user-assigned identity set `AZURE_CLIENT_ID` so the right one is picked when several are attached. In production you can use `ManagedIdentityCredential` directly for faster, more predictable startup.",
+   "code": "# pip install azure-identity azure-storage-blob\nfrom azure.identity import DefaultAzureCredential\nfrom azure.storage.blob import BlobServiceClient\n\n# Locally: uses your `az login`. In Azure: uses the managed identity.\ncred = DefaultAzureCredential()\nsvc = BlobServiceClient(\"https://stordersprod01.blob.core.windows.net\", credential=cred)\n\nfor blob in svc.get_container_client(\"invoices\").list_blobs(name_starts_with=\"2026/10/\"):\n    print(blob.name)   # 2026/10/inv-1001.pdf\n\n# Setup (bash):\n# az webapp identity assign -g rg-web -n orders-web\n# az role assignment create --assignee <principalId> \\\n#   --role \"Storage Blob Data Reader\" --scope <storage account id>",
+   "code_lang": "python",
+   "takeaways": [
+    "Managed identity = Azure-managed credentials, no secrets in config",
+    "System-assigned lives and dies with its resource; user-assigned is reusable",
+    "Still needs a role assignment on the target",
+    "DefaultAzureCredential runs unchanged locally and in Azure"
+   ],
+   "pitfalls": [
+    "Enabling the identity but forgetting the role assignment, then getting 403 errors."
+   ],
+   "quiz": [
+    {
+     "q": "Why choose a user-assigned identity for an app deployed with IaC?",
+     "options": [
+      "It is the only kind that works with Key Vault",
+      "It needs no role assignments",
+      "It can be created and granted roles before the app, and survives app re-creation",
+      "It works outside Azure without credentials"
+     ],
+     "answer": 2,
+     "explain": "User-assigned identities have an independent lifecycle, which avoids role-assignment races and churn."
+    },
+    {
+     "q": "On a developer laptop, which credential does DefaultAzureCredential typically end up using?",
+     "options": [
+      "The VM's managed identity",
+      "The developer's Azure CLI or IDE login",
+      "An anonymous token",
+      "The storage account key"
+     ],
+     "answer": 1,
+     "explain": "No managed identity endpoint exists locally, so the chain falls through to developer credentials."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/overview",
+   "requires": [
+    "azure.rbac-basics",
+    "azure.vms"
+   ]
+  },
+  {
+   "id": "azure.key-vault",
+   "name": "Key Vault: secrets, keys and certificates",
+   "module": "identity",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Store secrets, encryption keys and TLS certificates centrally, accessed through RBAC and managed identities.",
+   "why": "Secrets that can't be eliminated belong in Key Vault, not in code, pipelines or app settings.",
+   "body": "**Azure Key Vault** stores three kinds of objects:\n\n- **Secrets**: arbitrary strings such as API keys and third-party passwords.\n- **Keys**: RSA/EC keys for encryption and signing; operations happen inside the vault (HSM-backed in Premium or **Managed HSM**), so the private key never leaves.\n- **Certificates**: X.509 certificates with lifecycle management and auto-renewal from supported issuers.\n\nEvery object is versioned. A URI without a version (`https://kv-orders.vault.azure.net/secrets/db-password`) returns the latest.\n\nAuthorization: use the **Azure RBAC permission model** (the default for new vaults) rather than legacy access policies. Typical roles: **Key Vault Secrets User** (read secret values), **Key Vault Secrets Officer** (manage secrets), **Key Vault Crypto User**, **Key Vault Administrator**. Grant the app's managed identity Secrets User on just that vault.\n\n**Soft delete** is always on (7 to 90 days retention), so a deleted vault or secret can be recovered, and its name stays reserved until purged. Enable **purge protection** for production so nobody can permanently destroy keys during the retention period.\n\nApp Service, Functions and Container Apps can reference secrets without code: an app setting value of `@Microsoft.KeyVault(SecretUri=...)` is resolved by the platform using the app's identity. Lock the vault down with a private endpoint and disabled public access.",
+   "code": "az keyvault create -g rg-sec -n kv-orders-prod --enable-purge-protection true\naz keyvault secret set --vault-name kv-orders-prod -n db-password --value 'S3cr3t!'\n\n# Let the web app's identity read secrets in this vault only\nKV_ID=$(az keyvault show -n kv-orders-prod --query id -o tsv)\naz role assignment create --assignee \"$APP_PRINCIPAL_ID\" \\\n  --role \"Key Vault Secrets User\" --scope \"$KV_ID\"\n\n# Platform-resolved reference: the app sees the secret as env var DB_PASSWORD\naz webapp config appsettings set -g rg-web -n orders-web --settings \\\n  \"DB_PASSWORD=@Microsoft.KeyVault(SecretUri=https://kv-orders-prod.vault.azure.net/secrets/db-password/)\"",
+   "code_lang": "bash",
+   "takeaways": [
+    "Secrets, keys and certificates, all versioned",
+    "Use the RBAC model; grant Secrets User to the app's identity",
+    "Soft delete is mandatory; add purge protection in production",
+    "Key Vault references inject secrets into app settings without code"
+   ],
+   "pitfalls": [
+    "Recreating a deleted vault with the same name and getting a conflict: it is still soft-deleted until purged or recovered."
+   ],
+   "quiz": [
+    {
+     "q": "Which role should an app identity that only reads secret values get?",
+     "options": [
+      "Key Vault Secrets User",
+      "Key Vault Administrator",
+      "Contributor",
+      "Key Vault Secrets Officer"
+     ],
+     "answer": 0,
+     "explain": "Secrets User grants read of secret contents and nothing more."
+    },
+    {
+     "q": "What does purge protection add on top of soft delete?",
+     "options": [
+      "Encryption at rest",
+      "Automatic secret rotation",
+      "Private networking",
+      "A guarantee that deleted objects cannot be permanently purged before retention ends"
+     ],
+     "answer": 3,
+     "explain": "Without it, an admin could soft-delete and then immediately purge."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/key-vault/general/rbac-guide",
+   "requires": [
+    "azure.managed-identities"
+   ]
+  },
+  {
+   "id": "azure.bicep",
+   "name": "Infrastructure as code with Bicep",
+   "module": "governance",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Declare resources in Bicep files with params, outputs and modules, and deploy them repeatably.",
+   "why": "IaC makes environments reproducible and reviewable; Bicep is Azure's native IaC language.",
+   "body": "**Bicep** is a declarative language that compiles to ARM JSON templates. You describe the desired state; ARM works out what to create or update. There is no state file: Azure itself is the state.\n\nBuilding blocks:\n\n- `param`: inputs, with types, defaults and decorators like `@allowed`, `@minLength`, `@secure()`.\n- `var`: computed values.\n- `resource sym 'Provider/type@apiVersion' = { ... }`: a resource with a **symbolic name** you reference elsewhere (`sa.id`, `sa.properties.primaryEndpoints`). References create dependencies automatically.\n- `output`: values returned from the deployment.\n- `module`: another Bicep file deployed as a nested deployment, the unit of reuse. Azure Verified Modules publish well-tested ones in the public registry (`br/public:avm/...`).\n- `existing`: refer to a resource that is already deployed, without managing it.\n\nFunctions such as `resourceGroup().location` and `uniqueString(resourceGroup().id)` keep templates portable and names deterministic.\n\nDeploy with `az deployment group create` (or `sub`, `mg`, `tenant` for other scopes) and keep parameters per environment in `.bicepparam` files. Run **what-if** before applying in production to preview creates, modifies and deletes. The Bicep VS Code extension gives completion and validation for every resource type and API version.",
+   "code": "// main.bicep\nparam location string = resourceGroup().location\n@allowed(['dev', 'prod'])\nparam env string = 'dev'\n\nvar name = 'st${env}${uniqueString(resourceGroup().id)}'\n\nresource sa 'Microsoft.Storage/storageAccounts@2023-05-01' = {\n  name: name\n  location: location\n  sku: { name: env == 'prod' ? 'Standard_ZRS' : 'Standard_LRS' }\n  kind: 'StorageV2'\n  properties: {\n    minimumTlsVersion: 'TLS1_2'\n    allowBlobPublicAccess: false\n  }\n}\n\noutput blobEndpoint string = sa.properties.primaryEndpoints.blob\n// az deployment group create -g rg-demo -f main.bicep -p env=prod",
+   "code_lang": "bicep",
+   "takeaways": [
+    "Bicep compiles to ARM JSON; Azure is the state",
+    "Symbolic references create dependencies automatically",
+    "Modules are the unit of reuse; check Azure Verified Modules first",
+    "Run what-if before production deployments"
+   ],
+   "pitfalls": [
+    "Hard-coding names and locations, so the template cannot deploy a second environment."
+   ],
+   "quiz": [
+    {
+     "q": "How does Bicep know to create a storage account before a role assignment that uses sa.id?",
+     "options": [
+      "Referencing the symbolic name creates an implicit dependency",
+      "You must add dependsOn manually",
+      "Resources are always created in file order",
+      "It uses a state file"
+     ],
+     "answer": 0,
+     "explain": "Symbolic references produce dependsOn in the compiled template."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/overview",
+   "requires": [
+    "azure.resource-manager",
+    "azure.cli-basics"
+   ]
+  },
+  {
+   "id": "azure.functions",
+   "name": "Azure Functions: triggers and bindings",
+   "module": "compute",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Run event-driven code that scales automatically, wired to HTTP, timers, queues and more with triggers and bindings.",
+   "why": "Functions is the serverless glue for events, scheduled jobs and lightweight APIs on Azure.",
+   "body": "**Azure Functions** runs small pieces of code in response to events. Each function has exactly one **trigger** (HTTP request, timer, queue or Service Bus message, blob change, Event Grid event, Cosmos DB change feed) and optional **input/output bindings** that read or write other services declaratively.\n\nA **function app** groups functions that deploy and scale together. It needs a storage account for its own state. Hosting plans:\n\n- **Flex Consumption**: the recommended serverless plan; per-execution billing, fast scale, scale to zero, optional always-ready instances and VNet integration.\n- **Consumption**: the older serverless plan, with a 10-minute maximum execution time.\n- **Premium**: pre-warmed instances (no cold start), VNet, longer runs.\n- **Dedicated**: runs on an App Service plan you already pay for.\n\nCode models are language specific: Python uses the **v2 model** with decorators; .NET uses the **isolated worker** model. For the connection to triggers, prefer identity-based connections (`<name>__fullyQualifiedNamespace` settings plus a managed identity) over connection strings.\n\nDesign rules: keep functions short and **idempotent** (triggers deliver at least once), push long workflows to **Durable Functions**, and don't hold state in memory between invocations.",
+   "code": "# function_app.py  (Python v2 programming model)\nimport json, logging\nimport azure.functions as func\n\napp = func.FunctionApp(http_auth_level=func.AuthLevel.FUNCTION)\n\n@app.route(route=\"orders\", methods=[\"POST\"])\n@app.queue_output(arg_name=\"msg\", queue_name=\"orders\", connection=\"Storage\")\ndef create_order(req: func.HttpRequest, msg: func.Out[str]) -> func.HttpResponse:\n    order = req.get_json()\n    msg.set(json.dumps(order))           # enqueue via output binding\n    return func.HttpResponse(status_code=202)\n\n@app.queue_trigger(arg_name=\"m\", queue_name=\"orders\", connection=\"Storage\")\ndef process_order(m: func.QueueMessage) -> None:\n    logging.info(\"processing %s\", m.get_json()[\"id\"])\n\n@app.timer_trigger(arg_name=\"t\", schedule=\"0 0 2 * * *\")   # 02:00 UTC daily\ndef nightly(t: func.TimerRequest) -> None:\n    logging.info(\"nightly cleanup\")",
+   "code_lang": "python",
+   "takeaways": [
+    "One trigger per function; bindings read/write other services",
+    "Flex Consumption is the default serverless choice",
+    "Triggers are at-least-once: make handlers idempotent",
+    "Use Durable Functions for long or stateful workflows"
+   ],
+   "pitfalls": [
+    "Running long jobs on the Consumption plan and hitting the execution time limit."
+   ],
+   "quiz": [
+    {
+     "q": "A queue-triggered function sometimes processes the same message twice. What is the right fix?",
+     "options": [
+      "Switch to Premium plan",
+      "Make the handler idempotent, e.g. dedupe on an order ID",
+      "Increase the visibility timeout to infinity",
+      "Use an HTTP trigger instead"
+     ],
+     "answer": 1,
+     "explain": "Delivery is at-least-once by design, so handlers must tolerate duplicates."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/azure-functions/functions-overview",
+   "requires": [
+    "azure.app-service",
+    "azure.storage-accounts"
+   ]
+  },
+  {
+   "id": "azure.container-apps",
+   "name": "Container Apps and Container Registry",
+   "module": "compute",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Run containers serverlessly with ingress, revisions and KEDA autoscaling, pulling images from Azure Container Registry.",
+   "why": "Container Apps runs most containerized APIs and workers without the burden of operating Kubernetes.",
+   "body": "**Azure Container Apps** runs containers on a managed Kubernetes-based platform you never see. You get HTTPS ingress, autoscaling (including to zero), revisions, jobs and service discovery, without managing clusters, nodes or upgrades.\n\nKey concepts:\n\n- **Environment**: a secure boundary (shared VNet, Log Analytics) for a group of apps. Apps in one environment reach each other by name.\n- **Container app**: one or more containers with ingress settings (external or internal, target port).\n- **Revisions**: immutable snapshots of the app's template. Changing the image or env vars creates a new revision; in multiple-revision mode you split traffic by percentage for blue/green and canary releases.\n- **Scale rules**: based on HTTP concurrency, CPU, or any **KEDA** scaler (Service Bus queue length, Kafka lag). `minReplicas: 0` scales to zero.\n- **Jobs**: run-to-completion containers on a schedule, manually or per event.\n\nImages come from **Azure Container Registry (ACR)**. Give the app a managed identity with the **AcrPull** role on the registry instead of admin credentials. `az acr build` builds an image in the cloud from a Dockerfile, no local Docker needed.\n\nChoose Container Apps for most microservices; pick AKS when you need the Kubernetes API itself.",
+   "code": "az acr create -g rg-apps -n acrorders --sku Standard\naz acr build -r acrorders -t orders-api:1.4.0 .     # cloud build from ./Dockerfile\n\naz containerapp env create -g rg-apps -n cae-orders --location westeurope\n\naz containerapp create -g rg-apps -n orders-api --environment cae-orders \\\n  --image acrorders.azurecr.io/orders-api:1.4.0 \\\n  --registry-server acrorders.azurecr.io --registry-identity system \\\n  --ingress external --target-port 8000 \\\n  --min-replicas 0 --max-replicas 10 \\\n  --env-vars LOG_LEVEL=info\n\naz containerapp show -g rg-apps -n orders-api --query properties.configuration.ingress.fqdn -o tsv\n# orders-api.<hash>.westeurope.azurecontainerapps.io",
+   "code_lang": "bash",
+   "takeaways": [
+    "Environment = shared boundary; app = containers + ingress + scale rules",
+    "Every template change creates a revision; traffic can be split between revisions",
+    "KEDA scale rules allow scale-to-zero on queue depth and more",
+    "Pull from ACR with a managed identity and AcrPull"
+   ],
+   "pitfalls": [
+    "Using the `latest` tag: redeploying the same tag doesn't create a new revision, so the new image may never roll out."
+   ],
+   "quiz": [
+    {
+     "q": "How would you send 10% of traffic to a new release in Container Apps?",
+     "options": [
+      "Use multiple-revision mode and set traffic weights 90/10",
+      "Create a second environment",
+      "Scale replicas to 10%",
+      "Change the ingress target port"
+     ],
+     "answer": 0,
+     "explain": "Traffic splitting between revisions is built into ingress."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/container-apps/overview",
+   "requires": [
+    "azure.app-service",
+    "docker.build-tag",
+    "azure.managed-identities"
+   ]
+  },
+  {
+   "id": "azure.azure-sql",
+   "name": "Azure SQL Database",
+   "module": "data",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Managed SQL Server in the cloud: purchasing models, serverless, Entra authentication and high availability.",
+   "why": "Azure SQL is the default relational database for many Azure apps, and its options change cost and resilience.",
+   "body": "**Azure SQL Database** is a fully managed SQL Server engine (T-SQL) with patching, backups and high availability built in. A **logical server** (`<name>.database.windows.net`) is a management and login endpoint that holds one or more databases.\n\nPurchasing models:\n\n- **vCore** (recommended): choose General Purpose, Business Critical (local SSD replicas, read scale-out) or **Hyperscale** (storage up to 128 TB, fast scaling, named replicas). **Serverless** compute in General Purpose and Hyperscale auto-scales and can auto-pause when idle, which suits dev and spiky workloads.\n- **DTU**: older bundled tiers (Basic, Standard, Premium).\n- **Elastic pools** share compute between many databases, as in SaaS per-tenant databases.\n\nPoint-in-time restore works from automatic backups, and zone redundancy is a checkbox in most tiers. For regional DR, **failover groups** replicate to another region and give a stable listener name.\n\nSecurity: use **Microsoft Entra-only authentication** and managed identities; contained database users are created with `CREATE USER [name] FROM EXTERNAL PROVIDER`. Restrict access with firewall rules or, better, private endpoints. Azure SQL Managed Instance exists for near-100% SQL Server compatibility (SQL Agent, cross-database queries) when lifting and shifting.",
+   "code": "-- az sql db create -g rg-data -s sql-orders -n ordersdb \\\n--   --edition GeneralPurpose --compute-model Serverless \\\n--   --family Gen5 --capacity 2 --auto-pause-delay 60\n\n-- Run as the Entra admin, inside ordersdb:\nCREATE USER [orders-api] FROM EXTERNAL PROVIDER;   -- the app's managed identity name\nALTER ROLE db_datareader ADD MEMBER [orders-api];\nALTER ROLE db_datawriter ADD MEMBER [orders-api];\n\nCREATE TABLE dbo.Orders (\n  Id        INT IDENTITY PRIMARY KEY,\n  Customer  NVARCHAR(100) NOT NULL,\n  Total     DECIMAL(10,2) NOT NULL,\n  CreatedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()\n);\n-- App connection string: no password\n-- Server=tcp:sql-orders.database.windows.net;Database=ordersdb;Authentication=Active Directory Managed Identity;",
+   "code_lang": "sql",
+   "takeaways": [
+    "Logical server = endpoint; databases are billed separately",
+    "vCore tiers: General Purpose, Business Critical, Hyperscale; serverless can auto-pause",
+    "Use Entra-only auth and managed identities as database users",
+    "Failover groups give cross-region DR with a stable name"
+   ],
+   "pitfalls": [
+    "Leaving the \"Allow Azure services\" firewall exception on, which admits traffic from any Azure customer's resources."
+   ],
+   "quiz": [
+    {
+     "q": "Which option best suits a dev database used a few hours a day?",
+     "options": [
+      "Business Critical provisioned",
+      "Hyperscale with named replicas",
+      "A failover group",
+      "General Purpose serverless with auto-pause"
+     ],
+     "answer": 3,
+     "explain": "Serverless bills compute per second used and pauses when idle."
+    },
+    {
+     "q": "How does an app using a managed identity log in to Azure SQL?",
+     "options": [
+      "With the server admin password",
+      "Through a storage account key",
+      "As a contained user created FROM EXTERNAL PROVIDER for that identity",
+      "Anonymously from inside a VNet"
+     ],
+     "answer": 2,
+     "explain": "The identity is mapped to a database user and gets tokens from Entra ID."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/azure-sql/database/sql-database-paas-overview",
+   "requires": [
+    "azure.entra-id",
+    "sql.create-table",
+    "sql.select"
+   ]
+  },
+  {
+   "id": "azure.cosmos-db",
+   "name": "Cosmos DB fundamentals",
+   "module": "data",
+   "level": 2,
+   "minutes": 14,
+   "summary": "A globally distributed NoSQL database: accounts, containers, items, partition keys and request units.",
+   "why": "Cosmos DB powers low-latency, elastic workloads, but only if you model partitions and RUs correctly.",
+   "body": "**Azure Cosmos DB** is a managed, globally distributed NoSQL database with single-digit millisecond reads. It offers several APIs; **NoSQL** (JSON documents queried with a SQL-like language) is the native one, with MongoDB, Cassandra, Gremlin and Table APIs for compatibility.\n\nResource model: **account** (endpoint, regions, consistency) > **database** > **container** (holds items, has a partition key and indexing policy) > **item** (a JSON document with an `id`).\n\nEvery container has a **partition key**, a property such as `/customerId`. Items with the same value form a **logical partition** (limit 20 GB); Cosmos spreads logical partitions over physical partitions to scale. The `id` is unique only within its partition, so a **point read** needs both `id` and partition key and is the cheapest operation.\n\nCost is measured in **request units (RU)**: a 1 KB point read is 1 RU; writes and queries cost more. You pay for **provisioned** throughput (manual or autoscale RU/s) or use **serverless** for intermittent traffic. Requests above your RU/s get HTTP **429** and must be retried (the SDKs do it for you).\n\nAll properties are indexed by default; tune the indexing policy to exclude paths you never filter on, which lowers write RU. Data-plane access with Entra ID uses Cosmos DB's own data-plane roles, assigned with `az cosmosdb sql role assignment create`.",
+   "code": "# pip install azure-cosmos azure-identity\nfrom azure.cosmos import CosmosClient, PartitionKey\nfrom azure.identity import DefaultAzureCredential\n\nclient = CosmosClient(\"https://cosmos-orders.documents.azure.com:443/\", DefaultAzureCredential())\ndb = client.get_database_client(\"shop\")\norders = db.get_container_client(\"orders\")       # partition key: /customerId\n\norders.upsert_item({\"id\": \"o-1001\", \"customerId\": \"c-42\", \"total\": 59.90, \"status\": \"paid\"})\n\nitem = orders.read_item(item=\"o-1001\", partition_key=\"c-42\")   # point read, ~1 RU\nprint(item[\"total\"])  # 59.9\n\nrows = orders.query_items(\n    \"SELECT c.id, c.total FROM c WHERE c.customerId = @cid AND c.status = 'paid'\",\n    parameters=[{\"name\": \"@cid\", \"value\": \"c-42\"}], partition_key=\"c-42\")\nprint([r[\"id\"] for r in rows])   # ['o-1001']",
+   "code_lang": "python",
+   "takeaways": [
+    "Account > database > container > item",
+    "Partition key choice drives scale; a logical partition is capped at 20 GB",
+    "Point reads (id + partition key) are the cheapest operation",
+    "Throughput is RU/s; 429 means throttled, retry"
+   ],
+   "pitfalls": [
+    "Querying without the partition key, which fans out to every physical partition and burns RUs."
+   ],
+   "quiz": [
+    {
+     "q": "What uniquely identifies an item in a Cosmos DB NoSQL container?",
+     "options": [
+      "Its id alone",
+      "The combination of its id and partition key value",
+      "Its _ts timestamp",
+      "Its index entry"
+     ],
+     "answer": 1,
+     "explain": "ids are unique only within a logical partition."
+    },
+    {
+     "q": "Your app receives HTTP 429 from Cosmos DB. What does it mean?",
+     "options": [
+      "The request exceeded the provisioned request units and should be retried",
+      "The item does not exist",
+      "The partition key is invalid",
+      "The account is in the wrong region"
+     ],
+     "answer": 0,
+     "explain": "429 is rate limiting on RU/s; the SDK retries with the suggested delay."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/cosmos-db/introduction",
+   "requires": [
+    "azure.regions-zones",
+    "azure.resource-manager"
+   ]
+  },
+  {
+   "id": "azure.queues-files",
+   "name": "Queue Storage and Azure Files",
+   "module": "data",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Simple, cheap message queues and managed SMB/NFS file shares inside a storage account.",
+   "why": "Queue Storage is the simplest way to decouple work; Azure Files replaces file servers and shared volumes.",
+   "body": "**Queue Storage** holds large numbers of small messages (up to 64 KB each) in a storage account. The consumer pattern is:\n\n1. Get a message: it becomes invisible for a **visibility timeout** (default 30 seconds).\n2. Process it.\n3. Delete it using the pop receipt. If the worker crashes, the message reappears after the timeout and another worker retries it.\n\nEach message has a `dequeueCount`; move messages that keep failing to a \"poison\" queue (the Functions queue trigger does this after 5 attempts). Messages expire after a time-to-live (7 days by default). There is no ordering guarantee, no topics and no transactions; when you need those, use Service Bus.\n\n**Azure Files** provides fully managed file shares over **SMB** (Windows, Linux, macOS) and **NFS** (Linux, Premium tier). Uses: lift-and-shift apps that expect a file server, shared configuration, persistent volumes for containers (Container Apps and AKS can mount shares). Standard shares run on HDD-based storage; Premium on SSD with provisioned performance. **Azure File Sync** caches shares on on-premises Windows servers.\n\nIdentity-based SMB access works with Active Directory or Entra Kerberos; avoid distributing the storage account key for mounts when you can.",
+   "code": "# pip install azure-storage-queue azure-identity\nfrom azure.identity import DefaultAzureCredential\nfrom azure.storage.queue import QueueClient\n\nq = QueueClient(\"https://stordersprod01.queue.core.windows.net\", \"thumbnails\",\n                credential=DefaultAzureCredential())\nq.send_message('{\"blob\": \"photos/cat.jpg\"}')\n\nfor msg in q.receive_messages(visibility_timeout=60, max_messages=10):\n    try:\n        print(\"processing\", msg.content, \"attempt\", msg.dequeue_count)\n        q.delete_message(msg)            # only after success\n    except Exception:\n        pass                             # reappears after 60 s for a retry",
+   "code_lang": "python",
+   "takeaways": [
+    "Receive hides a message; delete after success; crash = automatic retry",
+    "Watch dequeueCount and park poison messages",
+    "No ordering or pub/sub: that is Service Bus territory",
+    "Azure Files = managed SMB/NFS shares, mountable by VMs and containers"
+   ],
+   "pitfalls": [
+    "Deleting the message as soon as it is received, so a crash loses the work."
+   ],
+   "quiz": [
+    {
+     "q": "A worker receives a queue message and then crashes before deleting it. What happens?",
+     "options": [
+      "The message is lost",
+      "It moves to a dead-letter queue immediately",
+      "The queue is locked",
+      "It becomes visible again after the visibility timeout and can be retried"
+     ],
+     "answer": 3,
+     "explain": "Messages are only removed by an explicit delete."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/storage/queues/storage-queues-introduction",
+   "requires": [
+    "azure.storage-accounts"
+   ]
+  },
+  {
+   "id": "azure.service-bus",
+   "name": "Service Bus queues and topics",
+   "module": "integration",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Enterprise messaging with queues, publish/subscribe topics, sessions, dead-lettering and transactions.",
+   "why": "Service Bus is the reliable backbone for commands and business events between services.",
+   "body": "**Azure Service Bus** is a fully managed message broker. A **namespace** contains:\n\n- **Queues**: point-to-point; competing consumers each take different messages.\n- **Topics with subscriptions** (Standard tier and up): publish once, every subscription gets a copy, optionally filtered with SQL or correlation filters.\n\nReceiving uses **peek-lock** by default: the message is locked for the consumer, which then **completes** it (removes), **abandons** it (makes it available again) or **dead-letters** it. If the lock expires, it is redelivered. After `MaxDeliveryCount` (default 10) failed deliveries, the broker moves it to the **dead-letter queue** (DLQ), a sub-queue you must monitor and drain.\n\nOther features that set it apart from Queue Storage:\n\n- **Sessions**: messages with the same `SessionId` are delivered in order to one consumer at a time (FIFO per key).\n- **Duplicate detection** by `MessageId` within a time window.\n- **Scheduled messages**, deferral, and transactions across operations in one namespace.\n- Larger messages: 256 KB in Standard, up to 100 MB in Premium. Premium also adds dedicated capacity, VNet/private endpoints and zone redundancy.\n\nUse Service Bus for commands and high-value events where ordering, exactly-what-happened tracking and retries matter.",
+   "code": "# pip install azure-servicebus azure-identity\nfrom azure.identity import DefaultAzureCredential\nfrom azure.servicebus import ServiceBusClient, ServiceBusMessage\n\nns = \"sb-orders.servicebus.windows.net\"\nwith ServiceBusClient(ns, DefaultAzureCredential()) as client:\n    with client.get_queue_sender(\"orders\") as sender:\n        sender.send_messages(ServiceBusMessage('{\"id\": \"o-1001\"}', message_id=\"o-1001\",\n                                               session_id=\"c-42\"))\n\n    with client.get_queue_receiver(\"orders\", session_id=\"c-42\", max_wait_time=5) as rx:\n        for msg in rx:\n            try:\n                print(\"handling\", str(msg))\n                rx.complete_message(msg)\n            except ValueError:\n                rx.dead_letter_message(msg, reason=\"bad-payload\")",
+   "code_lang": "python",
+   "takeaways": [
+    "Queues for point-to-point, topics + subscriptions for pub/sub",
+    "Peek-lock: complete, abandon or dead-letter",
+    "Monitor the DLQ: failed messages wait there forever",
+    "Sessions give ordered processing per key"
+   ],
+   "pitfalls": [
+    "Never reading the dead-letter queue, so failed orders silently pile up."
+   ],
+   "quiz": [
+    {
+     "q": "You need all messages for the same customer processed in order. Which feature do you use?",
+     "options": [
+      "Duplicate detection",
+      "Scheduled messages",
+      "Sessions with SessionId set to the customer ID",
+      "Auto-forwarding"
+     ],
+     "answer": 2,
+     "explain": "Sessions guarantee FIFO delivery per session to one receiver at a time."
+    },
+    {
+     "q": "What happens after a message fails delivery more than MaxDeliveryCount times?",
+     "options": [
+      "It is deleted",
+      "It moves to the dead-letter queue",
+      "The queue is disabled",
+      "It is sent to Event Grid"
+     ],
+     "answer": 1,
+     "explain": "The broker dead-letters it so it stops blocking processing."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-messaging-overview",
+   "requires": [
+    "azure.queues-files"
+   ]
+  },
+  {
+   "id": "azure.monitor-app-insights",
+   "name": "Azure Monitor and Application Insights",
+   "module": "operations",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Collect metrics, logs and traces: Log Analytics workspaces, diagnostic settings and Application Insights.",
+   "why": "You can't run production without seeing errors, latency and dependencies across your services.",
+   "body": "**Azure Monitor** is the umbrella for observability data:\n\n- **Metrics**: numeric time series collected automatically for most resources (CPU, requests, RU consumption), kept 93 days, cheap and near real-time.\n- **Logs**: records stored in a **Log Analytics workspace** and queried with KQL. Platform logs only flow there once you create a **diagnostic setting** on each resource (or enforce them with Policy).\n- **Activity log**: who did what at the control plane, per subscription.\n\n**Application Insights** is the application performance part. It collects requests, dependencies (SQL, HTTP, Service Bus calls), exceptions, traces and custom telemetry, and draws the **application map** and end-to-end transaction views. Modern Application Insights resources are **workspace-based**: their data lands in Log Analytics tables (`AppRequests`, `AppDependencies`, `AppExceptions`).\n\nInstrument code with the **Azure Monitor OpenTelemetry distro**: one call configures tracing, metrics and logs, using the `APPLICATIONINSIGHTS_CONNECTION_STRING` setting. App Service and Functions can also enable auto-instrumentation without code changes.\n\nCost is driven by log ingestion volume. Use sampling, drop noisy logs, choose Basic/Auxiliary log tables for high-volume low-value data, and set retention deliberately.",
+   "code": "# pip install azure-monitor-opentelemetry fastapi\n# export APPLICATIONINSIGHTS_CONNECTION_STRING=\"InstrumentationKey=...;IngestionEndpoint=...\"\nimport logging\nfrom azure.monitor.opentelemetry import configure_azure_monitor\n\nconfigure_azure_monitor(logger_name=\"orders\")   # traces, metrics, logs -> App Insights\n\nfrom fastapi import FastAPI                    # import after configuring\napp = FastAPI()\nlog = logging.getLogger(\"orders\")\n\n@app.get(\"/orders/{oid}\")\ndef get_order(oid: str):\n    log.info(\"fetching order %s\", oid)          # lands in the traces table\n    return {\"id\": oid}\n\n# Diagnostic setting (bash) so a resource's logs reach the workspace:\n# az monitor diagnostic-settings create -n to-law --resource <id> \\\n#   --workspace <workspace id> --logs '[{\"categoryGroup\":\"allLogs\",\"enabled\":true}]'",
+   "code_lang": "python",
+   "takeaways": [
+    "Metrics are automatic; resource logs need diagnostic settings",
+    "Logs live in Log Analytics and are queried with KQL",
+    "Application Insights = requests, dependencies, exceptions, traces",
+    "Use the OpenTelemetry distro; control cost via sampling and retention"
+   ],
+   "pitfalls": [
+    "Assuming resource logs are collected by default: without a diagnostic setting they are not stored anywhere."
+   ],
+   "quiz": [
+    {
+     "q": "Your Key Vault's audit logs are not in Log Analytics. What is missing?",
+     "options": [
+      "An Application Insights SDK",
+      "A metric alert",
+      "A diagnostic setting sending the vault's logs to the workspace",
+      "Purge protection"
+     ],
+     "answer": 2,
+     "explain": "Resource logs are only routed after you create a diagnostic setting."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview",
+   "requires": [
+    "azure.app-service"
+   ]
+  },
+  {
+   "id": "azure.vm-scale-sets",
+   "name": "VM scale sets and load balancing",
+   "module": "compute",
+   "level": 2,
+   "minutes": 13,
+   "summary": "Run many identical VMs behind a load balancer, spread across zones, with autoscale and automatic repair.",
+   "why": "Scale sets are how IaaS workloads get elasticity and high availability.",
+   "body": "A **virtual machine scale set** manages a group of VMs created from one configuration. Two orchestration modes exist:\n\n- **Flexible** (the default and recommendation): instances are regular VMs you can mix sizes in, spread across zones and fault domains, and manage with normal VM APIs.\n- **Uniform**: identical instances managed only through the scale set; the older model, still used by some services.\n\nPut a **Standard Load Balancer** (layer 4, TCP/UDP) in front: a frontend IP, a backend pool of the instances, a **health probe** and load-balancing rules. Only instances passing the probe receive traffic. For HTTP features like path routing, TLS termination and WAF, use **Application Gateway** (regional, layer 7) or Front Door (global).\n\n**Autoscale** adds and removes instances based on metric rules (average CPU above 70% for 10 minutes: add 2) or schedules, with minimum, maximum and default counts. Scale-in must be safe, so keep instances stateless and drain gracefully.\n\nKeep instances healthy with the **Application Health extension** plus **automatic instance repairs**, and roll out image changes with a rolling upgrade policy. Spread instances across availability zones (`--zones 1 2 3`) so a zone failure removes only a third of capacity.",
+   "code": "az vmss create -g rg-web -n vmss-web \\\n  --orchestration-mode Flexible --image Ubuntu2404 --vm-sku Standard_D2s_v5 \\\n  --instance-count 3 --zones 1 2 3 \\\n  --admin-username azureuser --generate-ssh-keys \\\n  --custom-data cloud-init.yaml --lb-sku Standard\n\naz monitor autoscale create -g rg-web -n as-web \\\n  --resource vmss-web --resource-type Microsoft.Compute/virtualMachineScaleSets \\\n  --min-count 3 --max-count 12 --count 3\n\naz monitor autoscale rule create -g rg-web --autoscale-name as-web \\\n  --condition \"Percentage CPU > 70 avg 10m\" --scale out 2\naz monitor autoscale rule create -g rg-web --autoscale-name as-web \\\n  --condition \"Percentage CPU < 30 avg 15m\" --scale in 1",
+   "code_lang": "bash",
+   "takeaways": [
+    "Flexible orchestration is the default for new scale sets",
+    "Load Balancer = L4; Application Gateway / Front Door = L7",
+    "Autoscale needs both scale-out and scale-in rules",
+    "Spread across zones and enable automatic repairs"
+   ],
+   "pitfalls": [
+    "Adding only a scale-out rule, so the set grows under load and never shrinks."
+   ],
+   "quiz": [
+    {
+     "q": "Which component decides whether an instance receives traffic from a Standard Load Balancer?",
+     "options": [
+      "The NSG priority",
+      "The autoscale rule",
+      "The VM size",
+      "The health probe"
+     ],
+     "answer": 3,
+     "explain": "Instances failing the probe are taken out of rotation."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/virtual-machine-scale-sets/overview",
+   "requires": [
+    "azure.vms",
+    "azure.vnet-basics"
+   ]
+  },
+  {
+   "id": "azure.private-endpoints",
+   "name": "Private endpoints and private DNS",
+   "module": "networking",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Reach PaaS services over a private IP in your VNet, and get the DNS right so names resolve to it.",
+   "why": "Private endpoints are the standard way to take databases, storage and vaults off the public internet.",
+   "body": "By default, PaaS services such as Storage, SQL, Key Vault and Cosmos DB have public endpoints. A **private endpoint** places a network interface with a private IP from your subnet that maps to one specific resource (and sub-resource, such as `blob` or `vault`). Traffic from your VNet, peered VNets and connected on-premises networks then stays on the Microsoft backbone, and you can set **public network access: disabled** on the service.\n\nThe hard part is **DNS**. Clients still use the public name, `stordersprod01.blob.core.windows.net`. Azure answers with a CNAME to `stordersprod01.privatelink.blob.core.windows.net`; if that `privatelink` zone resolves to the private IP for your clients, everything works without code changes. So you:\n\n- create a **Private DNS zone** per service (`privatelink.blob.core.windows.net`, `privatelink.vaultcore.azure.net`, `privatelink.database.windows.net`),\n- link it to the VNets that resolve names (in hub-spoke, centrally in the hub),\n- attach a **DNS zone group** to the endpoint so the A record is managed automatically,\n- for on-premises clients, forward those zones through **Azure DNS Private Resolver**.\n\n**Service endpoints** are the older, simpler alternative: traffic leaves from the subnet's identity but the service keeps a public IP. Private endpoints work across peering and VPN and block data exfiltration to other accounts, so they are the default for sensitive data.",
+   "code": "SA_ID=$(az storage account show -g rg-data -n stordersprod01 --query id -o tsv)\n\naz network private-endpoint create -g rg-net -n pe-st-blob \\\n  --vnet-name vnet-app --subnet snet-pe \\\n  --private-connection-resource-id \"$SA_ID\" --group-id blob \\\n  --connection-name st-blob\n\naz network private-dns zone create -g rg-net -n privatelink.blob.core.windows.net\naz network private-dns link vnet create -g rg-net -n link-app \\\n  --zone-name privatelink.blob.core.windows.net --virtual-network vnet-app \\\n  --registration-enabled false\naz network private-endpoint dns-zone-group create -g rg-net \\\n  --endpoint-name pe-st-blob -n default \\\n  --private-dns-zone privatelink.blob.core.windows.net --zone-name blob\n\naz storage account update -g rg-data -n stordersprod01 --public-network-access Disabled\n# From a VM in vnet-app: nslookup stordersprod01.blob.core.windows.net -> 10.10.4.5",
+   "code_lang": "bash",
+   "takeaways": [
+    "A private endpoint is a NIC with a private IP for one resource",
+    "Clients keep the public FQDN; DNS must resolve it to the private IP",
+    "One privatelink DNS zone per service, linked to the resolving VNets",
+    "Disable public network access once private paths work"
+   ],
+   "pitfalls": [
+    "Creating the endpoint but no private DNS zone link, so clients still resolve the public IP and get blocked."
+   ],
+   "quiz": [
+    {
+     "q": "After adding a private endpoint and disabling public access, a VM in a peered VNet gets 403 because the name resolves to a public IP. What is the likely fix?",
+     "options": [
+      "Use the IP address in the connection string",
+      "Enable a service endpoint",
+      "Link the privatelink DNS zone to the VM's VNet (or the hub resolver)",
+      "Regenerate the account keys"
+     ],
+     "answer": 2,
+     "explain": "Resolution of the privatelink zone is what makes the public name map to the private IP."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/private-link/private-endpoint-overview",
+   "requires": [
+    "azure.vnet-basics",
+    "azure.storage-accounts"
+   ]
+  },
+  {
+   "id": "azure.event-grid",
+   "name": "Event Grid and choosing a messaging service",
+   "module": "integration",
+   "level": 3,
+   "minutes": 13,
+   "summary": "Push-based events with Event Grid, and when to pick it over Service Bus, Event Hubs or Queue Storage.",
+   "why": "Picking the wrong messaging service is a costly architectural mistake; Event Grid fills the reactive-event niche.",
+   "body": "**Azure Event Grid** routes discrete events from sources to handlers with **push** delivery. Sources include Azure itself (**system topics**: blob created, resource group changes, Key Vault secret near expiry) and your apps (**custom topics** or namespace topics). **Event subscriptions** filter by event type, subject prefix/suffix or advanced filters, and deliver to webhooks, Functions, Service Bus, Storage queues or Event Hubs.\n\nDelivery is at-least-once with exponential retries for up to 24 hours by default; undeliverable events go to a **dead-letter** blob container if configured. Events are small notifications (\"this blob was created\"), not the data itself, and the **CloudEvents 1.0** schema is recommended. Event Grid namespaces also support pull delivery and an MQTT broker for IoT.\n\nChoosing a service:\n\n- **Event Grid**: reactive \"something happened\" notifications, fan-out, near real-time, no ordering.\n- **Service Bus**: high-value commands and business messages needing transactions, ordering (sessions), dead-lettering and long retention.\n- **Event Hubs**: high-throughput streams (telemetry, clickstream), partitioned log with consumer offsets and replay; Kafka-compatible.\n- **Queue Storage**: simple, cheap, large backlogs of work items.\n\nMany systems combine them: Event Grid notifies that a blob arrived, a function enqueues a Service Bus command, and telemetry flows to Event Hubs.",
+   "code": "SA_ID=$(az storage account show -g rg-data -n stordersprod01 --query id -o tsv)\nFUNC_ID=$(az functionapp function show -g rg-fn -n fn-orders \\\n  --function-name on_invoice --query id -o tsv)\n\n# React to new PDFs under invoices/ only, delivered to an Azure Function\naz eventgrid event-subscription create --name invoices-to-fn \\\n  --source-resource-id \"$SA_ID\" \\\n  --endpoint-type azurefunction --endpoint \"$FUNC_ID\" \\\n  --included-event-types Microsoft.Storage.BlobCreated \\\n  --subject-begins-with /blobServices/default/containers/invoices/ \\\n  --subject-ends-with .pdf \\\n  --event-delivery-schema cloudeventschemav1_0",
+   "code_lang": "bash",
+   "takeaways": [
+    "Event Grid pushes small event notifications to subscribers with filters",
+    "At-least-once with retries; configure dead-lettering",
+    "Service Bus for commands, Event Hubs for streams, Event Grid for reactions",
+    "Prefer the CloudEvents schema"
+   ],
+   "pitfalls": [
+    "Using Event Grid as a work queue for long processing: handlers should acknowledge quickly and hand off heavy work."
+   ],
+   "quiz": [
+    {
+     "q": "You ingest 500,000 telemetry events per second and need to replay the last day. Which service fits?",
+     "options": [
+      "Event Grid",
+      "Event Hubs",
+      "Queue Storage",
+      "Service Bus Standard queues"
+     ],
+     "answer": 1,
+     "explain": "Event Hubs is a partitioned streaming log with retention and replay."
+    },
+    {
+     "q": "A function must run whenever a blob is uploaded to a container, with no polling. Which is the most direct fit?",
+     "options": [
+      "Event Grid BlobCreated system topic subscription",
+      "Service Bus topic",
+      "Event Hubs capture",
+      "A timer trigger"
+     ],
+     "answer": 0,
+     "explain": "Storage publishes BlobCreated events to Event Grid, which pushes them to the function."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/event-grid/overview",
+   "requires": [
+    "azure.service-bus",
+    "azure.blob-storage",
+    "azure.functions"
+   ]
+  },
+  {
+   "id": "azure.aks",
+   "name": "Azure Kubernetes Service (AKS)",
+   "module": "compute",
+   "level": 3,
+   "minutes": 18,
+   "summary": "Managed Kubernetes: control plane tiers, node pools, networking, identity and upgrades.",
+   "why": "AKS is the choice when you need the full Kubernetes API, its ecosystem, or fine control over scheduling.",
+   "body": "**AKS** gives you a Kubernetes cluster whose **control plane** (API server, etcd, scheduler) Azure runs for you. The Free tier has no SLA; the **Standard** tier adds a financially backed SLA and higher scale; **Premium** adds long-term support versions. **AKS Automatic** is a preconfigured mode that also manages nodes, scaling and security defaults.\n\nWhat you still decide and operate:\n\n- **Node pools**: groups of VMs (scale sets) of one size. A **system pool** runs cluster add-ons; **user pools** run your workloads, can be Spot, GPU or ARM, and can scale to zero. Spread pools across zones.\n- **Networking**: **Azure CNI Overlay** (pods get IPs from a private overlay range, saving VNet space) is the common default, often with the Cilium dataplane for network policy and observability.\n- **Ingress**: the application routing add-on (managed NGINX) or Application Gateway for Containers.\n- **Identity**: Entra ID integration with Azure RBAC for Kubernetes authorization, a kubelet identity with AcrPull on your registry, and **workload identity** for pods calling Azure services.\n- **Scaling**: cluster autoscaler or node auto-provisioning for nodes, HPA/KEDA for pods.\n- **Upgrades**: Kubernetes minor versions are supported for about a year; use auto-upgrade channels, planned maintenance windows, and PodDisruptionBudgets so upgrades drain nodes safely.\n\nMonitoring comes from Container Insights and managed Prometheus with Grafana.",
+   "code": "az aks create -g rg-aks -n aks-orders --tier standard \\\n  --node-count 3 --zones 1 2 3 --node-vm-size Standard_D4s_v5 \\\n  --network-plugin azure --network-plugin-mode overlay --network-dataplane cilium \\\n  --enable-oidc-issuer --enable-workload-identity \\\n  --enable-aad --enable-azure-rbac \\\n  --attach-acr acrorders --auto-upgrade-channel patch --generate-ssh-keys\n\naz aks nodepool add -g rg-aks --cluster-name aks-orders -n spotpool \\\n  --priority Spot --eviction-policy Delete --spot-max-price -1 \\\n  --enable-cluster-autoscaler --min-count 0 --max-count 10\n\naz aks get-credentials -g rg-aks -n aks-orders\nkubectl get nodes -o wide",
+   "code_lang": "bash",
+   "takeaways": [
+    "Azure runs the control plane; you own node pools, workloads and upgrades",
+    "Separate system and user node pools; spread across zones",
+    "CNI Overlay with Cilium is the common networking default",
+    "Use Entra auth, AcrPull via --attach-acr, and workload identity for pods"
+   ],
+   "pitfalls": [
+    "Running application pods on the system pool, starving CoreDNS and other critical add-ons."
+   ],
+   "quiz": [
+    {
+     "q": "Why does CNI Overlay help large clusters in a small VNet?",
+     "options": [
+      "It disables network policy",
+      "It removes the need for node pools",
+      "It makes pods publicly reachable",
+      "Pods get IPs from a private overlay CIDR instead of consuming VNet subnet addresses"
+     ],
+     "answer": 3,
+     "explain": "Only nodes take VNet IPs; pod IPs come from a separate overlay range."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/aks/what-is-aks",
+   "requires": [
+    "azure.container-apps",
+    "azure.vnet-basics",
+    "azure.vm-scale-sets"
+   ]
+  },
+  {
+   "id": "azure.api-management",
+   "name": "API Management",
+   "module": "integration",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Put a managed gateway in front of your APIs for security, throttling, transformation and a developer portal.",
+   "why": "APIM centralizes cross-cutting API concerns so every back end doesn't reimplement them.",
+   "body": "**Azure API Management (APIM)** is a gateway plus management plane for APIs. You import APIs (OpenAPI, Functions, App Service, Container Apps, SOAP, GraphQL), and clients call the gateway instead of the back end.\n\nBuilding blocks:\n\n- **APIs and operations**, grouped into **products** that consumers subscribe to, receiving **subscription keys**.\n- **Policies**: XML pipelines run in four sections, `inbound`, `backend`, `outbound` and `on-error`, at global, product, API or operation scope. `<base />` controls where the parent scope's policies run.\n- **Developer portal**: generated documentation and self-service sign-up.\n\nCommon policies: `validate-jwt` (or `validate-azure-ad-token`) to require Entra tokens, `rate-limit-by-key` and `quota-by-key` for throttling, `set-header` and `rewrite-uri`, `cache-lookup`/`cache-store`, `set-backend-service` and backend pools with circuit breakers. APIM's managed identity can call back ends with `authentication-managed-identity`, so no back-end secrets.\n\nTiers matter: **Consumption** (serverless, per call), **Developer** (no SLA), **Basic/Standard/Premium** (classic), and the faster-provisioning **v2** tiers. Premium adds multi-region gateways, zones and full VNet injection; **self-hosted gateways** run in your own Kubernetes. APIM is also used as an **AI gateway** for token limits and load balancing across Azure OpenAI deployments.",
+   "code": "<policies>\n  <inbound>\n    <base />\n    <validate-azure-ad-token tenant-id=\"{{tenant-id}}\">\n      <audiences><audience>api://orders-api</audience></audiences>\n    </validate-azure-ad-token>\n    <rate-limit-by-key calls=\"100\" renewal-period=\"60\"\n        counter-key=\"@(context.Subscription.Id)\" />\n    <set-backend-service backend-id=\"orders-backend\" />\n    <authentication-managed-identity resource=\"api://orders-backend\" />\n  </inbound>\n  <backend><base /></backend>\n  <outbound>\n    <base />\n    <set-header name=\"X-Powered-By\" exists-action=\"delete\" />\n  </outbound>\n  <on-error><base /></on-error>\n</policies>",
+   "code_lang": "xml",
+   "takeaways": [
+    "Gateway in front, policies in inbound/backend/outbound/on-error",
+    "Products and subscriptions package APIs for consumers",
+    "Validate Entra tokens and rate-limit per caller at the gateway",
+    "Pick the tier for SLA, VNet and multi-region needs"
+   ],
+   "pitfalls": [
+    "Forgetting `<base />`, which silently skips policies defined at a broader scope such as global CORS or auth."
+   ],
+   "quiz": [
+    {
+     "q": "Where does a policy that strips a response header belong?",
+     "options": [
+      "inbound",
+      "backend",
+      "outbound",
+      "on-error only"
+     ],
+     "answer": 2,
+     "explain": "Outbound policies run on the response before it returns to the client."
+    },
+    {
+     "q": "What does removing <base /> from an API-level inbound section do?",
+     "options": [
+      "Nothing",
+      "Skips the inbound policies inherited from product and global scopes",
+      "Disables the API",
+      "Duplicates the global policies"
+     ],
+     "answer": 1,
+     "explain": "<base /> is where parent-scope policies are evaluated."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/api-management/api-management-key-concepts",
+   "requires": [
+    "azure.functions",
+    "azure.entra-id"
+   ]
+  },
+  {
+   "id": "azure.front-door",
+   "name": "Front Door, CDN and global routing",
+   "module": "networking",
+   "level": 3,
+   "minutes": 13,
+   "summary": "Global layer-7 entry point with caching, WAF and failover across regions, and how it compares to other load balancers.",
+   "why": "Front Door is how global apps get low latency, edge security and multi-region failover in one service.",
+   "body": "**Azure Front Door** (Standard and Premium tiers) is a global, anycast layer-7 entry point running at Microsoft's edge locations. It terminates TLS close to the user, then routes over the Microsoft backbone to your **origins**. It is also Azure's **CDN**: the Azure CDN classic offerings are being retired in favor of it.\n\nConfiguration objects:\n\n- **Endpoint**: the `*.azurefd.net` hostname, plus your custom domains with managed certificates.\n- **Origin groups**: origins (App Service, Container Apps, storage, public IPs) with **health probes**, priorities and weights for active/active or active/passive multi-region routing.\n- **Routes**: match domains and paths to an origin group, with caching and compression settings.\n- **Rule sets**: header rewrites, redirects, URL rewrites, cache overrides.\n- **WAF policy**: managed OWASP rule sets, bot protection (Premium), rate limits, geo filtering.\n\n**Premium** adds **Private Link origins**, so the origin needs no public access at all. Otherwise lock origins to Front Door with the `AzureFrontDoor.Backend` service tag plus the `X-Azure-FDID` header check, or anyone can bypass your WAF.\n\nCompare: **Traffic Manager** is DNS-based global routing (any protocol, no proxy); **Application Gateway** is a regional L7 proxy with WAF; **Load Balancer** is regional L4.",
+   "code": "resource profile 'Microsoft.Cdn/profiles@2024-09-01' = {\n  name: 'afd-orders', location: 'global', sku: { name: 'Premium_AzureFrontDoor' }\n}\nresource endpoint 'Microsoft.Cdn/profiles/afdEndpoints@2024-09-01' = { parent: profile, name: 'orders', location: 'global' }\nresource web 'Microsoft.Cdn/profiles/originGroups@2024-09-01' = {\n  parent: profile, name: 'web'\n  properties: {\n    loadBalancingSettings: { sampleSize: 4, successfulSamplesRequired: 3, additionalLatencyInMilliseconds: 50 }\n    healthProbeSettings: { probePath: '/healthz', probeProtocol: 'Https', probeRequestType: 'GET', probeIntervalInSeconds: 30 }\n  }\n}\n// priority 1 = primary (West Europe), priority 2 = failover (North Europe)\nresource origins 'Microsoft.Cdn/profiles/originGroups/origins@2024-09-01' = [for (app, i) in ['orders-weu', 'orders-neu']: {\n  parent: web, name: app\n  properties: { hostName: '${app}.azurewebsites.net', originHostHeader: '${app}.azurewebsites.net', priority: i + 1, weight: 1000 }\n}]\nresource route 'Microsoft.Cdn/profiles/afdEndpoints/routes@2024-09-01' = {\n  parent: endpoint, name: 'default', dependsOn: [origins]\n  properties: {\n    originGroup: { id: web.id }, patternsToMatch: ['/*'], supportedProtocols: ['Http', 'Https']\n    httpsRedirect: 'Enabled', forwardingProtocol: 'HttpsOnly', linkToDefaultDomain: 'Enabled'\n  }\n}",
+   "code_lang": "bicep",
+   "takeaways": [
+    "Front Door = global anycast L7 proxy, CDN and WAF",
+    "Origin groups with health probes and priorities give regional failover",
+    "Premium adds Private Link origins",
+    "Lock origins to Front Door or the WAF can be bypassed"
+   ],
+   "pitfalls": [
+    "Leaving the App Service origin publicly reachable, so attackers skip Front Door's WAF entirely."
+   ],
+   "quiz": [
+    {
+     "q": "Two origins have priority 1 and 2. When does traffic go to the priority-2 origin?",
+     "options": [
+      "Only when the priority-1 origin is unhealthy per the health probes",
+      "Always 50/50",
+      "When the cache is empty",
+      "Never; priority 2 is for testing"
+     ],
+     "answer": 0,
+     "explain": "Lower priority values are preferred; higher values are failover targets."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/frontdoor/front-door-overview",
+   "requires": [
+    "azure.app-service",
+    "azure.vnet-basics"
+   ]
+  },
+  {
+   "id": "azure.kql-alerts",
+   "name": "KQL queries and alerting",
+   "module": "operations",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Query Log Analytics with KQL and turn signals into actionable metric, log and activity alerts.",
+   "why": "Good queries find problems; good alerts wake the right person for the right reason, and nobody else.",
+   "body": "**Kusto Query Language (KQL)** queries Log Analytics and Application Insights. A query starts with a table and pipes rows through operators:\n\n- `where` to filter (put time filters first: `TimeGenerated > ago(1h)`),\n- `project` / `extend` to pick and compute columns,\n- `summarize ... by` to aggregate, usually with `bin(TimeGenerated, 5m)`,\n- `join`, `top`, `render timechart`, and `parse` or `parse_json` for semi-structured fields.\n\nIn a workspace-based Application Insights setup, tables are `AppRequests`, `AppDependencies`, `AppExceptions` with column `TimeGenerated`; the classic `requests` view with `timestamp` still works when querying from the App Insights resource.\n\n**Alerts** in Azure Monitor:\n\n- **Metric alerts**: evaluate a metric every minute or so; support dynamic thresholds that learn seasonality.\n- **Log search alerts**: run a KQL query on a schedule and fire on result count or a measured value.\n- **Activity log alerts**: on control-plane events (deletes, Service Health incidents).\n\nAlerts notify through **action groups** (email, SMS, push, webhook, Logic App, Function, ITSM). **Alert processing rules** suppress notifications during maintenance or route them by scope.\n\nAlert on symptoms users feel (error rate, latency SLO burn), not on every cause, and make every alert actionable.",
+   "code": "// Failure rate and p95 latency per operation, 5-minute buckets, last 6 hours\nAppRequests\n| where TimeGenerated > ago(6h)\n| summarize total = count(),\n            failed = countif(Success == false),\n            p95_ms = percentile(DurationMs, 95)\n          by OperationName, bin(TimeGenerated, 5m)\n| extend failure_pct = round(100.0 * failed / total, 2)\n| where total > 50 and failure_pct > 5\n| order by TimeGenerated desc\n\n// Top exception types in the last day\nAppExceptions\n| where TimeGenerated > ago(1d)\n| summarize count() by ProblemId\n| top 5 by count_",
+   "code_lang": "kql",
+   "takeaways": [
+    "KQL pipes a table through where, extend, summarize, render",
+    "Filter on time first; bin() buckets time series",
+    "Metric, log search and activity log alerts all notify via action groups",
+    "Alert on user-facing symptoms and keep alerts actionable"
+   ],
+   "pitfalls": [
+    "Alerting on raw error counts without a traffic floor, so one failed request at 3 a.m. pages someone."
+   ],
+   "quiz": [
+    {
+     "q": "Which operator groups rows and computes aggregates in KQL?",
+     "options": [
+      "project",
+      "extend",
+      "where",
+      "summarize"
+     ],
+     "answer": 3,
+     "explain": "summarize ... by computes aggregates per group."
+    },
+    {
+     "q": "You want to be notified when someone deletes a production resource group. Which alert type fits?",
+     "options": [
+      "Activity log alert",
+      "Metric alert",
+      "Smart detection",
+      "Log search alert on AppRequests"
+     ],
+     "answer": 0,
+     "explain": "Deletes are control-plane operations recorded in the activity log."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/azure-monitor/logs/log-query-overview",
+   "requires": [
+    "azure.monitor-app-insights"
+   ]
+  },
+  {
+   "id": "azure.policy",
+   "name": "Azure Policy and governance",
+   "module": "governance",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Enforce and audit rules on resources with policy definitions, initiatives, effects and remediation.",
+   "why": "Policy is how platform teams make guardrails automatic instead of relying on reviews.",
+   "body": "**Azure Policy** evaluates resource properties against rules when resources are created or updated, and periodically for compliance reporting. A **policy definition** has an `if` condition over resource fields (aliases such as `Microsoft.Storage/storageAccounts/minimumTlsVersion`) and a `then` **effect**:\n\n- `Deny`: block the request.\n- `Audit` / `AuditIfNotExists`: mark non-compliant, allow it.\n- `Modify` / `Append`: change the request, e.g. add a tag.\n- `DeployIfNotExists`: deploy a related resource, e.g. a diagnostic setting or private DNS record.\n- `DenyAction`: block specific actions such as delete.\n- `Disabled`, `Manual`.\n\nDefinitions are grouped into **initiatives** (policy sets) like the Microsoft cloud security benchmark, and **assigned** at a management group, subscription or resource group, with **parameters**, exclusions and **exemptions** (waiver or mitigated, ideally with an expiry).\n\n`Modify` and `DeployIfNotExists` need the assignment to have a **managed identity** with the right roles. They act on new and updated resources; existing ones need a **remediation task**.\n\nRoll out safely: assign with `enforcementMode: DoNotEnforce` or the Audit effect first, review compliance, then switch to Deny. Manage definitions and assignments as code alongside your Bicep, and use parameters so one definition serves many environments.",
+   "code": "{\n  \"properties\": {\n    \"displayName\": \"Require a costCenter tag on resource groups\",\n    \"mode\": \"All\",\n    \"parameters\": {\n      \"effect\": { \"type\": \"String\", \"allowedValues\": [\"Audit\", \"Deny\"], \"defaultValue\": \"Audit\" }\n    },\n    \"policyRule\": {\n      \"if\": {\n        \"allOf\": [\n          { \"field\": \"type\", \"equals\": \"Microsoft.Resources/subscriptions/resourceGroups\" },\n          { \"field\": \"tags['costCenter']\", \"exists\": \"false\" }\n        ]\n      },\n      \"then\": { \"effect\": \"[parameters('effect')]\" }\n    }\n  }\n}",
+   "code_lang": "json",
+   "takeaways": [
+    "Definition = if condition + effect; initiative = set of definitions",
+    "Assign at management group, subscription or resource group scope",
+    "Modify and DeployIfNotExists need a managed identity and remediation for existing resources",
+    "Audit first, then enforce"
+   ],
+   "pitfalls": [
+    "Rolling out Deny policies straight to production and breaking pipelines that create non-compliant resources."
+   ],
+   "quiz": [
+    {
+     "q": "An assignment with DeployIfNotExists is created. What happens to the 200 existing non-compliant resources?",
+     "options": [
+      "They are fixed immediately",
+      "They are reported non-compliant until you run a remediation task",
+      "They are deleted",
+      "They are locked"
+     ],
+     "answer": 1,
+     "explain": "DINE acts on create/update; existing resources need remediation."
+    },
+    {
+     "q": "Which effect blocks creation of a storage account allowing TLS 1.0?",
+     "options": [
+      "Deny",
+      "Audit",
+      "Append",
+      "AuditIfNotExists"
+     ],
+     "answer": 0,
+     "explain": "Deny rejects the request at ARM before the resource is created."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/governance/policy/overview",
+   "requires": [
+    "azure.rbac-basics",
+    "azure.bicep"
+   ]
+  },
+  {
+   "id": "azure.arm-internals",
+   "name": "ARM deployments in depth: modes, what-if, stacks",
+   "module": "governance",
+   "level": 4,
+   "minutes": 18,
+   "summary": "How ARM actually applies templates: PUT semantics, incremental vs complete mode, what-if, deployment stacks and limits.",
+   "why": "Knowing ARM's semantics prevents the classic IaC outages: deleted subnets, drift and orphaned resources.",
+   "body": "A Bicep deployment becomes an ARM **deployment** resource. ARM orders resources by their dependencies and issues one **PUT** per resource, in parallel where it can. Long-running operations return 201/202 and ARM polls the provider's async operation URL until completion.\n\nSemantics that bite experts:\n\n- A PUT sends the **whole resource body**. Properties you omit are reset to defaults or removed. The famous case: redeploying a VNet without its `subnets` property tries to delete subnets created elsewhere. Declare child collections in one place, or always include them.\n- **Incremental mode** (the default) leaves resources in the group that are not in the template alone. **Complete mode** deletes them, which is powerful but dangerous with modules spread across files.\n- **What-if** previews changes, but some providers report noisy property differences; read it, don't trust it blindly.\n- Deployment history is capped at 800 per scope; ARM automatically deletes old entries as you approach the limit.\n- Template limits include 4 MB compiled size and 800 resources (modules count as one each), which pushes large estates into modules.\n\n**Deployment stacks** turn a set of deployed resources into a managed unit. On update, resources removed from the template are **detached or deleted** (`--action-on-unmanage`), and **deny settings** stop anyone outside the stack from changing or deleting them, closing the drift gap that plain incremental deployments leave.",
+   "code": "# Preview first: + create, ~ modify, - delete, = no change\naz deployment group what-if -g rg-orders-prod -f main.bicep -p main.prod.bicepparam\n\n# Manage the environment as a stack: removed resources get deleted,\n# and nobody can delete stack resources outside the stack\naz stack group create --name orders-prod -g rg-orders-prod \\\n  --template-file main.bicep --parameters main.prod.bicepparam \\\n  --action-on-unmanage deleteResources \\\n  --deny-settings-mode denyDelete \\\n  --deny-settings-excluded-principals \"$PIPELINE_SP_OBJECT_ID\"\n\naz stack group show --name orders-prod -g rg-orders-prod \\\n  --query \"resources[].id\" -o tsv\n\n# Inspect what a past deployment did\naz deployment operation group list -g rg-orders-prod -n main \\\n  --query \"[].{res:properties.targetResource.resourceName, op:properties.provisioningOperation, state:properties.provisioningState}\" -o table",
+   "code_lang": "bash",
+   "takeaways": [
+    "Every resource is a full-body PUT: omitted properties are reset",
+    "Incremental keeps extras; complete mode deletes them",
+    "What-if before every production change",
+    "Deployment stacks add cleanup of removed resources and deny settings"
+   ],
+   "pitfalls": [
+    "Defining subnets both inline in a VNet and as separate child resources, so each deployment fights the other."
+   ],
+   "quiz": [
+    {
+     "q": "A pipeline redeploys a VNet template that has no subnets property. What can happen?",
+     "options": [
+      "Nothing; omitted properties are ignored",
+      "The VNet is moved to a new resource group",
+      "The deployment switches to complete mode",
+      "ARM tries to remove the existing subnets, failing or breaking workloads"
+     ],
+     "answer": 3,
+     "explain": "A PUT replaces the resource body, and subnets are part of it."
+    },
+    {
+     "q": "What does a deployment stack's denyDelete setting provide that a plain deployment doesn't?",
+     "options": [
+      "Faster deployments",
+      "Automatic what-if",
+      "A deny assignment that blocks deleting managed resources outside the stack",
+      "Cross-tenant deployment"
+     ],
+     "answer": 2,
+     "explain": "Stacks create deny assignments for their managed resources."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/deployment-stacks",
+   "requires": [
+    "azure.bicep",
+    "azure.policy"
+   ]
+  },
+  {
+   "id": "azure.landing-zones",
+   "name": "Landing zones and enterprise-scale design",
+   "module": "governance",
+   "level": 4,
+   "minutes": 18,
+   "summary": "Design a multi-subscription Azure estate: management group hierarchy, platform landing zones, hub-spoke and subscription vending.",
+   "why": "At enterprise scale, the structure of subscriptions, networks and guardrails decides how fast teams can move safely.",
+   "body": "A **landing zone** is a pre-provisioned subscription with networking, identity, policy and monitoring already in place, so an application team can deploy into it safely on day one. The Cloud Adoption Framework's **Azure landing zone** reference architecture defines the common layout:\n\n- A management group hierarchy under the tenant root, typically: an intermediate root (e.g. `contoso`) containing **Platform** (child groups Identity, Management, Connectivity), **Landing zones** (Corp for internal, private-network apps; Online for internet-facing ones), **Sandbox** and **Decommissioned**.\n- **Platform landing zones**: dedicated subscriptions for central logging (Log Analytics, Defender for Cloud), connectivity (hub VNet or Virtual WAN, Azure Firewall, VPN/ExpressRoute gateways, DNS Private Resolver, private DNS zones), and identity (domain controllers if needed).\n- **Application landing zones**: one or more subscriptions per workload and environment, spoke VNets peered to the hub, with policies inherited from their management group (deny public IPs in Corp, enforce diagnostics, allowed regions).\n\n**Subscription vending** automates creating a new landing zone: create the subscription through the billing API, place it in the right management group, peer its spoke, assign budgets and RBAC, all from IaC triggered by a request.\n\nDesign principles: policy-driven guardrails rather than manual approvals, subscriptions as the unit of scale and isolation, central platform services, and application teams owning everything inside their landing zone. Accelerators with Bicep and Terraform (Azure Verified Modules) implement the reference rather than building it from scratch.",
+   "code": "# Skeleton of the reference management group hierarchy\naz account management-group create -n contoso -d \"Contoso\"\nfor mg in platform landingzones sandbox decommissioned; do\n  az account management-group create -n \"contoso-$mg\" --parent contoso\ndone\nfor mg in identity management connectivity; do\n  az account management-group create -n \"contoso-$mg\" --parent contoso-platform\ndone\nfor mg in corp online; do\n  az account management-group create -n \"contoso-$mg\" --parent contoso-landingzones\ndone\n\n# Place a vended application subscription under Corp\naz account management-group subscription add -n contoso-corp --subscription \"$NEW_SUB_ID\"\n\n# Corp guardrail: assign a policy denying public IPs at the management group\naz policy assignment create -n deny-public-ip --scope /providers/Microsoft.Management/managementGroups/contoso-corp \\\n  --policy 6c112d4e-5bc7-47ae-a041-ea2d9dccd749 --params '{\"listOfResourceTypesNotAllowed\":{\"value\":[\"Microsoft.Network/publicIPAddresses\"]}}'",
+   "code_lang": "bash",
+   "takeaways": [
+    "Landing zone = subscription pre-wired with network, identity, policy and monitoring",
+    "Platform (identity, management, connectivity) vs application landing zones",
+    "Guardrails are inherited from the management group hierarchy",
+    "Automate subscription vending; start from the accelerators"
+   ],
+   "pitfalls": [
+    "Modeling management groups on the org chart instead of on policy and access needs, creating deep hierarchies that are hard to change."
+   ],
+   "quiz": [
+    {
+     "q": "Why place internet-facing apps under an Online management group and internal ones under Corp?",
+     "options": [
+      "Billing requires it",
+      "Different policies apply, e.g. Corp denies public IPs and requires hub connectivity",
+      "Online subscriptions get faster VMs",
+      "Corp apps cannot use PaaS"
+     ],
+     "answer": 1,
+     "explain": "Management groups exist to apply different guardrails to different classes of workload."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/cloud-adoption-framework/ready/landing-zone/",
+   "requires": [
+    "azure.policy",
+    "azure.private-endpoints",
+    "azure.front-door"
+   ]
+  },
+  {
+   "id": "azure.workload-identity",
+   "name": "Workload identity federation",
+   "module": "identity",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Let GitHub Actions, Kubernetes pods and other clouds get Entra tokens by exchanging their own OIDC tokens, with no secrets.",
+   "why": "Federation eliminates the last long-lived secrets: CI/CD service principal passwords and pod credentials.",
+   "body": "Managed identities only work for code running on Azure resources. **Workload identity federation** covers everything else that can present an OIDC token: GitHub Actions, GitLab, Kubernetes service accounts (including AKS), Google Cloud and AWS workloads.\n\nYou add a **federated identity credential** to a user-assigned managed identity or an app registration. It names a trusted **issuer** (e.g. `https://token.actions.githubusercontent.com`), an exact **subject** (e.g. `repo:contoso/orders:environment:prod`) and the audience `api://AzureADTokenExchange`. At runtime the workload gets a short-lived token from its own issuer and exchanges it at Entra ID (client credentials flow with a `client_assertion`) for an Entra access token. Nothing secret is stored anywhere.\n\nSubjects must match exactly (flexible claim matching exists in preview for some issuers), so design them deliberately: binding to a GitHub **environment** lets you add required reviewers before production credentials are usable. An identity has a limit of 20 federated credentials.\n\nOn **AKS**, enable the OIDC issuer and workload identity, annotate a Kubernetes service account with the identity's client ID, label pods with `azure.workload.identity/use: \"true\"`, and create a federated credential whose subject is `system:serviceaccount:<namespace>:<name>`. The webhook injects environment variables and a projected token file that `DefaultAzureCredential` picks up automatically.",
+   "code": "# One-time setup (bash):\n# az identity federated-credential create -g rg-id --identity-name id-orders-deployer \\\n#   --name gh-prod --issuer https://token.actions.githubusercontent.com \\\n#   --subject repo:contoso/orders:environment:prod --audiences api://AzureADTokenExchange\n\n# .github/workflows/deploy.yml\nname: deploy\non: { push: { branches: [main] } }\npermissions:\n  id-token: write      # allow requesting the GitHub OIDC token\n  contents: read\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    environment: prod    # subject becomes repo:contoso/orders:environment:prod\n    steps:\n      - uses: actions/checkout@v4\n      - uses: azure/login@v2\n        with:\n          client-id: ${{ vars.AZURE_CLIENT_ID }}\n          tenant-id: ${{ vars.AZURE_TENANT_ID }}\n          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}\n      - run: az deployment group create -g rg-orders-prod -f main.bicep",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Federation trusts an external OIDC issuer + exact subject; no secret is stored",
+    "Works for CI/CD, Kubernetes pods and other clouds",
+    "Scope subjects to environments or branches deliberately",
+    "AKS: OIDC issuer + annotated service account + pod label"
+   ],
+   "pitfalls": [
+    "Forgetting `permissions: id-token: write` in GitHub Actions, so no OIDC token can be requested.",
+    "Using a broad subject pattern that lets any branch or fork obtain production credentials."
+   ],
+   "quiz": [
+    {
+     "q": "What does Entra ID verify before issuing a token through a federated credential?",
+     "options": [
+      "That the presented OIDC token's issuer, subject and audience match the federated credential",
+      "The client secret",
+      "The runner's IP address",
+      "A certificate thumbprint"
+     ],
+     "answer": 0,
+     "explain": "The external token's claims must match the configured issuer, subject and audience."
+    },
+    {
+     "q": "Which subject should an AKS federated credential use for service account 'api' in namespace 'orders'?",
+     "options": [
+      "orders/api",
+      "repo:orders:api",
+      "api@orders",
+      "system:serviceaccount:orders:api"
+     ],
+     "answer": 3,
+     "explain": "Kubernetes service account tokens carry subject system:serviceaccount:<namespace>:<name>."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation",
+   "requires": [
+    "azure.managed-identities",
+    "azure.aks"
+   ]
+  },
+  {
+   "id": "azure.cosmos-partitioning",
+   "name": "Cosmos DB partitioning and consistency",
+   "module": "data",
+   "level": 4,
+   "minutes": 18,
+   "summary": "Design partition keys for scale, avoid hot partitions, and choose among the five consistency levels and multi-region writes.",
+   "why": "Partitioning and consistency choices are effectively permanent and decide Cosmos DB's cost, latency and correctness.",
+   "body": "Under the hood a container's data is split into **physical partitions**, each serving up to 10,000 RU/s and 50 GB. Provisioned RU/s are divided evenly between them, so a **hot partition key** (say `/country` where one country dominates) throttles at a fraction of the container's throughput while the rest sits idle. Good keys have high cardinality, spread writes evenly, and match your most frequent queries' filters so they stay single-partition.\n\nTechniques:\n\n- **Synthetic keys** (`tenantId-yyyymm`) to spread load.\n- **Hierarchical partition keys** (up to three levels, e.g. `/tenantId`, `/userId`) to get past the 20 GB logical-partition limit for big tenants while still routing queries on a prefix.\n- The partition key of a container cannot be changed; migrating means copying to a new container (container copy jobs or the change feed).\n\n**Consistency levels**, strongest to weakest: **Strong**, **Bounded Staleness**, **Session** (default), **Consistent Prefix**, **Eventual**. Session guarantees read-your-writes within a session token and suits most apps. Strong and Bounded Staleness reads cost twice the RUs of weaker levels, and Strong adds cross-region write latency. With **multi-region writes**, Strong is not available and concurrent updates are resolved by last-writer-wins on `_ts` (or a custom policy), so design for conflicts.\n\nThe **change feed** exposes ordered changes per partition key range, the basis for materialized views and event-driven pipelines.",
+   "code": "# pip install azure-cosmos azure-identity\nfrom azure.cosmos import CosmosClient, PartitionKey\nfrom azure.identity import DefaultAzureCredential\n\nclient = CosmosClient(\"https://cosmos-saas.documents.azure.com:443/\", DefaultAzureCredential(),\n                      consistency_level=\"Session\")\ndb = client.get_database_client(\"saas\")\n\n# Hierarchical partition key: tenant, then user\nevents = db.create_container_if_not_exists(\n    id=\"events\",\n    partition_key=PartitionKey(path=[\"/tenantId\", \"/userId\"], kind=\"MultiHash\"),\n    offer_throughput=4000)\n\nevents.upsert_item({\"id\": \"e1\", \"tenantId\": \"t-big\", \"userId\": \"u-7\", \"type\": \"login\"})\n\n# Prefix query: routed only to t-big's partitions, not fanned out to all\nrows = events.query_items(\"SELECT * FROM c WHERE c.type = 'login'\", partition_key=[\"t-big\"])\nprint(sum(1 for _ in rows))  # 1",
+   "code_lang": "python",
+   "takeaways": [
+    "Physical partitions cap at 10,000 RU/s and 50 GB; hot keys throttle early",
+    "Partition keys are permanent; choose for even writes and query routing",
+    "Hierarchical keys lift the 20 GB logical-partition ceiling",
+    "Session consistency is the default; Strong costs more and blocks multi-region writes"
+   ],
+   "pitfalls": [
+    "Choosing a low-cardinality key like /status or /country, creating a hot partition."
+   ],
+   "quiz": [
+    {
+     "q": "A container has 30,000 RU/s over 3 physical partitions and one tenant generates most writes. Roughly what can that tenant's partition sustain?",
+     "options": [
+      "30,000 RU/s",
+      "Unlimited with autoscale",
+      "About 10,000 RU/s",
+      "1,000 RU/s"
+     ],
+     "answer": 2,
+     "explain": "Throughput is split evenly across physical partitions, so one key range gets about a third."
+    },
+    {
+     "q": "Which consistency level is the default and guarantees read-your-own-writes within a client session?",
+     "options": [
+      "Strong",
+      "Session",
+      "Eventual",
+      "Consistent Prefix"
+     ],
+     "answer": 1,
+     "explain": "Session uses a session token to give monotonic reads and read-your-writes per session."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/cosmos-db/partitioning-overview",
+   "requires": [
+    "azure.cosmos-db"
+   ]
+  },
+  {
+   "id": "azure.cost-optimization",
+   "name": "Cost optimization: commitments and FinOps",
+   "module": "operations",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Cut spend with reservations, savings plans, Spot and rightsizing, and run cost as an engineering discipline.",
+   "why": "At scale, commitment discounts and architecture choices change the bill by tens of percent.",
+   "body": "Once usage is understood, optimize in this order: **eliminate** waste (idle resources, orphaned disks, oversized logs), **rightsize** (Advisor and utilization metrics), **re-architect** (autoscale, serverless, Spot for interruptible work, storage tiering), and finally **commit**.\n\nCommitment discounts:\n\n- **Reservations**: 1- or 3-year commitment to a specific resource type and region (VM family with instance size flexibility, SQL vCores, Cosmos DB RU/s, App Service, storage capacity). Deepest discounts, least flexible; can be exchanged within limits.\n- **Savings plan for compute**: an hourly spend commitment for 1 or 3 years that applies automatically across VM sizes, regions and several compute services (VMs, App Service, Functions Premium, Container Apps and others). More flexible, slightly smaller discount. A separate **savings plan for databases** does the same for SQL, PostgreSQL, MySQL and Cosmos DB. Reservations are applied first; savings plans cover what remains.\n- **Azure Hybrid Benefit**: reuse Windows Server and SQL Server licenses with Software Assurance.\n- **Dev/Test subscriptions**: discounted rates for non-production.\n\nCommit only to the stable baseline (look at the minimum hourly usage over months), never to peaks. Use the **amortized** cost view to see commitment costs spread over the resources that consume them, and exports (FOCUS format) for showback per team. FinOps is continuous: owners per cost center, budgets per subscription, monthly reviews, and anomaly alerts.",
+   "code": "# Rightsizing and shutdown candidates from Advisor\naz advisor recommendation list --category Cost \\\n  --query \"[].{impact:impact, resource:impactedValue, problem:shortDescription.problem}\" -o table\n\n# Orphaned managed disks (attached to nothing, still billed)\naz disk list --query \"[?diskState=='Unattached'].{name:name, sizeGb:diskSizeGb, sku:sku.name}\" -o table\n\n# Public IPs not associated with anything\naz network public-ip list --query \"[?ipConfiguration==null].{name:name, rg:resourceGroup}\" -o table\n\n# Rightsizing evidence: peak hourly CPU of a VM over the last 14 days\naz monitor metrics list --resource \"$VM_ID\" --metric \"Percentage CPU\" \\\n  --aggregation Maximum --interval PT1H --offset 14d \\\n  --query \"max(value[0].timeseries[0].data[].maximum)\"\n# 23.5  -> a smaller size (or a B-series) would do",
+   "code_lang": "bash",
+   "takeaways": [
+    "Eliminate, rightsize, re-architect, then commit",
+    "Reservations: specific and deepest; savings plan: flexible hourly commitment",
+    "Commit to the steady baseline, not the peak",
+    "Amortized views and exports enable per-team showback"
+   ],
+   "pitfalls": [
+    "Buying 3-year reservations for workloads about to be migrated to PaaS or containers."
+   ],
+   "quiz": [
+    {
+     "q": "Your VM fleet changes size families and regions often, but total compute spend is steady. Which commitment fits better?",
+     "options": [
+      "VM reservations",
+      "Spot VMs",
+      "Savings plan for compute",
+      "Dev/Test pricing"
+     ],
+     "answer": 2,
+     "explain": "Savings plans apply across sizes, regions and services, matching a stable spend with shifting shape."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/cost-management-billing/savings-plan/savings-plan-compute-overview",
+   "requires": [
+    "azure.cost-basics",
+    "azure.vm-scale-sets",
+    "azure.kql-alerts"
+   ]
+  },
+  {
+   "id": "azure.multi-region-resilience",
+   "name": "Designing for zone and region failures",
+   "module": "operations",
+   "level": 4,
+   "minutes": 18,
+   "summary": "Set RTO/RPO targets and build zone-redundant, multi-region architectures with tested failover.",
+   "why": "Real outages hit zones, regions and dependencies; resilience must be designed, configured and rehearsed.",
+   "body": "Start with targets per workload: **RTO** (how long you may be down) and **RPO** (how much data you may lose). They decide the design and the cost.\n\nLayers of protection:\n\n- **Zone redundancy first**: zone-redundant App Service plans, Container Apps environments, AKS node pools across zones, ZRS/GZRS storage, zone-redundant SQL and Cosmos DB, Standard load balancers and gateways. This covers datacenter failures with RPO near zero and no failover logic.\n- **Multi-region** for regional outages: **active-passive** (warm standby, lower cost, RTO minutes) or **active-active** (both serve traffic, highest cost and complexity). Front Door or Traffic Manager routes users; data replicates asynchronously: SQL **failover groups**, Cosmos DB multi-region with service-managed failover, GZRS storage, geo-replicated Container Registry and Key Vault per region.\n\nThe traps experts plan for:\n\n- Asynchronous replication means RPO is greater than zero; know your replication lag.\n- **Capacity**: the secondary region may lack quota or VM capacity during a regional event. Pre-provision or use capacity reservations.\n- Hidden single-region dependencies: a hub firewall, private DNS zones, a CI/CD pipeline, a secrets vault, or a third-party API.\n- Untested failover doesn't work. Rehearse with planned failovers and **Azure Chaos Studio** experiments, and practice failback.\n\nUse the Well-Architected Reliability pillar and the per-service reliability guides as the checklist.",
+   "code": "# SQL: failover group with a stable listener name across regions\naz sql failover-group create -g rg-data --name fg-orders \\\n  --server sql-orders-weu --partner-server sql-orders-neu \\\n  --add-db ordersdb --failover-policy Automatic --grace-period 1\n# App connects to: fg-orders.database.windows.net (follows the primary)\n\n# Cosmos DB: zone-redundant in two regions with service-managed failover\naz cosmosdb update -g rg-data -n cosmos-orders \\\n  --locations regionName=westeurope failoverPriority=0 isZoneRedundant=true \\\n  --locations regionName=northeurope failoverPriority=1 isZoneRedundant=true\naz cosmosdb update -g rg-data -n cosmos-orders --enable-automatic-failover true\n\n# Rehearse: planned failover of the SQL group to the secondary\naz sql failover-group set-primary -g rg-data --server sql-orders-neu --name fg-orders",
+   "code_lang": "bash",
+   "takeaways": [
+    "Define RTO and RPO first; they drive cost and design",
+    "Zone redundancy is the cheap first layer; regions handle regional outages",
+    "Replication across regions is asynchronous: RPO is not zero",
+    "Find single-region dependencies and rehearse failover and failback"
+   ],
+   "pitfalls": [
+    "Building a passive region but never testing it, then discovering missing quota, secrets or DNS during the outage."
+   ],
+   "quiz": [
+    {
+     "q": "What does a SQL failover group's listener name give an application?",
+     "options": [
+      "Synchronous replication",
+      "Zero RPO across regions",
+      "Automatic schema migrations",
+      "A stable endpoint that points to whichever server is currently primary"
+     ],
+     "answer": 3,
+     "explain": "Clients connect to the group's DNS name, which is updated on failover."
+    },
+    {
+     "q": "Which risk is specific to multi-region failover during a large regional outage?",
+     "options": [
+      "Zone numbers changing",
+      "Loss of RBAC assignments",
+      "Insufficient capacity or quota in the secondary region",
+      "Storage account names becoming invalid"
+     ],
+     "answer": 2,
+     "explain": "Many customers fail over at once; without reserved capacity, scale-out can fail."
+    }
+   ],
+   "docs": "https://learn.microsoft.com/en-us/azure/reliability/overview",
+   "requires": [
+    "azure.front-door",
+    "azure.azure-sql",
+    "azure.cosmos-db"
+   ]
+  }
+ ]
+}

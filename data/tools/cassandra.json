@@ -1,0 +1,760 @@
+{
+ "tool": {
+  "id": "cassandra",
+  "name": "Apache Cassandra",
+  "category": "database",
+  "tagline": "Masterless wide-column database for huge write volumes and always-on availability",
+  "description": "Apache Cassandra is a distributed, masterless wide-column database designed to stay available across machines and data centers with no single point of failure. You model tables around your queries in CQL, an SQL-like language, and it scales linearly by adding nodes. It is used for time-series, messaging, IoT and other high-write workloads at very large scale.",
+  "icon": "Ca",
+  "color": "#1287B1",
+  "official_docs": "https://cassandra.apache.org/doc/latest/",
+  "version": "5.0",
+  "aliases": [
+   "cassandra",
+   "cql",
+   "cqlsh",
+   "wide-column store",
+   "scylladb"
+  ],
+  "requires": [
+   {
+    "tool": "database-design",
+    "level": 1
+   },
+   {
+    "tool": "sql",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Architecture and setup"
+  },
+  {
+   "id": "cql",
+   "name": "CQL tables and queries"
+  },
+  {
+   "id": "modeling",
+   "name": "Query-first data modeling"
+  },
+  {
+   "id": "consistency",
+   "name": "Consistency and transactions"
+  },
+  {
+   "id": "internals",
+   "name": "Storage and cluster internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "cassandra.what-is",
+   "name": "What Cassandra is: a masterless ring",
+   "module": "basics",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Cassandra spreads partitions of data over a ring of equal nodes and replicates each partition to several of them.",
+   "why": "Every modeling and consistency rule in Cassandra follows from its distributed, masterless design.",
+   "body": "Cassandra is a **distributed database** where all nodes are equal: there is no primary, so any node can accept reads and writes and there is no single point of failure. Nodes form a **cluster**, optionally spread over several **data centers**.\n\nData is organised into **partitions**. Each row belongs to a partition identified by its **partition key**; Cassandra hashes that key (Murmur3) to a **token**, and the token range each node owns decides where the partition lives. Every partition is stored on several nodes, the **replication factor** (typically 3), so the cluster survives node failures. Adding nodes spreads the token ranges and capacity grows roughly linearly.\n\nThe client sends a request to any node, which becomes the **coordinator** and forwards it to the replicas. You choose per request how many replicas must answer (the **consistency level**), trading latency and availability against consistency.\n\nDesign consequences:\n\n- reads are efficient when they hit one partition, and there are no joins and no ad-hoc queries across all data,\n- writes are extremely cheap (append-only), so you duplicate data into one table per query,\n- availability is favoured over strict consistency; in CAP terms Cassandra is usually described as AP with tunable consistency.\n\nCassandra is a good fit for large write-heavy datasets with known access patterns: time series, event logs, messaging, IoT, user activity.",
+   "takeaways": [
+    "All nodes are equal; any node can coordinate a request",
+    "Rows live in partitions placed by hashing the partition key to a token",
+    "Each partition is replicated to RF nodes, typically 3",
+    "Fast single-partition access, no joins: model per query"
+   ],
+   "pitfalls": [
+    "Choosing Cassandra for ad-hoc analytics or relational data with many joins."
+   ],
+   "quiz": [
+    {
+     "q": "What decides which nodes store a given row?",
+     "options": [
+      "The order in which rows were inserted",
+      "The hash (token) of the row's partition key and the replication settings",
+      "The primary node of the cluster",
+      "The size of the row"
+     ],
+     "answer": 1,
+     "explain": "The partition key is hashed to a token; the token ring and replication strategy pick the replicas."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/architecture/overview.html",
+   "requires": []
+  },
+  {
+   "id": "cassandra.cqlsh-keyspaces",
+   "name": "cqlsh and keyspaces",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Connect with cqlsh and create keyspaces that define replication strategy and factor per data center.",
+   "why": "Keyspaces set replication for everything inside them, and getting it wrong is painful to fix later.",
+   "body": "**cqlsh** is the interactive shell for **CQL** (Cassandra Query Language). Run `cqlsh host 9042` (9042 is the native protocol port). Useful commands: `DESCRIBE KEYSPACES`, `DESCRIBE TABLE t`, `USE ks;`, `CONSISTENCY QUORUM;`, `TRACING ON;`, `EXPAND ON;` for vertical output.\n\nA **keyspace** is the top-level namespace, like a database or schema in SQL, and it owns the **replication** settings for all of its tables:\n\n- `NetworkTopologyStrategy` with a replication factor per data center, e.g. `{'class': 'NetworkTopologyStrategy', 'dc1': 3, 'dc2': 3}`. Use it for anything real, even with one data center, so adding a second later is easy,\n- `SimpleStrategy` with one `replication_factor`, only for local development.\n\nA replication factor of 3 per data center is the norm: with `QUORUM` reads and writes (2 of 3) you can lose one replica and still be consistent and available.\n\n`durable_writes` (default true) controls whether writes go to the commit log; leave it on.\n\nChanging replication with `ALTER KEYSPACE` is allowed, but existing data isn't moved automatically; you must run a **repair** (or rebuild for a new data center) afterwards. Data center names must match what the nodes report via the snitch (see `nodetool status`).",
+   "code": "-- $ cqlsh 127.0.0.1 9042\nCREATE KEYSPACE IF NOT EXISTS shop\n  WITH replication = {'class': 'NetworkTopologyStrategy', 'datacenter1': 3}\n  AND durable_writes = true;\n\nUSE shop;\nDESCRIBE KEYSPACES;     -- shop  system  system_auth  system_schema ...\n\n-- dev-only single node\nCREATE KEYSPACE IF NOT EXISTS sandbox\n  WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};\n\n-- later: add a second data center, then run nodetool rebuild on its nodes\nALTER KEYSPACE shop\n  WITH replication = {'class': 'NetworkTopologyStrategy', 'datacenter1': 3, 'dc2': 3};",
+   "code_lang": "sql",
+   "takeaways": [
+    "cqlsh speaks CQL on port 9042",
+    "A keyspace defines replication for all its tables",
+    "Use NetworkTopologyStrategy with RF 3 per data center",
+    "After changing replication, repair or rebuild to move data"
+   ],
+   "pitfalls": [
+    "Using SimpleStrategy in production and struggling when a second data center is added."
+   ],
+   "quiz": [
+    {
+     "q": "Where is the replication factor configured in Cassandra?",
+     "options": [
+      "Per keyspace",
+      "Per table",
+      "Per row",
+      "Per query"
+     ],
+     "answer": 0,
+     "explain": "Replication strategy and factor are properties of the keyspace."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/developing/cql/ddl.html",
+   "requires": [
+    "cassandra.what-is"
+   ]
+  },
+  {
+   "id": "cassandra.tables-primary-keys",
+   "name": "Tables, partition keys and clustering columns",
+   "module": "cql",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Define a primary key as a partition key that distributes data plus clustering columns that sort rows inside a partition.",
+   "why": "The primary key is the most important design decision in Cassandra: it fixes which queries are possible and how data spreads.",
+   "body": "CQL tables look like SQL tables, but the **primary key** has two parts with very different jobs:\n\n- the **partition key** (first element) decides which partition, and therefore which nodes, a row lives on. Rows with the same partition key are stored together,\n- the **clustering columns** (the rest) order rows **within** the partition, on disk.\n\n`PRIMARY KEY (user_id)` is a single-row partition per user. `PRIMARY KEY ((sensor_id, day), ts)` has a **composite partition key** (the inner parentheses), so each sensor-day is one partition, and rows within it are sorted by `ts`. `PRIMARY KEY (channel_id, sent_at, msg_id)` stores a channel's messages in time order, with `msg_id` as a tie-breaker.\n\nThe full primary key uniquely identifies a row. Inserting another row with the same key overwrites it; there is no duplicate-key error.\n\nA good partition key spreads data evenly (high cardinality, no celebrity values) and keeps partitions bounded in size, while matching the query: you'll almost always need to supply the whole partition key to read.\n\nColumns marked `STATIC` are stored once per partition and shared by all its rows, useful for per-partition attributes such as a channel name. Table options like `default_time_to_live`, `compaction` and `CLUSTERING ORDER BY` go in the `WITH` clause.",
+   "code": "CREATE TABLE shop.messages (\n  channel_id   uuid,\n  sent_at      timestamp,\n  msg_id       timeuuid,\n  channel_name text STATIC,     -- one value per partition\n  author       text,\n  body         text,\n  PRIMARY KEY ((channel_id), sent_at, msg_id)\n) WITH CLUSTERING ORDER BY (sent_at DESC, msg_id DESC);\n\nCREATE TABLE shop.readings (\n  sensor_id text,\n  day       date,\n  ts        timestamp,\n  value     double,\n  PRIMARY KEY ((sensor_id, day), ts)   -- composite partition key\n);",
+   "code_lang": "sql",
+   "takeaways": [
+    "PRIMARY KEY ((partition key), clustering columns...)",
+    "Partition key = placement; clustering columns = sort order inside a partition",
+    "Same primary key means the same row: writes overwrite",
+    "STATIC columns are stored once per partition"
+   ],
+   "pitfalls": [
+    "Using a low-cardinality partition key like country, creating a few giant hot partitions."
+   ],
+   "quiz": [
+    {
+     "q": "In PRIMARY KEY ((sensor_id, day), ts), what is the partition key?",
+     "options": [
+      "sensor_id",
+      "(sensor_id, day, ts)",
+      "ts",
+      "(sensor_id, day)"
+     ],
+     "answer": 3,
+     "explain": "The inner parentheses make sensor_id and day together the composite partition key; ts is a clustering column."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/developing/cql/ddl.html",
+   "requires": [
+    "cassandra.cqlsh-keyspaces",
+    "sql.create-table"
+   ]
+  },
+  {
+   "id": "cassandra.data-types",
+   "name": "Data types, collections and UDTs",
+   "module": "cql",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Use CQL types like uuid, timeuuid, timestamp and decimal, collections (list, set, map), user-defined types and vectors.",
+   "why": "Choosing the right types, especially ids, times and collections, avoids subtle bugs and performance problems.",
+   "body": "CQL has the usual scalars: `text`, `int`, `bigint`, `smallint`, `double`, `decimal` (exact, for money), `boolean`, `blob`, `inet`, `date`, `time`, `timestamp` (millisecond precision) and `duration`.\n\nIdentifiers deserve special attention:\n\n- `uuid` for random ids (`uuid()` generates a version 4 UUID),\n- `timeuuid` for time-ordered unique ids (`now()` generates one; `toTimestamp(id)` extracts the time). Ideal as a clustering column for events, because two events in the same millisecond still get different ids.\n\n**Collections** store small multi-valued data in one column: `list<text>`, `set<text>`, `map<text, int>`. You can update parts in place (`tags = tags + {'sale'}`). They're meant for small, bounded data, because a collection is read in full. Appending to lists is not idempotent and some list operations require a read before write internally; sets and maps are usually better.\n\n**User-defined types** group fields: `CREATE TYPE address (street text, city text)`. Mark collections of UDTs, or nested collections, as `frozen<...>`, which stores the value as one blob that can only be replaced as a whole.\n\n`counter` columns support only increment and decrement and must live in tables containing only counters (plus the key). Cassandra 5.0 adds `vector<float, n>` for embeddings, searchable with SAI.",
+   "code": "CREATE TYPE IF NOT EXISTS shop.address (street text, city text, zip text);\n\nCREATE TABLE shop.users (\n  user_id    uuid PRIMARY KEY,\n  email      text,\n  tags       set<text>,\n  prefs      map<text, text>,\n  home       frozen<address>,\n  balance    decimal,\n  created_at timestamp\n);\n\nINSERT INTO shop.users (user_id, email, tags, prefs, home, balance, created_at)\nVALUES (uuid(), 'ana@example.com', {'beta'}, {'lang': 'hy'},\n        {street: 'Abovyan 1', city: 'Yerevan', zip: '0001'}, 12.50, toTimestamp(now()));\n\nUPDATE shop.users SET tags = tags + {'vip'}, prefs['theme'] = 'dark'\nWHERE user_id = 5b6962dd-3f90-4c93-8f61-eabfa4a803e2;",
+   "code_lang": "sql",
+   "takeaways": [
+    "timeuuid gives unique, time-ordered ids; uuid gives random ones",
+    "Collections are for small bounded data and are read whole",
+    "frozen stores a UDT or collection as one replaceable value",
+    "counter tables hold only counters; vector<float, n> is new in 5.0"
+   ],
+   "pitfalls": [
+    "Using timestamp alone as a clustering column for events: two events in the same millisecond overwrite each other."
+   ],
+   "quiz": [
+    {
+     "q": "Two chat messages arrive in the same millisecond in one channel. Which clustering column keeps both?",
+     "options": [
+      "sent_at timestamp",
+      "msg_id timeuuid",
+      "author text",
+      "a counter column"
+     ],
+     "answer": 1,
+     "explain": "A timeuuid is unique even within the same millisecond and still sorts by time."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/developing/cql/types.html",
+   "requires": [
+    "cassandra.tables-primary-keys"
+   ]
+  },
+  {
+   "id": "cassandra.insert-select",
+   "name": "INSERT and SELECT with key restrictions",
+   "module": "cql",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Write rows with INSERT and read them with SELECT, respecting the rules on which key columns a WHERE clause may filter.",
+   "why": "CQL looks like SQL but rejects most queries that don't follow the primary key, so you need its rules to write any reads.",
+   "body": "`INSERT INTO t (cols) VALUES (...)` writes a row; you must give every primary key column. `SELECT` looks familiar too, but the `WHERE` clause is restricted so that every query is efficient:\n\n- you must restrict the **full partition key** with `=` (or `IN`), so the query goes to one known partition,\n- clustering columns can be restricted **in order**: equality on earlier ones, and a range (`<`, `>=`...) only on the last one you restrict,\n- filtering on regular columns isn't allowed without an index.\n\nWithin a partition, rows come back in clustering order, and you can `ORDER BY` a clustering column only in the table's order or its exact reverse. `LIMIT` caps rows and `PER PARTITION LIMIT` caps rows per partition.\n\nIf a query breaks these rules, Cassandra refuses with an error suggesting `ALLOW FILTERING`. Adding it makes Cassandra scan and discard data, potentially across the whole cluster; it's acceptable only when the scan is already limited to one small partition. The real fix is a table designed for the query, or an index.\n\nThere are no joins, subqueries or `GROUP BY` on arbitrary columns (`GROUP BY` works only on primary key columns), and aggregates like `COUNT(*)` should be used within a partition. `SELECT JSON` and `INSERT JSON` convert rows to and from JSON.",
+   "code": "INSERT INTO shop.readings (sensor_id, day, ts, value)\nVALUES ('s-17', '2026-10-17', '2026-10-17 09:00:00+0000', 21.5);\n\n-- OK: full partition key + range on the clustering column\nSELECT ts, value FROM shop.readings\nWHERE sensor_id = 's-17' AND day = '2026-10-17'\n  AND ts >= '2026-10-17 08:00:00+0000' AND ts < '2026-10-17 10:00:00+0000';\n--  ts                              | value\n-- ---------------------------------+-------\n--  2026-10-17 09:00:00.000000+0000 |  21.5\n\n-- Rejected: partition key incomplete\nSELECT * FROM shop.readings WHERE sensor_id = 's-17';\n-- InvalidRequest: ... might involve data filtering ... use ALLOW FILTERING\n-- (the full partition key must be restricted)\n\n-- Rejected: filtering on a regular column\nSELECT * FROM shop.readings WHERE value > 30;",
+   "code_lang": "sql",
+   "takeaways": [
+    "Restrict the full partition key in every normal query",
+    "Clustering columns: equality in order, then a range on the last",
+    "ORDER BY only in clustering order or its reverse",
+    "ALLOW FILTERING means a scan: almost always the wrong fix"
+   ],
+   "pitfalls": [
+    "Adding ALLOW FILTERING to silence the error, then watching the query time out in production."
+   ],
+   "quiz": [
+    {
+     "q": "Table key PRIMARY KEY ((user_id), year, month, day). Which WHERE clause is valid without ALLOW FILTERING?",
+     "options": [
+      "year = 2026 AND month = 10",
+      "user_id = ? AND month = 10",
+      "day = 17",
+      "user_id = ? AND year = 2026 AND month >= 6"
+     ],
+     "answer": 3,
+     "explain": "It restricts the partition key, then clustering columns in order with a range only on the last restricted one."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/developing/cql/dml.html",
+   "requires": [
+    "cassandra.tables-primary-keys",
+    "sql.select"
+   ]
+  },
+  {
+   "id": "cassandra.update-delete",
+   "name": "Upserts, updates and deletes",
+   "module": "cql",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Learn that INSERT and UPDATE are both upserts, that deletes write tombstones, and how last-write-wins resolves conflicts.",
+   "why": "Cassandra's write semantics differ fundamentally from SQL, and assuming SQL behaviour leads to silent data surprises.",
+   "body": "In Cassandra **INSERT and UPDATE are both upserts**. `INSERT` on an existing primary key overwrites the given columns; `UPDATE ... WHERE key = ...` on a row that doesn't exist creates it. Neither reads before writing, which is why writes are so fast, and neither reports whether the row existed (use a lightweight transaction, `IF NOT EXISTS` or `IF EXISTS`, when you need that).\n\nEvery cell carries a **write timestamp** (microseconds, set by the coordinator or client). When replicas hold different values for the same cell, the one with the highest timestamp wins: **last write wins**. Clock skew between clients can therefore make an older write win, so keep clocks synchronized with NTP.\n\nA **DELETE** doesn't remove data immediately; it writes a **tombstone**, a marker with a timestamp that shadows older values. Tombstones are purged during compaction after `gc_grace_seconds` (10 days by default). You can delete a whole partition, a range of rows by clustering column, a single row, or individual columns.\n\nWriting `null` into a column also creates a tombstone. Drivers that bind `null` for every unset field of a prepared statement can create millions of tombstones; leave values **unset** instead.\n\n`UPDATE` works only on non-key columns; to change a primary key value you delete the old row and insert a new one.",
+   "code": "INSERT INTO shop.users (user_id, email) VALUES (5b6962dd-3f90-4c93-8f61-eabfa4a803e2, 'a@x.io');\nINSERT INTO shop.users (user_id, email) VALUES (5b6962dd-3f90-4c93-8f61-eabfa4a803e2, 'b@x.io');\n-- no error: the second insert overwrote email\n\nUPDATE shop.users SET email = 'c@x.io'\nWHERE user_id = 0d1d8cd6-31ab-4a4b-a6d3-6c0e2b1b9a10;   -- row didn't exist: now it does\n\nSELECT email, WRITETIME(email) FROM shop.users\nWHERE user_id = 5b6962dd-3f90-4c93-8f61-eabfa4a803e2;\n--  email  | writetime(email)\n--  b@x.io | 1760691600123456\n\nDELETE prefs FROM shop.users WHERE user_id = 5b6962dd-3f90-4c93-8f61-eabfa4a803e2; -- column\nDELETE FROM shop.readings WHERE sensor_id = 's-17' AND day = '2026-10-17'\n  AND ts < '2026-10-17 06:00:00+0000';                                           -- row range",
+   "code_lang": "sql",
+   "takeaways": [
+    "INSERT and UPDATE are both upserts and don't read first",
+    "Conflicts resolve by highest write timestamp (last write wins)",
+    "Deletes and null writes create tombstones, purged after gc_grace_seconds",
+    "Leave fields unset rather than binding null"
+   ],
+   "pitfalls": [
+    "Expecting INSERT to fail on a duplicate key like in SQL."
+   ],
+   "quiz": [
+    {
+     "q": "You INSERT a row whose primary key already exists. What happens?",
+     "options": [
+      "A duplicate key error",
+      "A second row is added",
+      "The given columns are overwritten",
+      "The insert is ignored"
+     ],
+     "answer": 2,
+     "explain": "Writes are upserts: same primary key means the same row."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/developing/cql/dml.html",
+   "requires": [
+    "cassandra.insert-select"
+   ]
+  },
+  {
+   "id": "cassandra.clustering-order",
+   "name": "Clustering order and range queries",
+   "module": "modeling",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Use clustering columns and CLUSTERING ORDER BY to serve latest-first and time-range queries straight from disk order.",
+   "why": "Time-series and feed queries are fast only when the table's on-disk order matches what the query asks for.",
+   "body": "Rows inside a partition are stored sorted by the clustering columns, so a query that reads a contiguous slice in that order is a sequential read. Design the clustering order around your most common access:\n\n- \"latest 20 messages\" wants `CLUSTERING ORDER BY (sent_at DESC)`, so the newest rows come first and `LIMIT 20` stops early,\n- \"readings between 08:00 and 10:00\" is a range on the clustering column,\n- with several clustering columns, `(year, month, day)`, you can restrict a prefix with equality and range on the next.\n\nReading in the reverse of the declared order works (`ORDER BY sent_at ASC` on a DESC table), but forward-order reads are more efficient, so declare the order your hot query uses.\n\n**Paging** through a partition is natural: drivers page automatically using a paging state, and you can also page manually with a range on the clustering column: `WHERE channel_id = ? AND sent_at < :last_seen LIMIT 20`.\n\nMulti-column restrictions such as `(sent_at, msg_id) < ('2026-10-17 09:00', ...)` compare tuples in clustering order, which is how you continue exactly after the last row when several rows share a timestamp.\n\nClustering order is fixed when the table is created; changing it means a new table and copying data.",
+   "code": "-- table messages: PRIMARY KEY ((channel_id), sent_at, msg_id)\n--                 WITH CLUSTERING ORDER BY (sent_at DESC, msg_id DESC)\n\n-- newest 20 messages: one sequential read, stops after 20 rows\nSELECT sent_at, author, body FROM shop.messages\nWHERE channel_id = 6ab09bec-e68e-48d9-a5f8-97e6fb4c9b47\nLIMIT 20;\n\n-- next page: continue strictly after the last (sent_at, msg_id) seen\nSELECT sent_at, msg_id, body FROM shop.messages\nWHERE channel_id = 6ab09bec-e68e-48d9-a5f8-97e6fb4c9b47\n  AND (sent_at, msg_id) < ('2026-10-17 09:00:00+0000', 50554d6e-29bb-11ef-9f3c-0242ac120002)\nLIMIT 20;\n\n-- reverse order is allowed, but less efficient\nSELECT body FROM shop.messages\nWHERE channel_id = 6ab09bec-e68e-48d9-a5f8-97e6fb4c9b47\nORDER BY sent_at ASC, msg_id ASC LIMIT 5;",
+   "code_lang": "sql",
+   "takeaways": [
+    "Rows are stored sorted by clustering columns within a partition",
+    "Declare CLUSTERING ORDER BY to match the hot query (often DESC)",
+    "Ranges apply to the next clustering column after equality prefixes",
+    "Tuple comparisons continue paging exactly after the last row"
+   ],
+   "pitfalls": [
+    "Declaring ascending order for a latest-first feed and paying for reverse reads on every request."
+   ],
+   "quiz": [
+    {
+     "q": "A table has CLUSTERING ORDER BY (ts DESC). Which ORDER BY clauses are allowed?",
+     "options": [
+      "ts DESC or ts ASC",
+      "Only ts DESC",
+      "Any column",
+      "ORDER BY is not supported"
+     ],
+     "answer": 0,
+     "explain": "You may read in the declared order or its exact reverse."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/developing/cql/dml.html",
+   "requires": [
+    "cassandra.insert-select",
+    "cassandra.data-types"
+   ]
+  },
+  {
+   "id": "cassandra.query-first-modeling",
+   "name": "Query-first modeling and denormalization",
+   "module": "modeling",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Design one table per query, duplicating data across tables, instead of normalizing and joining.",
+   "why": "Without joins, the schema must be shaped by the application's queries, which is the core skill of Cassandra.",
+   "body": "Relational design starts from entities and normalizes, then lets the query planner join. Cassandra has no joins and limited filtering, so you invert the process: **list the queries first**, then design a table for each so that the query reads a single partition.\n\nThe method:\n\n- write down the application's access patterns: \"messages in a channel, newest first\", \"channels a user belongs to\", \"user by email\",\n- for each, choose a partition key from what the query knows (`channel_id`, `user_id`, `email`) and clustering columns for the requested order,\n- include every column the query needs in that table.\n\nThe result is **denormalized**: the same data appears in several tables, e.g. `users_by_id` and `users_by_email`. Writes are cheap, so writing to several tables is fine; the application keeps them in sync, often with a logged batch so all writes eventually apply.\n\nNaming tables `<entity>_by_<key>` makes the pattern obvious. Ask of every table: does each query hit exactly one partition, are partitions bounded in size, and is data evenly spread?\n\nMany-to-many relations become two tables, one per direction (`members_by_channel`, `channels_by_member`). Aggregates you need often are maintained as you write (counters or summary tables) rather than computed at read time.\n\nMaterialized views exist but are marked experimental and are disabled by default in recent versions; maintain denormalized tables yourself.",
+   "code": "-- Q1: find a user by email (login)\nCREATE TABLE shop.users_by_email (\n  email text PRIMARY KEY, user_id uuid, name text, password_hash text);\n\n-- Q2: list a user's orders, newest first\nCREATE TABLE shop.orders_by_user (\n  user_id uuid, placed_at timestamp, order_id uuid, total decimal, status text,\n  PRIMARY KEY ((user_id), placed_at, order_id)\n) WITH CLUSTERING ORDER BY (placed_at DESC, order_id ASC);\n\n-- Q3: show one order with its items\nCREATE TABLE shop.order_items (\n  order_id uuid, sku text, name text, qty int, price decimal,\n  PRIMARY KEY ((order_id), sku));\n\n-- placing an order writes to orders_by_user AND order_items",
+   "code_lang": "sql",
+   "takeaways": [
+    "List queries first, then design one table per query",
+    "Each query should read exactly one partition",
+    "Duplicate data across tables; writes are cheap",
+    "Name tables <entity>_by_<key>"
+   ],
+   "pitfalls": [
+    "Porting a normalized relational schema and then needing joins or ALLOW FILTERING for every screen."
+   ],
+   "quiz": [
+    {
+     "q": "The app needs 'orders by user' and 'orders by status for the admin page'. What is the Cassandra approach?",
+     "options": [
+      "One orders table with a secondary index on everything",
+      "Store orders in a single partition",
+      "A join between users and orders",
+      "Two tables, orders_by_user and orders_by_status, written together"
+     ],
+     "answer": 3,
+     "explain": "Each access pattern gets its own table keyed for that query."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/developing/data-modeling/index.html",
+   "requires": [
+    "cassandra.clustering-order",
+    "sql.joins"
+   ]
+  },
+  {
+   "id": "cassandra.ttl-writetime",
+   "name": "TTL and write timestamps",
+   "module": "modeling",
+   "level": 2,
+   "minutes": 9,
+   "summary": "Expire data automatically with USING TTL or a table default, and inspect cell timestamps and remaining TTLs.",
+   "why": "Sessions, caches and retention windows are handled by TTL, but expiring data has tombstone costs to plan for.",
+   "body": "Any write can carry a **time to live** in seconds: `INSERT ... USING TTL 86400` or `UPDATE t USING TTL 3600 SET ...`. When it elapses, the cell expires and stops being returned. A table can set `default_time_to_live` so every write expires unless it specifies its own TTL.\n\nTTL applies per **cell**, not per row: updating one column with a new TTL leaves the others with their old one. `TTL(col)` shows the remaining seconds for a cell and `WRITETIME(col)` its write timestamp in microseconds. A TTL of 0 means no expiry.\n\n`USING TIMESTAMP` lets you set the write timestamp yourself, for example to make replays idempotent or to ensure an import doesn't overwrite newer data; normally you let the coordinator assign it.\n\nExpired cells become **tombstones** and are removed by compaction after `gc_grace_seconds`. For time-series data where everything in a table has the same TTL and is written in time order, the **TimeWindowCompactionStrategy** (or UCS configured similarly) groups data by time window so whole SSTables can be dropped when they expire, which is far cheaper than compacting away individual tombstones.\n\nAvoid mixing TTL and non-TTL data, or very different TTLs, in one time-series table, as it defeats window-based dropping.",
+   "code": "CREATE TABLE shop.sessions (\n  token text PRIMARY KEY, user_id uuid, data text\n) WITH default_time_to_live = 86400;          -- 1 day unless overridden\n\nINSERT INTO shop.sessions (token, user_id, data)\nVALUES ('t-abc', 5b6962dd-3f90-4c93-8f61-eabfa4a803e2, '{}') USING TTL 3600;\n\nSELECT TTL(data), WRITETIME(data) FROM shop.sessions WHERE token = 't-abc';\n--  ttl(data) | writetime(data)\n--       3598 | 1760691600123456\n\n-- sliding expiry: rewrite with a fresh TTL on each request\nUPDATE shop.sessions USING TTL 3600 SET data = '{\"cart\": 2}' WHERE token = 't-abc';",
+   "code_lang": "sql",
+   "takeaways": [
+    "USING TTL per write or default_time_to_live per table",
+    "TTL is per cell: updating one column doesn't refresh the others",
+    "TTL() and WRITETIME() inspect cells",
+    "Expired data becomes tombstones; TWCS drops whole expired SSTables"
+   ],
+   "pitfalls": [
+    "Refreshing the TTL on one column and expecting the whole row to live longer."
+   ],
+   "quiz": [
+    {
+     "q": "A row was inserted with TTL 3600 on all columns. Ten minutes later you UPDATE only column b with TTL 3600. When does column a expire?",
+     "options": [
+      "One hour after the update",
+      "Immediately",
+      "Never",
+      "One hour after the original insert"
+     ],
+     "answer": 3,
+     "explain": "TTL is tracked per cell, so column a keeps its original expiry."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/developing/cql/dml.html",
+   "requires": [
+    "cassandra.update-delete"
+   ]
+  },
+  {
+   "id": "cassandra.consistency-levels",
+   "name": "Tunable consistency",
+   "module": "consistency",
+   "level": 2,
+   "minutes": 13,
+   "summary": "Choose consistency levels like ONE, QUORUM and LOCAL_QUORUM per request and reason about R + W > RF.",
+   "why": "Consistency level decides whether reads see the latest writes and whether requests succeed when nodes are down.",
+   "body": "Each read and write specifies a **consistency level** (CL): how many replicas must acknowledge before the coordinator answers.\n\n- `ONE`, `TWO`, `THREE`: that many replicas,\n- `QUORUM`: a majority of all replicas across data centers (2 of 3 with RF 3),\n- `LOCAL_QUORUM`: a majority in the coordinator's data center, the usual choice for multi-DC clusters,\n- `EACH_QUORUM` (writes): a quorum in every data center; `ALL`: every replica,\n- `LOCAL_ONE`: one replica in the local data center; `ANY` (writes only) accepts even a stored hint.\n\nWrites are always sent to all replicas; the CL only decides how many acknowledgements to wait for. Reads contact enough replicas to satisfy the CL and return the newest value by timestamp.\n\nThe rule of thumb: if **R + W > RF**, every read overlaps at least one replica that has the latest write, so you read your writes (strong consistency, ignoring clock skew). With RF 3, `QUORUM` + `QUORUM` (2 + 2 > 3) is strongly consistent and tolerates one replica down. `ONE` + `ONE` is fastest and most available but may return stale data.\n\nReplicas that missed writes catch up through **hinted handoff** (the coordinator stores hints for a down node, for 3 hours by default), **read repair** and anti-entropy **repair**.\n\nA failed write at a given CL isn't necessarily rolled back: some replicas may have applied it. Make writes idempotent so retrying is safe.",
+   "code": "-- cqlsh: the session consistency level applies to following statements\nCONSISTENCY LOCAL_QUORUM;\nINSERT INTO shop.users_by_email (email, user_id, name)\nVALUES ('ana@example.com', 5b6962dd-3f90-4c93-8f61-eabfa4a803e2, 'Ana');\n\nCONSISTENCY ONE;      -- fast, possibly stale read\nSELECT name FROM shop.users_by_email WHERE email = 'ana@example.com';\n\n-- With RF = 3:\n--   W=QUORUM(2) + R=QUORUM(2) = 4 > 3 -> reads see the latest acknowledged write\n--   W=ONE(1)    + R=ONE(1)    = 2     -> may read stale data\n--   W=ALL(3)    + R=ONE(1)    = 4     -> consistent, but any down node fails writes",
+   "code_lang": "sql",
+   "takeaways": [
+    "CL = how many replicas must acknowledge, chosen per request",
+    "R + W > RF gives read-your-writes consistency",
+    "LOCAL_QUORUM is the usual multi-DC default",
+    "Hints, read repair and repair bring replicas back in sync"
+   ],
+   "pitfalls": [
+    "Using ALL for safety: one unavailable replica makes requests fail."
+   ],
+   "quiz": [
+    {
+     "q": "With RF 3, which combination guarantees reads see the latest successful write?",
+     "options": [
+      "W=ONE, R=ONE",
+      "W=ONE, R=QUORUM",
+      "W=ANY, R=ONE",
+      "W=QUORUM, R=QUORUM"
+     ],
+     "answer": 3,
+     "explain": "2 + 2 > 3, so the read and write replica sets always overlap."
+    },
+    {
+     "q": "With RF 3 and one replica down, can QUORUM reads and writes still succeed?",
+     "options": [
+      "Only writes",
+      "No, QUORUM needs all 3",
+      "Yes, 2 of 3 replicas are enough",
+      "Only reads"
+     ],
+     "answer": 2,
+     "explain": "A quorum of 3 is 2, so one replica can be down."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/architecture/dynamo.html",
+   "requires": [
+    "cassandra.insert-select",
+    "cassandra.what-is"
+   ]
+  },
+  {
+   "id": "cassandra.batches",
+   "name": "Batches: what they are and are not",
+   "module": "consistency",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Use logged batches to keep denormalized tables in sync, and avoid batches as a bulk-loading tool.",
+   "why": "Batches are the most misused CQL feature: right for multi-table consistency, wrong for performance.",
+   "body": "`BEGIN BATCH ... APPLY BATCH;` groups writes. Its purpose is **atomicity**, not speed.\n\nA **logged batch** (the default) first writes the batch to a batchlog on other nodes. If the coordinator fails part way, the batchlog is replayed, so eventually **all or none** of the statements apply. This is how you keep denormalized tables (`users_by_id` and `users_by_email`) in sync. There is no isolation across partitions: a reader may briefly see one table updated and not the other, and there is no rollback.\n\nA batch whose statements all target the **same partition** is applied as a single atomic and isolated mutation on each replica, with no batchlog needed. That's efficient and a good use of batches.\n\n**Unlogged batches** skip the batchlog and provide no atomicity across partitions.\n\nWhat batches are not: a way to bulk load. A multi-partition batch makes one coordinator do all the work and hold everything in memory, instead of spreading writes across the cluster. For many independent writes, send individual (asynchronous, token-aware) statements in parallel. Cassandra warns when a batch exceeds `batch_size_warn_threshold` (5 KiB by default) and rejects it above `batch_size_fail_threshold` (50 KiB).\n\nCounter updates can only be batched with other counter updates (`BEGIN COUNTER BATCH`).",
+   "code": "-- keep two denormalized tables in sync: all-or-nothing (eventually)\nBEGIN BATCH\n  INSERT INTO shop.users_by_email (email, user_id, name)\n  VALUES ('ana@example.com', 5b6962dd-3f90-4c93-8f61-eabfa4a803e2, 'Ana');\n  INSERT INTO shop.users (user_id, email)\n  VALUES (5b6962dd-3f90-4c93-8f61-eabfa4a803e2, 'ana@example.com');\nAPPLY BATCH;\n\n-- single-partition batch: atomic and isolated, no batchlog needed\nBEGIN UNLOGGED BATCH\n  INSERT INTO shop.order_items (order_id, sku, qty) VALUES (9a3e3b6e-0e4d-4c39-9a52-6a8f1f5c2b11, 'PEN', 3);\n  INSERT INTO shop.order_items (order_id, sku, qty) VALUES (9a3e3b6e-0e4d-4c39-9a52-6a8f1f5c2b11, 'PAD', 1);\nAPPLY BATCH;",
+   "code_lang": "sql",
+   "takeaways": [
+    "Logged batches guarantee all statements eventually apply",
+    "No isolation across partitions and no rollback",
+    "Single-partition batches are atomic, isolated and cheap",
+    "Don't use multi-partition batches for bulk loading"
+   ],
+   "pitfalls": [
+    "Batching thousands of unrelated rows to 'speed up' inserts, overloading a single coordinator."
+   ],
+   "quiz": [
+    {
+     "q": "What does a logged batch spanning two partitions guarantee?",
+     "options": [
+      "Readers never see a partial result",
+      "It is faster than separate writes",
+      "All statements eventually apply, even if the coordinator fails",
+      "It rolls back on any error"
+     ],
+     "answer": 2,
+     "explain": "The batchlog ensures eventual atomicity, but not isolation or speed."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/developing/cql/dml.html",
+   "requires": [
+    "cassandra.query-first-modeling",
+    "cassandra.update-delete",
+    "sql.transactions"
+   ]
+  },
+  {
+   "id": "cassandra.drivers",
+   "name": "Drivers, prepared statements and paging",
+   "module": "consistency",
+   "level": 2,
+   "minutes": 11,
+   "summary": "Connect from code with a driver, use prepared statements, token-aware routing, async queries and automatic paging.",
+   "why": "Application performance with Cassandra depends as much on driver usage as on schema.",
+   "body": "Applications use a driver (Java, Python, Go, Node.js, C#...) speaking the native protocol on port 9042. Core practices are the same in every language:\n\n- create one **session** per application and reuse it; it manages connection pools to all nodes,\n- use **prepared statements** for anything executed repeatedly: the statement is parsed once, values are bound as parameters (no CQL injection), and the driver learns which columns form the partition key,\n- keep the default **token-aware** load balancing policy (wrapped in a data-center-aware one): the driver computes the token of the bound partition key and sends the request directly to a replica, saving a network hop,\n- set the **consistency level** per statement or as a profile default (`LOCAL_QUORUM` is typical),\n- run independent writes **asynchronously** and in parallel, with a cap on in-flight requests, instead of batching them.\n\nLarge results are **paged** automatically: the driver fetches `fetch_size` rows (5000 by default) at a time as you iterate. For stateless APIs, return the opaque paging state to the client and resume with it.\n\nMark statements idempotent when they are (most upserts are; counter updates and list appends aren't) so the driver may retry or speculatively execute them safely after timeouts.\n\nDon't bind `null` for missing values; leave them unset to avoid tombstones.",
+   "code": "from datetime import date, datetime, timezone\nfrom cassandra.cluster import Cluster, ExecutionProfile, EXEC_PROFILE_DEFAULT\nfrom cassandra.policies import DCAwareRoundRobinPolicy, TokenAwarePolicy\nfrom cassandra import ConsistencyLevel\n\nprofile = ExecutionProfile(\n    load_balancing_policy=TokenAwarePolicy(DCAwareRoundRobinPolicy(local_dc=\"datacenter1\")),\n    consistency_level=ConsistencyLevel.LOCAL_QUORUM)\ncluster = Cluster([\"10.0.0.1\", \"10.0.0.2\"], execution_profiles={EXEC_PROFILE_DEFAULT: profile})\nsession = cluster.connect(\"shop\")                 # one session per app\n\ninsert = session.prepare(\"INSERT INTO readings (sensor_id, day, ts, value) VALUES (?, ?, ?, ?)\")\ninsert.is_idempotent = True\nday = date(2026, 10, 17)\nrows = [(day, datetime(2026, 10, 17, 9, m, tzinfo=timezone.utc), 20 + m / 10) for m in range(60)]\nfutures = [session.execute_async(insert, (\"s-17\", day, ts, v)) for day, ts, v in rows]\nfor f in futures:\n    f.result()                                    # raise on failure\n\nselect = session.prepare(\"SELECT ts, value FROM readings WHERE sensor_id = ? AND day = ?\")\nfor row in session.execute(select, (\"s-17\", day)):  # pages transparently\n    print(row.ts, row.value)",
+   "code_lang": "python",
+   "takeaways": [
+    "One long-lived session per application",
+    "Prepared statements: parsed once, safe binding, enable token-aware routing",
+    "Run independent writes async in parallel, not in batches",
+    "Results page automatically; mark idempotent statements"
+   ],
+   "pitfalls": [
+    "Building CQL strings with f-strings for each request: no routing information, re-parsing, and injection risk."
+   ],
+   "quiz": [
+    {
+     "q": "Why do prepared statements make token-aware routing possible?",
+     "options": [
+      "They are cached on the client",
+      "The driver knows which bound values are the partition key, so it can compute the token",
+      "They skip the coordinator entirely",
+      "They force consistency ALL"
+     ],
+     "answer": 1,
+     "explain": "Preparation returns metadata identifying partition key columns, letting the driver pick a replica."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/getting-started/drivers.html",
+   "requires": [
+    "cassandra.consistency-levels",
+    "cassandra.update-delete"
+   ]
+  },
+  {
+   "id": "cassandra.sai-indexes",
+   "name": "Storage-attached indexes (SAI)",
+   "module": "modeling",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Query non-key columns with SAI indexes in Cassandra 5.0, including range and vector search, and know when an index is the wrong tool.",
+   "why": "SAI makes secondary access patterns practical, but only if you understand how index queries execute across the cluster.",
+   "body": "Cassandra 5.0's **Storage-Attached Indexing** (SAI) indexes regular columns, clustering columns, collections and vectors. Each index is built alongside each SSTable and memtable on every node, so it shares the data's lifecycle and is much more efficient than the legacy secondary indexes.\n\nCreate one with `CREATE INDEX ON t (col) USING 'sai';`. Then you can filter on that column: equality, ranges on numeric and date types, `CONTAINS` on collections, and combinations of several indexed columns with `AND`. Text indexes can be made case-insensitive with options like `'case_sensitive': false`.\n\nHow a query executes matters:\n\n- **with** the partition key restricted, an SAI query reads one partition: fast and cheap,\n- **without** it, the coordinator must ask nodes across the whole token range, so latency grows with cluster size. Fine for occasional or admin queries with selective predicates and a `LIMIT`, not for the hottest request path.\n\nFor **vector search**, index a `vector<float, n>` column and query with `ORDER BY embedding ANN OF [ ... ] LIMIT k`, optionally with other SAI filters.\n\nIndexes cost write work and disk space on every node. If a non-key access pattern is central and high-volume, a dedicated denormalized table is still the most predictable design; SAI fills the gaps for additional, less frequent queries.",
+   "code": "CREATE INDEX IF NOT EXISTS orders_status ON shop.orders_by_user (status) USING 'sai';\nCREATE INDEX IF NOT EXISTS orders_total  ON shop.orders_by_user (total)  USING 'sai';\n\n-- cheap: partition key + index\nSELECT order_id, total FROM shop.orders_by_user\nWHERE user_id = 5b6962dd-3f90-4c93-8f61-eabfa4a803e2 AND status = 'open';\n\n-- cluster-wide: fine for selective, occasional queries with a LIMIT\nSELECT user_id, order_id FROM shop.orders_by_user\nWHERE status = 'open' AND total > 500 LIMIT 50;\n\n-- vector similarity search (5.0)\nCREATE TABLE shop.docs (id int PRIMARY KEY, body text, embedding vector<float, 3>);\nCREATE INDEX ON shop.docs (embedding) USING 'sai';\nSELECT id, body FROM shop.docs ORDER BY embedding ANN OF [0.1, 0.8, 0.3] LIMIT 3;",
+   "code_lang": "sql",
+   "takeaways": [
+    "SAI (5.0) indexes columns per SSTable and memtable on each node",
+    "Combine indexed columns with AND, ranges and CONTAINS",
+    "Restrict the partition key when you can; otherwise the query fans out",
+    "Vector search: ORDER BY col ANN OF [...] LIMIT k"
+   ],
+   "pitfalls": [
+    "Putting a cluster-wide SAI query without partition key on the hottest request path."
+   ],
+   "quiz": [
+    {
+     "q": "Why can an SAI query without a partition key get slower as the cluster grows?",
+     "options": [
+      "The coordinator must query nodes covering the whole token range",
+      "SAI indexes are stored on one node",
+      "SAI disables token-aware routing permanently",
+      "It needs ALLOW FILTERING"
+     ],
+     "answer": 0,
+     "explain": "Each node indexes only its own data, so a query without a partition key has to ask across the ring."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/",
+   "requires": [
+    "cassandra.clustering-order",
+    "cassandra.query-first-modeling",
+    "sql.indexes"
+   ]
+  },
+  {
+   "id": "cassandra.lightweight-transactions",
+   "name": "Lightweight transactions (compare-and-set)",
+   "module": "consistency",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Use IF NOT EXISTS and IF conditions for linearizable compare-and-set on a single partition, and understand their cost.",
+   "why": "Uniqueness and check-then-act operations (usernames, inventory) need more than last-write-wins.",
+   "body": "Plain writes are blind upserts. When you need to check before writing, Cassandra offers **lightweight transactions** (LWT): conditional writes using a Paxos consensus round among the replicas, which makes them **linearizable** for that partition.\n\n- `INSERT ... IF NOT EXISTS` claims a key only if it's free, e.g. a unique username,\n- `UPDATE ... SET qty = 4 WHERE ... IF qty = 5` changes a value only if it still has the expected one,\n- `DELETE ... IF EXISTS` and `UPDATE ... IF EXISTS` act only on existing rows.\n\nThe result contains an `[applied]` column; when false, it also returns the current values so you can decide what to do.\n\nThe Paxos phase uses the **serial consistency level**: `SERIAL` (across data centers) or `LOCAL_SERIAL`; the commit uses the normal consistency level. Read with `SERIAL` if you must see the result of in-progress LWTs.\n\nCosts and limits:\n\n- several round trips, so roughly 4x the latency of a normal write, and contention on the same partition causes timeouts,\n- conditions are limited to one partition; there are no multi-partition transactions (general ACID transactions via the Accord protocol are planned for a later major version),\n- mixing LWT and non-LWT writes on the same data breaks the guarantees.\n\nUse LWTs for the rare operations that truly need them, not for every write.",
+   "code": "-- unique username claim\nINSERT INTO shop.usernames (username, user_id)\nVALUES ('ana', 5b6962dd-3f90-4c93-8f61-eabfa4a803e2) IF NOT EXISTS;\n--  [applied]\n--       True\nINSERT INTO shop.usernames (username, user_id)\nVALUES ('ana', 0d1d8cd6-31ab-4a4b-a6d3-6c0e2b1b9a10) IF NOT EXISTS;\n--  [applied] | username | user_id\n--      False |      ana | 5b6962dd-3f90-4c93-8f61-eabfa4a803e2\n\n-- optimistic stock decrement\nSERIAL CONSISTENCY LOCAL_SERIAL;\nUPDATE shop.stock SET qty = 4 WHERE sku = 'PEN' IF qty = 5;\n--  [applied] | qty\n--      False |   3      -> re-read and retry with the current value",
+   "code_lang": "sql",
+   "takeaways": [
+    "IF NOT EXISTS / IF col = value give compare-and-set via Paxos",
+    "Check the [applied] column; failures return current values",
+    "Serial CL governs the Paxos phase (SERIAL or LOCAL_SERIAL)",
+    "Single-partition only and several times slower than plain writes"
+   ],
+   "pitfalls": [
+    "Mixing conditional and unconditional writes to the same column, which can silently break linearizability."
+   ],
+   "quiz": [
+    {
+     "q": "Two users try to register the username \"ana\" at the same time with INSERT ... IF NOT EXISTS. What happens?",
+     "options": [
+      "Exactly one gets [applied] = True",
+      "Both succeed and the last write wins",
+      "Both fail",
+      "Cassandra merges the rows"
+     ],
+     "answer": 0,
+     "explain": "Paxos serializes the conditional inserts so only one applies."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/developing/cql/dml.html",
+   "requires": [
+    "cassandra.consistency-levels",
+    "cassandra.update-delete"
+   ]
+  },
+  {
+   "id": "cassandra.partition-sizing",
+   "name": "Partition sizing, bucketing and hot spots",
+   "module": "modeling",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Keep partitions bounded with time or hash buckets, and estimate partition size before a table goes to production.",
+   "why": "Unbounded and hot partitions are the most common cause of Cassandra performance incidents.",
+   "body": "A partition lives on RF nodes and is read as a unit, so its size and traffic matter:\n\n- **too big**: very large partitions (rule of thumb: keep them under about 100 MB and 100,000 rows, ideally much smaller) slow reads, compaction, repair and streaming,\n- **too hot**: one partition key receiving a big share of traffic (a celebrity user, a global counter) overloads its replicas while the rest of the cluster idles.\n\n**Bucketing** adds a component to the partition key to bound growth:\n\n- **time buckets**: `((sensor_id, day), ts)` instead of `((sensor_id), ts)`; pick the bucket (hour, day, month) so a bucket holds a manageable amount at peak rate,\n- **hash or shard buckets**: `((channel_id, bucket), ts)` with `bucket = hash(msg_id) % 8` spreads a hot key over 8 partitions; readers query all 8 and merge.\n\nBucketing costs reads: a query spanning a week of daily buckets issues 7 queries (run them concurrently).\n\nEstimate before shipping: rows per partition = rate x bucket duration; size = rows x (bytes per row + overhead). Then verify with `nodetool tablehistograms` (partition size percentiles) and `nodetool tablestats` (maximum compacted partition size). Cassandra 5.0 can also warn or fail on oversized partitions with guardrails such as `partition_size_warn_threshold`.",
+   "code": "-- Unbounded: one partition per sensor grows forever\n--   PRIMARY KEY ((sensor_id), ts)\n\n-- Bounded: one partition per sensor per day\nCREATE TABLE shop.readings_by_day (\n  sensor_id text, day date, ts timestamp, value double,\n  PRIMARY KEY ((sensor_id, day), ts)\n) WITH CLUSTERING ORDER BY (ts DESC);\n\n-- Estimate: 1 reading/s -> 86,400 rows/day x ~40 bytes = ~3.5 MB per partition: OK\n\n-- A week of data = 7 partition reads, issued concurrently by the app\nSELECT ts, value FROM shop.readings_by_day WHERE sensor_id = 's-17' AND day = '2026-10-17';\n\n-- $ nodetool tablehistograms shop readings_by_day\n--   Percentile  Partition Size  Cell Count ...\n--   99%         3.97 MiB        86400",
+   "code_lang": "sql",
+   "takeaways": [
+    "Keep partitions bounded (well under ~100 MB) and traffic evenly spread",
+    "Time buckets bound growth; hash buckets split hot keys",
+    "Estimate rows and bytes per partition before launch",
+    "Check nodetool tablehistograms and tablestats in production"
+   ],
+   "pitfalls": [
+    "Partitioning event data only by user or device id, creating partitions that grow forever."
+   ],
+   "quiz": [
+    {
+     "q": "A sensor writes 100 readings per second. Which partition key keeps partitions reasonably small?",
+     "options": [
+      "(sensor_id)",
+      "(sensor_id, year)",
+      "(ts)",
+      "(sensor_id, hour)"
+     ],
+     "answer": 3,
+     "explain": "At 360,000 rows per hour bucket the partition stays bounded; per-year or per-sensor would grow huge."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/developing/data-modeling/index.html",
+   "requires": [
+    "cassandra.query-first-modeling",
+    "cassandra.ttl-writetime"
+   ]
+  },
+  {
+   "id": "cassandra.storage-engine",
+   "name": "Storage engine: commit log, memtables, SSTables",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Follow writes through the commit log and memtable to immutable SSTables, and reads through bloom filters, indexes and compaction.",
+   "why": "Write throughput, read latency and disk usage all follow from Cassandra's log-structured storage engine.",
+   "body": "Cassandra uses a **log-structured merge** design.\n\n**Write path** on each replica: the mutation is appended to the **commit log** (for durability; `commitlog_sync` is `periodic` by default, fsyncing every 10 seconds) and applied to an in-memory **memtable** per table. Nothing is read or updated in place, which is why writes are fast. When a memtable fills, it is **flushed** to disk as an immutable **SSTable**, and the corresponding commit log segments can be recycled.\n\n**Read path**: a partition's data may be spread over the memtable and several SSTables, so the read merges them, picking the newest cell by timestamp and applying tombstones. To avoid touching every SSTable, each has a **bloom filter** (is this partition possibly here?), a partition index, and in-memory summaries; 5.0 adds the trie-based **BTI** SSTable format and trie memtables for lower memory use. Row and key caches are optional extras.\n\n**Compaction** merges SSTables in the background, keeping the newest version of each cell and purging tombstones older than `gc_grace_seconds`. The strategy is set per table:\n\n- `SizeTieredCompactionStrategy`: write-optimised, needs spare disk for merges,\n- `LeveledCompactionStrategy`: read-optimised, more I/O,\n- `TimeWindowCompactionStrategy`: for TTL'd time series,\n- `UnifiedCompactionStrategy` (5.0): configurable to behave like either tiered or leveled.\n\nThe number of SSTables a read touches (see `nodetool tablehistograms`) is a key health metric.",
+   "code": "-- per-table compaction choice\nALTER TABLE shop.readings_by_day\n  WITH compaction = {'class': 'TimeWindowCompactionStrategy',\n                     'compaction_window_unit': 'DAYS', 'compaction_window_size': 1};\n\nALTER TABLE shop.users\n  WITH compaction = {'class': 'UnifiedCompactionStrategy'};   -- 5.0\n\n-- $ nodetool flush shop users            # memtable -> new SSTable\n-- $ nodetool tablestats shop.users       # SSTable count, bloom filter false ratio\n-- $ nodetool tablehistograms shop users  # SSTables touched per read (percentiles)\n-- $ nodetool compactionstats             # running and pending compactions",
+   "code_lang": "sql",
+   "takeaways": [
+    "Writes: commit log + memtable, flushed to immutable SSTables",
+    "Reads merge memtable and SSTables, newest timestamp wins",
+    "Bloom filters and indexes skip SSTables that can't contain the partition",
+    "Compaction merges SSTables; strategy is chosen per table"
+   ],
+   "pitfalls": [
+    "Picking LeveledCompactionStrategy for a write-heavy time-series table and drowning in compaction I/O."
+   ],
+   "quiz": [
+    {
+     "q": "Why are Cassandra writes cheap compared with in-place update databases?",
+     "options": [
+      "They only append to the commit log and update an in-memory memtable, with no read before write",
+      "They skip durability",
+      "They are buffered on the client",
+      "They write to one replica only"
+     ],
+     "answer": 0,
+     "explain": "The log-structured design never reads or rewrites existing data on the write path."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/architecture/storage-engine.html",
+   "requires": [
+    "cassandra.update-delete",
+    "cassandra.ttl-writetime"
+   ]
+  },
+  {
+   "id": "cassandra.tombstones-repair",
+   "name": "Tombstones, gc_grace and repair",
+   "module": "internals",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Understand how tombstones affect reads, why repair must run within gc_grace_seconds, and how to avoid resurrected data.",
+   "why": "Tombstone-heavy reads and zombie data are classic Cassandra production failures, and both are preventable.",
+   "body": "Deletes, TTL expiry and null writes leave **tombstones**. They must be kept for a while: if a replica was down during a delete and a tombstone were purged before that replica learned about it, the old value on that replica would come back during the next sync. This is **zombie (resurrected) data**.\n\nSo tombstones are kept for `gc_grace_seconds` (default 864000, 10 days), and the rule is: **every replica must be repaired within gc_grace_seconds**. **Repair** (anti-entropy) compares replicas with Merkle trees and streams differences. Run it routinely, e.g. `nodetool repair -pr` on each node in turn or via an automated tool, and prefer incremental repair which only processes unrepaired data. Hints and read repair help but don't replace it.\n\nTombstones also hurt **reads**: a query scanning a range must read every tombstone in it to know what's deleted. Cassandra logs a warning after `tombstone_warn_threshold` (1000) tombstones in one query and aborts it at `tombstone_failure_threshold` (100,000).\n\nAvoiding tombstone trouble:\n\n- don't use a table as a queue (insert then delete rows and scan from the start),\n- don't write nulls; leave columns unset,\n- prefer replacing frozen collections over large collection overwrites (overwriting a non-frozen collection writes a range tombstone),\n- for time series, use TTL with TWCS and query only recent windows,\n- lower `gc_grace_seconds` only if repairs reliably run more often.",
+   "code": "-- anti-pattern: a queue table; readers scan past ever more tombstones\nCREATE TABLE shop.jobs (queue text, id timeuuid, payload text, PRIMARY KEY (queue, id));\nDELETE FROM shop.jobs WHERE queue = 'email' AND id = 50554d6e-29bb-11ef-9f3c-0242ac120002;\nSELECT * FROM shop.jobs WHERE queue = 'email' LIMIT 1;   -- reads every tombstone first\n-- WARN ... Read 1 live rows and 25000 tombstone cells for query ...\n\nALTER TABLE shop.jobs WITH gc_grace_seconds = 864000;   -- 10 days (the default)\n\n-- $ nodetool repair -pr shop          # primary ranges of this node, run on every node\n-- $ nodetool repair --full shop       # full rather than incremental\n-- $ nodetool tablestats shop.jobs     # \"Average tombstones per slice\"",
+   "code_lang": "sql",
+   "takeaways": [
+    "Tombstones live for gc_grace_seconds (10 days default)",
+    "Repair every replica within gc_grace or deleted data can come back",
+    "Reads must scan tombstones; queries warn at 1000 and fail at 100,000",
+    "Avoid queue-like tables, null writes and needless collection overwrites"
+   ],
+   "pitfalls": [
+    "Lowering gc_grace_seconds to shrink tombstones without making repairs run more often, resurrecting deleted data."
+   ],
+   "quiz": [
+    {
+     "q": "A node was down for two weeks, longer than gc_grace_seconds, while rows were deleted. What is the risk when it rejoins?",
+     "options": [
+      "None; hints cover any downtime",
+      "The node's data is automatically wiped",
+      "Deleted rows can reappear because the tombstones were already purged elsewhere",
+      "Writes to it fail forever"
+     ],
+     "answer": 2,
+     "explain": "Its stale copies have no tombstone left to shadow them; the node should be rebuilt or replaced instead."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/managing/operating/repair.html",
+   "requires": [
+    "cassandra.storage-engine",
+    "cassandra.consistency-levels"
+   ]
+  },
+  {
+   "id": "cassandra.ring-gossip",
+   "name": "Token ring, vnodes, gossip and snitches",
+   "module": "internals",
+   "level": 4,
+   "minutes": 13,
+   "summary": "Understand how nodes own token ranges via vnodes, discover each other through gossip, and place replicas with snitches.",
+   "why": "Scaling, replacing nodes and multi-DC topologies all depend on how the ring is laid out and how nodes coordinate.",
+   "body": "**Partitioner and tokens.** The `Murmur3Partitioner` hashes each partition key to a 64-bit token. Each node owns ranges of the token ring; a partition's first replica is the node owning its token, and further replicas are found by walking the ring.\n\n**Virtual nodes.** Rather than one big range, each node owns many small ranges (`num_tokens`, 16 by default since 4.0, with an allocation algorithm that keeps ownership balanced). Adding or removing a node then moves small slices from many peers, spreading streaming load.\n\n**Replica placement.** `NetworkTopologyStrategy` places replicas per data center and, using the **snitch**, on different racks where possible, so a rack failure doesn't take out all copies. `GossipingPropertyFileSnitch` (each node declares its dc and rack in `cassandra-rackdc.properties`) is the standard choice.\n\n**Gossip.** Every second, each node exchanges state (status, load, schema version, tokens) with a few peers, so cluster membership spreads epidemically without a master. The **phi accrual failure detector** turns gossip heartbeat timing into a suspicion level to mark nodes down.\n\n**Coordinators** route requests to replicas, store hints for down ones, and use dynamic snitch scores to prefer fast replicas for reads.\n\nOperations follow from this: `nodetool status` shows each node's state, load and ownership; bootstrapping a node streams its ranges; `nodetool decommission` streams them away; `nodetool cleanup` removes data a node no longer owns after others join.",
+   "code": "# $ nodetool status shop\n# Datacenter: dc1\n# Status=Up/Down  State=Normal/Leaving/Joining/Moving\n# --  Address   Load      Tokens  Owns (effective)  Host ID   Rack\n# UN  10.0.0.1  412 GiB   16      75.0%             8d5e...   r1\n# UN  10.0.0.2  398 GiB   16      75.0%             1f2a...   r2\n# UN  10.0.0.3  405 GiB   16      75.0%             c3b7...   r3\n# DN  10.0.0.4  401 GiB   16      75.0%             9e04...   r1\n\n# cassandra.yaml\n#   num_tokens: 16\n#   endpoint_snitch: GossipingPropertyFileSnitch\n# cassandra-rackdc.properties\n#   dc=dc1\n#   rack=r1\n\n# $ nodetool getendpoints shop users 5b6962dd-3f90-4c93-8f61-eabfa4a803e2\n# $ nodetool cleanup shop     # after adding nodes, drop ranges no longer owned",
+   "code_lang": "bash",
+   "takeaways": [
+    "Murmur3 tokens map partitions onto a ring of node-owned ranges",
+    "vnodes (num_tokens 16) spread ownership and streaming load",
+    "Snitch + NetworkTopologyStrategy place replicas across racks and DCs",
+    "Gossip and the phi accrual detector manage membership without a master"
+   ],
+   "pitfalls": [
+    "Forgetting nodetool cleanup after adding nodes, so old nodes keep data they no longer own."
+   ],
+   "quiz": [
+    {
+     "q": "How does a Cassandra node learn that another node joined or went down?",
+     "options": [
+      "From a central master node",
+      "Only after a restart",
+      "From ZooKeeper",
+      "Through gossip exchanged with peers every second"
+     ],
+     "answer": 3,
+     "explain": "Gossip spreads state peer to peer, and the failure detector marks unresponsive nodes down."
+    }
+   ],
+   "docs": "https://cassandra.apache.org/doc/latest/cassandra/architecture/dynamo.html",
+   "requires": [
+    "cassandra.consistency-levels",
+    "cassandra.cqlsh-keyspaces"
+   ]
+  }
+ ]
+}

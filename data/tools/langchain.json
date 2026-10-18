@@ -1,0 +1,729 @@
+{
+ "tool": {
+  "id": "langchain",
+  "name": "LangChain",
+  "category": "library",
+  "tagline": "Build LLM apps and agents: models, prompts, tools, retrieval and LangGraph",
+  "description": "LangChain is a Python framework for building applications on large language models. It gives a common interface to chat models from many providers, prompt templates, composable runnables (LCEL), tools and structured output, retrieval components for RAG, and agents built on LangGraph, its low-level library for stateful, durable agent workflows. It is one of the most widely used toolkits for LLM apps.",
+  "icon": "LC",
+  "color": "#1C3C3C",
+  "official_docs": "https://docs.langchain.com/oss/python/langchain/overview",
+  "version": "1.x (langchain-core 1.x, LangGraph 1.x)",
+  "aliases": [
+   "lang chain",
+   "lcel",
+   "langgraph",
+   "langchain-core"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 2
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "models",
+   "name": "Models and messages"
+  },
+  {
+   "id": "chains",
+   "name": "Prompts and LCEL"
+  },
+  {
+   "id": "tools",
+   "name": "Tools, structured output and agents"
+  },
+  {
+   "id": "rag",
+   "name": "Retrieval and RAG"
+  },
+  {
+   "id": "graph",
+   "name": "LangGraph"
+  },
+  {
+   "id": "production",
+   "name": "Production agents"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "langchain.ecosystem",
+   "name": "The LangChain ecosystem",
+   "module": "models",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Know the packages (langchain, langchain-core, provider packages, LangGraph, LangSmith) and how they fit together.",
+   "why": "LangChain is split into many packages; knowing which one does what avoids import errors and outdated tutorials.",
+   "body": "LangChain is a family of packages rather than one library:\n\n- **langchain-core**: the base abstractions (messages, chat model and embedding interfaces, prompts, runnables, tools, documents, vector store interface). Everything else depends on it.\n- **langchain**: the high-level entry point. In 1.x it is deliberately small: `init_chat_model`, `create_agent` with middleware, and re-exports of common core pieces.\n- **Provider packages** such as `langchain-openai`, `langchain-anthropic`, `langchain-google-genai`, `langchain-ollama`: concrete model and embedding classes. Install only the providers you use.\n- **langchain-text-splitters** and **langchain-community**: splitters, document loaders and many community integrations.\n- **LangGraph**: a lower-level library for stateful, multi-step agent workflows with persistence, streaming and human-in-the-loop. LangChain agents run on it.\n- **langchain-classic**: legacy chains and retrievers from 0.x (such as `RetrievalQA`) kept for migration.\n- **LangSmith**: a hosted platform for tracing, evaluation and deployment, configured with environment variables.\n\nA lot of material online targets 0.1 to 0.3 and uses APIs like `LLMChain`, `initialize_agent` or `AgentExecutor`, which are legacy now. In 1.x the building blocks are chat models, messages, LCEL runnables, tools and `create_agent`/LangGraph.\n\nAPI keys are read from environment variables (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`...). Keep them out of code.",
+   "code": "# pip install -U langchain langchain-openai langgraph\nimport importlib.metadata as md\n\nfor pkg in [\"langchain\", \"langchain-core\", \"langgraph\", \"langchain-openai\"]:\n    try:\n        print(f\"{pkg:18} {md.version(pkg)}\")\n    except md.PackageNotFoundError:\n        print(f\"{pkg:18} not installed\")\n# langchain          1.x\n# langchain-core     1.x\n# langgraph          1.x\n# langchain-openai   1.x\n\nfrom langchain_core.messages import HumanMessage    # core abstractions\nfrom langchain.chat_models import init_chat_model  # high-level helpers\nfrom langchain.agents import create_agent           # agents (built on LangGraph)",
+   "code_lang": "python",
+   "takeaways": [
+    "langchain-core holds abstractions; provider packages hold model integrations",
+    "LangGraph powers agents and stateful workflows",
+    "Pre-1.0 APIs like LLMChain and AgentExecutor are legacy (langchain-classic)"
+   ],
+   "pitfalls": [
+    "Following a 0.1-era tutorial that imports from langchain.llms or uses initialize_agent, which no longer exists in 1.x."
+   ],
+   "quiz": [
+    {
+     "q": "You need ChatAnthropic. Which package provides it?",
+     "options": [
+      "langchain-anthropic",
+      "langgraph",
+      "langchain-classic",
+      "langchain-core"
+     ],
+     "answer": 0,
+     "explain": "Concrete provider integrations live in their own packages such as langchain-anthropic."
+    }
+   ],
+   "docs": "https://docs.langchain.com/oss/python/langchain/overview",
+   "requires": []
+  },
+  {
+   "id": "langchain.chat-models",
+   "name": "Chat models",
+   "module": "models",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Create a chat model with init_chat_model or a provider class and call it with invoke, batch and stream.",
+   "why": "Every LangChain app starts with a model; the uniform interface lets you swap providers in one line.",
+   "body": "A **chat model** takes a list of messages and returns an `AIMessage`. Create one with the provider-agnostic helper:\n\n```python\nmodel = init_chat_model(\"openai:gpt-5-mini\", temperature=0)\n```\n\nThe string is `provider:model`; the matching provider package must be installed. Equivalent explicit classes exist, such as `ChatOpenAI(model=...)` or `ChatAnthropic(model=...)`. Common parameters: `temperature`, `max_tokens`, `timeout`, `max_retries`.\n\nAll chat models share the **Runnable** interface:\n\n- `model.invoke(\"Hello\")` or `model.invoke([messages])` returns an `AIMessage`.\n- `model.batch([...])` runs several inputs in parallel.\n- `model.stream(...)` yields `AIMessageChunk`s as tokens arrive.\n- `ainvoke`, `abatch`, `astream` are the async versions.\n\nThe returned `AIMessage` has:\n\n- `.content`: a string or a list of provider-specific content parts,\n- `.text`: the plain text,\n- `.content_blocks`: a standardized, provider-independent list of blocks (text, reasoning, tool calls, images),\n- `.tool_calls` when the model wants to call tools,\n- `.usage_metadata` with input and output token counts,\n- `.response_metadata` with the raw provider details.\n\nBecause the interface is uniform, comparing providers or adding a fallback is a configuration change, not a rewrite.",
+   "code": "from langchain.chat_models import init_chat_model\n\nmodel = init_chat_model(\"openai:gpt-5-mini\", temperature=0)   # needs OPENAI_API_KEY\n# model = init_chat_model(\"anthropic:claude-sonnet-4-5\")       # same interface\n\nreply = model.invoke(\"In one sentence, what is a vector database?\")\nprint(type(reply).__name__)       # AIMessage\nprint(reply.text)                 # A vector database stores embeddings ...\nprint(reply.usage_metadata)       # {'input_tokens': 17, 'output_tokens': 25, ...}\n\nanswers = model.batch([\"Capital of Japan?\", \"Capital of Kenya?\"])\nprint([a.text for a in answers])  # ['Tokyo.', 'Nairobi.'] (wording varies)\n\nfor chunk in model.stream(\"Count to five.\"):\n    print(chunk.text, end=\"\", flush=True)   # 1, 2, 3, 4, 5",
+   "code_lang": "python",
+   "takeaways": [
+    "`init_chat_model(\"provider:model\")` creates any supported chat model",
+    "invoke, batch and stream (plus async variants) work the same everywhere",
+    "Read `.text`, `.content_blocks`, `.tool_calls` and `.usage_metadata` from the AIMessage"
+   ],
+   "pitfalls": [
+    "Hard-coding a provider class everywhere, which makes switching or adding fallbacks a large refactor."
+   ],
+   "quiz": [
+    {
+     "q": "What does model.invoke('Hi') return for a chat model?",
+     "options": [
+      "A dict with 'text'",
+      "A generator of tokens",
+      "A plain string",
+      "An AIMessage object"
+     ],
+     "answer": 3,
+     "explain": "Chat models return AIMessage objects; use .text for the string."
+    }
+   ],
+   "docs": "https://docs.langchain.com/oss/python/langchain/models",
+   "requires": [
+    "langchain.ecosystem",
+    "python.functions"
+   ]
+  },
+  {
+   "id": "langchain.messages",
+   "name": "Messages and conversation history",
+   "module": "models",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Work with system, human, AI and tool messages, and pass conversation history to the model.",
+   "why": "Messages are the universal currency between your code, models, tools and agents.",
+   "body": "Chat models consume a list of **messages**, each with a role:\n\n- `SystemMessage`: instructions that set behaviour (\"You are a concise assistant\").\n- `HumanMessage`: user input.\n- `AIMessage`: model output, possibly containing `tool_calls`.\n- `ToolMessage`: the result of a tool call, linked to it by `tool_call_id`.\n\nYou can also use plain dicts (`{\"role\": \"user\", \"content\": \"...\"}`) or `(\"human\", \"...\")` tuples; LangChain converts them.\n\nModels are **stateless**: they only see the messages you send. To have a conversation you resend the history each time:\n\n```python\nhistory = [SystemMessage(\"Be brief.\"), HumanMessage(\"Hi, I'm Ana.\")]\nai = model.invoke(history)\nhistory += [ai, HumanMessage(\"What's my name?\")]\n```\n\nContent can be multimodal: a list of content blocks such as text plus an image URL or base64 data, if the model supports it.\n\nLong histories cost tokens and eventually exceed the context window. Utilities in `langchain_core.messages` help: `trim_messages` keeps the most recent messages within a token budget, `filter_messages` selects by type or name, and `count_tokens_approximately` estimates size. Agents and LangGraph manage history for you with checkpointers (later lessons), but the underlying representation is always this message list.",
+   "code": "from langchain_core.messages import (AIMessage, HumanMessage, SystemMessage,\n                                     trim_messages)\nfrom langchain_core.messages.utils import count_tokens_approximately\n\nhistory = [\n    SystemMessage(\"You are a helpful assistant. Be brief.\"),\n    HumanMessage(\"Hi, I'm Ana.\"),\n    AIMessage(\"Hello Ana! How can I help?\"),\n    HumanMessage(\"What's my name?\"),\n]\n# reply = model.invoke(history)  -> AIMessage(\"Your name is Ana.\")\n\nprint([m.type for m in history])     # ['system', 'human', 'ai', 'human']\n\nas_dicts = [{\"role\": \"user\", \"content\": \"Hello\"}]   # also accepted by models\n\nrecent = trim_messages(history, max_tokens=30, strategy=\"last\",\n                       token_counter=count_tokens_approximately,\n                       include_system=True, start_on=\"human\")\nprint([m.type for m in recent])      # ['system', 'human']  (oldest turns dropped)",
+   "code_lang": "python",
+   "takeaways": [
+    "System, human, AI and tool messages carry roles; dicts and tuples also work",
+    "Models are stateless; send the history you want them to see",
+    "Trim long histories with `trim_messages` to stay within the context window"
+   ],
+   "pitfalls": [
+    "Appending only the user's messages to history and forgetting the AI replies, which confuses the model about the conversation."
+   ],
+   "quiz": [
+    {
+     "q": "Why does a chat model forget the user's name in the next call?",
+     "options": [
+      "Temperature was too high",
+      "The API key expired",
+      "Models are stateless; the earlier messages were not sent again",
+      "SystemMessage overwrites memory"
+     ],
+     "answer": 2,
+     "explain": "Each call only sees the messages passed to it, so history must be resent or managed by a checkpointer."
+    }
+   ],
+   "docs": "https://docs.langchain.com/oss/python/langchain/messages",
+   "requires": [
+    "langchain.chat-models"
+   ]
+  },
+  {
+   "id": "langchain.prompt-templates",
+   "name": "Prompt templates",
+   "module": "chains",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Build reusable prompts with ChatPromptTemplate, variables and MessagesPlaceholder.",
+   "why": "Templates separate prompt wording from data and plug directly into chains.",
+   "body": "A **prompt template** turns a dict of variables into model input. `ChatPromptTemplate.from_messages` takes a list of `(role, template)` pairs whose `{placeholders}` are filled at run time:\n\n```python\nprompt = ChatPromptTemplate.from_messages([\n    (\"system\", \"You translate to {language}.\"),\n    (\"human\", \"{text}\"),\n])\nprompt.invoke({\"language\": \"French\", \"text\": \"Good morning\"})\n```\n\nThe result is a `ChatPromptValue`; `.to_messages()` shows the messages that will be sent.\n\nUseful features:\n\n- `MessagesPlaceholder(\"history\")` inserts a whole list of messages, e.g. chat history or agent scratchpad. Use `optional=True` if it may be absent.\n- `prompt.partial(language=\"French\")` pre-fills some variables, returning a new template.\n- `prompt.input_variables` lists what the template needs; missing variables raise a `KeyError` at invoke time.\n- Literal braces in the text must be doubled: `{{` and `}}`, which matters when prompts contain JSON examples. Alternatively use `template_format=\"jinja2\"` or `\"mustache\"`.\n\nTemplates are runnables, so they compose with models using `|` (next lesson). For simple single-message prompts, `ChatPromptTemplate.from_template(\"Summarize: {text}\")` creates a template with one human message.\n\nKeep prompts in code or a prompt registry under version control; small wording changes can shift quality significantly.",
+   "code": "from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder\n\nprompt = ChatPromptTemplate.from_messages([\n    (\"system\", 'You are a {role}. Answer in {language} as JSON: {{\"answer\": ...}}'),\n    MessagesPlaceholder(\"history\", optional=True),\n    (\"human\", \"{question}\"),\n])\nprint(sorted(prompt.input_variables))   # ['language', 'question', 'role']\n\nsupport = prompt.partial(role=\"support agent\", language=\"English\")\nvalue = support.invoke({\n    \"history\": [(\"human\", \"My order is late.\"), (\"ai\", \"Sorry! Order number?\")],\n    \"question\": \"It's order 1234.\",\n})\nfor m in value.to_messages():\n    print(m.type, \"|\", m.content)\n# system | You are a support agent. Answer in English as JSON: {\"answer\": ...}\n# human | My order is late.\n# ai | Sorry! Order number?\n# human | It's order 1234.",
+   "code_lang": "python",
+   "takeaways": [
+    "`ChatPromptTemplate.from_messages` fills `{variables}` into role messages",
+    "`MessagesPlaceholder` injects message lists such as history",
+    "`partial` pre-fills variables; double braces for literal `{}` in templates"
+   ],
+   "pitfalls": [
+    "Putting raw JSON with single braces into a template, which LangChain then treats as variables and fails."
+   ],
+   "quiz": [
+    {
+     "q": "A template contains 'Return JSON like {\"a\": 1}'. What happens on invoke?",
+     "options": [
+      "It works as written",
+      "LangChain tries to treat the braces as a template variable and errors",
+      "The JSON is removed",
+      "It is sent as a SystemMessage"
+     ],
+     "answer": 1,
+     "explain": "Single braces denote variables in f-string templates; literal braces must be doubled."
+    }
+   ],
+   "docs": "https://reference.langchain.com/python/langchain_core/prompts/",
+   "requires": [
+    "langchain.messages",
+    "python.strings"
+   ]
+  },
+  {
+   "id": "langchain.lcel-chains",
+   "name": "Chains with LCEL",
+   "module": "chains",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Compose prompt, model and output parser with the | operator into a runnable chain.",
+   "why": "LCEL is the standard way to build deterministic LLM pipelines with streaming and batching built in.",
+   "body": "The **LangChain Expression Language (LCEL)** composes runnables with `|`. Each step's output becomes the next step's input:\n\n```python\nchain = prompt | model | StrOutputParser()\nchain.invoke({\"topic\": \"tides\"})\n```\n\nThis creates a `RunnableSequence`, itself a runnable, so it gets the full interface for free: `invoke`, `batch`, `stream`, their async versions, and tracing in LangSmith.\n\n**Output parsers** turn the `AIMessage` into something convenient:\n\n- `StrOutputParser()` returns the text.\n- `JsonOutputParser()` parses JSON, including partial JSON while streaming.\n- For typed objects prefer `model.with_structured_output(...)` (a later lesson), which uses the provider's native structured output or tool calling.\n\nPlain Python functions in a chain are wrapped automatically: `chain = prompt | model | StrOutputParser() | (lambda s: s.upper())`.\n\nStreaming flows through a chain: if every step supports it, tokens stream from the model through the parser to your loop.\n\nLCEL is ideal for fixed pipelines (prompt, call, parse, post-process). When the flow needs loops, decisions or tool use, move to agents or LangGraph, which accept LCEL chains as nodes.",
+   "code": "from langchain_core.language_models.fake_chat_models import GenericFakeChatModel\nfrom langchain_core.output_parsers import StrOutputParser\nfrom langchain_core.prompts import ChatPromptTemplate\n\nprompt = ChatPromptTemplate.from_template(\"Write a haiku about {topic}.\")\n# model = init_chat_model(\"openai:gpt-5-mini\")   # real model\nmodel = GenericFakeChatModel(messages=iter([\n    \"Moon pulls the ocean\", \"Waves fold into sleeping sand\"]))\n\nchain = prompt | model | StrOutputParser() | (lambda s: s.upper())\nprint(type(chain).__name__)            # RunnableSequence\nprint(chain.invoke({\"topic\": \"tides\"}))  # MOON PULLS THE OCEAN\n\nparts = list((prompt | model | StrOutputParser()).stream({\"topic\": \"sand\"}))\nprint(len(parts) > 1, \"\".join(parts))  # True Waves fold into sleeping sand",
+   "code_lang": "python",
+   "takeaways": [
+    "`prompt | model | parser` builds a RunnableSequence",
+    "Chains get invoke, batch, stream and async methods for free",
+    "Plain functions in a chain are wrapped as runnables automatically"
+   ],
+   "pitfalls": [
+    "Calling .invoke on each step manually instead of composing, losing streaming and tracing for the whole pipeline."
+   ],
+   "quiz": [
+    {
+     "q": "What is the output type of prompt | model | StrOutputParser() when invoked?",
+     "options": [
+      "str",
+      "ChatPromptValue",
+      "dict",
+      "AIMessage"
+     ],
+     "answer": 0,
+     "explain": "StrOutputParser converts the model's AIMessage into its text string."
+    }
+   ],
+   "docs": "https://reference.langchain.com/python/langchain_core/runnables/",
+   "requires": [
+    "langchain.prompt-templates"
+   ]
+  },
+  {
+   "id": "langchain.structured-output",
+   "name": "Structured output",
+   "module": "tools",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Get validated Pydantic objects or typed dicts from a model with with_structured_output.",
+   "why": "Extraction, classification and routing need reliable fields, not free text you parse with regexes.",
+   "body": "`model.with_structured_output(schema)` returns a runnable that outputs data matching `schema` instead of an `AIMessage`. The schema can be:\n\n- a **Pydantic** model (you get a validated instance),\n- a `TypedDict` or JSON Schema dict (you get a dict).\n\nField descriptions and docstrings are sent to the model, so write them as instructions.\n\n```python\nclass Ticket(BaseModel):\n    category: Literal[\"billing\", \"bug\", \"other\"]\n    urgency: int = Field(description=\"1 (low) to 5 (critical)\")\n\nextractor = model.with_structured_output(Ticket)\nextractor.invoke(\"I was charged twice!!\")   # Ticket(category='billing', urgency=4)\n```\n\nUnder the hood LangChain uses the provider's native structured output (JSON schema mode) or tool calling, chosen per provider; `method=\"json_schema\"` or `\"function_calling\"` overrides it. `include_raw=True` returns the raw message and any parsing error alongside the parsed value, so you can handle failures without exceptions.\n\nIn agents, pass `response_format=Schema` to `create_agent`; the final structured answer appears in the result's `structured_response`.\n\nKeep schemas small and flat where possible, use `Literal` or enums for categories, and add descriptions for anything ambiguous. Validation errors usually mean the schema or instructions are unclear rather than that the model is incapable.",
+   "code": "from typing import Literal\nfrom pydantic import BaseModel, Field\nfrom langchain.chat_models import init_chat_model\n\nclass Ticket(BaseModel):\n    # Support ticket extracted from a customer message.\n    category: Literal[\"billing\", \"bug\", \"feature\", \"other\"]\n    urgency: int = Field(ge=1, le=5, description=\"1 = low, 5 = critical\")\n    summary: str = Field(description=\"One short sentence\")\n\nmodel = init_chat_model(\"openai:gpt-5-mini\", temperature=0)\nextractor = model.with_structured_output(Ticket)\n\nt = extractor.invoke(\"You charged my card twice this month, fix it now!\")\nprint(type(t).__name__, t.category, t.urgency)   # Ticket billing 4 (or 5)\n\nsafe = model.with_structured_output(Ticket, include_raw=True)\nout = safe.invoke(\"hello\")\nprint(out.keys())   # dict_keys(['raw', 'parsed', 'parsing_error'])",
+   "code_lang": "python",
+   "takeaways": [
+    "`with_structured_output(PydanticModel)` returns validated objects",
+    "Field descriptions guide the model; use Literal/enums for categories",
+    "`include_raw=True` exposes parsing errors; agents use `response_format`"
+   ],
+   "pitfalls": [
+    "Asking for JSON in the prompt and parsing it with json.loads, which breaks on markdown fences and missing fields."
+   ],
+   "quiz": [
+    {
+     "q": "What do you get from model.with_structured_output(MyPydanticModel).invoke(text)?",
+     "options": [
+      "An instance of MyPydanticModel",
+      "A JSON string",
+      "A list of tool calls",
+      "An AIMessage with JSON content"
+     ],
+     "answer": 0,
+     "explain": "The runnable parses and validates the model's output into the Pydantic class."
+    }
+   ],
+   "docs": "https://docs.langchain.com/oss/python/langchain/structured-output",
+   "requires": [
+    "langchain.chat-models",
+    "python.type-hints"
+   ]
+  },
+  {
+   "id": "langchain.tools",
+   "name": "Tools and tool calling",
+   "module": "tools",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Define tools with @tool, bind them to a model, and execute the tool calls the model requests.",
+   "why": "Tools let models act and fetch fresh data; they are the foundation of every agent.",
+   "body": "A **tool** is a function plus a schema the model can read. The `@tool` decorator builds it from the function's name, type hints and docstring:\n\n```python\n@tool\ndef get_weather(city: str) -> str:\n    \"\"\"Get the current weather for a city.\"\"\"\n```\n\nThe docstring becomes the description and the type hints become the argument schema, so write both for the model. `tool.name`, `tool.description` and `tool.args` show what the model will see. Tools are runnables: `get_weather.invoke({\"city\": \"Oslo\"})`.\n\n**Tool calling** works in steps:\n\n1. `model.bind_tools([get_weather])` sends tool schemas with each request.\n2. The model may respond with an `AIMessage` whose `tool_calls` list contains `{\"name\", \"args\", \"id\"}` entries instead of (or besides) text.\n3. Your code runs each tool and appends a `ToolMessage(content=result, tool_call_id=id)`. Invoking a tool with the whole tool call (`tool.invoke(call)`) returns a ready `ToolMessage`.\n4. Call the model again with the extended history so it can use the results.\n\n`tool_choice=\"any\"` or a tool name forces tool use. Models may request several tools at once (parallel tool calls).\n\nAgents automate this loop. Writing it once by hand shows exactly what they do. Tool errors should be returned as informative text rather than crashing, so the model can recover.",
+   "code": "from langchain.chat_models import init_chat_model\nfrom langchain_core.messages import HumanMessage\nfrom langchain_core.tools import tool\n\n@tool\ndef multiply(a: int, b: int) -> int:\n    \"\"\"Multiply two integers.\"\"\"\n    return a * b\n\nprint(multiply.name, multiply.args)\n# multiply {'a': {'title': 'A', 'type': 'integer'}, 'b': {'title': 'B', 'type': 'integer'}}\n\nmodel = init_chat_model(\"openai:gpt-5-mini\").bind_tools([multiply])\nmessages = [HumanMessage(\"What is 12.5% of 3 times 48? Use the tool for 3 x 48.\")]\nai = model.invoke(messages)\nmessages.append(ai)\nfor call in ai.tool_calls:            # e.g. {'name': 'multiply', 'args': {'a': 3, 'b': 48}, ...}\n    messages.append(multiply.invoke(call))   # returns a ToolMessage with tool_call_id\nfinal = model.invoke(messages)\nprint(final.text)                     # 3 x 48 = 144, and 12.5% of that is 18.",
+   "code_lang": "python",
+   "takeaways": [
+    "`@tool` builds a schema from the name, type hints and docstring",
+    "Bound models return `tool_calls`; you answer each with a ToolMessage",
+    "Invoking a tool with a tool call returns a ready ToolMessage"
+   ],
+   "pitfalls": [
+    "Writing vague docstrings like 'does stuff', so the model calls the wrong tool or passes wrong arguments."
+   ],
+   "quiz": [
+    {
+     "q": "After the model returns tool_calls, what must you send back before calling it again?",
+     "options": [
+      "Only the final answer",
+      "The tool's source code",
+      "A new SystemMessage",
+      "A ToolMessage per call with the matching tool_call_id"
+     ],
+     "answer": 3,
+     "explain": "Each tool call needs a ToolMessage result linked by tool_call_id so the model can continue."
+    }
+   ],
+   "docs": "https://docs.langchain.com/oss/python/langchain/tools",
+   "requires": [
+    "langchain.messages",
+    "python.type-hints"
+   ]
+  },
+  {
+   "id": "langchain.runnables",
+   "name": "Runnable composition",
+   "module": "chains",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Use RunnableParallel, RunnablePassthrough, RunnableLambda, config, retries and fallbacks to build richer chains.",
+   "why": "Real pipelines fan out, pass data through, call custom code and must survive flaky APIs.",
+   "body": "Beyond linear `|` chains, `langchain_core.runnables` offers building blocks:\n\n- **RunnableParallel**, or simply a dict inside a chain, runs branches concurrently on the same input and returns a dict: `{\"context\": retriever, \"question\": RunnablePassthrough()}`.\n- **RunnablePassthrough** forwards its input unchanged; `RunnablePassthrough.assign(key=runnable)` adds keys to an input dict while keeping the rest.\n- **RunnableLambda(fn)** wraps a function explicitly (needed when it is the first step, or to add a name).\n- `itemgetter(\"question\")` from `operator` is a handy way to pick a field.\n\nEvery runnable also offers wrappers:\n\n- `.with_retry(stop_after_attempt=3)` retries on exceptions with exponential backoff.\n- `.with_fallbacks([backup_chain])` tries alternatives, e.g. another provider, when the primary fails.\n- `.with_config(run_name=..., tags=[...])` names steps for tracing.\n- `.batch(inputs, config={\"max_concurrency\": 5})` limits parallelism to respect rate limits.\n\nThe **config** dict travels through the whole chain: callbacks, tags, metadata and `configurable` values reach every step. Use `.configurable_fields` or `init_chat_model(configurable_fields=...)` to choose the model per call.\n\nInspect any chain with `chain.get_graph().print_ascii()`; it shows exactly which steps run in parallel and in sequence.",
+   "code": "from operator import itemgetter\nfrom langchain_core.runnables import RunnableLambda, RunnableParallel, RunnablePassthrough\n\ndef flaky(x):                                  # fails on purpose\n    raise TimeoutError(\"primary down\")\n\nstats = RunnableParallel(\n    length=RunnableLambda(lambda d: len(d[\"text\"])),\n    words=RunnableLambda(lambda d: len(d[\"text\"].split())),\n)\nchain = (\n    RunnablePassthrough.assign(stats=stats)     # keep input, add a key\n    | RunnablePassthrough.assign(shout=itemgetter(\"text\") | RunnableLambda(str.upper))\n)\nprint(chain.invoke({\"text\": \"hello lcel world\"}))\n# {'text': 'hello lcel world', 'stats': {'length': 16, 'words': 3}, 'shout': 'HELLO LCEL WORLD'}\n\nrobust = RunnableLambda(flaky).with_fallbacks([RunnableLambda(lambda x: f\"backup: {x}\")])\nprint(robust.invoke(\"q\"))                      # backup: q\n\ndouble = RunnableLambda(lambda x: x * 2)\nprint(double.batch([1, 2, 3], config={\"max_concurrency\": 2}))   # [2, 4, 6]",
+   "code_lang": "python",
+   "takeaways": [
+    "Dicts and RunnableParallel fan out; `RunnablePassthrough.assign` adds keys",
+    "`with_retry` and `with_fallbacks` add resilience to any step",
+    "Config (callbacks, tags, max_concurrency) flows through the whole chain"
+   ],
+   "pitfalls": [
+    "Wrapping an entire chain in a single huge lambda, which hides steps from tracing and loses streaming."
+   ],
+   "quiz": [
+    {
+     "q": "What does RunnablePassthrough.assign(n=f) return when invoked with {'q': 'hi'}?",
+     "options": [
+      "f('hi')",
+      "Only {'n': f({'q': 'hi'})}",
+      "{'q': 'hi', 'n': f({'q': 'hi'})}",
+      "{'q': 'hi'}"
+     ],
+     "answer": 2,
+     "explain": "assign keeps the original keys and adds the computed ones."
+    }
+   ],
+   "docs": "https://reference.langchain.com/python/langchain_core/runnables/",
+   "requires": [
+    "langchain.lcel-chains",
+    "python.first-class-functions"
+   ]
+  },
+  {
+   "id": "langchain.streaming-async",
+   "name": "Streaming and async",
+   "module": "chains",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Stream tokens and intermediate events to users, and run chains concurrently with async methods.",
+   "why": "Users expect responses to appear token by token, and servers need async to handle many requests.",
+   "body": "LLM calls are slow, so perceived latency matters. Every runnable streams:\n\n- `chain.stream(input)` yields output chunks; for a chain ending in `StrOutputParser` they are text fragments.\n- `chain.astream(input)` is the async generator for async servers (FastAPI, etc.).\n- `chain.astream_events(input, version=\"v2\")` yields structured events for every step (`on_chat_model_stream`, `on_tool_start`, `on_retriever_end`...), so a UI can show retrieval progress or tool use, not just final tokens.\n\nStreaming only works end to end if every step can stream. Parsers like `StrOutputParser` and `JsonOutputParser` stream; a plain function in the middle that needs its whole input blocks until it arrives. Use a generator function (taking and yielding chunks) to keep streaming through custom steps.\n\n**Async** methods (`ainvoke`, `abatch`, `astream`) let one process handle many concurrent requests without threads. Combine with `asyncio.gather` to run independent calls in parallel. Don't call blocking `invoke` inside async code; it stalls the event loop.\n\nFor agents and LangGraph graphs, `stream(..., stream_mode=\"updates\")` yields each step's state update, `\"messages\"` yields LLM tokens with metadata, and `\"values\"` yields the full state after each step. Multiple modes can be combined in one stream.",
+   "code": "import asyncio\nfrom langchain_core.language_models.fake_chat_models import GenericFakeChatModel\nfrom langchain_core.output_parsers import StrOutputParser\nfrom langchain_core.prompts import ChatPromptTemplate\n\nprompt = ChatPromptTemplate.from_template(\"Tell me about {x}\")\ndef make_chain(text):           # fake model: replace with init_chat_model(...)\n    return prompt | GenericFakeChatModel(messages=iter([text])) | StrOutputParser()\n\nfor chunk in make_chain(\"Streaming feels fast\").stream({\"x\": \"streams\"}):\n    print(repr(chunk), end=\" \")  # 'Streaming' ' ' 'feels' ' ' 'fast'\nprint()\n\nasync def main():\n    chains = [make_chain(\"Answer one\"), make_chain(\"Answer two\")]\n    results = await asyncio.gather(*(c.ainvoke({\"x\": i}) for i, c in enumerate(chains)))\n    print(results)                                    # ['Answer one', 'Answer two']\n    kinds = {e[\"event\"] async for e in make_chain(\"hi there\").astream_events({\"x\": 1}, version=\"v2\")}\n    print(\"on_chat_model_stream\" in kinds)            # True\n\nasyncio.run(main())",
+   "code_lang": "python",
+   "takeaways": [
+    "`stream`/`astream` yield chunks; `astream_events` exposes every step's events",
+    "Every step must support streaming for tokens to flow end to end",
+    "Use async methods with asyncio.gather for concurrency in servers"
+   ],
+   "pitfalls": [
+    "Calling the synchronous invoke inside an async web handler, which blocks the event loop for every other request."
+   ],
+   "quiz": [
+    {
+     "q": "Your chain is prompt | model | my_function | StrOutputParser(), and streaming outputs arrive all at once. Why?",
+     "options": [
+      "The model does not support streaming",
+      "my_function needs its whole input, so it blocks streaming",
+      "StrOutputParser cannot stream",
+      "stream() only works asynchronously"
+     ],
+     "answer": 1,
+     "explain": "A regular function waits for the full upstream output; use a generator function to keep streaming."
+    }
+   ],
+   "docs": "https://docs.langchain.com/oss/python/langchain/streaming",
+   "requires": [
+    "langchain.lcel-chains",
+    "python.iterators-generators"
+   ]
+  },
+  {
+   "id": "langchain.agents",
+   "name": "Agents with create_agent",
+   "module": "tools",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Build a tool-using agent with create_agent, run it on messages, and understand its model-tool loop.",
+   "why": "Agents let the model decide which tools to call and when, which most assistant-style apps need.",
+   "body": "An **agent** runs a loop: call the model; if it requested tools, run them and feed back the results; repeat until the model answers without tool calls. `create_agent` builds this loop on LangGraph:\n\n```python\nagent = create_agent(model=\"openai:gpt-5-mini\", tools=[search, get_weather],\n                     system_prompt=\"You are a helpful travel assistant.\")\nresult = agent.invoke({\"messages\": [{\"role\": \"user\", \"content\": \"Weather in Rome?\"}]})\nresult[\"messages\"][-1].text\n```\n\nKey points:\n\n- Input and output are **state dicts** with a `messages` list. The result contains the whole transcript: the user message, AI tool requests, ToolMessages and the final AIMessage.\n- `model` can be a string or a configured chat model instance.\n- `response_format=Schema` makes the agent finish with a structured answer in `result[\"structured_response\"]`.\n- `checkpointer=` adds memory across calls (a later lesson); `middleware=[...]` customizes behaviour.\n- `agent.stream(..., stream_mode=\"updates\")` shows each step as it happens.\n\nThe agent is a compiled LangGraph graph, so everything LangGraph offers (streaming modes, persistence, interrupts, visualization) applies.\n\nGood agents depend mostly on **tool design**: few, well-named tools with clear docstrings, compact outputs and helpful error messages. Cap runaway loops with a recursion limit (`config={\"recursion_limit\": 25}`) or `ModelCallLimitMiddleware`.\n\nThis replaces the older `AgentExecutor` and LangGraph's `create_react_agent`.",
+   "code": "from langchain.agents import create_agent\nfrom langchain_core.tools import tool\n\n@tool\ndef get_weather(city: str) -> str:\n    \"\"\"Get the current weather for a city.\"\"\"\n    return {\"rome\": \"sunny, 24 C\", \"oslo\": \"rain, 9 C\"}.get(city.lower(), \"unknown\")\n\nagent = create_agent(\n    model=\"openai:gpt-5-mini\",\n    tools=[get_weather],\n    system_prompt=\"You are a concise travel assistant.\",\n)\nresult = agent.invoke(\n    {\"messages\": [{\"role\": \"user\", \"content\": \"Should I pack an umbrella for Oslo?\"}]})\n\nfor m in result[\"messages\"]:\n    print(m.type, \"|\", m.text or m.tool_calls)\n# human | Should I pack an umbrella for Oslo?\n# ai | [{'name': 'get_weather', 'args': {'city': 'Oslo'}, ...}]\n# tool | rain, 9 C\n# ai | Yes, it's raining in Oslo (9 C), so pack an umbrella.",
+   "code_lang": "python",
+   "takeaways": [
+    "`create_agent(model, tools, system_prompt)` builds a model-tool loop on LangGraph",
+    "Invoke with `{\"messages\": [...]}`; the result holds the full transcript",
+    "Tool design and loop limits matter more than prompt tricks"
+   ],
+   "pitfalls": [
+    "Giving an agent dozens of overlapping tools, which makes tool selection unreliable and slow."
+   ],
+   "quiz": [
+    {
+     "q": "When does a create_agent loop stop by default?",
+     "options": [
+      "When the model responds without requesting any tool calls (or a limit is hit)",
+      "After every tool has been called once",
+      "After 3 iterations",
+      "After exactly one tool call"
+     ],
+     "answer": 0,
+     "explain": "The loop continues while the model asks for tools and ends on a plain answer or a recursion/call limit."
+    }
+   ],
+   "docs": "https://docs.langchain.com/oss/python/langchain/agents",
+   "requires": [
+    "langchain.tools"
+   ]
+  },
+  {
+   "id": "langchain.documents-splitting",
+   "name": "Documents, loaders and splitters",
+   "module": "rag",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Load source data into Document objects and split it into chunks sized for embedding and retrieval.",
+   "why": "Retrieval quality depends heavily on how documents are loaded and chunked.",
+   "body": "A **Document** (`langchain_core.documents.Document`) has `page_content` (text) and `metadata` (a dict such as source, page, URL, date). Metadata travels with every chunk and is how you cite sources or filter results later.\n\n**Document loaders** create Documents from files and services: `PyPDFLoader`, `CSVLoader`, `WebBaseLoader`, `DirectoryLoader` and hundreds more in `langchain-community` and partner packages. They expose `.load()` and the lazy `.lazy_load()` for large sources. You can also build Documents yourself from any data.\n\nLong documents must be **split** into chunks, because embeddings represent short passages best and prompts have limits. `RecursiveCharacterTextSplitter` from `langchain-text-splitters` is the default choice: it tries to split on paragraphs, then lines, then sentences and words, keeping chunks under `chunk_size` characters with `chunk_overlap` shared between neighbours so context is not cut mid-thought.\n\nChoosing parameters:\n\n- Start around 500 to 1,000 characters with 10 to 20% overlap, then evaluate retrieval.\n- Use `from_tiktoken_encoder` or a tokenizer-based length function to size by tokens.\n- Use structure-aware splitters for Markdown headers, HTML or code (`RecursiveCharacterTextSplitter.from_language`).\n- `add_start_index=True` records each chunk's position in the original text.\n\nSplit documents with `split_documents(docs)` so metadata is copied onto each chunk.",
+   "code": "from langchain_core.documents import Document\nfrom langchain_text_splitters import RecursiveCharacterTextSplitter\n\ntext = (\"LangChain splits text recursively.\\n\\n\"\n        \"First it tries paragraphs, then lines, then sentences. \"\n        \"Overlap keeps context between neighbouring chunks.\\n\\n\"\n        \"Metadata such as the source file is copied to every chunk.\")\ndocs = [Document(page_content=text, metadata={\"source\": \"guide.md\"})]\n\nsplitter = RecursiveCharacterTextSplitter(chunk_size=80, chunk_overlap=20,\n                                          add_start_index=True)\nchunks = splitter.split_documents(docs)\n\nfor c in chunks:\n    print(len(c.page_content), c.metadata)\n# 34 {'source': 'guide.md', 'start_index': 0}\n# 76 {'source': 'guide.md', 'start_index': 36}\n# ... every chunk keeps the source plus its own start_index\nprint(all(len(c.page_content) <= 80 for c in chunks))   # True",
+   "code_lang": "python",
+   "takeaways": [
+    "Documents = page_content + metadata; keep metadata for citations and filters",
+    "RecursiveCharacterTextSplitter splits on natural boundaries with overlap",
+    "Tune chunk size and overlap by measuring retrieval, not by guesswork"
+   ],
+   "pitfalls": [
+    "Splitting raw strings and losing the source metadata, so answers cannot cite where information came from."
+   ],
+   "quiz": [
+    {
+     "q": "Why use chunk_overlap when splitting?",
+     "options": [
+      "To deduplicate documents",
+      "To speed up embedding",
+      "To make chunks larger than chunk_size",
+      "So information that spans a boundary appears intact in at least one chunk"
+     ],
+     "answer": 3,
+     "explain": "Overlap repeats a little context across neighbouring chunks so ideas cut at a boundary are not lost."
+    }
+   ],
+   "docs": "https://docs.langchain.com/oss/python/langchain/knowledge-base",
+   "requires": [
+    "langchain.ecosystem"
+   ]
+  },
+  {
+   "id": "langchain.vector-stores",
+   "name": "Embeddings, vector stores and retrievers",
+   "module": "rag",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Embed chunks, store them in a vector store, and query them by similarity through the retriever interface.",
+   "why": "Semantic search over your own data is the core of retrieval-augmented generation.",
+   "body": "An **embedding model** maps text to a vector so that similar meanings are close together. LangChain's `Embeddings` interface has `embed_documents(texts)` and `embed_query(text)`; providers include `OpenAIEmbeddings`, `GoogleGenerativeAIEmbeddings`, `OllamaEmbeddings` and Hugging Face models.\n\nA **vector store** stores vectors with their documents and finds nearest neighbours:\n\n- `InMemoryVectorStore(embeddings)` for prototypes and tests.\n- Chroma, FAISS, pgvector (Postgres), Qdrant, Pinecone, Elasticsearch, and others for real workloads.\n\nCommon methods: `add_documents(docs)` (returns IDs), `similarity_search(query, k=4)`, `similarity_search_with_score`, `delete(ids)`, and metadata filters (syntax depends on the store).\n\n`vector_store.as_retriever(search_kwargs={\"k\": 4})` returns a **retriever**, a runnable that maps a query string to a list of Documents, so it plugs into chains and tools. `search_type=\"mmr\"` (maximal marginal relevance) trades a little relevance for diversity, avoiding near-duplicate chunks.\n\nPractical advice:\n\n- Use the same embedding model for indexing and querying; changing it requires re-indexing.\n- Store stable IDs (e.g. source plus chunk number) so re-ingesting updates rather than duplicates.\n- Combine vector search with keyword search (hybrid) when exact terms like product codes matter.",
+   "code": "from langchain_core.documents import Document\nfrom langchain_core.embeddings import DeterministicFakeEmbedding\nfrom langchain_core.vectorstores import InMemoryVectorStore\n\n# real: from langchain_openai import OpenAIEmbeddings; emb = OpenAIEmbeddings(model=\"text-embedding-3-small\")\nemb = DeterministicFakeEmbedding(size=64)     # offline stand-in (hash-based, not semantic)\n\nstore = InMemoryVectorStore(emb)\nids = store.add_documents([\n    Document(\"Refunds are processed within 5 days.\", metadata={\"topic\": \"billing\"}),\n    Document(\"Reset your password from the login page.\", metadata={\"topic\": \"account\"}),\n    Document(\"Invoices can be downloaded as PDF.\", metadata={\"topic\": \"billing\"}),\n], ids=[\"faq-1\", \"faq-2\", \"faq-3\"])\nprint(ids)                                    # ['faq-1', 'faq-2', 'faq-3']\n\nhits = store.similarity_search(\"Refunds are processed within 5 days.\", k=1)\nprint(hits[0].metadata)                       # {'topic': 'billing'}\n\nretriever = store.as_retriever(search_kwargs={\"k\": 2})\ndocs = retriever.invoke(\"How do I get my money back?\")\nprint(len(docs), type(docs[0]).__name__)      # 2 Document",
+   "code_lang": "python",
+   "takeaways": [
+    "Embeddings turn text into vectors; vector stores search them by similarity",
+    "`as_retriever()` exposes a store as a runnable returning Documents",
+    "Index and query with the same embedding model; use stable IDs"
+   ],
+   "pitfalls": [
+    "Switching embedding models without re-indexing, so query vectors no longer match stored vectors."
+   ],
+   "quiz": [
+    {
+     "q": "What does a retriever's invoke('question') return?",
+     "options": [
+      "The query's embedding vector",
+      "An AIMessage",
+      "A generated answer string",
+      "A list of Document objects relevant to the query"
+     ],
+     "answer": 3,
+     "explain": "Retrievers only fetch documents; generating an answer is a separate step."
+    }
+   ],
+   "docs": "https://docs.langchain.com/oss/python/langchain/knowledge-base",
+   "requires": [
+    "langchain.documents-splitting"
+   ]
+  },
+  {
+   "id": "langchain.rag",
+   "name": "Retrieval-augmented generation",
+   "module": "rag",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Answer questions from your own documents with a retrieval chain or a retrieval tool for an agent.",
+   "why": "RAG grounds answers in current, private data and reduces hallucinations without fine-tuning.",
+   "body": "**RAG** has two phases. Indexing (offline): load, split, embed and store documents. Answering (per query): retrieve relevant chunks and put them into the prompt so the model answers from them.\n\nTwo common designs:\n\n**1. A RAG chain** (always retrieve once). With LCEL:\n\n```python\nchain = ({\"context\": retriever | format_docs, \"question\": RunnablePassthrough()}\n         | prompt | model | StrOutputParser())\n```\n\nSimple, predictable, one model call; good for FAQ-style questions.\n\n**2. Agentic RAG**: wrap the retriever as a tool and give it to `create_agent`. The model decides whether to search, can rephrase queries, and can search several times for multi-part questions. More flexible, more calls.\n\nPrompting matters: instruct the model to use only the provided context, say when the answer is not there, and cite sources from metadata. Format documents with their source so citations are possible.\n\nImproving quality usually comes from retrieval, not the prompt:\n\n- Tune chunking, `k`, and use MMR or hybrid search.\n- Add query rewriting or multi-query retrieval for vague questions.\n- Rerank retrieved chunks with a cross-encoder or reranking API.\n- Filter by metadata (date, product, permissions).\n\nEvaluate with a set of questions and expected answers or sources, and trace runs to see which chunks were retrieved when an answer is wrong.",
+   "code": "from langchain_core.documents import Document\nfrom langchain_core.embeddings import DeterministicFakeEmbedding\nfrom langchain_core.language_models.fake_chat_models import GenericFakeChatModel\nfrom langchain_core.output_parsers import StrOutputParser\nfrom langchain_core.prompts import ChatPromptTemplate\nfrom langchain_core.runnables import RunnablePassthrough\nfrom langchain_core.vectorstores import InMemoryVectorStore\n\nstore = InMemoryVectorStore(DeterministicFakeEmbedding(size=64))  # use real embeddings\nstore.add_documents([Document(\"Refunds take 5 business days.\", metadata={\"source\": \"faq.md\"})])\nretriever = store.as_retriever(search_kwargs={\"k\": 1})\n\ndef format_docs(docs):\n    return \"\\n\".join(f\"[{d.metadata['source']}] {d.page_content}\" for d in docs)\n\nprompt = ChatPromptTemplate.from_messages([\n    (\"system\", \"Answer only from the context and cite the source.\\n\\n{context}\"),\n    (\"human\", \"{question}\"),\n])\nmodel = GenericFakeChatModel(messages=iter([\"Refunds take 5 business days [faq.md].\"]))\n\nrag = ({\"context\": retriever | format_docs, \"question\": RunnablePassthrough()}\n       | prompt | model | StrOutputParser())\nprint(rag.invoke(\"How long do refunds take?\"))   # Refunds take 5 business days [faq.md].\n# Agentic RAG: wrap retriever in a @tool and pass it to create_agent(...)",
+   "code_lang": "python",
+   "takeaways": [
+    "Index once (load, split, embed, store); retrieve and generate per query",
+    "A RAG chain retrieves once; agentic RAG lets the model decide when and what to search",
+    "Most quality gains come from retrieval: chunking, k, hybrid search, reranking"
+   ],
+   "pitfalls": [
+    "Debugging bad RAG answers by tweaking the prompt without checking which chunks were actually retrieved."
+   ],
+   "quiz": [
+    {
+     "q": "When is agentic RAG preferable to a fixed retrieve-then-answer chain?",
+     "options": [
+      "When there is no vector store",
+      "For every FAQ bot",
+      "When questions may need several searches, query rewriting, or no search at all",
+      "When latency must be minimal"
+     ],
+     "answer": 2,
+     "explain": "An agent can choose to search multiple times or skip retrieval, at the cost of more model calls."
+    }
+   ],
+   "docs": "https://docs.langchain.com/oss/python/langgraph/agentic-rag",
+   "requires": [
+    "langchain.vector-stores",
+    "langchain.runnables"
+   ]
+  },
+  {
+   "id": "langchain.langgraph-basics",
+   "name": "LangGraph: state, nodes and edges",
+   "module": "graph",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Build explicit workflows as graphs with typed state, node functions, normal and conditional edges.",
+   "why": "When you need control over every step, branches and loops, LangGraph is the tool LangChain agents themselves use.",
+   "body": "**LangGraph** models an application as a graph over shared **state**:\n\n- **State** is a `TypedDict` (or Pydantic model/dataclass). Each key can have a **reducer** that says how updates merge: by default a new value overwrites; `Annotated[list, operator.add]` appends; `Annotated[list, add_messages]` appends and updates messages by ID. `MessagesState` is a ready-made state with a `messages` key.\n- **Nodes** are functions `node(state) -> dict` returning only the keys they update.\n- **Edges** connect nodes: `add_edge(START, \"a\")`, `add_edge(\"a\", \"b\")`, `add_edge(\"b\", END)`.\n- **Conditional edges** route dynamically: `add_conditional_edges(\"check\", route_fn)` where `route_fn(state)` returns the next node's name (or `END`).\n\n```python\nbuilder = StateGraph(State)\nbuilder.add_node(\"classify\", classify)\n...\ngraph = builder.compile()\ngraph.invoke({\"text\": \"...\"})\n```\n\nThe compiled graph is a runnable: `invoke`, `stream` (with modes `values`, `updates`, `messages`, `custom`), async variants, and `graph.get_graph().draw_mermaid()` for a diagram.\n\nLoops are just edges back to earlier nodes, guarded by a condition; `recursion_limit` in config stops runaway loops.\n\nUse LangGraph directly when the flow is known (classify, then branch, then validate), mixing deterministic code with LLM calls. Use `create_agent` when the model should decide the flow. They combine: an agent can be a node, and a graph can be a tool.",
+   "code": "import operator\nfrom typing import Annotated, TypedDict\nfrom langgraph.graph import END, START, StateGraph\n\nclass State(TypedDict):\n    text: str\n    category: str\n    log: Annotated[list[str], operator.add]     # reducer: append updates\ndef classify(state: State):\n    cat = \"refund\" if \"refund\" in state[\"text\"].lower() else \"general\"\n    return {\"category\": cat, \"log\": [f\"classified as {cat}\"]}\ndef route(state: State) -> str:\n    return \"refund_flow\" if state[\"category\"] == \"refund\" else \"general_flow\"\n\nbuilder = StateGraph(State)\nbuilder.add_node(\"classify\", classify)\nbuilder.add_node(\"refund_flow\", lambda s: {\"log\": [\"opened refund ticket\"]})\nbuilder.add_node(\"general_flow\", lambda s: {\"log\": [\"sent FAQ link\"]})\nbuilder.add_edge(START, \"classify\")\nbuilder.add_conditional_edges(\"classify\", route, [\"refund_flow\", \"general_flow\"])\nbuilder.add_edge(\"refund_flow\", END)\nbuilder.add_edge(\"general_flow\", END)\ngraph = builder.compile()\nprint(graph.invoke({\"text\": \"I want a refund\", \"log\": []})[\"log\"])\n# ['classified as refund', 'opened refund ticket']",
+   "code_lang": "python",
+   "takeaways": [
+    "State is a TypedDict; reducers decide how node updates merge",
+    "Nodes return partial updates; edges and conditional edges define the flow",
+    "Use explicit graphs for known flows, agents when the model should decide"
+   ],
+   "pitfalls": [
+    "Returning the whole state from a node while a key has an append reducer, which duplicates list entries."
+   ],
+   "quiz": [
+    {
+     "q": "A state key is declared as Annotated[list, operator.add]. Two nodes return {'log': ['a']} and {'log': ['b']}. What is log afterwards (starting from [])?",
+     "options": [
+      "['b']",
+      "['a', 'b']",
+      "['a']",
+      "[['a'], ['b']]"
+     ],
+     "answer": 1,
+     "explain": "The operator.add reducer concatenates each update onto the existing list."
+    }
+   ],
+   "docs": "https://docs.langchain.com/oss/python/langgraph/graph-api",
+   "requires": [
+    "langchain.agents",
+    "langchain.runnables"
+   ]
+  },
+  {
+   "id": "langchain.memory-persistence",
+   "name": "Memory and persistence",
+   "module": "graph",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Give agents and graphs conversation memory with checkpointers and thread IDs, and long-term memory with stores.",
+   "why": "Multi-turn assistants, resumable workflows and human review all depend on persisted state.",
+   "body": "A **checkpointer** saves the graph's state after every step. Pass one when compiling a graph or to `create_agent(..., checkpointer=...)`, then call with a **thread ID**:\n\n```python\nconfig = {\"configurable\": {\"thread_id\": \"user-42\"}}\nagent.invoke({\"messages\": [{\"role\": \"user\", \"content\": \"I'm Ana\"}]}, config)\nagent.invoke({\"messages\": [{\"role\": \"user\", \"content\": \"My name?\"}]}, config)\n```\n\nThe second call loads the thread's saved state, so the agent sees the earlier messages: this is **short-term memory**. Different thread IDs are independent conversations.\n\nCheckpointers:\n\n- `InMemorySaver` for development and tests.\n- `SqliteSaver`, `PostgresSaver` (packages `langgraph-checkpoint-sqlite`, `langgraph-checkpoint-postgres`) and others for production; call `.setup()` once to create tables.\n\nCheckpoints also enable `graph.get_state(config)` to inspect the latest state, `get_state_history` for **time travel** (replaying or forking from an earlier step), fault tolerance (resume after a crash), and interrupts (next lessons).\n\nLong histories grow without bound; trim or summarize messages (e.g. `SummarizationMiddleware` in agents).\n\n**Long-term memory** that spans threads (user preferences, facts) uses a **store** (`InMemoryStore`, `PostgresStore`) passed as `store=`; tools and nodes read and write namespaced items, optionally with semantic search.",
+   "code": "from langchain_core.language_models.fake_chat_models import GenericFakeChatModel\nfrom langgraph.checkpoint.memory import InMemorySaver\nfrom langgraph.graph import START, MessagesState, StateGraph\n\nmodel = GenericFakeChatModel(messages=iter([\"Nice to meet you, Ana!\", \"Your name is Ana.\"]))\n\ndef chatbot(state: MessagesState):\n    return {\"messages\": [model.invoke(state[\"messages\"])]}\n\nbuilder = StateGraph(MessagesState)\nbuilder.add_node(\"chatbot\", chatbot)\nbuilder.add_edge(START, \"chatbot\")\ngraph = builder.compile(checkpointer=InMemorySaver())\n\ncfg = {\"configurable\": {\"thread_id\": \"user-42\"}}\ngraph.invoke({\"messages\": [(\"user\", \"Hi, I'm Ana\")]}, cfg)\nout = graph.invoke({\"messages\": [(\"user\", \"What's my name?\")]}, cfg)\nprint(len(out[\"messages\"]))           # 4: history was restored from the checkpoint\n\nother = graph.get_state({\"configurable\": {\"thread_id\": \"user-99\"}})\nprint(other.values)                   # {}: a new thread starts empty\n# create_agent(model, tools, checkpointer=InMemorySaver()) works the same way",
+   "code_lang": "python",
+   "takeaways": [
+    "Checkpointers save state per step; the thread_id selects the conversation",
+    "Use InMemorySaver in dev, SQLite/Postgres savers in production",
+    "Stores provide long-term memory across threads"
+   ],
+   "pitfalls": [
+    "Compiling with a checkpointer but forgetting thread_id in the config, which raises an error about a missing thread_id."
+   ],
+   "quiz": [
+    {
+     "q": "Two users talk to the same agent with checkpointer=InMemorySaver(). How do you keep their conversations separate?",
+     "options": [
+      "Use a different thread_id in the config for each user",
+      "Clear the checkpointer after every call",
+      "Use different system prompts",
+      "Create a new agent per message"
+     ],
+     "answer": 0,
+     "explain": "Each thread_id has its own saved state, so conversations stay isolated."
+    }
+   ],
+   "docs": "https://docs.langchain.com/oss/python/langgraph/persistence",
+   "requires": [
+    "langchain.langgraph-basics",
+    "langchain.messages"
+   ]
+  },
+  {
+   "id": "langchain.middleware",
+   "name": "Agent middleware",
+   "module": "production",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Customize create_agent with middleware hooks for dynamic prompts, summarization, limits, retries and guardrails.",
+   "why": "Production agents need context management, safety checks and cost limits without rewriting the agent loop.",
+   "body": "**Middleware** plugs into the `create_agent` loop at defined points:\n\n- `before_agent` / `after_agent`: once per invocation.\n- `before_model` / `after_model`: around every model call, e.g. trimming messages or checking outputs; they return state updates and can jump to the end.\n- `wrap_model_call(request, handler)`: wraps the call itself, so you can change the model, tools or system prompt per call, retry, or cache.\n- `wrap_tool_call(request, handler)`: wraps each tool execution for retries, logging or permission checks.\n\nWrite them as decorated functions (`@before_model`, `@wrap_model_call`, `@dynamic_prompt`) or subclasses of `AgentMiddleware` with state schemas and extra tools.\n\nBuilt-in middleware covers common needs:\n\n- `SummarizationMiddleware(model, trigger=(\"tokens\", 4000), keep=(\"messages\", 20))` summarizes old history.\n- `ModelCallLimitMiddleware(run_limit=10)` and `ToolCallLimitMiddleware` cap cost and loops.\n- `ModelFallbackMiddleware(\"openai:gpt-5-mini\", \"anthropic:claude-sonnet-4-5\")` switches models on errors; `ModelRetryMiddleware`, `ToolRetryMiddleware` retry with backoff.\n- `PIIMiddleware` redacts or blocks sensitive data; `HumanInTheLoopMiddleware` pauses for approval (next lesson).\n- `LLMToolSelectorMiddleware` narrows large toolsets per query.\n\nMiddleware runs in list order for `before_*` hooks and in reverse for `after_*`; wrappers nest like decorators. Keep each one focused and test them with fake models.",
+   "code": "from langchain.agents import create_agent\nfrom langchain.agents.middleware import (ModelCallLimitMiddleware, ModelRequest,\n                                         SummarizationMiddleware, dynamic_prompt)\nfrom langchain_core.tools import tool\n\n@tool\ndef lookup_order(order_id: str) -> str:\n    \"\"\"Look up an order's status.\"\"\"\n    return f\"Order {order_id}: shipped\"\n@dynamic_prompt\ndef tiered_prompt(request: ModelRequest) -> str:\n    tier = (request.runtime.context or {}).get(\"tier\", \"free\")\n    return f\"You are a support agent. Customer tier: {tier}. Be concise.\"\n\nagent = create_agent(\n    model=\"openai:gpt-5-mini\", tools=[lookup_order],\n    middleware=[tiered_prompt,\n                SummarizationMiddleware(\"openai:gpt-5-mini\", trigger=(\"tokens\", 4000)),\n                ModelCallLimitMiddleware(run_limit=8, exit_behavior=\"end\")],\n)\nresult = agent.invoke({\"messages\": [{\"role\": \"user\", \"content\": \"Where is order 77?\"}]},\n                      context={\"tier\": \"pro\"})\nprint(result[\"messages\"][-1].text)    # Order 77 has shipped.",
+   "code_lang": "python",
+   "takeaways": [
+    "Hooks: before/after agent and model, plus wrap_model_call and wrap_tool_call",
+    "Built-ins handle summarization, call limits, fallbacks, retries, PII and approvals",
+    "Middleware composes in list order; keep each piece small and tested"
+   ],
+   "pitfalls": [
+    "Implementing history trimming or retries inside every tool instead of once as middleware around the loop."
+   ],
+   "quiz": [
+    {
+     "q": "You want to switch to a cheaper model for simple queries without changing the agent's code elsewhere. Which hook fits?",
+     "options": [
+      "wrap_model_call",
+      "after_agent",
+      "A new tool",
+      "before_agent"
+     ],
+     "answer": 0,
+     "explain": "wrap_model_call can modify the request, including the model, for each call."
+    }
+   ],
+   "docs": "https://docs.langchain.com/oss/python/langchain/middleware/overview",
+   "requires": [
+    "langchain.agents",
+    "langchain.memory-persistence"
+   ]
+  },
+  {
+   "id": "langchain.human-in-the-loop",
+   "name": "Interrupts and human-in-the-loop",
+   "module": "production",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Pause a graph or agent for human approval with interrupt and resume it with Command, using persisted state.",
+   "why": "Agents that send emails, spend money or change data must let people approve, edit or reject actions.",
+   "body": "LangGraph can **pause** execution and wait indefinitely for input. Inside a node or tool, call `interrupt(payload)`:\n\n```python\ndecision = interrupt({\"question\": \"Approve refund?\", \"amount\": 120})\n```\n\nExecution stops, the state is saved by the **checkpointer** (required), and `invoke` returns with an `__interrupt__` entry containing the payload. Later, possibly from another process or days later, resume the same thread with:\n\n```python\ngraph.invoke(Command(resume={\"approved\": True}), config)\n```\n\nThe node **re-runs from its start** and this time `interrupt` returns the resume value. Therefore code before `interrupt` must be idempotent (no side effects such as charging a card before the pause), and multiple interrupts in a node are matched by order.\n\nFor agents, `HumanInTheLoopMiddleware(interrupt_on={\"send_email\": True, \"read_inbox\": False})` pauses before selected tool calls. The reviewer can **approve**, **edit** the arguments, or **reject** with feedback, resuming with `Command(resume={\"decisions\": [{\"type\": \"approve\"}]})`.\n\nRelated tools:\n\n- `interrupt_before=[\"node\"]` / `interrupt_after` at compile time for static breakpoints while debugging.\n- `graph.get_state(config).next` shows which node is pending; `update_state` lets a human patch state before resuming.\n\nDesign the payload for the UI that will show it: what is proposed, why, and what choices exist.",
+   "code": "from typing import TypedDict\nfrom langgraph.checkpoint.memory import InMemorySaver\nfrom langgraph.graph import END, START, StateGraph\nfrom langgraph.types import Command, interrupt\n\nclass State(TypedDict):\n    amount: int\n    status: str\ndef approval(state: State):\n    decision = interrupt({\"question\": \"Approve refund?\", \"amount\": state[\"amount\"]})\n    return {\"status\": \"refunded\" if decision[\"approved\"] else \"rejected\"}\nbuilder = StateGraph(State)\nbuilder.add_node(\"approval\", approval)\nbuilder.add_edge(START, \"approval\")\nbuilder.add_edge(\"approval\", END)\ngraph = builder.compile(checkpointer=InMemorySaver())\n\ncfg = {\"configurable\": {\"thread_id\": \"refund-1\"}}\nfirst = graph.invoke({\"amount\": 120, \"status\": \"pending\"}, cfg)\nprint(first[\"__interrupt__\"][0].value)     # {'question': 'Approve refund?', 'amount': 120}\nprint(graph.get_state(cfg).next)           # ('approval',)\n\nfinal = graph.invoke(Command(resume={\"approved\": True}), cfg)\nprint(final[\"status\"])                     # refunded",
+   "code_lang": "python",
+   "takeaways": [
+    "`interrupt(payload)` pauses and saves state; a checkpointer is required",
+    "Resume with `Command(resume=value)` on the same thread_id; the node re-runs from its start",
+    "HumanInTheLoopMiddleware adds approve/edit/reject for chosen agent tools"
+   ],
+   "pitfalls": [
+    "Performing side effects before interrupt() in the same node, which then run twice when the node re-executes on resume."
+   ],
+   "quiz": [
+    {
+     "q": "What happens to a node's code that runs before interrupt() when the graph is resumed?",
+     "options": [
+      "It runs only if the resume value is True",
+      "It raises an error",
+      "It is skipped",
+      "It runs again, because the node restarts from the beginning"
+     ],
+     "answer": 3,
+     "explain": "Resuming re-executes the node from its start, so pre-interrupt code must be safe to repeat."
+    }
+   ],
+   "docs": "https://docs.langchain.com/oss/python/langgraph/interrupts",
+   "requires": [
+    "langchain.memory-persistence"
+   ]
+  },
+  {
+   "id": "langchain.testing-observability",
+   "name": "Testing, tracing and evaluation",
+   "module": "production",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Unit-test chains and agents with fake models, trace runs with LangSmith or callbacks, and evaluate quality.",
+   "why": "Non-deterministic LLM apps need deterministic tests for logic and systematic evaluation for quality.",
+   "body": "Separate two concerns.\n\n**Logic tests** should be deterministic and offline. Replace the model with a fake from `langchain_core.language_models.fake_chat_models`:\n\n- `GenericFakeChatModel(messages=iter([...]))` returns scripted `AIMessage`s (including ones with `tool_calls`) and supports streaming.\n- `FakeListChatModel(responses=[...])` returns strings in order.\n- `DeterministicFakeEmbedding` for vector stores.\n\nThis lets you test routing in graphs, tool execution, parsing and state updates with pytest. Fakes that must support `bind_tools` can subclass `GenericFakeChatModel` and return `self`.\n\n**Observability**: set `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` to send traces of every chain, model and tool call to LangSmith, including inputs, outputs, latency and token usage. Without LangSmith, pass `callbacks=[handler]` in the config, where `handler` subclasses `BaseCallbackHandler` (`on_llm_end`, `on_tool_start`...), or use OpenTelemetry-based tools such as MLflow tracing.\n\n**Quality evaluation**: build a dataset of inputs and reference outputs, run the app over it, and score with code checks and LLM-as-judge evaluators (LangSmith `evaluate`, or other frameworks). Track scores per version of prompts and models, and add failing production traces to the dataset.\n\nSnapshot tests on exact LLM wording are brittle; assert on structure, tool calls and key facts instead.",
+   "code": "from langchain.agents import create_agent\nfrom langchain_core.language_models.fake_chat_models import GenericFakeChatModel\nfrom langchain_core.messages import AIMessage\nfrom langchain_core.tools import tool\n\nclass FakeToolModel(GenericFakeChatModel):\n    def bind_tools(self, tools, **kwargs):       # fakes don't bind tools by default\n        return self\n@tool\ndef get_price(item: str) -> str:\n    \"\"\"Get the price of an item.\"\"\"\n    return {\"apple\": \"$1\"}.get(item, \"unknown\")\ndef test_agent_calls_price_tool():\n    model = FakeToolModel(messages=iter([\n        AIMessage(\"\", tool_calls=[{\"name\": \"get_price\", \"args\": {\"item\": \"apple\"}, \"id\": \"c1\"}]),\n        AIMessage(\"An apple costs $1.\"),\n    ]))\n    agent = create_agent(model, tools=[get_price])\n    out = agent.invoke({\"messages\": [(\"user\", \"Price of an apple?\")]})\n    assert [m.type for m in out[\"messages\"]] == [\"human\", \"ai\", \"tool\", \"ai\"]\n    assert out[\"messages\"][2].content == \"$1\"\n\ntest_agent_calls_price_tool()\nprint(\"agent logic test passed\")              # run with pytest in a real project",
+   "code_lang": "python",
+   "takeaways": [
+    "Use fake chat models and embeddings for fast, deterministic logic tests",
+    "Trace with LangSmith (env vars) or callback handlers / OpenTelemetry",
+    "Evaluate quality on datasets with code checks and LLM judges; avoid exact-wording asserts"
+   ],
+   "pitfalls": [
+    "Testing agents only end-to-end against a live model, making tests slow, flaky and costly."
+   ],
+   "quiz": [
+    {
+     "q": "What should a unit test for an agent's tool-routing logic use?",
+     "options": [
+      "A larger model for reliability",
+      "The production model with temperature 0",
+      "A fake chat model that returns scripted tool calls",
+      "LangSmith tracing"
+     ],
+     "answer": 2,
+     "explain": "Scripted fake responses make the test deterministic and offline, isolating your code's logic."
+    }
+   ],
+   "docs": "https://docs.langchain.com/oss/python/langchain/test/unit-testing",
+   "requires": [
+    "langchain.agents",
+    "langchain.lcel-chains",
+    "python.testing"
+   ]
+  }
+ ]
+}

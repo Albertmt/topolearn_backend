@@ -1,0 +1,665 @@
+{
+ "tool": {
+  "id": "grpc",
+  "name": "gRPC",
+  "category": "tool",
+  "tagline": "High-performance RPC framework using Protocol Buffers over HTTP/2",
+  "description": "gRPC is an open-source remote procedure call framework: you define services and messages in Protocol Buffers, generate typed clients and servers for many languages, and call remote methods like local functions over HTTP/2. It is the standard for internal service-to-service APIs in microservice systems, offering compact binary messages, streaming, deadlines and rich tooling.",
+  "icon": "gR",
+  "color": "#244C5A",
+  "official_docs": "https://grpc.io/docs/",
+  "version": "gRPC 1.7x (grpc-js 1.14), proto3",
+  "aliases": [
+   "grpc-js",
+   "protobuf rpc",
+   "protocol buffers"
+  ],
+  "requires": [
+   {
+    "tool": "nodejs",
+    "level": 1
+   },
+   {
+    "tool": "javascript",
+    "level": 2
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Core ideas"
+  },
+  {
+   "id": "protobuf",
+   "name": "Protocol Buffers"
+  },
+  {
+   "id": "node",
+   "name": "Clients and servers"
+  },
+  {
+   "id": "streaming",
+   "name": "Streaming and call control"
+  },
+  {
+   "id": "production",
+   "name": "Running in production"
+  },
+  {
+   "id": "internals",
+   "name": "Wire format and tuning"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "grpc.what-is-grpc",
+   "name": "What gRPC is",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Contract-first RPC: define services in .proto files, generate stubs, and call remote methods over HTTP/2.",
+   "why": "Knowing where gRPC fits helps you choose between it, REST and GraphQL.",
+   "body": "**gRPC** is a remote procedure call framework originally built at Google and now a CNCF project. You describe an API as **services** with methods and typed **messages** in a `.proto` file (Protocol Buffers). Code generators then produce a **client stub** whose methods look like local functions, and a server interface you implement.\n\nWhat you get compared with JSON over REST:\n\n- **A strict contract** shared by all languages: Go, Java, C++, Python, Node, C#, Kotlin, Swift, Rust and more.\n- **Compact binary messages** (protobuf) that are faster to encode and smaller on the wire.\n- **HTTP/2** transport: many concurrent calls multiplexed over one connection, plus **streaming** in either or both directions.\n- Built-in **deadlines**, cancellation, metadata (headers) and standard status codes.\n\nWhere it is weaker: browsers cannot speak native gRPC directly (you need gRPC-Web or Connect through a proxy), payloads are not human-readable without tools, and L7 load balancers must understand HTTP/2.\n\nTypical use: internal service-to-service communication in microservices, mobile clients talking to backends, and streaming pipelines. Public, browser-facing APIs more often use REST or GraphQL, sometimes generated from the same proto definitions.",
+   "code": "// hello.proto: the contract shared by client and server\nsyntax = \"proto3\";\npackage hello.v1;\n\nservice Greeter {\n  rpc SayHello (HelloRequest) returns (HelloReply);\n}\n\nmessage HelloRequest { string name = 1; }\nmessage HelloReply   { string message = 1; }\n\n// Generated client usage (any language), conceptually:\n//   reply = greeter.SayHello({ name: \"Ann\" })\n//   reply.message == \"Hello, Ann\" ",
+   "code_lang": "protobuf",
+   "takeaways": [
+    "Contract-first: services and messages in .proto files",
+    "Generated stubs make remote calls look like local ones",
+    "Binary protobuf over HTTP/2 with streaming and deadlines"
+   ],
+   "pitfalls": [
+    "Expecting browsers to call a gRPC server directly without gRPC-Web or Connect."
+   ],
+   "quiz": [
+    {
+     "q": "Which transport does standard gRPC run on?",
+     "options": [
+      "HTTP/1.1 with JSON",
+      "Raw UDP",
+      "HTTP/2",
+      "WebSockets"
+     ],
+     "answer": 2,
+     "explain": "gRPC relies on HTTP/2 streams, headers and trailers."
+    }
+   ],
+   "docs": "https://grpc.io/docs/what-is-grpc/introduction/",
+   "requires": []
+  },
+  {
+   "id": "grpc.protobuf-messages",
+   "name": "Protobuf messages",
+   "module": "protobuf",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Define proto3 messages with scalar, repeated, map, enum and nested fields, each identified by a field number.",
+   "why": "Messages are the data model of every gRPC API.",
+   "body": "A **message** is a typed record. Every field has a type, a name and a **field number**:\n\n```protobuf\nmessage User {\n  int64 id = 1;\n  string email = 2;\n  repeated string roles = 3;\n  map<string, string> labels = 4;\n  Status status = 5;\n  optional string nickname = 6;\n}\nenum Status { STATUS_UNSPECIFIED = 0; STATUS_ACTIVE = 1; }\n```\n\nKey rules in proto3:\n\n- The **field number**, not the name, identifies a field on the wire. Numbers 1 to 15 take one byte to encode, so give them to frequent fields. Never change a number once in use.\n- Scalars include `int32`, `int64`, `uint32`, `sint64` (efficient for negatives), `double`, `bool`, `string` (UTF-8), `bytes`.\n- Unset fields read as **default values** (0, \"\", false, first enum value). Without `optional`, you cannot tell \"unset\" from \"set to the default\"; with `optional` you get presence (`has_` methods or `undefined` in JS).\n- `repeated` is a list, `map<K, V>` a dictionary; maps are unordered.\n- Enums must start with a zero value, conventionally `X_UNSPECIFIED = 0`.\n\nMessages can nest and reference other messages. Use `package` to namespace types, and `import` other .proto files, including Google's **well-known types** such as `google.protobuf.Timestamp` and `Duration`.",
+   "code": "syntax = \"proto3\";\npackage shop.v1;\n\nimport \"google/protobuf/timestamp.proto\";\n\nmessage Order {\n  string id = 1;\n  repeated LineItem items = 2;\n  OrderStatus status = 3;\n  google.protobuf.Timestamp created_at = 4;\n  optional string coupon = 5;     // presence: unset vs \"\"\n  map<string, string> labels = 6;\n}\n\nmessage LineItem {\n  string sku = 1;\n  int32 quantity = 2;\n  int64 price_cents = 3;          // money as integer cents\n}\n\nenum OrderStatus {\n  ORDER_STATUS_UNSPECIFIED = 0;\n  ORDER_STATUS_PAID = 1;\n  ORDER_STATUS_SHIPPED = 2;\n}",
+   "code_lang": "protobuf",
+   "takeaways": [
+    "Field numbers identify fields on the wire; never reuse or change them",
+    "Unset scalars read as defaults; `optional` adds presence",
+    "Enums start with an UNSPECIFIED zero value",
+    "Use well-known types like Timestamp and Duration"
+   ],
+   "pitfalls": [
+    "Using `float`/`double` for money; use integer minor units or a decimal type."
+   ],
+   "quiz": [
+    {
+     "q": "A proto3 `int32 count = 1;` field (no `optional`) was never set. What does the receiver read?",
+     "options": [
+      "0",
+      "null",
+      "An error",
+      "-1"
+     ],
+     "answer": 0,
+     "explain": "Scalars without presence read as their default value, which is 0 for integers."
+    }
+   ],
+   "docs": "https://protobuf.dev/programming-guides/proto3/",
+   "requires": [
+    "grpc.what-is-grpc"
+   ]
+  },
+  {
+   "id": "grpc.services-and-rpcs",
+   "name": "Services and the four RPC kinds",
+   "module": "protobuf",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Declare service methods as unary, server-streaming, client-streaming or bidirectional-streaming RPCs.",
+   "why": "The method shape determines how client and server code interact.",
+   "body": "A **service** groups RPC methods. Each method takes exactly one request message type and returns one response message type; the `stream` keyword turns either side into a sequence:\n\n- **Unary**: `rpc GetUser(GetUserRequest) returns (User);` one request, one response. The common case.\n- **Server streaming**: `returns (stream Event)`: the client sends one request, the server sends many messages (e.g. a large result set, live updates).\n- **Client streaming**: `rpc Upload(stream Chunk) returns (UploadSummary)`: the client sends many, the server answers once (uploads, batching).\n- **Bidirectional streaming**: both sides stream independently over the same call (chat, real-time sync).\n\nConventions from Google's API design guide that most teams follow:\n\n- Give every method its own `XxxRequest` and `XxxResponse` messages, even if they look trivial now. You can add fields later without breaking the signature; reusing `User` as a request type paints you into a corner.\n- Version the package: `package billing.v1;`. Breaking changes go into `v2` alongside `v1`.\n- Use `google.protobuf.Empty` sparingly for the same reason.\n\nThe full method name on the wire is `/package.Service/Method`, e.g. `/billing.v1.Invoices/GetInvoice`; you will see it in logs, interceptors and proxies.",
+   "code": "syntax = \"proto3\";\npackage chat.v1;\n\nservice ChatService {\n  // unary\n  rpc GetRoom(GetRoomRequest) returns (GetRoomResponse);\n  // server streaming: one request, many messages\n  rpc WatchRoom(WatchRoomRequest) returns (stream RoomEvent);\n  // client streaming: many requests, one response\n  rpc UploadHistory(stream HistoryChunk) returns (UploadHistoryResponse);\n  // bidirectional streaming\n  rpc Chat(stream ChatMessage) returns (stream ChatMessage);\n}\n\nmessage GetRoomRequest { string room_id = 1; }\nmessage GetRoomResponse { string name = 1; int32 members = 2; }\nmessage WatchRoomRequest { string room_id = 1; }\nmessage RoomEvent { string text = 1; }\nmessage HistoryChunk { bytes data = 1; }\nmessage UploadHistoryResponse { int64 bytes_received = 1; }\nmessage ChatMessage { string from = 1; string text = 2; }",
+   "code_lang": "protobuf",
+   "takeaways": [
+    "Four shapes: unary, server, client and bidirectional streaming",
+    "Dedicated Request/Response messages per method",
+    "Version packages (`foo.v1`) and add v2 for breaking changes"
+   ],
+   "pitfalls": [
+    "Reusing a domain message as a request type, which blocks adding request-only fields later."
+   ],
+   "quiz": [
+    {
+     "q": "Which RPC kind fits uploading a large file in chunks and getting one summary back?",
+     "options": [
+      "Unary",
+      "Server streaming",
+      "Bidirectional streaming",
+      "Client streaming"
+     ],
+     "answer": 3,
+     "explain": "The client sends many chunk messages and the server replies once."
+    }
+   ],
+   "docs": "https://grpc.io/docs/what-is-grpc/core-concepts/",
+   "requires": [
+    "grpc.protobuf-messages"
+   ]
+  },
+  {
+   "id": "grpc.node-server-client",
+   "name": "A server and client in Node.js",
+   "module": "node",
+   "level": 1,
+   "minutes": 15,
+   "summary": "Load a .proto with @grpc/proto-loader, implement a unary handler with @grpc/grpc-js, and call it from a client stub.",
+   "why": "Seeing both ends of a call makes every later topic concrete.",
+   "body": "In Node.js the official implementation is **@grpc/grpc-js** (pure JavaScript). There are two ways to get stubs:\n\n- **Dynamic loading** with `@grpc/proto-loader`: parse the `.proto` at startup and build client classes and service definitions at runtime. Quick to start, no build step.\n- **Static code generation** with `protoc` or Buf plus a plugin (e.g. `ts-proto`) for typed TypeScript code.\n\nWith dynamic loading, `grpc.loadPackageDefinition()` returns an object mirroring your packages, so `hello.v1.Greeter` is a client constructor and `hello.v1.Greeter.service` the service definition.\n\nServer side, you `addService(definition, handlers)`. A unary handler receives `call` (with `call.request`, `call.metadata`) and a `callback(err, response)`. Bind to a port with `bindAsync()` and credentials; `createInsecure()` is for local development only.\n\nClient side, construct the stub with an address and credentials, then call methods with `(request, callback)`. Clients are cheap to call but expensive to create: create one per target at startup and reuse it, because it holds the HTTP/2 connection.\n\nProto-loader options matter: `keepCase: true` keeps `snake_case` field names (otherwise they become camelCase), `defaults: true` fills unset fields with defaults, and `longs: String` avoids precision loss for 64-bit integers.",
+   "code": "// hello.proto: service Greeter { rpc SayHello (HelloRequest) returns (HelloReply); }\n//              message HelloRequest { string name = 1; }  message HelloReply { string message = 1; }\nimport * as grpc from \"@grpc/grpc-js\";\nimport * as protoLoader from \"@grpc/proto-loader\";\n\nconst def = protoLoader.loadSync(\"hello.proto\", { keepCase: true, defaults: true });\nconst { hello } = grpc.loadPackageDefinition(def);\n\nconst server = new grpc.Server();\nserver.addService(hello.v1.Greeter.service, {\n  SayHello: (call, callback) => callback(null, { message: `Hello, ${call.request.name}` }),\n});\nserver.bindAsync(\"127.0.0.1:50051\", grpc.ServerCredentials.createInsecure(), (err) => {\n  if (err) throw err;\n  const client = new hello.v1.Greeter(\"127.0.0.1:50051\", grpc.credentials.createInsecure());\n  client.SayHello({ name: \"Ann\" }, (err, reply) => {\n    console.log(reply.message); // Hello, Ann\n    client.close();\n    server.forceShutdown();\n  });\n});",
+   "code_lang": "javascript",
+   "takeaways": [
+    "@grpc/grpc-js is the Node implementation; proto-loader loads .proto at runtime",
+    "Unary handlers: `(call, callback)`; clients: `stub.Method(req, cb)`",
+    "Create one client per target and reuse it",
+    "Use `longs: String` to keep int64 precision"
+   ],
+   "pitfalls": [
+    "Creating a new client per request, paying a new connection and TLS handshake each time."
+   ],
+   "quiz": [
+    {
+     "q": "Why should a Node service reuse one gRPC client instance per target?",
+     "options": [
+      "Clients are immutable",
+      "Each client owns an HTTP/2 connection that is costly to set up",
+      "The server allows one client",
+      "Stubs cannot be garbage collected"
+     ],
+     "answer": 1,
+     "explain": "Reusing the client keeps the multiplexed HTTP/2 connection warm."
+    }
+   ],
+   "docs": "https://grpc.io/docs/languages/node/basics/",
+   "requires": [
+    "grpc.services-and-rpcs",
+    "nodejs.npm-and-package-json"
+   ]
+  },
+  {
+   "id": "grpc.status-codes",
+   "name": "Status codes and errors",
+   "module": "node",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Fail calls with the right gRPC status code and details, and handle errors on the client by code rather than message.",
+   "why": "Consistent status codes drive retries, alerts and client behaviour.",
+   "body": "Every gRPC call ends with a **status**: a code plus an optional message (`details` in grpc-js). There are 17 codes; the ones you will use most:\n\n- `OK` (0): success.\n- `INVALID_ARGUMENT` (3): the request is malformed regardless of system state.\n- `NOT_FOUND` (5), `ALREADY_EXISTS` (6).\n- `PERMISSION_DENIED` (7) versus `UNAUTHENTICATED` (16): authenticated but not allowed, versus no valid credentials.\n- `FAILED_PRECONDITION` (9): the system is not in the required state (e.g. deleting a non-empty folder).\n- `RESOURCE_EXHAUSTED` (8): quota or rate limit.\n- `DEADLINE_EXCEEDED` (4), `CANCELLED` (1).\n- `UNAVAILABLE` (14): transient, usually safe to retry with backoff.\n- `INTERNAL` (13) and `UNKNOWN` (2): bugs; an uncaught exception in a handler becomes `UNKNOWN`.\n\nIn grpc-js, servers fail a call by passing an error object to the callback: `{ code: grpc.status.NOT_FOUND, details: \"no such user\" }`. Clients receive an `Error` with `code`, `details` and `metadata`.\n\nBranch on the **code**, not on message text. For structured, machine-readable details (which field was invalid, retry delay), Google's richer error model packs a `google.rpc.Status` with typed details into the `grpc-status-details-bin` trailer.",
+   "code": "import * as grpc from \"@grpc/grpc-js\";\nimport * as protoLoader from \"@grpc/proto-loader\";\nconst { hello } = grpc.loadPackageDefinition(protoLoader.loadSync(\"hello.proto\"));\n\nconst server = new grpc.Server();\nserver.addService(hello.v1.Greeter.service, {\n  SayHello: ({ request }, callback) => {\n    if (!request.name) {\n      return callback({ code: grpc.status.INVALID_ARGUMENT, details: \"name is required\" });\n    }\n    callback(null, { message: `Hello, ${request.name}` });\n  },\n});\nserver.bindAsync(\"127.0.0.1:50052\", grpc.ServerCredentials.createInsecure(), () => {\n  const client = new hello.v1.Greeter(\"127.0.0.1:50052\", grpc.credentials.createInsecure());\n  client.SayHello({ name: \"\" }, (err) => {\n    console.log(err.code, grpc.status[err.code], err.details);\n    // 3 INVALID_ARGUMENT name is required\n    server.forceShutdown();\n  });\n});",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Every call ends with a status code and message",
+    "UNAUTHENTICATED = no credentials; PERMISSION_DENIED = not allowed",
+    "UNAVAILABLE is the typical retryable code",
+    "Branch on codes, never on message strings"
+   ],
+   "pitfalls": [
+    "Returning INTERNAL or UNKNOWN for client mistakes, which hides bugs and triggers wrong alerts."
+   ],
+   "quiz": [
+    {
+     "q": "A valid token calls an admin-only method without the admin role. Which code fits?",
+     "options": [
+      "UNAUTHENTICATED",
+      "INVALID_ARGUMENT",
+      "PERMISSION_DENIED",
+      "UNAVAILABLE"
+     ],
+     "answer": 2,
+     "explain": "The caller is identified but not allowed; UNAUTHENTICATED means missing or invalid credentials."
+    }
+   ],
+   "docs": "https://grpc.io/docs/guides/status-codes/",
+   "requires": [
+    "grpc.node-server-client"
+   ]
+  },
+  {
+   "id": "grpc.streaming-rpcs",
+   "name": "Streaming RPCs",
+   "module": "streaming",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Implement server, client and bidirectional streams with grpc-js call objects that behave like Node streams.",
+   "why": "Streaming replaces polling and huge responses with incremental, flow-controlled messages.",
+   "body": "In grpc-js, streaming calls are Node.js **streams** in object mode:\n\n- **Server streaming**: the handler receives a writable `call`; it `write()`s messages and calls `end()`. The client gets a readable stream: listen for `data`, `end`, `error` and `status`, or use `for await`.\n- **Client streaming**: the handler reads `call` as a readable stream and answers once via `callback`. The client gets a writable stream plus a callback.\n- **Bidirectional**: both sides are duplex streams that read and write independently.\n\nThings to get right:\n\n- Respect **backpressure**: `call.write()` returns `false` when the buffer is full; wait for `drain` (or use `pipeline`) before writing more.\n- Handle `cancelled` on the server: if the client goes away, stop producing work.\n- A stream ends with a single status. Errors mid-stream terminate the whole call; there is no per-message error.\n- Long-lived streams need keepalives and reconnection logic on the client, because connections do drop.\n\nStreams are ordered within a call, but there is no ordering between calls. Prefer unary RPCs with pagination for simple bounded lists; use streaming for real-time feeds, large transfers, or chatty interactive protocols.",
+   "code": "// hello.proto adds: rpc CountDown (CountRequest) returns (stream Tick);\n//   message CountRequest { int32 from = 1; }  message Tick { int32 n = 1; }\nimport * as grpc from \"@grpc/grpc-js\";\nimport * as protoLoader from \"@grpc/proto-loader\";\nconst { hello } = grpc.loadPackageDefinition(protoLoader.loadSync(\"hello.proto\"));\n\nconst server = new grpc.Server();\nserver.addService(hello.v1.Greeter.service, {\n  CountDown: (call) => {\n    for (let n = call.request.from; n > 0; n--) call.write({ n });\n    call.end();\n  },\n});\nserver.bindAsync(\"127.0.0.1:50053\", grpc.ServerCredentials.createInsecure(), async () => {\n  const client = new hello.v1.Greeter(\"127.0.0.1:50053\", grpc.credentials.createInsecure());\n  const ticks = [];\n  for await (const tick of client.CountDown({ from: 3 })) ticks.push(tick.n);\n  console.log(ticks); // [ 3, 2, 1 ]\n  server.forceShutdown();\n});",
+   "code_lang": "javascript",
+   "takeaways": [
+    "grpc-js streaming calls are Node object-mode streams",
+    "Respect backpressure: honour `write()` returning false",
+    "One status ends the stream; mid-stream errors end the call",
+    "Watch for `cancelled` on the server side"
+   ],
+   "pitfalls": [
+    "Ignoring client cancellation and continuing to compute and write results nobody reads."
+   ],
+   "quiz": [
+    {
+     "q": "In a server-streaming handler, how does the server signal it has sent all messages?",
+     "options": [
+      "Return a value",
+      "Send an empty message",
+      "Close the HTTP/2 connection",
+      "Call `call.end()`"
+     ],
+     "answer": 3,
+     "explain": "`end()` finishes the stream and sends the OK status in trailers."
+    }
+   ],
+   "docs": "https://grpc.io/docs/what-is-grpc/core-concepts/#server-streaming-rpc",
+   "requires": [
+    "grpc.node-server-client",
+    "nodejs.streams-basics"
+   ]
+  },
+  {
+   "id": "grpc.deadlines-cancellation",
+   "name": "Deadlines and cancellation",
+   "module": "streaming",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Set a deadline on every call, propagate it to downstream calls, and stop work when a call is cancelled.",
+   "why": "Calls without deadlines are how one slow service takes down a whole system.",
+   "body": "A **deadline** is an absolute point in time by which the client wants an answer. gRPC sends it to the server as the `grpc-timeout` header, and if it passes, the call fails with `DEADLINE_EXCEEDED` on the client and is **cancelled** on the server.\n\nBy default, many gRPC implementations have **no deadline**: a call to a hung server waits forever while holding resources. Always set one, sized to the operation (e.g. 300 ms for a lookup, 30 s for a report).\n\nIn grpc-js you pass `{ deadline: Date.now() + 500 }` as call options (a `Date` or millisecond timestamp). On the server:\n\n- `call.getDeadline()` tells you the remaining budget.\n- `call.cancelled` and the `cancelled` event tell you the client gave up, timed out, or disconnected. Stop work and free resources.\n\n**Deadline propagation**: when your handler calls other services, give those calls the incoming deadline (minus a little margin), not a fresh fixed timeout. Otherwise downstream services keep working long after the original caller has gone. Several gRPC libraries (Go, Java) propagate it through the context automatically; in Node you pass it yourself, e.g. `{ deadline: call.getDeadline() }`, or with `propagate_flags` and `parent`.\n\nClients can also cancel explicitly with `call.cancel()`, which yields `CANCELLED`.",
+   "code": "import * as grpc from \"@grpc/grpc-js\";\nimport * as protoLoader from \"@grpc/proto-loader\";\nconst { hello } = grpc.loadPackageDefinition(protoLoader.loadSync(\"hello.proto\"));\n\nconst server = new grpc.Server();\nserver.addService(hello.v1.Greeter.service, {\n  SayHello: (call, callback) => {\n    const timer = setTimeout(() => callback(null, { message: \"late\" }), 2000);\n    call.on(\"cancelled\", () => { clearTimeout(timer); console.log(\"server: cancelled\"); });\n  },\n});\nserver.bindAsync(\"127.0.0.1:50054\", grpc.ServerCredentials.createInsecure(), () => {\n  const client = new hello.v1.Greeter(\"127.0.0.1:50054\", grpc.credentials.createInsecure());\n  client.SayHello({ name: \"Ann\" }, { deadline: Date.now() + 200 }, (err) => {\n    console.log(\"client:\", grpc.status[err.code]); // client: DEADLINE_EXCEEDED\n    setTimeout(() => server.forceShutdown(), 100);\n  });\n});\n// also printed: server: cancelled",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Set a deadline on every call; the default is often none",
+    "Deadline passing = DEADLINE_EXCEEDED for client, cancellation for server",
+    "Propagate the incoming deadline to downstream calls",
+    "Stop work on the `cancelled` event"
+   ],
+   "pitfalls": [
+    "Using a fixed 30 s timeout on each hop, so a 5-hop chain can run far past the user's patience."
+   ],
+   "quiz": [
+    {
+     "q": "Why propagate the incoming deadline to downstream calls instead of a fresh timeout?",
+     "options": [
+      "So downstream work stops when the original caller has given up",
+      "It is required by HTTP/2",
+      "It makes calls faster",
+      "Fresh timeouts are not supported"
+     ],
+     "answer": 0,
+     "explain": "Propagation bounds the whole call tree by the original caller's budget."
+    }
+   ],
+   "docs": "https://grpc.io/docs/guides/deadlines/",
+   "requires": [
+    "grpc.status-codes"
+   ]
+  },
+  {
+   "id": "grpc.metadata-auth",
+   "name": "Metadata, TLS and authentication",
+   "module": "production",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Send headers as metadata, secure channels with TLS, and attach per-call tokens with call credentials.",
+   "why": "Every production gRPC service needs encryption and caller identity.",
+   "body": "**Metadata** is gRPC's name for headers: key-value pairs sent at the start of a call (and trailers at the end). Keys are lowercase ASCII; keys ending in `-bin` carry binary values. Use metadata for cross-cutting data: auth tokens, request IDs, tracing context, never for business fields that belong in the message.\n\nIn grpc-js: `const md = new grpc.Metadata(); md.set(\"x-request-id\", id);` then pass it as the second argument to a call. Servers read `call.metadata.get(\"authorization\")`, and can send headers with `call.sendMetadata()` and trailers in the callback.\n\n**Transport security**: use `grpc.credentials.createSsl(rootCerts, key, cert)` on clients and `grpc.ServerCredentials.createSsl(...)` on servers. Supplying client key and certificate gives **mutual TLS (mTLS)**, common inside service meshes, where the peer certificate identifies the calling service.\n\n**Per-call credentials** for end-user tokens: build call credentials with `grpc.credentials.createFromMetadataGenerator()` and combine them with channel credentials via `combineChannelCredentials()`. gRPC refuses to send call credentials over an insecure channel, which protects tokens from leaking in plaintext.\n\nOn the server, validate the token in an interceptor or a shared helper, reject with `UNAUTHENTICATED`, and put the identity somewhere handlers can read it.",
+   "code": "import * as grpc from \"@grpc/grpc-js\";\nimport * as protoLoader from \"@grpc/proto-loader\";\nconst { hello } = grpc.loadPackageDefinition(protoLoader.loadSync(\"hello.proto\"));\n\nconst server = new grpc.Server();\nserver.addService(hello.v1.Greeter.service, {\n  SayHello: (call, callback) => {\n    const [auth] = call.metadata.get(\"authorization\");\n    if (auth !== \"Bearer s3cret\") {\n      return callback({ code: grpc.status.UNAUTHENTICATED, details: \"bad token\" });\n    }\n    callback(null, { message: `Hello, ${call.request.name}` });\n  },\n});\nserver.bindAsync(\"127.0.0.1:50055\", grpc.ServerCredentials.createInsecure(), () => {\n  const client = new hello.v1.Greeter(\"127.0.0.1:50055\", grpc.credentials.createInsecure());\n  const md = new grpc.Metadata();\n  md.set(\"authorization\", \"Bearer s3cret\");\n  client.SayHello({ name: \"Ann\" }, md, (err, reply) => {\n    console.log(reply.message); // Hello, Ann\n    server.forceShutdown();\n  });\n});",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Metadata = headers/trailers; keys lowercase, `-bin` for binary",
+    "TLS via createSsl; client certs give mutual TLS",
+    "Call credentials attach per-call tokens and require a secure channel"
+   ],
+   "pitfalls": [
+    "Putting user IDs or other business data in metadata instead of the request message."
+   ],
+   "quiz": [
+    {
+     "q": "Why does gRPC refuse to send call credentials over an insecure channel?",
+     "options": [
+      "They are too large",
+      "Tokens would travel in plaintext",
+      "HTTP/2 forbids it",
+      "Metadata is disabled without TLS"
+     ],
+     "answer": 1,
+     "explain": "Call credentials typically carry bearer tokens, which must be protected by TLS."
+    }
+   ],
+   "docs": "https://grpc.io/docs/guides/auth/",
+   "requires": [
+    "grpc.node-server-client"
+   ]
+  },
+  {
+   "id": "grpc.protobuf-evolution",
+   "name": "Evolving protobuf schemas safely",
+   "module": "protobuf",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Change .proto files without breaking deployed clients: add fields, reserve removed numbers, and use oneof wisely.",
+   "why": "Clients and servers are deployed at different times, so every schema change must be compatible.",
+   "body": "Old and new code will exchange messages for weeks after any change, so protobuf schemas must stay **wire-compatible**. The rules follow from the fact that fields are identified by number:\n\n- **Adding** a field is safe. Old readers skip unknown fields (and proto3 preserves them when re-serializing); new readers see defaults when old writers omit it.\n- **Removing** a field is safe only if you **reserve** its number and name: `reserved 3; reserved \"fax\";`. Reusing a number later would make old data decode as the wrong field.\n- **Renaming** a field is wire-safe (the name is not on the wire) but breaks JSON encoding and generated code.\n- **Changing a type** is mostly breaking. A few changes are compatible (`int32` to `int64`, `string` to `bytes` for UTF-8) but avoid them.\n- Moving a field into or out of a `oneof` is risky; adding a new field to a oneof is fine.\n\nA **oneof** says at most one of several fields is set (`oneof payment { Card card = 4; BankTransfer bank = 5; }`); setting one clears the others.\n\nEnforce the rules mechanically: **Buf** (`buf breaking --against '.git#branch=main'`) fails CI on incompatible changes, and `buf lint` enforces naming conventions. Newer protobuf releases also introduce **editions** (`edition = \"2023\";`) which replace `syntax` and turn features like field presence into configurable settings.",
+   "code": "syntax = \"proto3\";\npackage crm.v1;\n\nmessage Contact {\n  reserved 3;               // was: string fax = 3;\n  reserved \"fax\";\n\n  string id = 1;\n  string name = 2;\n  string email = 4;\n  repeated string phones = 5;   // added later: old readers skip it\n\n  oneof preferred_channel {     // at most one is set\n    string sms_number = 6;\n    string slack_handle = 7;\n  }\n}\n// CI: buf breaking --against '.git#branch=main'",
+   "code_lang": "protobuf",
+   "takeaways": [
+    "Adding fields is safe; old readers skip unknown fields",
+    "Reserve numbers and names of removed fields",
+    "Never change a field's number or meaning",
+    "Automate checks with `buf breaking`"
+   ],
+   "pitfalls": [
+    "Deleting a field and later reusing its number for a different field."
+   ],
+   "quiz": [
+    {
+     "q": "You remove field `string fax = 3;`. What should you do?",
+     "options": [
+      "Nothing",
+      "Renumber the remaining fields",
+      "Add `reserved 3;` (and the name)",
+      "Change the package version"
+     ],
+     "answer": 2,
+     "explain": "Reserving stops anyone from reusing number 3, which would corrupt old data."
+    }
+   ],
+   "docs": "https://protobuf.dev/programming-guides/proto3/#updating",
+   "requires": [
+    "grpc.protobuf-messages"
+   ]
+  },
+  {
+   "id": "grpc.interceptors",
+   "name": "Interceptors",
+   "module": "production",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Add logging, auth, metrics and retries around every call with client and server interceptors.",
+   "why": "Cross-cutting concerns belong in one place, not copied into every handler.",
+   "body": "**Interceptors** are gRPC's middleware. They wrap calls on the client or server side so you can add behaviour once: logging, metrics, tracing, authentication, adding metadata, retries, or error mapping.\n\nOn the **client** in grpc-js, an interceptor is a function `(options, nextCall) => InterceptingCall`. You build the returned call with `new grpc.InterceptingCall(nextCall(options), requester)`, where the requester can hook `start` (see and modify outgoing metadata, observe incoming metadata and status), `sendMessage` and `halfClose`. Pass interceptors per call (`{ interceptors: [...] }`) or for every call on a client via the `interceptors` option when constructing it.\n\nOn the **server**, grpc-js (1.10+) supports server interceptors passed in the `Server` constructor options: `(methodDescriptor, call) => ServerInterceptingCall`. Many teams instead wrap handler functions in a higher-order function, which is simpler for auth checks.\n\nIn other languages the API differs (Go's `grpc.UnaryInterceptor`, Java's `ClientInterceptor`), but the model is the same: an ordered chain where each link can inspect, modify, short-circuit or delegate.\n\nKeep interceptors generic and cheap. Ready-made ones exist for OpenTelemetry tracing and Prometheus metrics, so you usually only write the auth and logging ones yourself.",
+   "code": "import * as grpc from \"@grpc/grpc-js\";\nimport * as protoLoader from \"@grpc/proto-loader\";\nconst { hello } = grpc.loadPackageDefinition(protoLoader.loadSync(\"hello.proto\"));\n\n// Client interceptor: add a request id and log the final status\nconst requestId = (options, nextCall) =>\n  new grpc.InterceptingCall(nextCall(options), {\n    start(metadata, listener, next) {\n      metadata.set(\"x-request-id\", \"req-42\");\n      next(metadata, {\n        onReceiveStatus(status, nextStatus) {\n          console.log(options.method_definition.path, grpc.status[status.code]);\n          nextStatus(status);\n        },\n      });\n    },\n  });\nconst server = new grpc.Server();\nserver.addService(hello.v1.Greeter.service, {\n  SayHello: (call, cb) => cb(null, { message: call.metadata.get(\"x-request-id\")[0] }),\n});\nserver.bindAsync(\"127.0.0.1:50056\", grpc.ServerCredentials.createInsecure(), () => {\n  const client = new hello.v1.Greeter(\"127.0.0.1:50056\", grpc.credentials.createInsecure(), { interceptors: [requestId] });\n  client.SayHello({ name: \"Ann\" }, (err, r) => { console.log(r.message); server.forceShutdown(); });\n}); // prints: /hello.v1.Greeter/SayHello OK, then req-42",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Interceptors are gRPC middleware on client and server",
+    "Client interceptors can modify metadata and observe status",
+    "Use them for auth, logging, metrics, tracing and retries"
+   ],
+   "pitfalls": [
+    "Doing heavy synchronous work in an interceptor, which adds latency to every call."
+   ],
+   "quiz": [
+    {
+     "q": "Which hook lets a grpc-js client interceptor add outgoing metadata?",
+     "options": [
+      "start",
+      "onReceiveMessage",
+      "halfClose",
+      "onReceiveStatus"
+     ],
+     "answer": 0,
+     "explain": "`start` receives the outgoing metadata before it is sent."
+    }
+   ],
+   "docs": "https://grpc.io/docs/guides/interceptors/",
+   "requires": [
+    "grpc.metadata-auth",
+    "grpc.deadlines-cancellation"
+   ]
+  },
+  {
+   "id": "grpc.health-reflection-tooling",
+   "name": "Health checks, reflection and grpcurl",
+   "module": "production",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Expose the standard health service, enable server reflection, and debug calls from the terminal with grpcurl.",
+   "why": "Orchestrators and humans both need to probe gRPC services without generated code.",
+   "body": "Binary protocols are harder to poke at than JSON, so the gRPC ecosystem standardizes a few services every server should consider exposing.\n\n**Health checking** (`grpc.health.v1.Health`) has `Check` and `Watch` methods that return `SERVING` or `NOT_SERVING` for the whole server or a named service. Kubernetes supports gRPC probes natively (`grpc:` probe with a port), and load balancers use the same protocol. In Node, the `grpc-health-check` package implements it.\n\n**Server reflection** lets a client ask the server for its proto descriptors at runtime. Tools then call any method without having the `.proto` file locally. In Node, use `@grpc/reflection`. Enable it in development and internal environments; consider disabling it on public endpoints.\n\n**grpcurl** is the curl of gRPC:\n\n- `grpcurl -plaintext localhost:50051 list` lists services (needs reflection, or pass `-proto file.proto`).\n- `grpcurl -plaintext -d '{\"name\":\"Ann\"}' localhost:50051 hello.v1.Greeter/SayHello` calls a method with JSON that grpcurl converts to protobuf.\n- `-H 'authorization: Bearer ...'` adds metadata; `-max-time` sets a deadline.\n\nGUI options include Postman, Insomnia and grpcui. For logs, record the full method name, status code, duration and peer: that line answers most production questions.",
+   "code": "# list services (server reflection enabled)\ngrpcurl -plaintext localhost:50051 list\n# grpc.health.v1.Health\n# hello.v1.Greeter\n\n# describe a method's request/response types\ngrpcurl -plaintext localhost:50051 describe hello.v1.Greeter.SayHello\n\n# call it with JSON; grpcurl encodes protobuf for you\ngrpcurl -plaintext -d '{\"name\": \"Ann\"}' \\\n  -H 'authorization: Bearer dev-token' \\\n  localhost:50051 hello.v1.Greeter/SayHello\n# { \"message\": \"Hello, Ann\" }\n\n# without reflection: point at the .proto\ngrpcurl -plaintext -proto hello.proto -d '{\"name\":\"Ann\"}' \\\n  localhost:50051 hello.v1.Greeter/SayHello\n\n# health check\ngrpcurl -plaintext localhost:50051 grpc.health.v1.Health/Check\n# { \"status\": \"SERVING\" }",
+   "code_lang": "bash",
+   "takeaways": [
+    "Implement grpc.health.v1.Health for probes and load balancers",
+    "Server reflection lets tools discover methods at runtime",
+    "grpcurl calls methods using JSON from the terminal"
+   ],
+   "pitfalls": [
+    "Exposing reflection on a public endpoint you meant to keep undocumented."
+   ],
+   "quiz": [
+    {
+     "q": "What does grpcurl need to call a method if the server has no reflection?",
+     "options": [
+      "Nothing",
+      "A REST gateway",
+      "Admin metadata",
+      "The .proto files (or a descriptor set)"
+     ],
+     "answer": 3,
+     "explain": "Without reflection, grpcurl needs the schema locally to encode the request."
+    }
+   ],
+   "docs": "https://grpc.io/docs/guides/health-checking/",
+   "requires": [
+    "grpc.metadata-auth",
+    "grpc.status-codes"
+   ]
+  },
+  {
+   "id": "grpc.load-balancing",
+   "name": "Connections, keepalive and load balancing",
+   "module": "production",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Understand why long-lived HTTP/2 connections break naive load balancing, and fix it with L7 proxies or client-side balancing.",
+   "why": "Unbalanced gRPC traffic is one of the most common production surprises.",
+   "body": "A gRPC client opens one HTTP/2 connection and multiplexes every call over it. That is efficient, but it breaks **connection-level (L4) load balancing**: a TCP load balancer picks a backend once per connection, so all calls from a client stick to one server, and newly scaled-up pods receive nothing.\n\nTwo ways to balance per call:\n\n- **Proxy (L7) load balancing**: Envoy, Linkerd, Istio, NGINX or a cloud L7 load balancer terminates HTTP/2 and spreads individual calls across backends. Simple for clients, costs a hop.\n- **Client-side load balancing**: the client resolves several addresses (e.g. a Kubernetes headless service via `dns:///my-svc:50051`) and the channel's policy spreads calls. Set `round_robin` through the service config; the default `pick_first` uses just one address. xDS-based clients get endpoints and policies from a control plane, proxyless.\n\nConnections also die silently (NAT timeouts, idle proxies). **Keepalive** sends HTTP/2 PINGs to detect that: `grpc.keepalive_time_ms` and `grpc.keepalive_timeout_ms` channel options. Servers enforce a minimum ping interval and will close connections from clients that ping too often (`too_many_pings`), so coordinate the settings.\n\nServers can also set `grpc.max_connection_age_ms` so clients periodically reconnect and rediscover new backends.",
+   "code": "import * as grpc from \"@grpc/grpc-js\";\nimport * as protoLoader from \"@grpc/proto-loader\";\nconst { hello } = grpc.loadPackageDefinition(protoLoader.loadSync(\"hello.proto\"));\n\n// Client-side round robin over every address DNS returns\nconst client = new hello.v1.Greeter(\n  \"dns:///greeter.default.svc.cluster.local:50051\", // headless service\n  grpc.credentials.createInsecure(),\n  {\n    \"grpc.service_config\": JSON.stringify({ loadBalancingConfig: [{ round_robin: {} }] }),\n    \"grpc.keepalive_time_ms\": 30_000,     // ping after 30 s idle\n    \"grpc.keepalive_timeout_ms\": 10_000,  // drop if no ack in 10 s\n  },\n);\n\n// Server: make clients reconnect every 5 minutes to rebalance\nconst server = new grpc.Server({\n  \"grpc.max_connection_age_ms\": 5 * 60_000,\n  \"grpc.keepalive_permit_without_calls\": 1,\n});\nconsole.log(typeof client.SayHello, typeof server.addService); // function function",
+   "code_lang": "javascript",
+   "takeaways": [
+    "One long-lived HTTP/2 connection defeats L4 load balancers",
+    "Balance per call with an L7 proxy or client-side round_robin",
+    "Keepalive pings detect dead connections; match server limits",
+    "max_connection_age forces periodic rebalancing"
+   ],
+   "pitfalls": [
+    "Putting gRPC behind a plain TCP load balancer and wondering why one pod gets all the traffic."
+   ],
+   "quiz": [
+    {
+     "q": "Why do new pods get no traffic behind an L4 load balancer?",
+     "options": [
+      "gRPC disables DNS",
+      "Existing clients keep their single long-lived connections",
+      "HTTP/2 is unsupported",
+      "Health checks fail"
+     ],
+     "answer": 1,
+     "explain": "L4 balancing happens once per connection, and gRPC reuses connections for all calls."
+    }
+   ],
+   "docs": "https://grpc.io/docs/guides/keepalive/",
+   "requires": [
+    "grpc.deadlines-cancellation",
+    "grpc.metadata-auth"
+   ]
+  },
+  {
+   "id": "grpc.web-and-gateways",
+   "name": "gRPC-Web, Connect and REST gateways",
+   "module": "production",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Reach gRPC services from browsers and REST clients using gRPC-Web, the Connect protocol or HTTP/JSON transcoding.",
+   "why": "Most products need the same API in browsers and for third parties, not just between services.",
+   "body": "Browsers cannot control HTTP/2 framing or read trailers from `fetch`, so they cannot speak native gRPC. Options:\n\n- **gRPC-Web**: a variant protocol that browsers can use, translated to gRPC by a proxy (Envoy has a built-in filter) or supported directly by some servers. It supports unary and server-streaming calls, not client or bidirectional streaming.\n- **Connect** (connectrpc.com): a protocol and set of libraries from Buf. Connect servers speak gRPC, gRPC-Web and the Connect protocol, a simple HTTP POST with JSON or binary bodies that you can even call with curl. Generated TypeScript clients work in browsers without a proxy.\n- **HTTP/JSON transcoding**: annotate methods with `google.api.http` options (`get: \"/v1/users/{id}\"`) and let **grpc-gateway** (Go), Envoy's transcoder or cloud API gateways expose a REST API that maps onto the gRPC service. You can also generate OpenAPI from the same annotations.\n\nProtobuf has a canonical **JSON mapping**: lowerCamelCase field names, 64-bit integers as strings, enums as names, `Timestamp` as RFC 3339 strings. Gateways and tools rely on it, so learn its rules.\n\nChoose based on consumers: Connect for your own web and mobile apps, transcoding for public REST APIs, gRPC-Web when an Envoy-based stack is already in place.",
+   "code": "syntax = \"proto3\";\npackage users.v1;\n\nimport \"google/api/annotations.proto\";\n\nservice UserService {\n  rpc GetUser(GetUserRequest) returns (User) {\n    option (google.api.http) = { get: \"/v1/users/{id}\" };\n  }\n  rpc CreateUser(CreateUserRequest) returns (User) {\n    option (google.api.http) = { post: \"/v1/users\" body: \"user\" };\n  }\n}\n\nmessage GetUserRequest { string id = 1; }\nmessage CreateUserRequest { User user = 1; }\nmessage User { string id = 1; string display_name = 2; int64 karma = 3; }\n\n// GET /v1/users/42 via a transcoding gateway returns canonical JSON:\n// { \"id\": \"42\", \"displayName\": \"Ann\", \"karma\": \"1200\" }  <- int64 as string",
+   "code_lang": "protobuf",
+   "takeaways": [
+    "Browsers need gRPC-Web or Connect, not native gRPC",
+    "Connect servers speak gRPC, gRPC-Web and a simple HTTP protocol",
+    "`google.api.http` annotations drive REST transcoding",
+    "Proto JSON: camelCase names, int64 as strings"
+   ],
+   "pitfalls": [
+    "Expecting client-streaming or bidirectional calls to work over gRPC-Web."
+   ],
+   "quiz": [
+    {
+     "q": "Why does proto's JSON mapping encode int64 values as strings?",
+     "options": [
+      "To save space",
+      "JSON has no numbers",
+      "JavaScript numbers cannot represent all 64-bit integers exactly",
+      "For sorting"
+     ],
+     "answer": 2,
+     "explain": "Values beyond 2^53 would lose precision as JSON numbers in JavaScript."
+    }
+   ],
+   "docs": "https://grpc.io/docs/platforms/web/",
+   "requires": [
+    "grpc.streaming-rpcs",
+    "grpc.protobuf-evolution"
+   ]
+  },
+  {
+   "id": "grpc.wire-format",
+   "name": "Wire format: protobuf bytes and HTTP/2 frames",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Decode protobuf tags, varints and length-delimited fields, and see how gRPC frames messages, headers and trailers on HTTP/2.",
+   "why": "Knowing the bytes explains compatibility rules, size limits and proxy behaviour.",
+   "body": "**Protobuf encoding** is a sequence of key-value records. Each key is a varint `(field_number << 3) | wire_type`. Wire types: 0 = VARINT (ints, bools, enums), 1 = I64 (fixed64, double), 2 = LEN (strings, bytes, nested messages, packed repeated), 5 = I32.\n\n- **Varints** use 7 bits per byte with a continuation bit, so 1 takes one byte and 300 takes two (`AC 02`). Negative `int32`/`int64` always take 10 bytes; `sint32`/`sint64` use **ZigZag** encoding to keep small negatives small.\n- Field numbers up to 15 fit in a one-byte key with the wire type.\n- Unknown fields can be skipped because the wire type says how long they are. That is the basis of forward compatibility.\n- Repeated scalars are packed into one LEN record in proto3. A later value for a non-repeated field overwrites an earlier one, so concatenating two messages merges them.\n\n**gRPC on HTTP/2**: a call is one HTTP/2 stream. The request starts with headers (`:method POST`, `:path /pkg.Service/Method`, `content-type: application/grpc`, `te: trailers`, optional `grpc-timeout`). Each message is a **length-prefixed frame**: 1 byte compression flag, 4 bytes big-endian length, then the protobuf bytes. The response ends with **trailers** carrying `grpc-status` and `grpc-message`, which is why a proxy that drops trailers breaks gRPC.\n\nDefault maximum receive message size is 4 MB in most implementations; large payloads belong in streams or object storage.",
+   "code": "// Hand-encode HelloRequest { name: \"Ann\" } and frame it like gRPC does\nconst name = Buffer.from(\"Ann\", \"utf8\");\nconst key = (1 << 3) | 2;                          // field 1, wire type 2 (LEN)\nconst msg = Buffer.concat([Buffer.from([key, name.length]), name]);\nconsole.log(msg.toString(\"hex\"));                  // 0a03416e6e\n\nconst frame = Buffer.alloc(5 + msg.length);\nframe.writeUInt8(0, 0);                            // not compressed\nframe.writeUInt32BE(msg.length, 1);                // 4-byte length\nmsg.copy(frame, 5);\nconsole.log(frame.toString(\"hex\"));                // 00000000050a03416e6e\n\n// varint of 300: 7 bits per byte, low group first\nconst varint = (n) => { const out = []; do { let b = n & 0x7f; n >>>= 7; if (n) b |= 0x80; out.push(b); } while (n); return Buffer.from(out); };\nconsole.log(varint(300).toString(\"hex\"));          // ac02",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Key = (field_number << 3) | wire_type, encoded as a varint",
+    "Use sint types for negative numbers (ZigZag)",
+    "gRPC frames: 1-byte flag + 4-byte length + message",
+    "Status travels in HTTP/2 trailers"
+   ],
+   "pitfalls": [
+    "Proxies or CDNs that strip HTTP trailers, making every call look like an error."
+   ],
+   "quiz": [
+    {
+     "q": "Why can old code skip a field it does not know?",
+     "options": [
+      "Field names are on the wire",
+      "Unknown fields are always varints",
+      "The server strips them",
+      "The wire type tells the decoder how many bytes to skip"
+     ],
+     "answer": 3,
+     "explain": "The wire type in each key determines the length, so the record can be skipped safely."
+    }
+   ],
+   "docs": "https://protobuf.dev/programming-guides/encoding/",
+   "requires": [
+    "grpc.protobuf-evolution",
+    "grpc.streaming-rpcs"
+   ]
+  },
+  {
+   "id": "grpc.retries-service-config",
+   "name": "Retries, hedging and service config",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Configure transparent retries, retry policies and hedging through service config, and keep retries from overloading a system.",
+   "why": "Well-tuned retries hide transient failures; badly tuned ones cause outages.",
+   "body": "gRPC distinguishes two kinds of retry:\n\n- **Transparent retries**: when the library knows the request never reached the server application (e.g. the stream was refused), it retries automatically. Always safe.\n- **Configured retries**: a **retry policy** in the **service config** for specific methods: `maxAttempts`, `initialBackoff`, `maxBackoff`, `backoffMultiplier` and `retryableStatusCodes` (usually just `UNAVAILABLE`). Only retry idempotent methods.\n\n**Hedging** is the aggressive cousin: send the same request to several backends after `hedgingDelay` without waiting for failure, and use the first response. It cuts tail latency for idempotent reads at the cost of extra load. A method can have a retry policy or a hedging policy, not both.\n\nSafety valves:\n\n- **Retry throttling** (`retryThrottling` with `maxTokens` and `tokenRatio`) stops retries when failure rates rise, preventing retry storms.\n- The call **deadline** bounds all attempts together.\n- Servers can push back with `grpc-retry-pushback-ms` metadata.\n\nThe service config can come from the client (`grpc.service_config` channel option) or from the name resolver (DNS TXT records or xDS), letting operators tune policies without redeploying clients. It also sets per-method timeouts (`timeout`), `waitForReady` and load-balancing policy.",
+   "code": "// Service config JSON, passed as the grpc.service_config channel option\nconst serviceConfig = {\n  loadBalancingConfig: [{ round_robin: {} }],\n  methodConfig: [\n    {\n      name: [{ service: \"hello.v1.Greeter\", method: \"SayHello\" }],\n      timeout: \"0.5s\",                // default deadline per call\n      retryPolicy: {\n        maxAttempts: 4,\n        initialBackoff: \"0.1s\",\n        maxBackoff: \"1s\",\n        backoffMultiplier: 2,\n        retryableStatusCodes: [\"UNAVAILABLE\"],\n      },\n    },\n  ],\n  retryThrottling: { maxTokens: 10, tokenRatio: 0.1 },\n};\nconst options = { \"grpc.service_config\": JSON.stringify(serviceConfig) };\nconsole.log(Object.keys(options)); // [ 'grpc.service_config' ]\n// new hello.v1.Greeter(target, credentials, options)",
+   "code_lang": "javascript",
+   "takeaways": [
+    "Transparent retries are automatic and always safe",
+    "Retry policies belong in service config, for idempotent methods only",
+    "Hedging trades extra load for lower tail latency",
+    "Retry throttling prevents retry storms"
+   ],
+   "pitfalls": [
+    "Retrying non-idempotent methods like `ChargeCard` on UNAVAILABLE, causing duplicate charges."
+   ],
+   "quiz": [
+    {
+     "q": "What does retryThrottling protect against?",
+     "options": [
+      "Retry storms that amplify load during an outage",
+      "Slow DNS",
+      "Large messages",
+      "TLS renegotiation"
+     ],
+     "answer": 0,
+     "explain": "When failures rise, the token bucket empties and retries stop, sparing an already struggling backend."
+    }
+   ],
+   "docs": "https://grpc.io/docs/guides/retry/",
+   "requires": [
+    "grpc.load-balancing",
+    "grpc.interceptors"
+   ]
+  },
+  {
+   "id": "grpc.flow-control-performance",
+   "name": "Flow control and performance tuning",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Tune HTTP/2 flow control, message sizes, compression and concurrency limits, and measure before changing defaults.",
+   "why": "Throughput problems in gRPC usually come from windows, limits and connection usage, not CPU.",
+   "body": "HTTP/2 **flow control** stops a fast sender from overwhelming a slow receiver: each stream and each connection has a **window** of bytes the peer may send before receiving a WINDOW_UPDATE. The C++, Go and Java implementations use **BDP probing** (bandwidth-delay product estimation with PINGs) to grow windows automatically on high-latency, high-bandwidth links. When a streaming consumer stops reading, the window fills and the sender's `write()` reports backpressure: this is how gRPC streaming is flow-controlled end to end.\n\nOther levers, in rough order of usefulness:\n\n- **Reuse channels.** Create channels once; each new one costs DNS, TCP and TLS handshakes.\n- **Concurrent stream limits.** Servers advertise `MAX_CONCURRENT_STREAMS` (often 100). Under heavy load a single connection queues calls; use several channels (a channel pool) or client-side balancing across many backends.\n- **Message size.** The default 4 MB receive limit (`grpc.max_receive_message_length`) exists for a reason; prefer streaming chunks to raising it.\n- **Compression** (`gzip`) trades CPU for bandwidth; worthwhile on large, repetitive payloads over slow links, wasteful on small messages in a data centre.\n- **Serialization cost**: in Node, dynamic proto-loader objects are convenient but slower than generated code; large `bytes` fields avoid copying when kept as Buffers.\n\nMeasure with ghz or the gRPC benchmark tools, watch p99 latency rather than averages, and change one setting at a time.",
+   "code": "import * as grpc from \"@grpc/grpc-js\";\n\n// Channel options for a high-throughput internal client\nconst options = {\n  \"grpc.max_receive_message_length\": 8 * 1024 * 1024, // 8 MB instead of 4 MB\n  \"grpc.max_send_message_length\": 8 * 1024 * 1024,\n  \"grpc.default_compression_algorithm\": 2,             // 2 = gzip\n  \"grpc.keepalive_time_ms\": 60_000,\n};\n\n// Server side: cap concurrent streams per connection\nconst server = new grpc.Server({ \"grpc.max_concurrent_streams\": 200 });\nconsole.log(Object.keys(options).length, typeof server.bindAsync); // 4 function\n\n// Load test from a shell (ghz):\n// ghz --insecure --proto hello.proto --call hello.v1.Greeter.SayHello \\\n//     -d '{\"name\":\"Ann\"}' -c 50 -n 20000 localhost:50051",
+   "code_lang": "javascript",
+   "takeaways": [
+    "HTTP/2 windows give end-to-end backpressure; BDP probing grows them",
+    "MAX_CONCURRENT_STREAMS can queue calls on one connection",
+    "Stream large payloads instead of raising message limits",
+    "Compress only when bandwidth, not CPU, is the bottleneck"
+   ],
+   "pitfalls": [
+    "Raising max message size to hundreds of MB instead of streaming, causing memory spikes."
+   ],
+   "quiz": [
+    {
+     "q": "A busy client sends thousands of concurrent calls over one channel and sees queuing. A likely cause?",
+     "options": [
+      "Protobuf is too slow",
+      "The server's MAX_CONCURRENT_STREAMS limit per connection",
+      "TLS is disabled",
+      "Deadlines are too long"
+     ],
+     "answer": 1,
+     "explain": "Once the stream limit is reached, extra calls wait for a free stream on that connection."
+    }
+   ],
+   "docs": "https://grpc.io/docs/guides/performance/",
+   "requires": [
+    "grpc.wire-format"
+   ]
+  }
+ ]
+}

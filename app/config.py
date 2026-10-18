@@ -51,3 +51,10 @@ DEFAULT_DEPTH = _int("DEFAULT_DEPTH", 20)
 MAX_NODES = _int("MAX_NODES", 500)
 DEFAULT_NODES = _int("DEFAULT_NODES", 200)
 SEARCH_LIMIT = _int("SEARCH_LIMIT", 20)
+
+# Sign-in: the Firebase project whose ID tokens we accept (its project id, e.g.
+# "topolearn-gcloud"). Without it, every signed-in endpoint answers 503.
+FIREBASE_PROJECT_ID = os.environ.get("FIREBASE_PROJECT_ID", "").strip()
+
+# Who may review problem reports: comma-separated emails, signed in with a verified address.
+ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}

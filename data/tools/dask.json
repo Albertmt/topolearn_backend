@@ -1,0 +1,626 @@
+{
+ "tool": {
+  "id": "dask",
+  "name": "Dask",
+  "category": "library",
+  "tagline": "Scale pandas, NumPy and plain Python to many cores and clusters",
+  "description": "Dask parallelizes Python analytics: it splits pandas DataFrames and NumPy arrays into many partitions or chunks, builds a lazy task graph, and runs it on all cores of a laptop or on a cluster of hundreds of machines. Its APIs mirror pandas and NumPy, and dask.delayed and futures parallelize arbitrary Python code. Learn it when your data or computation outgrows one core or one machine's memory but you want to stay in the PyData ecosystem.",
+  "icon": "dk",
+  "color": "#C0560E",
+  "official_docs": "https://docs.dask.org/en/stable/",
+  "version": "2026.x",
+  "aliases": [
+   "dask dataframe",
+   "dask distributed",
+   "dask array"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 2
+   },
+   {
+    "tool": "pandas",
+    "level": 1
+   },
+   {
+    "tool": "numpy",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Lazy collections and computing"
+  },
+  {
+   "id": "dataframe",
+   "name": "Dask DataFrame"
+  },
+  {
+   "id": "custom",
+   "name": "Arrays, delayed and futures"
+  },
+  {
+   "id": "distributed",
+   "name": "Distributed scheduling"
+  },
+  {
+   "id": "internals",
+   "name": "Graphs and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "dask.why-dask",
+   "name": "Lazy collections, partitions and compute()",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "See how Dask splits data into partitions, builds a lazy task graph, and runs it in parallel when you call compute().",
+   "why": "Every Dask API follows this model, so understanding it explains both Dask's power and its surprises.",
+   "body": "Dask scales familiar tools by splitting the work into many small pieces:\n\n- A **Dask DataFrame** is a collection of pandas DataFrames, called **partitions**, split along the rows.\n- A **Dask Array** is a grid of NumPy arrays called **chunks**.\n- **dask.delayed** and **futures** wrap arbitrary Python functions.\n\nOperations are **lazy**. `df.x.sum()` doesn't compute anything; it records tasks in a **task graph**: sum each partition, then combine the partial sums. Calling `.compute()` hands the graph to a **scheduler**, which runs independent tasks in parallel on threads, processes or a cluster and returns a normal pandas or NumPy result.\n\nThis gives two benefits: **parallelism** (many cores work at once) and **out-of-core** processing (only a few partitions need to be in memory at a time, so data can exceed RAM).\n\nRules of thumb:\n\n- Call `compute()` once at the end, not after every step. Computing several results together, as in `dask.compute(a, b)`, shares the work they have in common.\n- The result of `compute()` must fit in memory. Reduce first (aggregate, filter), or write results to files.\n- If your data fits comfortably in memory and pandas is fast enough, plain pandas is simpler. Dask pays off when data or compute time grow.",
+   "code": "import dask\nimport dask.dataframe as dd\nimport pandas as pd\n\npdf = pd.DataFrame({\"x\": range(10), \"y\": [1.0] * 10})\ndf = dd.from_pandas(pdf, npartitions=3)     # 3 pandas pieces\n\nprint(df.npartitions)                      # 3\ntotal = df.x.sum()                         # lazy: nothing computed yet\nprint(type(total).__name__)                # Scalar\nprint(total.compute())                     # 45\n\nmean_x, max_y = dask.compute(df.x.mean(), df.y.max())   # one shared pass\nprint(mean_x, max_y)                       # 4.5 1.0",
+   "code_lang": "python",
+   "takeaways": [
+    "Dask collections are many pandas or NumPy pieces plus a lazy task graph",
+    "`compute()` runs the graph in parallel and returns in-memory results",
+    "Compute once, and compute related results together with `dask.compute`"
+   ],
+   "pitfalls": [
+    "Calling `.compute()` on a huge un-reduced DataFrame and running out of memory."
+   ],
+   "quiz": [
+    {
+     "q": "What does df.amount.mean() return for a Dask DataFrame df?",
+     "options": [
+      "A lazy Dask Scalar you must compute()",
+      "A float",
+      "A pandas Series",
+      "A NumPy array"
+     ],
+     "answer": 0,
+     "explain": "Dask operations are lazy and return Dask objects until compute() is called."
+    }
+   ],
+   "docs": "https://docs.dask.org/en/stable/10-minutes-to-dask.html",
+   "requires": [
+    "pandas.dataframe",
+    "python.functions"
+   ]
+  },
+  {
+   "id": "dask.dataframe-basics",
+   "name": "Reading data into Dask DataFrames",
+   "module": "dataframe",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Create Dask DataFrames with read_parquet, read_csv and from_pandas, and inspect them with head, dtypes and npartitions.",
+   "why": "Loading data the right way decides partition sizes and types, which drive everything that follows.",
+   "body": "Dask DataFrames are usually created straight from files, so that each partition is loaded by a separate task:\n\n- `dd.read_parquet(\"data/*.parquet\", columns=[...], filters=[...])` is the best option. Parquet has types and statistics, and Dask reads only the requested columns and row groups.\n- `dd.read_csv(\"logs/2026-*.csv\", dtype={\"zip\": \"string\"}, blocksize=\"64MB\")` reads many files or splits big ones into blocks.\n- `dd.from_pandas(pdf, npartitions=8)` splits an in-memory DataFrame, mainly for tests and demos.\n- `dd.from_delayed` and `dd.from_map` build one partition per call of a function you write.\n\nPaths can be local or remote (`s3://`, `gs://`, `abfs://`) with `storage_options=` for credentials.\n\nInspect cheaply: `df.columns`, `df.dtypes` and `df.npartitions` are known without reading data, because Dask keeps a small empty pandas frame called **meta** describing the result. `df.head()` reads only the first partition. `len(df)` and `df.describe()` scan everything, so they can take a while.\n\nCSV pitfall: Dask infers dtypes from a sample at the start of the file. If later rows contain text in a \"numeric\" column, a task fails mid-computation. Pass explicit `dtype=` for such columns, or better, convert once to Parquet with `df.to_parquet(\"out/\")`.",
+   "code": "import dask.dataframe as dd\nimport pandas as pd\n\nfor i in range(3):   # three daily files\n    pd.DataFrame({\"day\": [i] * 4, \"zip\": [\"02134\", \"10001\", \"02134\", \"94105\"],\n                  \"amount\": [1.0, 2.0, 3.0, 4.0]}).to_csv(f\"sales-{i}.csv\", index=False)\n\ndf = dd.read_csv(\"sales-*.csv\", dtype={\"zip\": \"string\"})\nprint(df.npartitions)                    # 3  (one per small file)\nprint(df.dtypes.astype(str).to_dict())\n# {'day': 'int64', 'zip': 'string', 'amount': 'float64'}\nprint(df.head(2)[\"zip\"].tolist())        # ['02134', '10001']\n\ndf.to_parquet(\"sales_pq/\")               # convert once, read fast later\npq = dd.read_parquet(\"sales_pq/\", columns=[\"zip\", \"amount\"])\nprint(pq.amount.sum().compute())         # 30.0",
+   "code_lang": "python",
+   "takeaways": [
+    "Prefer `read_parquet` with `columns=` and `filters=`",
+    "`meta` gives columns and dtypes without reading data; `head()` reads one partition",
+    "Give CSV columns explicit dtypes, or convert to Parquet once"
+   ],
+   "pitfalls": [
+    "Relying on dtype inference for messy CSVs and getting failures halfway through a job."
+   ],
+   "quiz": [
+    {
+     "q": "Why does df.head() return quickly on a 500 GB Dask DataFrame while len(df) does not?",
+     "options": [
+      "head() uses a cache",
+      "head() only reads the first partition; len() must count rows in every partition",
+      "len() is not supported",
+      "head() reads metadata only"
+     ],
+     "answer": 1,
+     "explain": "head computes just the first partition, whereas len needs a pass over all of them."
+    }
+   ],
+   "docs": "https://docs.dask.org/en/stable/dataframe-create.html",
+   "requires": [
+    "dask.why-dask",
+    "pandas.reading-files"
+   ]
+  },
+  {
+   "id": "dask.dataframe-ops",
+   "name": "pandas-style operations in Dask",
+   "module": "dataframe",
+   "level": 1,
+   "minutes": 15,
+   "summary": "Filter, assign, group and aggregate Dask DataFrames with the pandas API, and know which parts of pandas behave differently.",
+   "why": "Most Dask DataFrame code is ordinary pandas code; knowing the gaps keeps you from slow or failing patterns.",
+   "body": "Dask DataFrame implements a large part of the pandas API, and each call becomes per-partition pandas work plus a combine step.\n\nWorks just like pandas: column selection, boolean filtering `df[df.amount > 0]`, `assign`, arithmetic, `.str` and `.dt` accessors, `fillna`, `astype`, `isin`, and `value_counts`.\n\n**Reductions and groupby** are done as a tree: aggregate inside each partition, then combine. `df.groupby(\"shop\").amount.sum()`, `.agg({\"amount\": [\"sum\", \"mean\"], \"id\": \"count\"})` and `nunique` all work and are efficient when the number of groups is small. With many groups, pass `split_out=n` to spread the result over several partitions. `groupby().apply(f)` needs all rows of a group in one place, so it triggers a full shuffle; prefer built-in aggregations.\n\nDifferences from pandas:\n\n- There is no positional `iloc` row access, and `loc` needs a sorted index (see the partitions lesson).\n- Some operations need to know the output dtypes up front, so they take a `meta=` argument.\n- `sort_values` and `set_index` are expensive global operations.\n- Results are lazy; call `compute()`, or `persist()` to keep intermediate data in memory.",
+   "code": "import dask.dataframe as dd\nimport pandas as pd\n\npdf = pd.DataFrame({\n    \"shop\": [\"A\", \"B\", \"A\", \"C\", \"B\", \"A\"],\n    \"amount\": [10.0, -2.0, 5.0, 7.0, 3.0, None],\n    \"items\": [2, 1, 1, 3, 1, 2],\n})\ndf = dd.from_pandas(pdf, npartitions=2)\n\nclean = df[df.amount > 0].assign(per_item=lambda d: d.amount / d[\"items\"])\nsummary = clean.groupby(\"shop\").agg(\n    total=(\"amount\", \"sum\"), n=(\"amount\", \"count\"), avg_item=(\"per_item\", \"mean\")\n)\nprint(summary.compute().sort_index())\n#       total  n  avg_item\n# shop\n# A      15.0  2      5.00\n# B       3.0  1      3.00\n# C       7.0  1      2.33...\nprint(df.shop.value_counts().compute().sort_index().tolist())   # [3, 2, 1]",
+   "code_lang": "python",
+   "takeaways": [
+    "Most pandas column, filter and aggregation code runs unchanged",
+    "Groupby aggregations are tree reductions; `groupby().apply` shuffles",
+    "Avoid row-positional access; it doesn't fit the partitioned model"
+   ],
+   "pitfalls": [
+    "Using `groupby().apply` with a custom function where a built-in aggregation would do."
+   ],
+   "quiz": [
+    {
+     "q": "Why is df.groupby('k').x.sum() cheap in Dask but df.groupby('k').apply(f) expensive?",
+     "options": [
+      "apply is not supported",
+      "sum uses the GPU",
+      "sum can be done per partition then combined; apply needs each group's rows together, forcing a shuffle",
+      "apply runs in a single thread"
+     ],
+     "answer": 2,
+     "explain": "Associative aggregations reduce in a tree, while apply requires moving all of a group's rows to one partition."
+    }
+   ],
+   "docs": "https://docs.dask.org/en/stable/dataframe-groupby.html",
+   "requires": [
+    "dask.dataframe-basics",
+    "pandas.groupby"
+   ]
+  },
+  {
+   "id": "dask.delayed",
+   "name": "dask.delayed: parallelize custom code",
+   "module": "custom",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Wrap ordinary Python functions with dask.delayed to build task graphs from loops and run them in parallel.",
+   "why": "Many real workloads aren't DataFrames or arrays, and delayed parallelizes them with a few decorators.",
+   "body": "`dask.delayed` turns a function call into a lazy task. Calling a delayed function doesn't run it; it returns a **Delayed** object representing the future result. Passing Delayed objects into other delayed calls links them into a graph.\n\n```python\n@dask.delayed\ndef load(path): ...\nparts = [load(p) for p in paths]\ntotal = dask.delayed(sum)(parts)\ntotal.compute()\n```\n\nDask sees that all `load` calls are independent and runs them in parallel, then runs `sum` when they're done. You write a normal-looking loop; Dask extracts the parallelism.\n\nGuidelines:\n\n- Decorate the **function**, then call it; don't call the function and wrap the result (`delayed(f(x))` runs `f` immediately).\n- Each task should do a meaningful amount of work, at least around 100 ms. Each task costs scheduler overhead, so a million tiny tasks is slower than a plain loop.\n- Don't mutate inputs or rely on global state inside tasks; they may run in another process or machine.\n- Collect everything with one `dask.compute(*objs)` call.\n- Use `total.visualize()` to draw the graph (requires graphviz).\n\nDelayed objects support attribute access, indexing and arithmetic, which become tasks too. Combine them with collections via `dd.from_delayed` or `da.from_delayed`.",
+   "code": "import threading\nimport time\nimport dask\n\nthreads_used = set()\n\n@dask.delayed\ndef fetch(i):\n    threads_used.add(threading.current_thread().name)\n    time.sleep(0.5)            # pretend this is slow I/O\n    return i * 10\n\n@dask.delayed\ndef combine(values):\n    return sum(values)\n\nparts = [fetch(i) for i in range(4)]   # nothing runs yet\ntotal = combine(parts)\n\nprint(total.compute(num_workers=4))    # 60\nprint(len(threads_used) > 1)\n# True: the fetches ran on several threads at the same time",
+   "code_lang": "python",
+   "takeaways": [
+    "`@dask.delayed` makes calls lazy; passing Delayed objects builds a graph",
+    "Independent calls run in parallel when you `compute()`",
+    "Keep tasks coarse (around 100 ms or more) and side-effect free"
+   ],
+   "pitfalls": [
+    "Writing `delayed(f(x))`, which calls f immediately instead of `delayed(f)(x)`."
+   ],
+   "quiz": [
+    {
+     "q": "What is wrong with dask.delayed(process(data))?",
+     "options": [
+      "Nothing",
+      "It runs process twice",
+      "It raises a TypeError",
+      "process(data) runs immediately in the main thread; only its result is wrapped"
+     ],
+     "answer": 3,
+     "explain": "Wrap the function first, delayed(process)(data), so the call itself becomes a task."
+    }
+   ],
+   "docs": "https://docs.dask.org/en/stable/delayed.html",
+   "requires": [
+    "dask.why-dask",
+    "python.first-class-functions"
+   ]
+  },
+  {
+   "id": "dask.schedulers",
+   "name": "Schedulers and the distributed Client",
+   "module": "distributed",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Choose between the threaded, process and distributed schedulers, start a local Client, and open the dashboard.",
+   "why": "The scheduler decides how fast your code runs and whether you can see what it is doing.",
+   "body": "The same Dask graph can run on different **schedulers**:\n\n- **threads** (default for DataFrame and Array): a thread pool in your process. Great when the work releases the GIL, as most NumPy and pandas operations do.\n- **processes**: a process pool. Helps pure-Python code that holds the GIL, but every result is pickled between processes.\n- **synchronous**: runs everything in one thread, for debugging with `pdb` and readable tracebacks.\n- **distributed**: the `dask.distributed` scheduler, which runs on one machine or a cluster.\n\nPick a local one with `dask.config.set(scheduler=\"threads\")` or `compute(scheduler=\"processes\")`.\n\nFor anything non-trivial, use the distributed scheduler even on a laptop: `from dask.distributed import Client; client = Client()` starts a `LocalCluster` of worker processes and makes it the default. You get smarter scheduling, spilling to disk under memory pressure, futures, and the **dashboard** (link in `client.dashboard_link`, usually port 8787), which shows a live task stream, worker memory and progress. It is the single best tool for understanding performance.\n\n`Client(n_workers=4, threads_per_worker=2, memory_limit=\"4GB\")` controls resources. In scripts, create the Client under `if __name__ == \"__main__\":` because worker processes import your module. Close it with `client.close()` or a `with` block.",
+   "code": "import dask\nimport dask.array as da\nfrom dask.distributed import Client, LocalCluster\n\nif __name__ == \"__main__\":   # worker processes re-import this module\n    x = da.ones((4000, 4000), chunks=(1000, 1000))\n    with dask.config.set(scheduler=\"synchronous\"):   # debugging mode\n        print(x.sum().compute())                    # 16000000.0\n    print(x.sum().compute(scheduler=\"processes\"))   # 16000000.0\n\n    with LocalCluster(n_workers=2, threads_per_worker=2, processes=True) as cluster, \\\n         Client(cluster) as client:\n        print(len(client.scheduler_info()[\"workers\"]))   # 2\n        print(\"dashboard at\", client.dashboard_link)    # http://127.0.0.1:8787/status\n        print((x + x.T).mean().compute())               # 2.0  (runs on the cluster)",
+   "code_lang": "python",
+   "takeaways": [
+    "Threads by default; processes for GIL-bound Python; synchronous for debugging",
+    "`Client()` gives you the distributed scheduler and dashboard locally",
+    "Guard Client creation with `if __name__ == \"__main__\":` in scripts"
+   ],
+   "pitfalls": [
+    "Using the process scheduler for NumPy-heavy work and paying pickling costs for nothing."
+   ],
+   "quiz": [
+    {
+     "q": "Your Dask code fails deep inside a task and you want to step through it with pdb. Which scheduler?",
+     "options": [
+      "synchronous",
+      "distributed",
+      "processes",
+      "threads with 64 workers"
+     ],
+     "answer": 0,
+     "explain": "The synchronous scheduler runs everything in the main thread, so debuggers and tracebacks work normally."
+    }
+   ],
+   "docs": "https://docs.dask.org/en/stable/scheduling.html",
+   "requires": [
+    "dask.why-dask",
+    "python.threads-processes"
+   ]
+  },
+  {
+   "id": "dask.partitions-index",
+   "name": "Partitions, divisions and the index",
+   "module": "dataframe",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Size partitions sensibly, use repartition, and understand divisions and set_index for fast loc lookups and joins.",
+   "why": "Partition size and a sorted index are the two biggest levers on Dask DataFrame performance.",
+   "body": "**Partition size** matters. Each partition is a pandas DataFrame processed by one task. Too small (a few MB) and the scheduler overhead dominates; too large (several GB) and workers run out of memory. Aim for roughly **100 MB to 1 GB in memory** per partition. Fix bad sizes with `df.repartition(partition_size=\"200MB\")` or `npartitions=n`, especially after a filter that removed most rows.\n\n**Divisions** are Dask's knowledge of the index: if the index is sorted across partitions, `df.divisions` holds the boundary values, such as `(0, 1000, 2000, 2999)`, meaning partition 0 holds index 0 to 999 and so on. When divisions are known, Dask can:\n\n- answer `df.loc[\"2026-03-01\":\"2026-03-07\"]` by reading only the relevant partitions,\n- join or align on the index without shuffling,\n- do time-series resampling and rolling windows across partition boundaries.\n\nIf divisions are unknown, `df.known_divisions` is False and divisions are all None.\n\n`df.set_index(\"timestamp\")` sorts the whole dataset by that column and computes divisions. It's an expensive shuffle, so do it once and save the result to Parquet; with `calculate_divisions=True`, `read_parquet` can recover divisions from the file statistics later. If the data is already sorted, pass `sorted=True` to skip the shuffle.",
+   "code": "import dask.dataframe as dd\nimport pandas as pd\n\npdf = pd.DataFrame({\"ts\": pd.date_range(\"2026-01-01\", periods=60, freq=\"D\"),\n                    \"v\": range(60)})\ndf = dd.from_pandas(pdf, npartitions=6, sort=False)\nprint(df.known_divisions)                 # False\n\nindexed = df.set_index(\"ts\", sorted=True)   # already sorted: no shuffle\nprint(indexed.known_divisions, indexed.npartitions)   # True 6\nprint(indexed.divisions[:2])\n# (Timestamp('2026-01-01 00:00:00'), Timestamp('2026-01-11 00:00:00'))\n\nweek = indexed.loc[\"2026-02-01\":\"2026-02-07\"]   # touches only 1 partition\nprint(week.npartitions, week.v.sum().compute())      # 1 238\n\nsmall = indexed[indexed.v % 10 == 0].repartition(npartitions=1)\nprint(small.npartitions)                  # 1",
+   "code_lang": "python",
+   "takeaways": [
+    "Target roughly 100 MB to 1 GB of memory per partition",
+    "Known divisions enable fast `loc`, index joins and time-series ops",
+    "`set_index` is a costly shuffle: do it once and save to Parquet"
+   ],
+   "pitfalls": [
+    "Keeping thousands of tiny partitions after a selective filter instead of repartitioning."
+   ],
+   "quiz": [
+    {
+     "q": "What do known divisions let Dask do with df.loc['2026-03-01':'2026-03-02']?",
+     "options": [
+      "Nothing special",
+      "Read only the partitions whose index range overlaps the slice",
+      "Load the data into a GPU",
+      "Avoid computing the result"
+     ],
+     "answer": 1,
+     "explain": "Divisions are the partition boundaries, so Dask can skip partitions outside the requested range."
+    }
+   ],
+   "docs": "https://docs.dask.org/en/stable/dataframe-design.html",
+   "requires": [
+    "dask.dataframe-ops",
+    "pandas.loc-iloc"
+   ]
+  },
+  {
+   "id": "dask.map-partitions",
+   "name": "map_partitions and meta",
+   "module": "dataframe",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Run any pandas function on every partition with map_partitions, and give Dask the output schema with meta.",
+   "why": "When the pandas API in Dask doesn't cover what you need, map_partitions lets you use any pandas code in parallel.",
+   "body": "`df.map_partitions(func, *args, **kwargs)` calls `func` on each partition (a pandas DataFrame) and stitches the results back into a Dask DataFrame or Series. Anything you can do to a pandas DataFrame, including calling other libraries, can run in parallel this way.\n\nDask must know the output's columns and dtypes **before** running anything, so it builds an empty sample called **meta**. By default it calls your function on a tiny fake partition to guess. That can fail or guess wrong, for example when the function relies on real values. Pass `meta=` explicitly:\n\n- for a DataFrame: `meta={\"a\": \"int64\", \"b\": \"string\"}` or an empty `pd.DataFrame` with the right dtypes\n- for a Series: `meta=(\"name\", \"float64\")`\n\nImportant: the function sees **one partition at a time**. It must not need rows from other partitions. A per-row cleanup, a vectorized feature or a model's `predict` are fine. A global rank, a running total across partitions, or a groupby that assumes all of a group is present are not, unless the data is partitioned by that key.\n\n`map_partitions` is also a good place for setup cost you want once per partition rather than per row, like compiling a regex or loading a small lookup table. Related helpers: `df.map_overlap` for windows that need neighbouring rows, and `df.partitions[i]` to select single partitions.",
+   "code": "import dask.dataframe as dd\nimport pandas as pd\n\npdf = pd.DataFrame({\"email\": [\"Ana@X.com\", \"ben@y.org\", \"cy@X.COM\", \"di@z.net\"],\n                    \"spend\": [10.0, 20.0, 30.0, 40.0]})\ndf = dd.from_pandas(pdf, npartitions=2)\n\ndef enrich(part: pd.DataFrame) -> pd.DataFrame:\n    domain = part[\"email\"].str.split(\"@\").str[1].str.lower()\n    return part.assign(domain=domain, vip=part[\"spend\"] > 25)\n\nmeta = {\"email\": \"string\", \"spend\": \"float64\", \"domain\": \"string\", \"vip\": \"bool\"}\nout = df.map_partitions(enrich, meta=meta)\nprint(out.dtypes.astype(str).to_dict())\n# {'email': 'string', 'spend': 'float64', 'domain': 'string', 'vip': 'bool'}\nprint(out.groupby(\"domain\").spend.sum().compute().sort_index().to_dict())\n# {'x.com': 40.0, 'y.org': 20.0, 'z.net': 40.0}",
+   "code_lang": "python",
+   "takeaways": [
+    "`map_partitions` runs any pandas function on each partition in parallel",
+    "Pass `meta=` so Dask knows the output schema without guessing",
+    "The function must not need rows from other partitions"
+   ],
+   "pitfalls": [
+    "Computing a global statistic (like a rank or z-score) inside map_partitions, which only sees one partition."
+   ],
+   "quiz": [
+    {
+     "q": "Inside map_partitions you compute x - x.mean(). What mean is used?",
+     "options": [
+      "The global mean of x",
+      "Zero",
+      "The mean of x within each partition",
+      "It raises because mean is not allowed"
+     ],
+     "answer": 2,
+     "explain": "The function only sees one partition, so x.mean() is that partition's mean, which is usually a bug."
+    }
+   ],
+   "docs": "https://docs.dask.org/en/stable/dataframe-best-practices.html",
+   "requires": [
+    "dask.dataframe-ops",
+    "pandas.apply-vs-vectorized"
+   ]
+  },
+  {
+   "id": "dask.dask-array",
+   "name": "Dask Array: chunked NumPy",
+   "module": "custom",
+   "level": 2,
+   "minutes": 15,
+   "summary": "Build chunked arrays with dask.array, choose chunk sizes, and run NumPy-style math, reductions and rechunking.",
+   "why": "Dask Array scales NumPy code to arrays larger than memory, such as climate, imaging and simulation data.",
+   "body": "A **Dask Array** is a grid of NumPy arrays (chunks) behind a NumPy-like API: `da.ones`, `da.random.default_rng().random(...)`, `da.from_array(numpy_or_h5py_or_zarr, chunks=...)`, `da.from_zarr(path)`. Element-wise math, broadcasting, slicing, reductions with `axis=`, `matmul`, many `linalg` functions and NumPy ufuncs all work, lazily.\n\n**Chunks** are the key design choice:\n\n- Aim for chunks of roughly 100 MB (for example `(4000, 4000)` float64 is 128 MB). `chunks=\"auto\"` picks a size for you.\n- Align chunks with how you access data: for per-row time series, chunk so each row's data is in few chunks.\n- Operations that combine many chunks, such as transposes and some reductions, cost communication.\n\n`x.rechunk((1000, -1))` changes chunking (`-1` means the whole axis in one chunk); it's expensive, so do it once and deliberately. `x.chunks` and `x.chunksize` show the layout, and printing an array in Jupyter shows a helpful diagram.\n\nFor custom per-chunk logic, use `x.map_blocks(func)`, or `da.map_overlap` when each chunk needs a border of neighbouring values, as in image filters and stencils. Store big results with `x.to_zarr(path)` rather than computing them into memory.",
+   "code": "import dask.array as da\nimport numpy as np\n\nrng = da.random.default_rng(42)\nx = rng.random((20_000, 5_000), chunks=(5_000, 5_000))   # ~800 MB, 4 chunks\nprint(x.numblocks, x.chunksize)       # (4, 1) (5000, 5000)\nprint(round(x.nbytes / 1e6))          # 800\n\ncol_means = x.mean(axis=0)            # lazy reduction\ncentered = x - col_means              # broadcasting, still lazy\nprint(np.allclose(centered.mean(axis=0).compute(), 0, atol=1e-9))   # True\n\ny = x.rechunk((1_000, -1))            # whole rows per chunk\nprint(y.numblocks)                    # (20, 1)\n\nz = x[:4, :3].map_blocks(np.round, 2)\nprint(z.compute().shape)              # (4, 3)",
+   "code_lang": "python",
+   "takeaways": [
+    "A Dask Array is a grid of NumPy chunks with the NumPy API",
+    "Chunks of around 100 MB aligned with your access pattern work best",
+    "`rechunk` is expensive; `map_blocks` and `map_overlap` run custom code per chunk"
+   ],
+   "pitfalls": [
+    "Creating millions of tiny chunks (e.g. chunks=(10, 10)) and drowning in scheduler overhead."
+   ],
+   "quiz": [
+    {
+     "q": "A 40 GB array is chunked as (100, 100) float64 chunks (80 KB each). What is the likely problem?",
+     "options": [
+      "Chunks are too large for memory",
+      "Nothing; small chunks are always faster",
+      "NumPy can't handle 100x100 arrays",
+      "There are millions of tasks, so scheduling overhead dominates"
+     ],
+     "answer": 3,
+     "explain": "Tiny chunks create a huge graph; each task costs scheduler time far exceeding its compute."
+    }
+   ],
+   "docs": "https://docs.dask.org/en/stable/array-chunks.html",
+   "requires": [
+    "dask.why-dask",
+    "numpy.broadcasting",
+    "numpy.aggregations-axis"
+   ]
+  },
+  {
+   "id": "dask.futures",
+   "name": "Futures: real-time task submission",
+   "module": "distributed",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Submit work immediately with client.submit and client.map, gather results, and react as tasks finish with as_completed.",
+   "why": "Futures handle dynamic workloads where the next task depends on earlier results, which lazy graphs can't express.",
+   "body": "With the distributed Client you can run tasks **eagerly**. `future = client.submit(func, *args)` starts work on the cluster right away and returns a **Future**: a handle to a result that lives on a worker. `client.map(func, iterable)` submits many at once.\n\n- `future.result()` waits and brings the value back; `client.gather(futures)` does it for a list.\n- Passing a Future as an argument to another `submit` sends the dependency without bringing data back to your machine. The worker fetches it directly.\n- `as_completed(futures)` yields futures in finishing order, so you can process results or submit follow-up work as soon as each is done. That suits searches, simulations and pipelines with dynamic structure.\n- `future.status`, `future.exception()` and `future.cancel()` manage state and errors.\n\nResults stay in worker memory as long as a Future referencing them exists in your session. Delete references, or let them go out of scope, to free cluster memory.\n\n`client.scatter(big_object)` sends data to the workers once, returning a Future you pass to many tasks instead of shipping the object with every call.\n\nBy default `submit` assumes **pure** functions: identical calls get the same key and are computed once. Pass `pure=False` for functions with randomness or side effects.",
+   "code": "import time\nfrom dask.distributed import Client, as_completed\n\ndef slow_square(x):\n    time.sleep(0.2 * (5 - x))      # later inputs finish sooner\n    return x * x\n\nif __name__ == \"__main__\":\n    with Client(n_workers=1, threads_per_worker=5, processes=False) as client:\n        futures = client.map(slow_square, range(5))\n        order = [f.result() for f in as_completed(futures)]\n        print(order)                       # [16, 9, 4, 1, 0]  (finish order)\n\n        total = client.submit(sum, futures)    # depends on futures, data stays on workers\n        print(total.result())              # 30\n\n        lookup = client.scatter({\"a\": 1, \"b\": 2})\n        print(client.submit(lambda d, k: d[k], lookup, \"b\").result())   # 2",
+   "code_lang": "python",
+   "takeaways": [
+    "`submit`/`map` start work immediately and return Futures",
+    "Pass Futures into other tasks to chain work without moving data home",
+    "`as_completed` handles results as they finish; delete Futures to free memory"
+   ],
+   "pitfalls": [
+    "Holding millions of Futures in a list, keeping all their results pinned in cluster memory."
+   ],
+   "quiz": [
+    {
+     "q": "You pass future_a as an argument to client.submit(f, future_a). Where does f get the data?",
+     "options": [
+      "The worker running f fetches it from the worker that holds it",
+      "Your laptop downloads it then re-uploads it",
+      "f receives the Future object and must call result()",
+      "It is recomputed"
+     ],
+     "answer": 0,
+     "explain": "Dask resolves Future arguments on the cluster, moving data directly between workers."
+    }
+   ],
+   "docs": "https://docs.dask.org/en/stable/futures.html",
+   "requires": [
+    "dask.delayed",
+    "dask.schedulers"
+   ]
+  },
+  {
+   "id": "dask.joins-shuffles",
+   "name": "Joins and shuffles at scale",
+   "module": "dataframe",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Understand when merges, sorts and set_index trigger an all-to-all shuffle, and use broadcast and index-aligned joins to avoid it.",
+   "why": "Shuffles are the most expensive thing a distributed DataFrame does, and choosing the right join strategy can change runtimes by orders of magnitude.",
+   "body": "Many-partition data has to be **shuffled** whenever rows with the same key must end up in the same partition: merges on non-index columns, `set_index`, `sort_values`, `groupby().apply`, `drop_duplicates` with `split_out`. A shuffle moves almost every row across the network, and its cost grows with data size.\n\nDask chooses a merge strategy based on what it knows:\n\n- **Broadcast join**: if one side is small (or has one partition), it is sent to every partition of the big side. No shuffle. You can force it with `broadcast=True` or by `repartition(npartitions=1)` on the small table.\n- **Index-aligned join**: if both sides are indexed with known, compatible divisions, partitions are joined pairwise. No shuffle.\n- **Hash shuffle join**: otherwise both sides are partitioned by hashing the key, then joined partition by partition.\n\nOn a distributed cluster the default shuffle method is **P2P** (peer-to-peer), which streams data between workers with bounded memory and spills to disk. It is far more robust than the older task-based shuffle, which creates a number of tasks quadratic in the partitions.\n\nTactics: filter and select columns before merging, merge small dimension tables by broadcast, pre-partition data by a frequently joined key and save it with divisions, and avoid `sort_values` unless you really need global order.",
+   "code": "import dask.dataframe as dd\nimport pandas as pd\n\nfacts = dd.from_pandas(pd.DataFrame({\n    \"uid\": [1, 2, 3, 1, 2, 3] * 5, \"amount\": range(30)}), npartitions=5)\nusers = pd.DataFrame({\"uid\": [1, 2, 3], \"country\": [\"NO\", \"SE\", \"NO\"]})\n\n# Small pandas side: Dask broadcasts it to every partition (no shuffle)\njoined = facts.merge(dd.from_pandas(users, npartitions=1), on=\"uid\", how=\"left\")\nprint(joined.npartitions)                       # 5\nprint(joined.groupby(\"country\").amount.sum().compute().sort_index().to_dict())\n# {'NO': 290, 'SE': 145}\n\n# Two large sides on a non-index key: hash shuffle\nother = dd.from_pandas(pd.DataFrame({\"uid\": [1, 2, 3] * 4, \"score\": range(12)}),\n                       npartitions=4)\nbig = facts.merge(other, on=\"uid\", shuffle_method=\"tasks\")\nprint(len(big))                                 # 120",
+   "code_lang": "python",
+   "takeaways": [
+    "Merges on non-index keys, `set_index` and sorts trigger shuffles",
+    "Broadcast small tables; align on known divisions to avoid shuffling",
+    "The P2P shuffle on distributed is the robust default"
+   ],
+   "pitfalls": [
+    "Merging two huge tables before filtering them, shuffling data you'll throw away."
+   ],
+   "quiz": [
+    {
+     "q": "Which merge avoids a shuffle?",
+     "options": [
+      "Two 1 TB tables on a non-index column",
+      "A 1 TB table with a 5 MB single-partition table",
+      "Any merge with how='outer'",
+      "A merge after sort_values"
+     ],
+     "answer": 1,
+     "explain": "A small single-partition table can be broadcast to every partition of the large one."
+    }
+   ],
+   "docs": "https://docs.dask.org/en/stable/dataframe-joins.html",
+   "requires": [
+    "dask.partitions-index",
+    "pandas.merge-join"
+   ]
+  },
+  {
+   "id": "dask.persist-memory",
+   "name": "persist, memory and the dashboard",
+   "module": "distributed",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Keep reused data in cluster memory with persist, understand worker memory limits and spilling, and diagnose problems in the dashboard.",
+   "why": "Memory pressure causes most failed Dask jobs, and persist plus the dashboard are how you control and see it.",
+   "body": "`df = df.persist()` starts computing a collection on the cluster and keeps the results in **worker memory**, returning a collection backed by those in-memory pieces. Use it when you will reuse the same intermediate data many times, as in interactive exploration or iterative algorithms. `compute()` instead brings the result back to your process.\n\nPersist only what fits comfortably in total cluster memory. Each worker has a `memory_limit` and reacts in stages: around 60% of the limit it **spills** data to disk, around 70% it also spills based on process memory, at 80% it **pauses** accepting new tasks, and at 95% the nanny **restarts** the worker, losing its data. Frequent spilling or restarts mean partitions are too large, too much is persisted, or a task creates huge intermediate objects.\n\nThe **dashboard** (`client.dashboard_link`) shows this live:\n\n- Task stream: what runs where; red is communication, white is idle time.\n- Worker memory bars: grey for managed memory, orange for spilled, with the limit marked.\n- Progress, graph and profile pages to find slow functions.\n\n`client.get_task_stream()` and `performance_report(filename=...)` save diagnostics for later. Use `wait(df)` to block until a persist finishes, and `del df` or `client.cancel(df)` to release memory.",
+   "code": "import dask.dataframe as dd\nimport pandas as pd\nfrom dask.distributed import Client, performance_report, wait\n\nif __name__ == \"__main__\":\n    with Client(n_workers=2, threads_per_worker=1, memory_limit=\"1GB\") as client:\n        pdf = pd.DataFrame({\"k\": [i % 10 for i in range(100_000)],\n                            \"v\": range(100_000)})\n        df = dd.from_pandas(pdf, npartitions=10)\n\n        clean = df[df.v % 3 == 0].persist()   # computed once, kept on workers\n        wait(clean)\n        mem = client.run(lambda dask_worker: len(dask_worker.data))\n        print(sum(mem.values()))              # 10  (partitions held in memory)\n\n        with performance_report(filename=\"report.html\"):   # needs bokeh\n            print(clean.v.sum().compute())    # 1666683333\n            print(clean.groupby(\"k\").v.mean().compute().round().iloc[0])   # 49995.0\n        del clean                             # frees worker memory",
+   "code_lang": "python",
+   "takeaways": [
+    "`persist()` keeps computed partitions on workers for reuse",
+    "Workers spill, pause and restart at rising memory thresholds",
+    "The dashboard's task stream and memory bars explain most problems"
+   ],
+   "pitfalls": [
+    "Persisting a dataset larger than cluster memory and causing constant spilling or worker restarts."
+   ],
+   "quiz": [
+    {
+     "q": "What's the difference between compute() and persist() on a Dask DataFrame?",
+     "options": [
+      "None",
+      "persist writes to disk",
+      "compute returns a pandas result to the client; persist keeps a Dask collection whose partitions live in worker memory",
+      "compute is lazy"
+     ],
+     "answer": 2,
+     "explain": "persist materializes data on the cluster for reuse, while compute brings a concrete result home."
+    }
+   ],
+   "docs": "https://distributed.dask.org/en/stable/worker-memory.html",
+   "requires": [
+    "dask.futures",
+    "dask.partitions-index"
+   ]
+  },
+  {
+   "id": "dask.query-optimizer",
+   "name": "The DataFrame query optimizer",
+   "module": "dataframe",
+   "level": 3,
+   "minutes": 12,
+   "summary": "See how Dask DataFrame's expression system optimizes queries with projection and predicate pushdown, and inspect plans with pprint and explain.",
+   "why": "Knowing what the optimizer can and can't rewrite helps you write code that it speeds up automatically.",
+   "body": "Since 2025, Dask DataFrame is built on an **expression system** (originally the `dask-expr` project). Each operation creates an expression node, and before running, Dask optimizes the whole expression tree, much like a database query planner.\n\nOptimizations include:\n\n- **Projection pushdown**: only columns used later are read from Parquet or kept through the pipeline.\n- **Predicate pushdown**: filters move toward the reader, where Parquet filters can skip row groups.\n- **Partition squashing**: after `read_parquet`, small files may be combined into fewer partitions automatically.\n- **Merge and groupby planning**: choosing broadcast joins or tree reductions from size estimates.\n- **Blockwise fusion**: chains of per-partition operations are fused into single tasks, which shrinks the graph.\n\nInspect it with `df.pprint()` for the raw expression tree, `df.optimize().pprint()` for the optimized one (`fuse=False` keeps fused steps readable), and `df.explain()` for a graphviz drawing (needs the `graphviz` package).\n\nThe optimizer works best when it can see the whole query. Opaque steps limit it: `map_partitions` with arbitrary functions, calling `compute()` midway, or converting to delayed objects. Write the query fully, then compute once.",
+   "code": "import dask.dataframe as dd\nimport pandas as pd\n\npd.DataFrame({\"a\": range(10), \"b\": list(\"xyxyxyxyxy\"),\n              \"c\": [1.0] * 10, \"d\": [\"unused\"] * 10}).to_parquet(\"t.parquet\")\n\ndf = dd.read_parquet(\"t.parquet\")\nq = df[df.a > 2].groupby(\"b\").a.sum()\n\nq.optimize(fuse=False).pprint()\n# Sum(TreeReduce): split_every=8\n#   Sum(GroupByChunk): chunk=<methodcaller: sum> columns=a ...\n#     Filter:\n#       FusedIO:\n#         ReadParquetFSSpec: path='t.parquet' columns=['a', 'b']\n#       GT: right=2\n#         Projection: columns='a'\n#           FusedIO:\n#             ReadParquetFSSpec: path='t.parquet' columns=['a', 'b']\nprint(q.compute().sort_index().to_dict())   # {'x': 18, 'y': 24}",
+   "code_lang": "python",
+   "takeaways": [
+    "Dask DataFrame optimizes the whole expression before running",
+    "Projection and predicate pushdown reach into `read_parquet`",
+    "`optimize().pprint()` shows the plan; opaque steps limit optimization"
+   ],
+   "pitfalls": [
+    "Calling `.compute()` or `.persist()` mid-pipeline 'to be safe', which splits the query the optimizer could have improved."
+   ],
+   "quiz": [
+    {
+     "q": "In the plan above, why does the Parquet read list only columns ['a', 'b']?",
+     "options": [
+      "The file has only two columns",
+      "groupby drops other columns after reading",
+      "Dask reads columns alphabetically",
+      "Projection pushdown determined that c and d are never used"
+     ],
+     "answer": 3,
+     "explain": "The optimizer pushes the needed column set into the reader, so c and d are never loaded."
+    }
+   ],
+   "docs": "https://docs.dask.org/en/stable/dataframe-optimizer.html",
+   "requires": [
+    "dask.map-partitions",
+    "dask.partitions-index"
+   ]
+  },
+  {
+   "id": "dask.task-graphs",
+   "name": "Task graphs and the graph spec",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Look under the hood: Dask's task graph specification, keys, low-level graphs from collections, fusion and ordering.",
+   "why": "Understanding graphs lets you debug slowness, build custom collections and reason about memory use.",
+   "body": "Every Dask collection ultimately produces a **task graph**: a mapping from **keys** to **tasks**. Keys are strings or tuples like `(\"sum-chunk-abc123\", 0)`, typically one per partition. A task is a function call whose arguments may reference other keys. In recent versions tasks are `Task` objects from `dask._task_spec`; in older code they were tuples like `(func, arg1, arg2)`. You can still pass a plain dict graph to a scheduler: `dask.get(graph, key)`.\n\nCollections implement the **Dask collection protocol**: `__dask_graph__()`, `__dask_keys__()`, `__dask_optimize__` and `__dask_postcompute__`. That's what lets `dask.compute` handle DataFrames, Arrays, Delayed objects and third-party collections like xarray together and merge their graphs.\n\nBefore running, the scheduler side does more work:\n\n- **Culling** drops tasks not needed for the requested keys.\n- **Fusion** merges linear chains of tasks into one to cut overhead.\n- **Ordering** (`dask.order`) picks an execution order that releases intermediate results early, which keeps memory low. Many memory blowups are ordering problems on unusual graph shapes.\n\nGraph size is a cost in itself: building, sending and scheduling a graph of 10 million tasks takes noticeable time on the client and scheduler. Reduce task counts with bigger partitions, fused operations and fewer intermediate steps.",
+   "code": "import dask\nfrom operator import add, mul\n\n# A raw graph: keys map to values or tasks (func, *args); args can be keys\ngraph = {\n    \"x\": 1,\n    \"y\": 2,\n    \"sum\": (add, \"x\", \"y\"),\n    \"out\": (mul, \"sum\", 10),\n    \"unused\": (mul, \"y\", 100),\n}\nprint(dask.get(graph, \"out\"))           # 30  (synchronous scheduler)\n\n@dask.delayed\ndef inc(i):\n    return i + 1\n\ntotal = dask.delayed(sum)([inc(i) for i in range(3)])\ng = dict(total.__dask_graph__())\nprint(len(g))                           # 4  (three inc tasks + sum)\nprint(total.key.startswith(\"sum-\"))     # True\nprint(dask.compute(total)[0])           # 6",
+   "code_lang": "python",
+   "takeaways": [
+    "A graph maps keys to values or tasks that reference other keys",
+    "Collections expose graphs via the `__dask_graph__` protocol",
+    "Culling, fusion and ordering shape speed and memory"
+   ],
+   "pitfalls": [
+    "Ignoring graph size: tens of millions of tasks can take minutes before any computation starts."
+   ],
+   "quiz": [
+    {
+     "q": "Why does Dask's task ordering matter for memory?",
+     "options": [
+      "Running tasks in an order that consumes intermediate results soon lets them be freed early",
+      "It doesn't; only the number of workers does",
+      "Ordering decides which columns are read",
+      "It sets the chunk size"
+     ],
+     "answer": 0,
+     "explain": "A good order finishes dependents quickly so intermediate data can be released instead of piling up."
+    }
+   ],
+   "docs": "https://docs.dask.org/en/stable/graphs.html",
+   "requires": [
+    "dask.delayed",
+    "dask.query-optimizer"
+   ]
+  },
+  {
+   "id": "dask.distributed-internals",
+   "name": "Inside the distributed scheduler",
+   "module": "internals",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Understand the scheduler, workers and client, task states, data locality, work stealing and resilience in dask.distributed.",
+   "why": "When a large job stalls or behaves oddly, you need a mental model of how the scheduler places tasks and moves data.",
+   "body": "A distributed cluster has three roles. The **client** in your Python session builds graphs and sends them over. The **scheduler** is a single process that tracks every task's state and decides where it runs. **Workers** execute tasks in thread pools, store results in memory, and fetch dependencies directly from each other. A **nanny** process supervises each worker and restarts it if it dies or exceeds memory limits.\n\nEach task moves through states on the scheduler: `released`, `waiting` (dependencies not ready), `processing` (assigned to a worker), `memory` (result held by a worker), or `erred`. Workers keep their own matching state machine.\n\nPlacement decisions:\n\n- **Data locality**: a task usually goes to the worker that already holds most of its input bytes, estimating transfer cost from data sizes and bandwidth.\n- **Queuing**: root tasks such as file reads are queued on the scheduler and released as workers free up, which keeps memory steady.\n- **Work stealing**: idle workers take queued tasks from busy ones when the compute saved exceeds the transfer cost.\n\n**Resilience**: if a worker dies, the scheduler recomputes lost results from the graph's lineage. A task that keeps killing workers is marked as erred after `allowed-failures` attempts (default 3), with a `KilledWorker` error. The usual cause is a task that uses too much memory.\n\nThe scheduler is single-threaded Python, so very high task rates, roughly thousands per second, make it the bottleneck. That's another reason to keep tasks coarse.",
+   "code": "from dask.distributed import Client\n\nif __name__ == \"__main__\":\n    with Client(n_workers=2, threads_per_worker=1, processes=False) as client:\n        a = client.submit(lambda: list(range(100_000)), key=\"big-data\")\n        b = client.submit(len, a, key=\"needs-big\")     # goes where 'big-data' lives\n        print(b.result())                               # 100000\n\n        who_has = client.who_has([a, b])\n        print(who_has[\"big-data\"] == who_has[\"needs-big\"])   # True (data locality)\n\n        info = client.scheduler_info()\n        print(len(info[\"workers\"]))                     # 2\n        states = client.run_on_scheduler(\n            lambda dask_scheduler: dask_scheduler.tasks[\"needs-big\"].state)\n        print(states)                                   # memory",
+   "code_lang": "python",
+   "takeaways": [
+    "Client builds graphs; one scheduler tracks task states; workers compute and share data",
+    "Placement favours data locality, with queuing and work stealing to balance load",
+    "Lost results are recomputed; repeated crashes surface as KilledWorker"
+   ],
+   "pitfalls": [
+    "Seeing KilledWorker and retrying blindly instead of shrinking the memory used per task."
+   ],
+   "quiz": [
+    {
+     "q": "A task repeatedly causes its worker to be restarted. What does the scheduler eventually report?",
+     "options": [
+      "TimeoutError",
+      "KilledWorker after the allowed number of failures",
+      "MemoryError on the client",
+      "Nothing; it retries forever"
+     ],
+     "answer": 1,
+     "explain": "After distributed.scheduler.allowed-failures retries, the task errs with KilledWorker."
+    }
+   ],
+   "docs": "https://distributed.dask.org/en/stable/scheduling-state.html",
+   "requires": [
+    "dask.persist-memory",
+    "dask.task-graphs"
+   ]
+  },
+  {
+   "id": "dask.deployment",
+   "name": "Deploying and scaling clusters",
+   "module": "internals",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Run Dask beyond a laptop on Kubernetes, HPC job queues, cloud VMs or managed services, with adaptive scaling and consistent environments.",
+   "why": "Production Dask means picking a deployment that fits your infrastructure and keeping software identical on every machine.",
+   "body": "Every deployment starts the same three pieces, a scheduler, workers and your client, through different **cluster managers** with a shared interface: `cluster.scale(n)`, `cluster.adapt(minimum=, maximum=)`, `Client(cluster)`.\n\n- **Local**: `LocalCluster`, one machine.\n- **Kubernetes**: the `dask-kubernetes` operator with `KubeCluster`, or a Helm chart for a long-lived cluster.\n- **HPC**: `dask-jobqueue` (`SLURMCluster`, `PBSCluster`, etc.) submits workers as batch jobs.\n- **Cloud VMs**: `dask-cloudprovider` (EC2, Azure, GCP) or managed services such as Coiled.\n- **Manual**: run `dask scheduler` and `dask worker tcp://host:8786` yourself, or use `SSHCluster`.\n\n**Adaptive scaling** (`cluster.adapt(minimum=2, maximum=50)`) lets the scheduler request more workers when work is queued and release idle ones, saving money on bursty workloads.\n\nPitfalls specific to clusters:\n\n- **Environment drift**: the client, scheduler and workers must have the same versions of Dask, Python and every library your tasks use. `client.get_versions(check=True)` checks. Use one container image or environment everywhere.\n- **Data access**: workers read files themselves, so paths must be reachable from every worker (object storage or shared filesystems, not your laptop's disk).\n- **Security**: enable TLS and avoid exposing the scheduler port publicly.\n- **Configuration** lives in YAML or environment variables like `DASK_DISTRIBUTED__WORKER__MEMORY__TARGET`, readable via `dask.config.get`.",
+   "code": "import dask\nfrom dask.distributed import Client, LocalCluster\n\nif __name__ == \"__main__\":\n    # The same pattern works with KubeCluster, SLURMCluster, EC2Cluster...\n    with LocalCluster(n_workers=0, threads_per_worker=1, processes=False) as cluster:\n        cluster.adapt(minimum=1, maximum=3)   # scale with demand\n        with Client(cluster) as client:\n            client.wait_for_workers(1)\n            print(len(client.scheduler_info()[\"workers\"]) >= 1)    # True\n            versions = client.get_versions(check=True)   # raises on mismatch\n            print(\"python\" in versions[\"scheduler\"][\"host\"])     # True\n\n            print(dask.config.get(\"distributed.scheduler.allowed-failures\"))   # 3\n            print(client.submit(sum, [1, 2, 3]).result())    # 6",
+   "code_lang": "python",
+   "takeaways": [
+    "Cluster managers share one interface: scale, adapt, Client(cluster)",
+    "Keep identical environments on client, scheduler and workers",
+    "Workers read data themselves: use storage every worker can reach"
+   ],
+   "pitfalls": [
+    "Reading local file paths that exist only on the client machine from remote workers."
+   ],
+   "quiz": [
+    {
+     "q": "Tasks fail on workers with ModuleNotFoundError, but the same code works on your laptop. Most likely cause?",
+     "options": [
+      "The scheduler is out of memory",
+      "Adaptive scaling is enabled",
+      "The worker environment doesn't match the client's installed libraries",
+      "The dashboard is closed"
+     ],
+     "answer": 2,
+     "explain": "Workers import the functions' dependencies themselves, so their environment must include the same packages."
+    }
+   ],
+   "docs": "https://docs.dask.org/en/stable/deploying.html",
+   "requires": [
+    "dask.distributed-internals"
+   ]
+  }
+ ]
+}

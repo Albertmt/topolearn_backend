@@ -1,0 +1,613 @@
+{
+ "tool": {
+  "id": "jenkins",
+  "name": "Jenkins",
+  "category": "tool",
+  "tagline": "Self-hosted automation server for CI/CD pipelines written as code",
+  "description": "Jenkins is an open-source automation server that builds, tests and deploys software through pipelines defined in a Jenkinsfile. You run it yourself, extend it with more than a thousand plugins and distribute work across agents. It remains one of the most widely deployed CI/CD systems, especially in enterprises with on-premise infrastructure and long-lived build setups.",
+  "icon": "Jk",
+  "color": "#C33C2B",
+  "official_docs": "https://www.jenkins.io/doc/",
+  "version": "2.580 LTS (Java 21/25)",
+  "aliases": [
+   "jenkinsfile",
+   "jenkins pipeline",
+   "jenkins ci"
+  ],
+  "requires": [
+   {
+    "tool": "git",
+    "level": 1
+   },
+   {
+    "tool": "docker",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Jenkins basics"
+  },
+  {
+   "id": "pipelines",
+   "name": "Declarative pipelines"
+  },
+  {
+   "id": "agents",
+   "name": "Agents, branches and credentials"
+  },
+  {
+   "id": "reuse",
+   "name": "Parallelism and reuse"
+  },
+  {
+   "id": "operate",
+   "name": "Operating Jenkins"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "jenkins.what-is",
+   "name": "Controller, agents, jobs and plugins",
+   "module": "basics",
+   "level": 1,
+   "minutes": 6,
+   "summary": "How Jenkins is organised: a controller that schedules jobs, agents that run them, and plugins that add almost every feature.",
+   "why": "Knowing which part does what explains Jenkins's configuration screens, its scaling story and most of its failure modes.",
+   "body": "**Jenkins** is a Java server you host yourself. Its main parts:\n\n- The **controller** runs the web UI, stores configuration and build history in `JENKINS_HOME`, schedules work and talks to agents.\n- **Agents** are machines (VMs, containers, Kubernetes pods) that execute builds. Each agent offers a number of **executors**, slots for concurrent builds. Agents are identified by **labels** such as `linux` or `docker`.\n- **Jobs** (also called items or projects) define what to build. The modern type is a **Pipeline** job defined by a `Jenkinsfile`; older **Freestyle** jobs are configured through web forms and are hard to version.\n- **Builds** are individual runs of a job, numbered #1, #2..., each with a console log, status and stored artifacts.\n- **Plugins** provide nearly everything: Git integration, Pipeline itself, credentials, Docker and Kubernetes agents, notifications. A typical installation has dozens.\n\nA build typically starts from a **trigger**: a webhook from GitHub or GitLab, a cron-like schedule, polling a repository, another job finishing, or a person clicking **Build Now**.\n\nCompared with hosted CI services, Jenkins gives you full control over hardware, network and plugins, at the cost of running, upgrading and securing the server yourself.",
+   "takeaways": [
+    "The controller schedules and stores; agents execute builds on executors",
+    "Pipeline jobs are defined as code in a Jenkinsfile",
+    "Plugins supply most features, including Git and Pipeline"
+   ],
+   "pitfalls": [
+    "Running builds on the controller itself; it should only orchestrate."
+   ],
+   "quiz": [
+    {
+     "q": "What is an executor in Jenkins?",
+     "options": [
+      "A plugin that runs shell commands",
+      "The Jenkins admin account",
+      "A slot on an agent that can run one build at a time",
+      "A stage in a pipeline"
+     ],
+     "answer": 2,
+     "explain": "Each agent has a configurable number of executors; each runs one build (or pipeline branch) at a time."
+    }
+   ],
+   "docs": "https://www.jenkins.io/doc/book/getting-started/",
+   "requires": []
+  },
+  {
+   "id": "jenkins.install",
+   "name": "Installing Jenkins with Docker",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Start a Jenkins LTS controller in Docker with a persistent volume, unlock it and install the suggested plugins.",
+   "why": "A reproducible local Jenkins is the fastest way to learn pipelines and to test changes before touching a shared server.",
+   "body": "Jenkins ships as a WAR file, OS packages and the official Docker image `jenkins/jenkins`. Use the **LTS** (long-term support) line for anything serious: it is released every 12 weeks with backported fixes, while weekly releases get new features first. Current Jenkins LTS requires **Java 21 or 25** (Java 17 support ended with 2.555.1); the image tag `lts-jdk21` bundles Java 21.\n\nEverything Jenkins knows lives in `JENKINS_HOME` (`/var/jenkins_home` in the image): jobs, build history, plugins, credentials. Mount it on a **named volume** so it survives container upgrades, and back it up.\n\nOn first start Jenkins writes a one-time admin password to `secrets/initialAdminPassword` and prints it in the log. Open `http://localhost:8080`, paste it, choose **Install suggested plugins** (Git, Pipeline, credentials and more), then create an admin user.\n\nPorts: `8080` for the web UI, `50000` for inbound agents using the TCP protocol (WebSocket agents can use 8080 instead).\n\nUpgrading is mostly replacing the image tag and restarting, then updating plugins in **Manage Jenkins, Plugins**. Read the LTS upgrade guide first; plugin compatibility is the usual source of trouble.",
+   "code": "docker volume create jenkins_home\ndocker run -d --name jenkins --restart unless-stopped \\\n  -p 8080:8080 -p 50000:50000 \\\n  -v jenkins_home:/var/jenkins_home \\\n  jenkins/jenkins:lts-jdk21\n\n# unlock key for the setup wizard\ndocker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword\n# 3f2a9c... (32 hex characters)\n\ndocker logs -f jenkins     # ... Jenkins is fully up and running",
+   "code_lang": "bash",
+   "takeaways": [
+    "Use the LTS line; Jenkins needs Java 21 or 25",
+    "JENKINS_HOME holds everything: put it on a volume and back it up",
+    "Unlock with initialAdminPassword, then install suggested plugins"
+   ],
+   "pitfalls": [
+    "Running the container without a volume and losing all jobs on the next upgrade."
+   ],
+   "quiz": [
+    {
+     "q": "Why mount a volume at /var/jenkins_home?",
+     "options": [
+      "All jobs, history, plugins and credentials live there and must survive container replacement",
+      "It makes builds faster",
+      "Jenkins refuses to start without it",
+      "It enables the agent port"
+     ],
+     "answer": 0,
+     "explain": "JENKINS_HOME is Jenkins's entire state; without a volume it disappears with the container."
+    }
+   ],
+   "docs": "https://www.jenkins.io/doc/book/installing/docker/",
+   "requires": [
+    "jenkins.what-is",
+    "docker.run"
+   ]
+  },
+  {
+   "id": "jenkins.first-pipeline",
+   "name": "Your first declarative pipeline",
+   "module": "pipelines",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Write a declarative pipeline with agent, stages and steps, and read its stage view and console output.",
+   "why": "Declarative pipeline syntax is how almost all new Jenkins jobs are written.",
+   "body": "A **declarative pipeline** is a structured Groovy DSL. The skeleton is always:\n\n- `pipeline { }`: the root block.\n- `agent`: where to run. `agent any` means any available executor; later you will use labels and containers.\n- `stages { stage('Name') { steps { ... } } }`: named phases shown as columns in the UI.\n- `steps`: the actual work, using **steps** such as `sh` (shell on Unix), `bat` or `powershell` (Windows), `echo`, `git`, `archiveArtifacts` and `junit`.\n\n`sh` fails the stage and the build if the command exits non-zero, and later stages are skipped. Multi-line shell scripts use triple quotes `'''...'''`.\n\nQuoting matters because this is Groovy: in double-quoted strings Groovy interpolates `${...}` **before** the shell sees the text; in single-quoted strings the shell does the expansion. Use single quotes unless you need a Groovy value.\n\nTo try it, create a **Pipeline** job, choose **Pipeline script** and paste the code. The Snippet Generator (**Pipeline Syntax** link on the job) produces correct syntax for any installed step, and **Replay** lets you edit and rerun a build's script without committing, ideal while learning.",
+   "code": "pipeline {\n    agent any\n    stages {\n        stage('Build') {\n            steps {\n                echo \"Building #${env.BUILD_NUMBER}\"   // Groovy interpolation\n                sh '''\n                    mkdir -p out\n                    echo \"built at $(date -u)\" > out/info.txt\n                '''\n            }\n        }\n        stage('Test') {\n            steps {\n                sh 'test -s out/info.txt && echo OK'      // OK\n            }\n        }\n    }\n}",
+   "code_lang": "groovy",
+   "takeaways": [
+    "pipeline > agent + stages > stage > steps",
+    "sh fails the build on a non-zero exit code",
+    "Single quotes: shell expands; double quotes: Groovy interpolates first"
+   ],
+   "pitfalls": [
+    "Using double quotes around shell commands containing $ and getting Groovy errors or wrong values."
+   ],
+   "quiz": [
+    {
+     "q": "In sh \"echo ${HOME}\", who expands ${HOME}?",
+     "options": [
+      "The shell on the agent",
+      "Nobody, it prints literally",
+      "Jenkins credentials binding",
+      "Groovy, before the shell runs"
+     ],
+     "answer": 3,
+     "explain": "In a double-quoted Groovy string, ${...} is interpolated by Groovy first; here it fails or uses a Groovy variable."
+    }
+   ],
+   "docs": "https://www.jenkins.io/doc/book/pipeline/syntax/",
+   "requires": [
+    "jenkins.install"
+   ]
+  },
+  {
+   "id": "jenkins.jenkinsfile-scm",
+   "name": "Jenkinsfile in source control and webhooks",
+   "module": "pipelines",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Store the pipeline as a Jenkinsfile in the repository, use Pipeline from SCM, and trigger builds with webhooks instead of polling.",
+   "why": "Pipeline as code means the build definition is versioned, reviewed and branched with the application.",
+   "body": "Pasting scripts into the job configuration doesn't scale. Instead commit a file named `Jenkinsfile` at the repository root and configure the job's definition as **Pipeline script from SCM**: repository URL, credentials, branch and script path.\n\nAt build time Jenkins fetches the Jenkinsfile from that branch, and declarative pipelines automatically check out the same commit into the workspace (the implicit **Declarative: Checkout SCM** stage), so `sh 'make'` sees your code. In scripted code or custom stages, `checkout scm` does the same explicitly.\n\nHow builds start:\n\n- **Webhooks**: GitHub, GitLab or Bitbucket send an HTTP request to Jenkins on every push (with the corresponding plugin, for example `https://jenkins.example.com/github-webhook/`). Instant and cheap.\n- **Polling**: `pollSCM('H/5 * * * *')` asks the repository for changes every few minutes. Use only when the Git server can't reach Jenkins.\n\nEnvironment variables describe the build: `BUILD_NUMBER`, `BUILD_URL`, `WORKSPACE`, `JOB_NAME`, and with Git `GIT_COMMIT` and `GIT_BRANCH`. Access them as `env.NAME` in Groovy or `$NAME` in `sh`.\n\nChanging the build now means a commit: reviewed in a pull request, tested on a branch and revertable like any code.",
+   "code": "// Jenkinsfile at the repository root\npipeline {\n    agent any\n    triggers {\n        pollSCM('H/5 * * * *')        // only if webhooks are impossible\n    }\n    stages {\n        stage('Info') {\n            steps {\n                sh 'echo \"commit $GIT_COMMIT on $GIT_BRANCH\"'\n                // commit 1a2b3c4d... on origin/main\n                sh 'ls'                // the repository is already checked out\n            }\n        }\n        stage('Build') {\n            steps { sh 'make build' }\n        }\n    }\n}",
+   "code_lang": "groovy",
+   "takeaways": [
+    "Commit a Jenkinsfile and use Pipeline script from SCM",
+    "Declarative pipelines check out the same commit automatically",
+    "Prefer webhooks to polling"
+   ],
+   "pitfalls": [
+    "Polling every minute across hundreds of jobs, overloading both Jenkins and the Git server."
+   ],
+   "quiz": [
+    {
+     "q": "With Pipeline script from SCM, which version of the Jenkinsfile is used for a build?",
+     "options": [
+      "The one stored in Jenkins's job config",
+      "The one in the configured branch of the repository",
+      "Always the default branch",
+      "The newest file across all branches"
+     ],
+     "answer": 1,
+     "explain": "Jenkins reads the Jenkinsfile from the branch it builds, so the pipeline is versioned with the code."
+    }
+   ],
+   "docs": "https://www.jenkins.io/doc/book/pipeline/jenkinsfile/",
+   "requires": [
+    "jenkins.first-pipeline",
+    "git.push-pull"
+   ]
+  },
+  {
+   "id": "jenkins.post-artifacts",
+   "name": "post conditions, test reports and artifacts",
+   "module": "pipelines",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Run steps after stages or the whole build with post, publish JUnit results and archive build artifacts.",
+   "why": "Clean-up, notifications and test reports must happen even when the build fails, and that is exactly what post does.",
+   "body": "A `post` section runs after the pipeline or after a single stage, in blocks chosen by the result:\n\n- `always`: whatever happened.\n- `success`, `failure`, `unstable`, `aborted`: on that result.\n- `changed`, `fixed`, `regression`: compared with the previous build, useful for notifications only when something changes.\n- `cleanup`: last of all, after the other post conditions.\n\nBuild results in Jenkins are **SUCCESS**, **UNSTABLE** (typically: tests failed but the build ran), **FAILURE** and **ABORTED**.\n\nTwo steps belong in almost every pipeline's `post`:\n\n- `junit 'reports/*.xml'` parses JUnit XML test reports, shows trends and failing tests in the UI, and marks the build UNSTABLE when tests fail.\n- `archiveArtifacts artifacts: 'dist/**', fingerprint: true` stores files with the build so people and other jobs can download them.\n\nWorkspaces persist on agents between builds, so leftovers from earlier runs can leak in; `cleanWs()` (Workspace Cleanup plugin) or `deleteDir()` in `post { cleanup { } }` avoids that.\n\nAlso set a **build discarder** (covered with options) so stored artifacts and logs don't fill the controller's disk.",
+   "code": "pipeline {\n    agent any\n    stages {\n        stage('Test') {\n            steps { sh './gradlew test' }\n            post {\n                always { junit 'build/test-results/test/*.xml' }\n            }\n        }\n        stage('Package') {\n            steps { sh './gradlew assemble' }\n        }\n    }\n    post {\n        success { archiveArtifacts artifacts: 'build/libs/*.jar', fingerprint: true }\n        failure { echo \"Build ${env.BUILD_NUMBER} failed: ${env.BUILD_URL}\" }\n        fixed   { echo 'Back to green' }\n        cleanup { deleteDir() }       // wipe the workspace last\n    }\n}",
+   "code_lang": "groovy",
+   "takeaways": [
+    "post blocks: always, success, failure, unstable, changed, fixed, cleanup",
+    "junit publishes test results and marks failures UNSTABLE",
+    "archiveArtifacts keeps build outputs with the build"
+   ],
+   "pitfalls": [
+    "Putting junit inside steps after the test command: if tests fail, the step never runs. Use post { always }."
+   ],
+   "quiz": [
+    {
+     "q": "Tests fail and junit records them, but the build commands all exit 0. What is the build result?",
+     "options": [
+      "SUCCESS",
+      "UNSTABLE",
+      "FAILURE",
+      "ABORTED"
+     ],
+     "answer": 1,
+     "explain": "The junit step marks a build UNSTABLE when it finds failing tests."
+    }
+   ],
+   "docs": "https://www.jenkins.io/doc/book/pipeline/syntax/#post",
+   "requires": [
+    "jenkins.first-pipeline"
+   ]
+  },
+  {
+   "id": "jenkins.environment-credentials",
+   "name": "Environment variables and credentials",
+   "module": "agents",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Define environment variables, store secrets in the Credentials store and bind them safely with credentials() and withCredentials.",
+   "why": "Deploying and publishing need secrets, and Jenkins pipelines leak them easily if you bind or quote them wrong.",
+   "body": "`environment { }` at the pipeline or stage level sets variables for the steps inside it. Values can be strings or helper calls.\n\nSecrets live in the **Credentials** store (Manage Jenkins, Credentials, or a folder's credentials), each with an ID. Types include secret text, username with password, SSH private key and secret file. Two ways to use them:\n\n- In `environment`: `TOKEN = credentials('api-token')`. For username/password credentials Jenkins also defines `NAME_USR` and `NAME_PSW`. For secret files the variable holds a temporary path.\n- The `withCredentials([...]) { }` step binds them only for a block, with bindings like `string`, `usernamePassword`, `file` and `sshUserPrivateKey`.\n\nJenkins masks bound secret values in the console log. The crucial rule: reference secrets with **single quotes** so the shell expands them, `sh 'curl -H \"Authorization: Bearer $TOKEN\" ...'`. With double quotes Groovy interpolates the secret into the command string, where it can appear in process listings and logs; Jenkins warns about this as **insecure interpolation**.\n\nScope credentials narrowly: put them in the folder of the jobs that need them instead of globally, so other teams' pipelines can't read them.",
+   "code": "pipeline {\n    agent any\n    environment {\n        APP = 'shop'\n        REGISTRY = credentials('registry-login')   // also REGISTRY_USR / REGISTRY_PSW\n    }\n    stages {\n        stage('Publish') {\n            steps {\n                // single quotes: the shell expands the secret, not Groovy\n                sh 'echo \"$REGISTRY_PSW\" | docker login -u \"$REGISTRY_USR\" --password-stdin registry.example.com'\n                withCredentials([string(credentialsId: 'slack-token', variable: 'SLACK')]) {\n                    sh 'curl -sf -H \"Authorization: Bearer $SLACK\" https://slack.example/api'\n                }\n                echo \"Published ${APP}\"          // fine: not a secret\n            }\n        }\n    }\n}",
+   "code_lang": "groovy",
+   "takeaways": [
+    "environment {} sets variables; credentials('id') binds a stored secret",
+    "Username/password bindings add _USR and _PSW",
+    "Always reference secrets inside single-quoted sh strings"
+   ],
+   "pitfalls": [
+    "sh \"curl -u $USER:$PASS ...\" with double quotes interpolates secrets in Groovy, exposing them."
+   ],
+   "quiz": [
+    {
+     "q": "Why prefer sh 'deploy --token $TOKEN' over sh \"deploy --token $TOKEN\" for a credential?",
+     "options": [
+      "Single quotes are faster",
+      "Masking only works with double quotes",
+      "Double quotes don't work in sh",
+      "With single quotes the shell expands it, so the secret isn't interpolated into the Groovy string"
+     ],
+     "answer": 3,
+     "explain": "Groovy interpolation embeds the secret in the command text; shell expansion keeps it in the environment."
+    }
+   ],
+   "docs": "https://www.jenkins.io/doc/book/using/using-credentials/",
+   "requires": [
+    "jenkins.jenkinsfile-scm"
+   ]
+  },
+  {
+   "id": "jenkins.agents-docker",
+   "name": "Agents, labels and Docker containers",
+   "module": "agents",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Choose where stages run with agent labels, run steps inside Docker images, and use agent none for per-stage agents.",
+   "why": "Builds need the right OS, tools and isolation, and the agent directive is how you get them.",
+   "body": "The `agent` directive appears at the top of the pipeline or on a stage:\n\n- `agent any`: any executor.\n- `agent { label 'linux && docker' }`: a node whose labels match the expression (`&&`, `||`, `!` allowed).\n- `agent { docker { image 'node:22' } }`: run the steps inside a container on a node with Docker (Docker Pipeline plugin). Jenkins mounts the workspace into the container, so files persist across steps. Add `args` for extra `docker run` flags and `reuseNode true` to stay on the outer node's workspace.\n- `agent { dockerfile true }`: build the image from the repository's Dockerfile first.\n- `agent { kubernetes { yaml ... } }`: a throwaway pod per build (Kubernetes plugin).\n- `agent none`: no global agent; each stage declares its own. Use it when stages need different platforms, or when a stage waits for approval and should not hold an executor.\n\nContainers give every build a clean, versioned toolchain without installing tools on agents: the agent only needs Docker. Pin image tags so a new `latest` doesn't break builds.\n\nAgents connect to the controller either by the controller launching them over SSH, or by the agent connecting inbound (TCP port 50000 or WebSocket). Cloud plugins provision agents on demand and remove them when idle.",
+   "code": "pipeline {\n    agent none\n    stages {\n        stage('Backend') {\n            agent { docker { image 'maven:3.9-eclipse-temurin-21' } }\n            steps { sh 'mvn -B -q verify' }\n        }\n        stage('Frontend') {\n            agent { docker { image 'node:22-alpine'; args '-e CI=true' } }\n            steps { sh 'npm ci && npm test' }\n        }\n        stage('Windows smoke test') {\n            agent { label 'windows' }\n            steps { bat 'run-smoke.cmd' }\n        }\n    }\n}",
+   "code_lang": "groovy",
+   "takeaways": [
+    "agent { label '...' } picks nodes by label expression",
+    "agent { docker { image ... } } runs steps in a pinned container",
+    "agent none + per-stage agents mixes platforms and frees executors"
+   ],
+   "pitfalls": [
+    "Installing every toolchain on every agent instead of using pinned container images."
+   ],
+   "quiz": [
+    {
+     "q": "A pipeline has agent none at the top. What must each stage that runs steps have?",
+     "options": [
+      "Its own agent directive",
+      "Nothing, it inherits any",
+      "A post block",
+      "A label called none"
+     ],
+     "answer": 0,
+     "explain": "With agent none there is no default; stages that execute steps must declare an agent."
+    }
+   ],
+   "docs": "https://www.jenkins.io/doc/book/pipeline/docker/",
+   "requires": [
+    "jenkins.first-pipeline",
+    "docker.images-containers"
+   ]
+  },
+  {
+   "id": "jenkins.options-parameters-triggers",
+   "name": "Options, parameters, triggers and when",
+   "module": "pipelines",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Add timeouts and build retention with options, ask for input with parameters, schedule builds, and run stages conditionally with when.",
+   "why": "These directives turn a basic pipeline into one that is safe to run unattended and adaptable per build.",
+   "body": "**options** configure the whole pipeline (some also work per stage):\n\n- `timeout(time: 30, unit: 'MINUTES')`: abort hung builds.\n- `buildDiscarder(logRotator(numToKeepStr: '30'))`: keep only recent builds and artifacts.\n- `disableConcurrentBuilds()`: queue instead of running two builds of the job at once.\n- `retry(2)`, `skipDefaultCheckout()`, `timestamps()` (Timestamper plugin).\n\n**parameters** define inputs shown on **Build with Parameters**: `string`, `booleanParam`, `choice`, `text`, `password`. Read them as `params.NAME`. Note the first build after adding parameters runs before Jenkins knows about them.\n\n**triggers** start builds automatically: `cron('H 2 * * 1-5')` or `pollSCM(...)`, plus upstream jobs. The `H` symbol hashes the job name into a stable value, spreading jobs across the period instead of all starting at minute 0.\n\n**when** decides whether a stage runs: `branch 'main'`, `tag 'v*'`, `changeRequest()`, `environment name: 'DEPLOY', value: 'true'`, `expression { params.RUN_E2E }`, combined with `allOf`, `anyOf` and `not`. Add `beforeAgent true` so the condition is evaluated before allocating an agent.\n\nThe `input` step pauses for a human decision, such as approving a production deploy; run it outside any agent so it holds no executor.",
+   "code": "pipeline {\n    agent any\n    options {\n        timeout(time: 30, unit: 'MINUTES')\n        buildDiscarder(logRotator(numToKeepStr: '30'))\n        disableConcurrentBuilds()\n    }\n    parameters {\n        choice(name: 'TARGET', choices: ['staging', 'production'])\n        booleanParam(name: 'RUN_E2E', defaultValue: false)\n    }\n    triggers { cron('H 2 * * 1-5') }        // nightly on weekdays\n    stages {\n        stage('Build') { steps { sh 'make' } }\n        stage('E2E') {\n            when { expression { params.RUN_E2E } }\n            steps { sh 'make e2e' }\n        }\n        stage('Deploy') {\n            when { allOf { branch 'main'; expression { params.TARGET == 'production' } } }\n            steps { sh \"./deploy.sh ${params.TARGET}\" }\n        }\n    }\n}",
+   "code_lang": "groovy",
+   "takeaways": [
+    "options: timeout, buildDiscarder and disableConcurrentBuilds belong in most pipelines",
+    "params.NAME reads build parameters",
+    "when { } skips stages; H spreads cron schedules"
+   ],
+   "pitfalls": [
+    "Writing cron('0 * * * *') on many jobs so they all start at the same minute; use H."
+   ],
+   "quiz": [
+    {
+     "q": "What does H mean in cron('H 2 * * *')?",
+     "options": [
+      "Every hour",
+      "Holiday-aware scheduling",
+      "A minute derived from a hash of the job name, stable per job",
+      "Hourly at minute zero"
+     ],
+     "answer": 2,
+     "explain": "H picks a consistent pseudo-random value per job to spread load."
+    }
+   ],
+   "docs": "https://www.jenkins.io/doc/book/pipeline/syntax/#options",
+   "requires": [
+    "jenkins.post-artifacts",
+    "jenkins.jenkinsfile-scm"
+   ]
+  },
+  {
+   "id": "jenkins.multibranch",
+   "name": "Multibranch pipelines and pull requests",
+   "module": "agents",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Let Jenkins discover every branch and pull request with a Jenkinsfile and build each one automatically.",
+   "why": "Teams work on many branches at once; multibranch jobs give each one CI without manual job setup.",
+   "body": "A **Multibranch Pipeline** job points at a repository instead of a branch. Jenkins **scans** it, creates a child job for every branch (and, with a branch source plugin like GitHub Branch Source, every pull request) that contains a `Jenkinsfile`, and deletes child jobs when branches disappear. An **Organization Folder** goes one level higher and discovers whole repositories.\n\nEach branch job builds its own branch's Jenkinsfile. Useful variables:\n\n- `BRANCH_NAME`: the branch, or `PR-42` for pull requests.\n- `CHANGE_ID`, `CHANGE_TARGET`, `CHANGE_AUTHOR`: set for pull requests only.\n\n`when { branch 'main' }` and `when { changeRequest() }` let one Jenkinsfile behave differently for main, feature branches and PRs: test everywhere, deploy only from main.\n\nWith the GitHub or GitLab branch source plugins, webhooks trigger scans and builds immediately, and build status is reported back to the commit and the pull request as a check.\n\nPull requests from forks are a security concern: a fork could change the Jenkinsfile to print secrets. Branch sources therefore offer **trust** settings; by default the Jenkinsfile is taken from the target branch for untrusted forks, not from the PR.",
+   "code": "// One Jenkinsfile, different behaviour per branch type\npipeline {\n    agent any\n    stages {\n        stage('Test') {\n            steps { sh 'make test' }\n        }\n        stage('PR info') {\n            when { changeRequest() }\n            steps { echo \"PR ${env.CHANGE_ID} into ${env.CHANGE_TARGET}\" }\n            // PR 42 into main\n        }\n        stage('Deploy') {\n            when { branch 'main' }\n            steps { sh './deploy.sh' }\n        }\n    }\n}",
+   "code_lang": "groovy",
+   "takeaways": [
+    "Multibranch jobs create one child job per branch or PR with a Jenkinsfile",
+    "BRANCH_NAME and CHANGE_* describe the branch or PR",
+    "Fork PRs are untrusted: their Jenkinsfile changes are not used by default"
+   ],
+   "pitfalls": [
+    "Creating one pipeline job per branch by hand."
+   ],
+   "quiz": [
+    {
+     "q": "In a multibranch job, what is env.BRANCH_NAME for pull request #42?",
+     "options": [
+      "The PR's source branch",
+      "It is empty",
+      "main",
+      "PR-42"
+     ],
+     "answer": 3,
+     "explain": "Pull request child jobs are named PR-<number>, and BRANCH_NAME follows that name."
+    }
+   ],
+   "docs": "https://www.jenkins.io/doc/book/pipeline/multibranch/",
+   "requires": [
+    "jenkins.jenkinsfile-scm"
+   ]
+  },
+  {
+   "id": "jenkins.parallel-matrix",
+   "name": "Parallel stages and matrix",
+   "module": "reuse",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Run independent stages concurrently with parallel, and cover OS and version combinations with the matrix directive.",
+   "why": "Parallelism is the main lever for cutting pipeline duration on busy Jenkins installations.",
+   "body": "Inside a stage, `parallel { }` holds child stages that run at the same time, each possibly on its own agent. The Pipeline graph view shows them side by side. `failFast true` (or `options { parallelsAlwaysFailFast() }`) aborts the other branches as soon as one fails.\n\nThe **matrix** directive generates parallel stages from **axes**:\n\n- `axes { axis { name 'OS'; values 'linux', 'windows' } axis { name 'JDK'; values '17', '21' } }` gives four cells.\n- `excludes { }` removes combinations.\n- Inside each cell the axis values are environment variables, usable in `agent { label \"${OS}\" }` and in steps.\n\nEach parallel branch occupies an executor while it runs, so parallelism is limited by agent capacity; ten branches on a node with two executors mostly wait in the queue. Branches share nothing unless they use the same workspace: two branches on the same node with `reuseNode` or the same directory can overwrite each other's files. Pass results between stages with `stash` and `unstash`, which copy files through the controller (fine for small files only; use artifacts or external storage for big ones).",
+   "code": "pipeline {\n    agent none\n    stages {\n        stage('Checks') {\n            failFast true\n            parallel {\n                stage('Lint') { agent any; steps { sh 'make lint' } }\n                stage('Unit') { agent any; steps { sh 'make unit' } }\n            }\n        }\n        stage('Compat') {\n            matrix {\n                agent { label \"${PLATFORM}\" }\n                axes {\n                    axis { name 'PLATFORM'; values 'linux', 'windows' }\n                    axis { name 'JDK'; values '17', '21' }\n                }\n                excludes { exclude { axis { name 'PLATFORM'; values 'windows' }; axis { name 'JDK'; values '17' } } }\n                stages { stage('Test') { steps { echo \"Testing ${PLATFORM} JDK ${JDK}\" } } }\n            }\n        }\n    }\n}",
+   "code_lang": "groovy",
+   "takeaways": [
+    "parallel { } runs child stages concurrently; failFast aborts siblings",
+    "matrix expands axes into parallel cells, with excludes",
+    "Parallelism is capped by available executors"
+   ],
+   "pitfalls": [
+    "Using stash for large build outputs; it streams through the controller."
+   ],
+   "quiz": [
+    {
+     "q": "A matrix has axes with 3 and 2 values and one exclude. How many cells run?",
+     "options": [
+      "6",
+      "5",
+      "4",
+      "3"
+     ],
+     "answer": 1,
+     "explain": "3 x 2 = 6 combinations, minus the excluded one."
+    }
+   ],
+   "docs": "https://www.jenkins.io/doc/book/pipeline/syntax/#declarative-matrix",
+   "requires": [
+    "jenkins.agents-docker",
+    "jenkins.options-parameters-triggers"
+   ]
+  },
+  {
+   "id": "jenkins.shared-libraries",
+   "name": "Shared libraries",
+   "module": "reuse",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Move common pipeline logic into a versioned Groovy library with vars/ steps and src/ classes, loaded with @Library.",
+   "why": "With many repositories, a shared library keeps pipelines short and lets one team fix the build logic everywhere.",
+   "body": "A **shared library** is a Git repository with a fixed layout:\n\n- `vars/`: each `name.groovy` file defines a global step called `name`, implemented by its `call(...)` method. This is the most common part.\n- `src/`: Groovy classes in packages, imported normally.\n- `resources/`: non-Groovy files loaded with `libraryResource`.\n\nRegister the library under **Manage Jenkins, System, Global Trusted Pipeline Libraries** (or on a folder) with a name and a default version. A Jenkinsfile loads it with `@Library('ci-lib@v2.1') _`; the trailing underscore is an annotation target. With the default version configured as implicit, no annotation is needed at all.\n\nA `vars` step can wrap a whole declarative pipeline, so an application's Jenkinsfile shrinks to `standardJavaPipeline(deploy: true)`. Taking a `Map` of options keeps the call site readable and extensible.\n\nPin versions with tags in production and test library changes by pointing a single job at a branch. Libraries configured globally are **trusted**: they run outside the Groovy sandbox and can call any Jenkins API, so changes to them deserve the same review as changes to Jenkins itself. Folder-level libraries run in the sandbox.",
+   "code": "// ci-lib repository: vars/standardPipeline.groovy\ndef call(Map cfg = [:]) {\n    pipeline {\n        agent { docker { image \"${cfg.image ?: 'maven:3.9-eclipse-temurin-21'}\" } }\n        stages {\n            stage('Build') { steps { sh 'mvn -B verify' } }\n            stage('Deploy') {\n                when { expression { cfg.deploy && env.BRANCH_NAME == 'main' } }\n                steps { sh \"./deploy.sh ${cfg.app}\" }\n            }\n        }\n        post { always { junit allowEmptyResults: true, testResults: 'target/surefire-reports/*.xml' } }\n    }\n}\n\n// Application repository: Jenkinsfile (the whole file)\n@Library('ci-lib@v2.1') _\nstandardPipeline(app: 'shop', deploy: true)",
+   "code_lang": "groovy",
+   "takeaways": [
+    "vars/name.groovy with call() becomes a pipeline step called name",
+    "Load with @Library('lib@version') _ and pin versions",
+    "Global libraries are trusted and bypass the sandbox; review them carefully"
+   ],
+   "pitfalls": [
+    "Loading libraries from a moving branch in production; one bad commit breaks every pipeline."
+   ],
+   "quiz": [
+    {
+     "q": "A file vars/notify.groovy defines def call(String msg). How is it used in a Jenkinsfile?",
+     "options": [
+      "notify('Deployed')",
+      "import notify",
+      "lib.vars.notify.call('Deployed')",
+      "load 'notify.groovy'"
+     ],
+     "answer": 0,
+     "explain": "Files in vars/ become global steps named after the file."
+    }
+   ],
+   "docs": "https://www.jenkins.io/doc/book/pipeline/shared-libraries/",
+   "requires": [
+    "jenkins.environment-credentials",
+    "jenkins.multibranch"
+   ]
+  },
+  {
+   "id": "jenkins.scripted-groovy",
+   "name": "Scripted pipelines and the script block",
+   "module": "reuse",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Know when declarative isn't enough, use script { } for logic, and read scripted node/stage pipelines.",
+   "why": "Many existing Jenkinsfiles are scripted, and real pipelines eventually need loops or dynamic stages.",
+   "body": "Before declarative syntax, pipelines were written as **scripted pipelines**: plain Groovy built from steps like `node`, `stage`, `checkout scm` and `parallel`. There is no fixed structure, no `post` or `when`; you use `try/catch/finally` and `if` instead.\n\n```groovy\nnode('linux') {\n    stage('Build') { checkout scm; sh 'make' }\n}\n```\n\n`node` allocates an executor and workspace; everything inside runs there.\n\nDeclarative pipelines can drop into Groovy with `script { }` inside `steps`. Use it for small logic: reading a file with `readFile`, looping to build a map of parallel branches, or setting a variable for later stages. If `script` blocks grow large, move the logic into a shared library.\n\nPipeline Groovy is **not normal Groovy**. Scripts run in the **Groovy sandbox**: unapproved method calls fail with `RejectedAccessException` until an administrator approves them under **In-process Script Approval**. And code is transformed for durability (the next lesson), so a few Groovy features, such as some closure-taking methods like `sort` with a comparator closure, behave differently or fail. Steps like `readJSON`, `readYaml` and `writeFile` (Pipeline Utility Steps plugin) are safer than raw Java APIs.",
+   "code": "pipeline {\n    agent any\n    stages {\n        stage('Dynamic tests') {\n            steps {\n                script {\n                    def suites = ['api', 'web', 'worker']\n                    def branches = [:]\n                    for (s in suites) {\n                        def suite = s                       // capture per iteration\n                        branches[suite] = { sh \"make test-${suite}\" }\n                    }\n                    parallel branches                       // 3 parallel branches\n                    env.TESTED = suites.join(',')\n                }\n                echo \"Tested: ${env.TESTED}\"               // Tested: api,web,worker\n            }\n        }\n    }\n}",
+   "code_lang": "groovy",
+   "takeaways": [
+    "Scripted pipelines use node/stage/try-catch instead of declarative blocks",
+    "script { } embeds Groovy logic in declarative pipelines",
+    "Pipeline Groovy runs in a sandbox with approvals and CPS transformation"
+   ],
+   "pitfalls": [
+    "Capturing a loop variable directly in closures, so every branch sees the last value; copy it per iteration."
+   ],
+   "quiz": [
+    {
+     "q": "A pipeline fails with RejectedAccessException. What does it mean?",
+     "options": [
+      "Bad credentials",
+      "The agent is offline",
+      "The Groovy sandbox blocked a method call that an admin hasn't approved",
+      "A when condition failed"
+     ],
+     "answer": 2,
+     "explain": "Sandboxed pipeline code can only call whitelisted or approved methods."
+    }
+   ],
+   "docs": "https://www.jenkins.io/doc/book/pipeline/syntax/#scripted-pipeline",
+   "requires": [
+    "jenkins.options-parameters-triggers",
+    "jenkins.agents-docker"
+   ]
+  },
+  {
+   "id": "jenkins.cps-durability",
+   "name": "CPS, durability and pipeline performance",
+   "module": "operate",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Why pipeline Groovy is transformed into continuation-passing style, what survives a restart, and how to keep pipelines fast.",
+   "why": "Odd serialization errors, slow pipelines and controller overload all trace back to how pipelines execute.",
+   "body": "Pipeline code runs on the **controller**, not the agent. Only steps like `sh` run on agents. To survive controller restarts, the Groovy is transformed into **continuation-passing style (CPS)**: after each step the program state (local variables, call stack) is serialized to disk, and a resumed build continues from there.\n\nConsequences:\n\n- Variables held across steps must be **Serializable**. Objects like `java.util.regex.Matcher` or iterators cause `NotSerializableException`.\n- Methods annotated `@NonCPS` run as normal Groovy, faster and without serialization, but they **cannot call pipeline steps** and are not resumable.\n- Heavy Groovy logic (parsing large files, big loops) runs on the controller's CPU and blocks other builds. Do such work in `sh` with a real program on the agent.\n\n**Durability settings** trade safety for speed: `MAX_SURVIVABILITY` writes state often; `PERFORMANCE_OPTIMIZED` writes much less, so a crash may lose a running build's progress, but I/O drops drastically. Set it globally or with `options { durabilityHint('PERFORMANCE_OPTIMIZED') }`.\n\nScaling rules from the Jenkins docs: keep pipelines thin, use few steps (one `sh` with a script beats 200 tiny `sh` calls), avoid large `stash`es and huge console logs, and give the controller zero executors.",
+   "code": "// Problem: Matcher isn't Serializable and lives across a step\n// def m = (version =~ /(\\d+)\\.(\\d+)/); sh 'make'; echo m[0][1]  -> NotSerializableException\n\n@NonCPS\ndef parseMajor(String version) {\n    def m = version =~ /(\\d+)\\.(\\d+)/\n    return m ? m[0][1] : null          // plain Groovy, no steps allowed here\n}\n\npipeline {\n    agent any\n    options { durabilityHint('PERFORMANCE_OPTIMIZED') }\n    stages {\n        stage('Version') {\n            steps {\n                script {\n                    def major = parseMajor(readFile('VERSION').trim())\n                    echo \"Major version ${major}\"   // Major version 3\n                }\n                sh './ci/build-and-test.sh'          // one step, real work on the agent\n            }\n        }\n    }\n}",
+   "code_lang": "groovy",
+   "takeaways": [
+    "Pipeline Groovy runs on the controller as serialized CPS code",
+    "@NonCPS methods are plain Groovy and cannot call steps",
+    "PERFORMANCE_OPTIMIZED durability trades resumability for much less I/O"
+   ],
+   "pitfalls": [
+    "Doing heavy parsing in pipeline Groovy, loading the controller instead of an agent."
+   ],
+   "quiz": [
+    {
+     "q": "What can't a @NonCPS method do?",
+     "options": [
+      "Use regular expressions",
+      "Return a value",
+      "Call pipeline steps such as sh or echo",
+      "Take parameters"
+     ],
+     "answer": 2,
+     "explain": "Steps require the CPS machinery; @NonCPS code runs as plain Groovy."
+    }
+   ],
+   "docs": "https://www.jenkins.io/doc/book/pipeline/cps-method-mismatches/",
+   "requires": [
+    "jenkins.scripted-groovy",
+    "jenkins.parallel-matrix"
+   ]
+  },
+  {
+   "id": "jenkins.configuration-as-code",
+   "name": "Configuration as Code and plugin management",
+   "module": "operate",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Define the whole Jenkins controller in YAML with JCasC, pin plugins in a file and build an immutable controller image.",
+   "why": "Hand-configured controllers drift and can't be rebuilt after a disaster; code-defined ones can.",
+   "body": "The **Configuration as Code** plugin (JCasC) reads YAML describing the controller: system settings, security realm, authorization, credentials, clouds, global libraries and tool installations. Point it at files with the `CASC_JENKINS_CONFIG` environment variable (a file, directory or URL). On startup, or when you click **Reload existing configuration**, Jenkins applies it. **Manage Jenkins, Configuration as Code, View Configuration** exports the current setup as a starting point.\n\nSecrets in JCasC YAML are referenced as `${VAR}` and resolved from environment variables, files (such as Kubernetes or Docker secrets) or secret managers, never written in clear text.\n\nPlugins are the other half of the state. List them with pinned versions in `plugins.txt` and install them at image build time with `jenkins-plugin-cli`. Together this gives an **immutable controller**: a Docker image containing Jenkins, plugins and JCasC files, plus a volume only for build history. Upgrades become a reviewed image change that you can test and roll back.\n\nJobs themselves come from code too: Multibranch and Organization Folders discover Jenkinsfiles, and the Job DSL plugin can create other jobs from scripts. The goal is that nothing important exists only in the UI.",
+   "code": "# Dockerfile for an immutable controller\nFROM jenkins/jenkins:lts-jdk21\nENV JAVA_OPTS=\"-Djenkins.install.runSetupWizard=false\" \\\n    CASC_JENKINS_CONFIG=/casc\nCOPY plugins.txt /usr/share/jenkins/ref/plugins.txt\nRUN jenkins-plugin-cli --plugin-file /usr/share/jenkins/ref/plugins.txt\nCOPY casc/ /casc/\n\n# plugins.txt                     # casc/jenkins.yaml\n# configuration-as-code:latest    # jenkins:\n# workflow-aggregator:latest      #   numExecutors: 0\n# git:latest                      #   securityRealm:\n# (pin exact versions in prod)    #     local:\n#                                 #       users:\n#                                 #         - id: admin\n#                                 #           password: ${ADMIN_PASSWORD}",
+   "code_lang": "dockerfile",
+   "takeaways": [
+    "JCasC applies YAML from CASC_JENKINS_CONFIG at startup or reload",
+    "Pin plugins in plugins.txt and install with jenkins-plugin-cli",
+    "Secrets are ${VAR} references resolved at load time"
+   ],
+   "pitfalls": [
+    "Tweaking settings in the UI on a JCasC-managed controller; the next reload overwrites them."
+   ],
+   "quiz": [
+    {
+     "q": "What happens to a setting changed by hand in the UI when JCasC configuration is reloaded?",
+     "options": [
+      "It is overwritten by the YAML value if the YAML defines it",
+      "It is merged into the YAML file",
+      "Reload is blocked",
+      "It becomes read-only"
+     ],
+     "answer": 0,
+     "explain": "JCasC treats YAML as the source of truth and reapplies it."
+    }
+   ],
+   "docs": "https://www.jenkins.io/doc/book/managing/casc/",
+   "requires": [
+    "jenkins.install",
+    "jenkins.shared-libraries"
+   ]
+  },
+  {
+   "id": "jenkins.security-scaling",
+   "name": "Securing and scaling a Jenkins controller",
+   "module": "operate",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Run no builds on the controller, lock down authorization and credentials, and scale with ephemeral cloud agents.",
+   "why": "A Jenkins controller holds the keys to production; it is a top target and a frequent bottleneck.",
+   "body": "**Builds never run on the controller.** Set the built-in node's executors to 0. A build on the controller can read `JENKINS_HOME`, including encrypted credentials and the key that decrypts them.\n\n**Authentication and authorization**: connect to SSO (LDAP, SAML, OIDC plugins) and use **Matrix** or **Role-based** authorization so users only see and run what they need. Anonymous read access and \"logged-in users can do anything\" are common mistakes.\n\n**Credentials and scripts**: scope credentials to folders, keep the Groovy sandbox enabled, approve scripts sparingly, and restrict who can configure jobs: anyone who can change a Jenkinsfile on a built branch can run code with that job's credentials.\n\n**Plugins** are the largest attack surface. Install few, update promptly and watch the security advisories shown in **Manage Jenkins**.\n\n**Scaling**: one controller handles many agents, but its CPU, heap and disk are shared by everyone. Use **ephemeral agents** from the Kubernetes or EC2 cloud plugins: a fresh pod or VM per build gives isolation and elasticity. Watch the build queue, executor usage and controller GC pauses; split very large installations into several controllers by team rather than growing one forever.",
+   "code": "# casc/jenkins.yaml (excerpt)\njenkins:\n  numExecutors: 0                  # no builds on the controller\n  authorizationStrategy:\n    globalMatrix:\n      entries:\n        - group:\n            name: authenticated\n            permissions: [\"Overall/Read\", \"Job/Read\", \"Job/Build\"]\n        - user:\n            name: admin\n            permissions: [\"Overall/Administer\"]\n  clouds:\n    - kubernetes:\n        name: k8s\n        namespace: ci\n        containerCap: 50\n        templates:\n          - name: maven\n            label: maven\n            containers:            # fresh pod per build, deleted afterwards\n              - name: maven\n                image: maven:3.9-eclipse-temurin-21\n                command: sleep\n                args: infinity",
+   "code_lang": "yaml",
+   "takeaways": [
+    "Zero executors on the controller; builds run on agents",
+    "Use SSO plus matrix or role-based authorization",
+    "Ephemeral Kubernetes or cloud agents give isolation and elasticity"
+   ],
+   "pitfalls": [
+    "Leaving executors on the built-in node, letting any job read controller secrets."
+   ],
+   "quiz": [
+    {
+     "q": "Why set the controller's number of executors to 0?",
+     "options": [
+      "To save licence costs",
+      "To enable webhooks",
+      "Agents require it",
+      "Builds there could read JENKINS_HOME, including secrets, and load the controller"
+     ],
+     "answer": 3,
+     "explain": "Builds on the controller run with access to its files and compete with scheduling and the UI."
+    }
+   ],
+   "docs": "https://www.jenkins.io/doc/book/security/",
+   "requires": [
+    "jenkins.configuration-as-code",
+    "jenkins.environment-credentials"
+   ]
+  }
+ ]
+}

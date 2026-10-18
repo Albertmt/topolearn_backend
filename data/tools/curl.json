@@ -1,0 +1,590 @@
+{
+ "tool": {
+  "id": "curl",
+  "name": "curl",
+  "category": "tool",
+  "tagline": "Command-line tool for making HTTP and other URL requests",
+  "description": "curl transfers data to and from URLs from the command line, supporting HTTP(S) and dozens of other protocols. Developers use it to test and debug APIs, download files, script integrations and reproduce requests exactly, and its library libcurl powers networking in countless applications and devices.",
+  "icon": "cu",
+  "color": "#073551",
+  "official_docs": "https://curl.se/docs/",
+  "version": "8.16",
+  "aliases": [
+   "libcurl",
+   "curl command"
+  ],
+  "requires": [
+   {
+    "tool": "bash",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "First requests"
+  },
+  {
+   "id": "sending",
+   "name": "Sending data and auth"
+  },
+  {
+   "id": "debug",
+   "name": "Inspecting and failing well"
+  },
+  {
+   "id": "scripting",
+   "name": "Scripting with curl"
+  },
+  {
+   "id": "advanced",
+   "name": "TLS, protocols and libcurl"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "curl.first-request",
+   "name": "Your first requests: GET and downloads",
+   "module": "basics",
+   "level": 1,
+   "minutes": 7,
+   "summary": "curl URL prints the response body; -o and -O save it to a file, -L follows redirects and -s hides the progress meter.",
+   "why": "Fetching a URL from the terminal is the starting point for testing APIs and downloading anything.",
+   "body": "In its simplest form, `curl https://example.com` sends an HTTP GET request and writes the response **body** to standard output. Response headers are not shown by default.\n\nSaving output:\n\n- `-o file` writes the body to a file you name.\n- `-O` (capital) uses the file name from the URL: `curl -O https://example.com/app.tar.gz` saves `app.tar.gz`. Add `-J` to prefer the name the server suggests in `Content-Disposition`, and `--output-dir dir` to choose the directory.\n\nWhen output goes to a file or pipe, curl shows a **progress meter** on stderr. `-s` (silent) hides it, and `-sS` hides it but still prints errors, the usual choice in scripts.\n\n**Redirects** are not followed by default: a URL that answers `301 Moved Permanently` gives you that short response. Add `-L` to follow `Location` headers to the final resource; downloads from GitHub releases and many CDNs need it.\n\nQuery strings are part of the URL. Quote URLs containing `&`, `?` or `[`, otherwise your shell interprets them: `curl 'https://api.example.com/search?q=cat&limit=5'`.\n\n`curl --version` shows the version, the TLS library and the protocols and features (HTTP2, HTTP3, ...) your build supports.",
+   "code": "curl https://example.com                      # body to stdout\ncurl -sS -o page.html https://example.com     # save, quiet but show errors\ncurl -LO https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64\ncurl -L -o jq --output-dir ~/bin https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64\ncurl 'https://api.example.com/search?q=cat&limit=5'   # quote the URL!\ncurl -sS https://api.github.com/repos/curl/curl | head -5\ncurl --version | head -1                      # curl 8.x (...) libcurl/8.x OpenSSL/3...",
+   "code_lang": "bash",
+   "takeaways": [
+    "curl URL = GET, body to stdout",
+    "-o name / -O remote name; -L follows redirects",
+    "-sS: no progress meter, but still show errors"
+   ],
+   "pitfalls": [
+    "Forgetting -L and saving a tiny redirect page instead of the file."
+   ],
+   "quiz": [
+    {
+     "q": "`curl -O https://dl.example.com/latest` saved a 150-byte file instead of the 20 MB release. Most likely fix?",
+     "options": [
+      "Add -s",
+      "Use -o instead of -O",
+      "Add -L to follow the redirect",
+      "Add -X GET"
+     ],
+     "answer": 2,
+     "explain": "The URL answered with a redirect, which curl does not follow unless -L is given."
+    }
+   ],
+   "docs": "https://curl.se/docs/tutorial.html",
+   "requires": []
+  },
+  {
+   "id": "curl.headers-inspect",
+   "name": "Seeing headers: -i, -I, -v and -H",
+   "module": "basics",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Show response headers with -i, send a HEAD request with -I, see the full exchange with -v and add request headers with -H.",
+   "why": "Most API and caching problems are visible in headers, so seeing and setting them is essential.",
+   "body": "HTTP responses have a status line, headers and a body. curl shows only the body unless you ask.\n\n- `-i` includes the response status line and headers before the body.\n- `-I` sends a **HEAD** request: headers only, no body. Handy for checking status, `Content-Type`, `Content-Length` or caching headers of large files.\n- `-v` (verbose) shows everything: lines starting with `*` are curl's own info (DNS, connection, TLS), `>` lines are the request you sent, `<` lines the response headers. Verbose output goes to stderr, so the body can still be piped.\n\nTo **send** headers, use `-H 'Name: value'`, as many times as needed. Headers curl sets by default (such as `User-Agent: curl/8.x` and `Accept: */*`) are replaced if you provide them, and removed with an empty value: `-H 'Accept:'`. `-A` is a shortcut for the User-Agent.\n\nA quick mental model of `-v` output for an HTTPS request: name resolution, TCP connect, TLS handshake (certificate details), then the request lines, then the response. When \"it works in the browser but not with curl\", compare the headers your browser sends (devtools can \"Copy as cURL\") with yours.\n\nNote that `-I` really sends HEAD, which some servers handle differently from GET; to see headers of a real GET, use `-i` or `-s -D - -o /dev/null`.",
+   "code": "curl -i https://example.com          # HTTP/2 200 + headers + body\ncurl -I https://example.com/big.iso  # HEAD: headers only\ncurl -v https://api.example.com/health\n# * Connected to api.example.com (203.0.113.7) port 443\n# > GET /health HTTP/2\n# > User-Agent: curl/8.16.0\n# < HTTP/2 200\n# < content-type: application/json\ncurl -H 'Accept: application/json' -H 'X-Request-Id: abc123' https://api.example.com/items\ncurl -sS -D - -o /dev/null https://example.com   # GET, print only headers",
+   "code_lang": "bash",
+   "takeaways": [
+    "-i adds response headers, -I sends HEAD, -v shows the whole exchange",
+    "-H 'Name: value' sets request headers; -H 'Name:' removes one",
+    "In -v output: * info, > request, < response"
+   ],
+   "pitfalls": [
+    "Using -I to debug an endpoint that behaves differently for HEAD than GET."
+   ],
+   "quiz": [
+    {
+     "q": "In `curl -v` output, what do lines starting with `>` show?",
+     "options": [
+      "Response headers",
+      "Headers curl sent in the request",
+      "TLS certificate details",
+      "Redirect targets"
+     ],
+     "answer": 1,
+     "explain": "> marks data sent by curl, < marks data received, * is curl's own commentary."
+    }
+   ],
+   "docs": "https://curl.se/docs/manpage.html#-v",
+   "requires": [
+    "curl.first-request"
+   ]
+  },
+  {
+   "id": "curl.post-data",
+   "name": "POST, PUT and forms: -d, -X, -F",
+   "module": "sending",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Send form data with -d, change the method with -X, upload files as multipart with -F and URL-encode safely with --data-urlencode.",
+   "why": "Creating and updating resources means sending request bodies, and getting encoding right avoids subtle bugs.",
+   "body": "`-d` (or `--data`) sends a request body and switches the method to **POST**, with `Content-Type: application/x-www-form-urlencoded`:\n\n`curl -d 'name=Ann&age=30' https://example.com/users`\n\nBody variants:\n\n- `-d @file` reads the body from a file, but **strips newlines**. Use `--data-binary @file` to send a file byte for byte.\n- `--data-urlencode 'q=a b&c'` URL-encodes the value for you (sends `q=a+b%26c`), safer for user input.\n- Multiple `-d` options are joined with `&`.\n\n`-F` builds a **multipart/form-data** body, like an HTML form with a file input: `-F 'title=Report' -F 'file=@report.pdf'`. Add `;type=application/pdf` to set a part's content type.\n\n`-X` sets the **method name**: `-X PUT -d ...`, `-X DELETE`, `-X PATCH -d ...`. It changes only the word in the request line; the body still comes from `-d`. You do not need `-X POST` with `-d` (it is already POST), and `-X` with `-L` keeps that method on every redirect, which is often wrong. Never use `-X HEAD`; use `-I`.\n\n`-G` turns `-d` data into a query string on a GET, convenient for search APIs: `curl -G --data-urlencode 'q=rust lang' https://api.example.com/search`.",
+   "code": "curl -d 'name=Ann&age=30' https://api.example.com/form\n# body: name=Ann&age=30   Content-Type: application/x-www-form-urlencoded\ncurl --data-urlencode 'q=a b&c' https://api.example.com/s\n# body: q=a+b%26c\ncurl --data-binary @payload.xml -H 'Content-Type: application/xml' https://api.example.com/import\ncurl -F 'title=Q3 report' -F 'file=@report.pdf;type=application/pdf' https://api.example.com/upload\ncurl -X PUT -d 'status=done' https://api.example.com/tasks/7\ncurl -X DELETE https://api.example.com/tasks/7\ncurl -G --data-urlencode 'q=rust lang' https://api.example.com/search   # GET ?q=rust+lang",
+   "code_lang": "bash",
+   "takeaways": [
+    "-d sends form-encoded POST; --data-binary @file preserves bytes",
+    "-F makes multipart uploads; @file attaches a file",
+    "-X only renames the method; -G moves -d data into the query string"
+   ],
+   "pitfalls": [
+    "Sending a JSON file with -d @file.json: newlines are stripped and the Content-Type is wrong."
+   ],
+   "quiz": [
+    {
+     "q": "What is sent by `curl -X PUT -d 'a=1' URL`?",
+     "options": [
+      "A PUT with an empty body",
+      "A POST with body a=1",
+      "A PUT with body a=1",
+      "A GET with ?a=1"
+     ],
+     "answer": 2,
+     "explain": "-X changes the method to PUT while -d still supplies the body."
+    },
+    {
+     "q": "Which option uploads a file as an HTML-form-style multipart request?",
+     "options": [
+      "-d @file",
+      "-T file",
+      "--data-binary @file",
+      "-F 'file=@file'"
+     ],
+     "answer": 3,
+     "explain": "-F builds multipart/form-data, and @ attaches the file as a part."
+    }
+   ],
+   "docs": "https://curl.se/docs/manpage.html#-d",
+   "requires": [
+    "curl.headers-inspect"
+   ]
+  },
+  {
+   "id": "curl.json-apis",
+   "name": "JSON APIs and authentication",
+   "module": "sending",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Call JSON APIs with --json, authenticate with bearer tokens or -u for basic auth, and pipe responses into jq.",
+   "why": "Most modern APIs speak JSON with token auth; this is the everyday curl workflow.",
+   "body": "For JSON APIs, use `--json` (curl 7.82+). It sends the data as the body, sets `Content-Type: application/json` and `Accept: application/json`, and uses POST:\n\n`curl --json '{\"name\":\"Ann\"}' https://api.example.com/users`\n\n`--json @user.json` reads a file and `--json @-` reads stdin, so you can pipe generated JSON in. Combine with `-X PATCH` or `-X PUT` for other methods. On older curl, the equivalent is `-H 'Content-Type: application/json' -d '{...}'`.\n\nBuilding JSON by hand in shell quotes gets messy quickly; generate it with `jq -n --arg name \"$NAME\" '{name: $name}'` and pipe it into `--json @-` so quoting and escaping are always right.\n\n**Authentication**:\n\n- Bearer tokens: `-H \"Authorization: Bearer $TOKEN\"` (or `--oauth2-bearer \"$TOKEN\"`).\n- Basic auth: `-u user:password`, which curl base64-encodes into an `Authorization: Basic` header. `-u user` alone prompts for the password, keeping it out of shell history.\n- API keys usually go in a custom header such as `-H \"X-API-Key: $KEY\"`.\n\nKeep secrets in environment variables or files, not literally in commands: anything on the command line can end up in shell history and is visible to other users in `ps`. Then pipe the response into `jq` to read it: `curl -sS ... | jq '.items[].name'`.",
+   "code": "curl --json '{\"name\":\"Ann\",\"role\":\"admin\"}' https://api.example.com/users\n# sends POST, Content-Type and Accept: application/json\njq -n --arg name \"$NAME\" '{name: $name}' | curl --json @- https://api.example.com/users\ncurl -X PATCH --json '{\"role\":\"viewer\"}' https://api.example.com/users/42\ncurl -sS -H \"Authorization: Bearer $API_TOKEN\" https://api.example.com/me | jq .email\ncurl -u ann https://intranet.example.com/report     # prompts for password\ncurl -sS -H \"X-API-Key: $KEY\" 'https://api.example.com/items?limit=2' | jq '.items[].name'",
+   "code_lang": "bash",
+   "takeaways": [
+    "--json sets body, Content-Type and Accept in one flag",
+    "Bearer: -H \"Authorization: Bearer $TOKEN\"; basic: -u user",
+    "Generate JSON with jq and pipe it to --json @-"
+   ],
+   "pitfalls": [
+    "Interpolating shell variables into hand-written JSON strings; quotes or newlines in the value break the body."
+   ],
+   "quiz": [
+    {
+     "q": "What does `--json '{}'` set that a plain `-d '{}'` does not?",
+     "options": [
+      "The HTTP method",
+      "Content-Type and Accept headers for JSON",
+      "Authentication",
+      "Redirect following"
+     ],
+     "answer": 1,
+     "explain": "-d already makes a POST but uses a form Content-Type; --json sets both JSON headers."
+    }
+   ],
+   "docs": "https://curl.se/docs/manpage.html#--json",
+   "requires": [
+    "curl.post-data"
+   ]
+  },
+  {
+   "id": "curl.errors-exit-codes",
+   "name": "Failing properly: --fail and exit codes",
+   "module": "debug",
+   "level": 2,
+   "minutes": 9,
+   "summary": "By default curl exits 0 even on HTTP 404 or 500; use --fail or --fail-with-body and check exit codes in scripts.",
+   "why": "Scripts that treat an error page as success silently ship broken data; correct failure handling prevents that.",
+   "body": "A surprise for many: curl considers an HTTP **error response a successful transfer**. `curl https://api.example.com/missing` returns exit code **0** while printing the 404 body.\n\nTo make HTTP errors fail:\n\n- `-f` / `--fail` makes curl exit with code **22** for status 400 and above and suppresses the body.\n- `--fail-with-body` (7.76+) also exits 22 but still outputs the body, which usually contains the useful error message from the API. Prefer it in scripts.\n\nOther exit codes worth recognising:\n\n- **6** could not resolve host (DNS), **7** failed to connect (nothing listening or firewall),\n- **28** operation timed out, **35** TLS handshake problem, **60** certificate could not be verified,\n- **56** failure receiving data (connection reset).\n\n`man curl` lists all of them under EXIT CODES, and with `-sS` curl prints a one-line explanation such as `curl: (7) Failed to connect...`.\n\nA robust script pattern is `curl -sS --fail-with-body ...` inside `set -euo pipefail`, so a failure stops the script with a readable error. When you need to branch on the status rather than fail, capture it with `-w '%{http_code}'`, covered next. Without `pipefail`, `curl ... | jq` reports jq's exit status and hides curl's failure.",
+   "code": "curl -s https://api.example.com/missing; echo \"exit $?\"\n# {\"error\":\"not found\"}  exit 0      <- looks like success!\ncurl -sf https://api.example.com/missing; echo \"exit $?\"\n# exit 22                            (no body)\ncurl -sS --fail-with-body https://api.example.com/missing; echo \"exit $?\"\n# {\"error\":\"not found\"}  exit 22\ncurl -sS http://127.0.0.1:1/; echo \"exit $?\"\n# curl: (7) Failed to connect to 127.0.0.1 port 1 ... exit 7\n\nset -euo pipefail\ncurl -sS --fail-with-body https://api.example.com/items | jq '.items | length'",
+   "code_lang": "bash",
+   "takeaways": [
+    "HTTP 4xx/5xx is exit 0 unless you pass --fail or --fail-with-body",
+    "Exit 6 DNS, 7 connect, 22 HTTP error, 28 timeout, 60 certificate",
+    "Use set -o pipefail when piping curl into other tools"
+   ],
+   "pitfalls": [
+    "Using -f in scripts and then wondering why the API's error message is missing; use --fail-with-body."
+   ],
+   "quiz": [
+    {
+     "q": "A script runs `curl -s URL > data.json` and the server answers 500. What is curl's exit code?",
+     "options": [
+      "0",
+      "22",
+      "500",
+      "1"
+     ],
+     "answer": 0,
+     "explain": "Without --fail, an HTTP error response is still a completed transfer, so curl exits 0."
+    },
+    {
+     "q": "Which exit code means curl could not resolve the host name?",
+     "options": [
+      "7",
+      "22",
+      "28",
+      "6"
+     ],
+     "answer": 3,
+     "explain": "Exit code 6 is 'Could not resolve host'; 7 is a failed connection."
+    }
+   ],
+   "docs": "https://curl.se/docs/manpage.html#-f",
+   "requires": [
+    "curl.headers-inspect"
+   ]
+  },
+  {
+   "id": "curl.write-out",
+   "name": "Measuring with --write-out",
+   "module": "debug",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Print status codes, timings, sizes or a full JSON summary after a transfer with -w and its %{variables}.",
+   "why": "Quick latency breakdowns and status checks from the shell are invaluable when debugging slow or flaky services.",
+   "body": "`-w` / `--write-out` prints a format string after the transfer, with `%{variable}` placeholders filled in. Combine it with `-o /dev/null -s` to print only what you ask for.\n\nCommon variables:\n\n- `%{http_code}` the response status, `%{url_effective}` the final URL after redirects, `%{num_redirects}`.\n- `%{size_download}`, `%{speed_download}`, `%{content_type}`, `%{http_version}`, `%{remote_ip}`.\n- Timings in seconds, each measured **from the start** of the request: `%{time_namelookup}` (DNS), `%{time_connect}` (TCP), `%{time_appconnect}` (TLS done), `%{time_starttransfer}` (first byte, often called TTFB), `%{time_total}`.\n\nBecause timings are cumulative, subtract neighbours to get each phase: TLS time is `time_appconnect - time_connect`; server think time is roughly `time_starttransfer - time_appconnect`.\n\nOther handy forms: `-w '%{json}'` prints every variable as one JSON object (pipe it into jq), `%{header_json}` gives the response headers as JSON, `%header{content-type}` a single header, `-w @format.txt` reads the format from a file, and `%{stderr}` switches the rest of the output to stderr. `\\n` in the format becomes a newline.\n\nA status check one-liner: `code=$(curl -s -o /dev/null -w '%{http_code}' \"$URL\")`, then branch on `$code`.",
+   "code": "curl -s -o /dev/null -w '%{http_code}\\n' https://example.com          # 200\ncurl -sL -o /dev/null -w '%{url_effective} after %{num_redirects}\\n' http://github.com\ncurl -s -o /dev/null -w 'dns=%{time_namelookup} tcp=%{time_connect} tls=%{time_appconnect} ttfb=%{time_starttransfer} total=%{time_total}\\n' https://example.com\n# dns=0.012 tcp=0.031 tls=0.068 ttfb=0.142 total=0.143\ncurl -s -o /dev/null -w '%{json}' https://example.com | jq '{http_code, time_total, http_version}'\ncode=$(curl -s -o /dev/null -w '%{http_code}' https://api.example.com/health)\n[ \"$code\" = 200 ] || echo \"unhealthy: $code\"",
+   "code_lang": "bash",
+   "takeaways": [
+    "-s -o /dev/null -w '...' prints only the metrics you want",
+    "Timings are cumulative from the start; subtract to get phases",
+    "-w '%{json}' dumps every variable as JSON"
+   ],
+   "pitfalls": [
+    "Reading %{time_starttransfer} as server time alone; it includes DNS, TCP and TLS."
+   ],
+   "quiz": [
+    {
+     "q": "`time_connect` is 0.030 and `time_appconnect` is 0.095. What does 0.065 s represent?",
+     "options": [
+      "DNS lookup",
+      "Server processing",
+      "The TLS handshake",
+      "Downloading the body"
+     ],
+     "answer": 2,
+     "explain": "appconnect marks the end of the TLS handshake, which started after the TCP connect."
+    }
+   ],
+   "docs": "https://curl.se/docs/manpage.html#-w",
+   "requires": [
+    "curl.errors-exit-codes"
+   ]
+  },
+  {
+   "id": "curl.cookies-sessions",
+   "name": "Cookies and login sessions",
+   "module": "sending",
+   "level": 2,
+   "minutes": 8,
+   "summary": "Store cookies with -c, send them with -b and script login flows that need a session cookie.",
+   "why": "Testing web apps and older APIs often means logging in once and reusing a session cookie.",
+   "body": "curl ignores cookies unless you tell it otherwise. Two options cover almost everything:\n\n- `-c jar.txt` (cookie jar) **writes** all cookies curl knows at the end of the run to a file.\n- `-b jar.txt` **reads** cookies from that file and sends the matching ones. `-b` with a string containing `=` sends that literal cookie instead: `-b 'session=abc123'`.\n\nUsing both on the same file, `-b jar.txt -c jar.txt`, lets a series of commands behave like a browser session: the login response sets a session cookie, later requests send it, and updated cookies are saved back.\n\nA typical scripted login:\n\n- POST the credentials (and any CSRF token you scraped) with `-c jar.txt`.\n- Call protected pages with `-b jar.txt`.\n\nThe jar uses the Netscape cookie file format, a tab-separated text file, so you can inspect it. Expired cookies are dropped, and session cookies (no expiry) are kept only because you explicitly save them. Passing `-b ''` (empty string) enables the cookie engine without loading anything, which matters when you follow redirects with `-L` that set and then require a cookie.\n\nTreat jar files like passwords: a session cookie is as good as being logged in. Delete them when done.",
+   "code": "# 1. log in and save the session cookie\ncurl -sS -c jar.txt -d 'user=ann&password=hunter2' https://app.example.com/login\n# 2. reuse it for authenticated requests\ncurl -sS -b jar.txt https://app.example.com/api/me\n# {\"user\":\"ann\"}\n# keep the jar updated across calls\ncurl -sS -b jar.txt -c jar.txt https://app.example.com/dashboard -o /dev/null\n# send a literal cookie instead of a file\ncurl -sS -b 'session=abc123; theme=dark' https://app.example.com/api/me\ngrep -v '^#' jar.txt      # Netscape format: domain, path, secure, expiry, name, value\nrm jar.txt",
+   "code_lang": "bash",
+   "takeaways": [
+    "-c file saves cookies, -b file sends them",
+    "-b 'name=value' sends a literal cookie string",
+    "Use -b and -c on the same jar to mimic a browser session"
+   ],
+   "pitfalls": [
+    "Using -c only and expecting the next command to be logged in; reading requires -b."
+   ],
+   "quiz": [
+    {
+     "q": "Which pair of commands logs in and then calls a protected endpoint with the session?",
+     "options": [
+      "-b jar.txt then -c jar.txt",
+      "-c jar.txt then -b jar.txt",
+      "-j jar.txt then -J jar.txt",
+      "-H 'Cookie: jar.txt' twice"
+     ],
+     "answer": 1,
+     "explain": "-c writes the cookies from the login response; -b sends them on the next request."
+    }
+   ],
+   "docs": "https://curl.se/docs/http-cookies.html",
+   "requires": [
+    "curl.post-data"
+   ]
+  },
+  {
+   "id": "curl.timeouts-retries",
+   "name": "Timeouts and retries",
+   "module": "scripting",
+   "level": 2,
+   "minutes": 9,
+   "summary": "Bound how long curl waits with --connect-timeout and --max-time, and retry transient failures with --retry.",
+   "why": "Without limits, a script can hang forever on a dead server; with retries, it survives brief outages.",
+   "body": "By default curl waits a long time: the connect phase times out after 300 seconds and the whole transfer has **no** time limit. In scripts and health checks, always set limits:\n\n- `--connect-timeout 5` limits the TCP and TLS connect phase.\n- `-m 30` / `--max-time 30` limits the entire operation. Exceeding either gives exit code 28.\n\nRetrying transient failures:\n\n- `--retry 3` retries up to three times when the error is considered **transient**: a timeout or an HTTP 408, 429, 500, 502, 503 or 504. Waits double from 1 second each time unless you set `--retry-delay`.\n- curl honours the server's `Retry-After` header for 429 and 503 responses.\n- `--retry-all-errors` retries on any error (including other HTTP errors when used with `--fail`); use carefully.\n- `--retry-max-time 60` caps the total time spent retrying, and `--retry-connrefused` also retries when the connection is refused (useful while a service is starting).\n\nBe careful with retries on non-idempotent requests: retrying a POST that timed out may create the resource twice if the first attempt actually succeeded. APIs often support an `Idempotency-Key` header for exactly this.\n\nA good default for scripts: `curl -sS --fail-with-body --connect-timeout 5 --max-time 30 --retry 3`.",
+   "code": "curl -sS --connect-timeout 5 --max-time 20 https://api.example.com/report -o report.json\necho $?        # 28 if it took longer than 20 s\n\n# robust download in CI\ncurl -fsSL --retry 5 --retry-delay 2 --retry-max-time 60 \\\n     -o tool.tgz https://releases.example.com/tool.tgz\n\n# wait for a service that is still starting\ncurl -fsS --retry 10 --retry-connrefused --retry-delay 1 http://localhost:8080/health\n\n# POST with an idempotency key so a retry cannot double-charge\ncurl -sS --retry 3 -H \"Idempotency-Key: $(uuidgen)\" --json @order.json https://api.example.com/orders",
+   "code_lang": "bash",
+   "takeaways": [
+    "--connect-timeout for connecting, --max-time for the whole request",
+    "--retry N handles timeouts and HTTP 408, 429, 500, 502, 503, 504",
+    "Retrying non-idempotent requests can duplicate work"
+   ],
+   "pitfalls": [
+    "Running curl in cron or CI without --max-time, so a stalled connection blocks the job indefinitely."
+   ],
+   "quiz": [
+    {
+     "q": "Which failures does plain `--retry 3` retry?",
+     "options": [
+      "Transient ones: timeouts and HTTP 408, 429, 500, 502, 503, 504",
+      "Every non-zero exit",
+      "Only HTTP 5xx",
+      "Only DNS failures"
+     ],
+     "answer": 0,
+     "explain": "curl treats those as transient; --retry-all-errors widens it to everything."
+    }
+   ],
+   "docs": "https://curl.se/docs/manpage.html#--retry",
+   "requires": [
+    "curl.errors-exit-codes"
+   ]
+  },
+  {
+   "id": "curl.tls-certs",
+   "name": "TLS, certificates and host overrides",
+   "module": "advanced",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Control certificate verification with --cacert, use client certificates for mTLS, and test servers with --resolve and --connect-to.",
+   "why": "Internal CAs, mutual TLS and testing a new server before DNS changes are routine in real infrastructure.",
+   "body": "For `https://` URLs curl verifies the server's certificate chain against a CA bundle and checks that the certificate matches the host name. Failures produce exit code **60** (or 35 for handshake errors).\n\n- `--cacert internal-ca.pem` trusts an extra CA, such as your company's internal CA. `CURL_CA_BUNDLE` sets it via environment.\n- `-k` / `--insecure` disables verification entirely. Fine for a one-off look at a dev box, but never in scripts: it makes the connection open to interception.\n- `-v` shows the negotiated TLS version, cipher and certificate subject, issuer and expiry, which usually explains the failure.\n\n**Mutual TLS** (the server also verifies the client): `--cert client.crt --key client.key`, or a single PEM with both. Some services use this instead of tokens.\n\n**Testing without changing DNS:**\n\n- `--resolve api.example.com:443:203.0.113.50` makes curl connect to that IP for that host and port, while the URL, SNI and `Host` header stay `api.example.com`. Ideal for checking a new server or a single node behind a load balancer before switching DNS.\n- `--connect-to api.example.com:443:staging.internal:443` similarly redirects the connection to another host name.\n\nDo not fake the host with `-H 'Host: ...'` against an IP for HTTPS: SNI and certificate checks would use the IP, not the name.",
+   "code": "curl -sS https://intranet.corp/api            # curl: (60) SSL certificate problem\ncurl -sS --cacert corp-root-ca.pem https://intranet.corp/api   # OK\ncurl -sS --cert client.crt --key client.key https://mtls.example.com/v1/ping\ncurl -v https://example.com -o /dev/null 2>&1 | grep -E 'SSL connection|subject|expire'\n# * SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384\n# *  subject: CN=example.com\n# *  expire date: Jan 15 23:59:59 2027 GMT\n# test the new server before the DNS switch\ncurl -sS --resolve www.example.com:443:203.0.113.50 https://www.example.com/health\ncurl -sS --connect-to www.example.com:443:node-2.internal:443 https://www.example.com/",
+   "code_lang": "bash",
+   "takeaways": [
+    "--cacert trusts an extra CA; -k disables verification (avoid)",
+    "--cert/--key for mutual TLS",
+    "--resolve and --connect-to target a specific server with the real host name"
+   ],
+   "pitfalls": [
+    "Adding -k to make an error go away in a script, leaving it permanently unverified."
+   ],
+   "quiz": [
+    {
+     "q": "You want to hit the new server at 203.0.113.50 as https://shop.example.com, with correct SNI and certificate checks, before DNS changes. Use:",
+     "options": [
+      "curl -k https://203.0.113.50 -H 'Host: shop.example.com'",
+      "curl --cacert shop.pem https://203.0.113.50",
+      "curl -x 203.0.113.50 https://shop.example.com",
+      "curl --resolve shop.example.com:443:203.0.113.50 https://shop.example.com"
+     ],
+     "answer": 3,
+     "explain": "--resolve pins the address while keeping the URL's host name for SNI, Host and verification."
+    }
+   ],
+   "docs": "https://curl.se/docs/sslcerts.html",
+   "requires": [
+    "curl.headers-inspect",
+    "curl.errors-exit-codes"
+   ]
+  },
+  {
+   "id": "curl.config-variables",
+   "name": "Config files and --variable",
+   "module": "scripting",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Keep options and secrets out of the command line with -K config files, and template headers and bodies with --variable and --expand.",
+   "why": "Long curl commands with tokens become maintainable, reusable and safer when moved into config files and variables.",
+   "body": "Any command-line option can live in a **config file**, read with `-K file` (or `-K -` for stdin). Each line is an option without the leading dashes, optionally with `=`: `header = \"Authorization: Bearer xyz\"`, `url = \"https://...\"`, `fail-with-body`. curl also reads `~/.curlrc` automatically unless the first option is `-q`.\n\nConfig files keep secrets out of `ps` output and shell history, and let a team share request recipes. Feeding a config from stdin is a neat trick to pass a header without it ever appearing in a process list:\n\n`printf 'header = \"Authorization: Bearer %s\"\\n' \"$TOKEN\" | curl -K - https://api.example.com/me`\n\n**Variables** (curl 8.3+) make commands templatable:\n\n- `--variable name=value` sets one, `--variable name@file` loads a file's contents, and `--variable %NAME` imports an environment variable (with `%NAME=default` as fallback).\n- Options prefixed with `--expand-` substitute `{{name}}`: `--expand-header`, `--expand-url`, `--expand-data`, `--expand-json`...\n- **Functions** transform values on expansion: `{{name:trim}}`, `{{name:url}}` (URL-encode), `{{name:json}}` (JSON string escaping, without the surrounding quotes), `{{name:b64}}`; they can be chained.\n\nExpansion only happens in `--expand-` options, so a literal `{{` elsewhere stays untouched.",
+   "code": "# api.curl  -- a reusable request recipe\n#   silent\n#   show-error\n#   fail-with-body\n#   header = \"Accept: application/json\"\ncurl -K api.curl https://api.example.com/items\n\n# pass a secret via stdin config: never visible in ps\nprintf 'header = \"Authorization: Bearer %s\"\\n' \"$TOKEN\" | curl -K - https://api.example.com/me\n\n# variables (curl 8.3+)\ncurl --variable %TOKEN --expand-header 'Authorization: Bearer {{TOKEN}}' https://api.example.com/me\ncurl --variable 'q=rust & go' --expand-url 'https://api.example.com/search?q={{q:url}}'\ncurl --variable 'name=Ann \"A\"' --expand-json '{\"name\":\"{{name:json}}\"}' https://api.example.com/users\n# body: {\"name\":\"Ann \\\"A\\\"\"}",
+   "code_lang": "bash",
+   "takeaways": [
+    "-K file reads options from a file; ~/.curlrc is read by default",
+    "--variable %ENV / name=value / name@file, used via --expand-*",
+    "{{v:url}}, {{v:json}}, {{v:trim}} encode values safely"
+   ],
+   "pitfalls": [
+    "Putting tokens directly on the command line in shared machines or CI logs; use -K - or variables from env."
+   ],
+   "quiz": [
+    {
+     "q": "How does a variable get substituted into a header?",
+     "options": [
+      "Only options prefixed --expand-, e.g. --expand-header",
+      "Any -H automatically expands {{name}}",
+      "Only inside config files",
+      "With $name in single quotes"
+     ],
+     "answer": 0,
+     "explain": "Expansion is opt-in per option through the --expand- prefix."
+    }
+   ],
+   "docs": "https://curl.se/docs/manpage.html#--variable",
+   "requires": [
+    "curl.json-apis"
+   ]
+  },
+  {
+   "id": "curl.parallel-globbing",
+   "name": "URL globbing and parallel transfers",
+   "module": "scripting",
+   "level": 3,
+   "minutes": 10,
+   "summary": "Fetch many URLs in one command with [1-100] and {a,b} globs, name outputs with #1, and run transfers concurrently with -Z.",
+   "why": "Bulk downloads and quick load checks become one efficient command instead of a slow shell loop.",
+   "body": "curl expands **globs** in URLs itself (quote them so your shell does not):\n\n- Ranges: `[1-100]`, with leading zeros `[001-100]`, steps `[0-100:10]`, letters `[a-z]`.\n- Lists: `{alpha,beta,gamma}`.\n- Several globs multiply: `{eu,us}/day[1-7]` is 14 URLs.\n\nWhen saving, `#1`, `#2`... in the `-o` name refer to the current value of the first, second glob: `-o 'page_#1.json'`. With `-O`, the remote names are used.\n\nBy default curl transfers the URLs one after another, but it **reuses connections**, so even serial runs are much faster than a shell loop starting a new curl (and a new TLS handshake) per URL.\n\n`-Z` / `--parallel` runs transfers concurrently, up to 50 at a time by default (`--parallel-max` changes that). With HTTP/2 several of them can even share one connection. Output order is not guaranteed in parallel mode, so write each URL to its own file.\n\nUse `-g` / `--globoff` when a URL legitimately contains `[` `]` or `{` `}`, such as IPv6 addresses or some query syntaxes.\n\nSeveral plain URLs also work: `curl -O url1 -O url2`; each URL needs its own `-o`/`-O`, or use `--remote-name-all`. Combine with `--fail` and `--retry` for robust bulk jobs, and respect the target's rate limits.",
+   "code": "curl -sS -o 'page_#1.json' 'https://api.example.com/items?page=[1-5]'\nls page_*      # page_1.json ... page_5.json\ncurl -sS -o '#1_#2.csv' 'https://data.example.com/{eu,us}/day[1-7].csv'   # 14 files\ncurl -Z --parallel-max 10 -fsS --remote-name-all \\\n     https://dl.example.com/part[001-120].bin\ncurl -g 'http://[::1]:8080/health'          # globbing off for IPv6 literal\ncurl -sS -w '%{url} %{http_code} %{time_total}\\n' \\\n     -o /dev/null https://example.com/ -o /dev/null https://example.com/about",
+   "code_lang": "bash",
+   "takeaways": [
+    "[1-10], [a-z], {a,b} globs; #1 in -o names the output",
+    "One curl reuses connections across URLs; -Z adds concurrency",
+    "-g disables globbing for URLs with brackets"
+   ],
+   "pitfalls": [
+    "Forgetting to quote a globbed URL, so the shell expands or rejects the brackets and braces."
+   ],
+   "quiz": [
+    {
+     "q": "Which output name pattern saves `.../{a,b}/[1-2].txt` as `a-1.txt`, `a-2.txt`, ...?",
+     "options": [
+      "-o '$1-$2.txt'",
+      "-o '#1-#2.txt'",
+      "-o '%1-%2.txt'",
+      "-O"
+     ],
+     "answer": 1,
+     "explain": "#1 and #2 are replaced with the current values of the first and second glob."
+    }
+   ],
+   "docs": "https://curl.se/docs/url-syntax.html",
+   "requires": [
+    "curl.first-request",
+    "curl.timeouts-retries"
+   ]
+  },
+  {
+   "id": "curl.http-versions",
+   "name": "HTTP/2, HTTP/3 and connection behaviour",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 12,
+   "summary": "See how curl negotiates HTTP/1.1, HTTP/2 and HTTP/3, force a version for testing, and understand reuse and Alt-Svc.",
+   "why": "Protocol-level differences explain performance results, proxy problems and bugs that only appear on one HTTP version.",
+   "body": "For `https://` URLs, a curl built with nghttp2 offers **HTTP/2** during the TLS handshake via **ALPN**, and uses it if the server agrees; otherwise it falls back to HTTP/1.1. `-w '%{http_version}'` reports what was actually used.\n\nForcing versions for testing:\n\n- `--http1.1` disables HTTP/2 negotiation, useful when a proxy or server misbehaves with h2.\n- `--http2-prior-knowledge` speaks HTTP/2 over plain `http://` without upgrade (h2c), as used by some gRPC backends.\n- `--http3` tries **HTTP/3 over QUIC (UDP)** and falls back to older versions if it fails; `--http3-only` does not fall back. Both require a curl built with HTTP/3 support (check the `HTTP3` feature in `curl -V`).\n\nBrowsers discover HTTP/3 through the **Alt-Svc** response header. curl can do the same: `--alt-svc cache.txt` stores those headers and uses HTTP/3 on later requests.\n\nWithin one curl invocation, connections are kept and **reused** for later URLs to the same host; with HTTP/2 multiple parallel transfers (`-Z`) are **multiplexed** as streams over one connection. `%{num_connects}` shows how many new connections were made.\n\nHead-of-line blocking is the reason HTTP/3 exists: in HTTP/2 a lost TCP packet stalls every stream, while QUIC streams are independent. Compare versions on a lossy link with `-w '%{time_total}'` to see it.",
+   "code": "curl -sS -o /dev/null -w '%{http_version}\\n' https://www.google.com     # 2\ncurl -sS --http1.1 -o /dev/null -w '%{http_version}\\n' https://www.google.com   # 1.1\ncurl -V | grep -o 'HTTP3'                         # is HTTP/3 compiled in?\ncurl -sS --http3 -o /dev/null -w '%{http_version}\\n' https://cloudflare.com    # 3\ncurl -sS --http2-prior-knowledge http://localhost:50051/   # h2c, no TLS\ncurl -sSI https://cloudflare.com | grep -i alt-svc\n# alt-svc: h3=\":443\"; ma=86400\ncurl -sS -o /dev/null -o /dev/null -w '%{num_connects} ' \\\n     https://example.com/ https://example.com/about   # 1 0  (second reused)",
+   "code_lang": "bash",
+   "takeaways": [
+    "HTTPS negotiates HTTP/2 via ALPN; -w %{http_version} shows the result",
+    "--http1.1, --http2-prior-knowledge, --http3, --http3-only force versions",
+    "Connections are reused within one invocation; Alt-Svc advertises HTTP/3"
+   ],
+   "pitfalls": [
+    "Assuming --http3 works everywhere; many distro builds lack HTTP/3 support."
+   ],
+   "quiz": [
+    {
+     "q": "How does curl discover that an HTTPS server supports HTTP/2?",
+     "options": [
+      "Via ALPN during the TLS handshake",
+      "It tries HTTP/2 first and retries on error",
+      "From the Alt-Svc header only",
+      "It never does without --http2"
+     ],
+     "answer": 0,
+     "explain": "ALPN lets client and server agree on h2 as part of the TLS handshake."
+    }
+   ],
+   "docs": "https://curl.se/docs/http3.html",
+   "requires": [
+    "curl.tls-certs",
+    "curl.write-out"
+   ]
+  },
+  {
+   "id": "curl.debug-trace-proxies",
+   "name": "Tracing, proxies and name resolution",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Dump exact bytes with --trace-ascii, route traffic through proxies with -x and proxy env vars, and debug DNS with --dns-servers and -4/-6.",
+   "why": "Corporate proxies, odd DNS and 'the server says my body is wrong' bugs need byte-level visibility.",
+   "body": "`-v` shows headers, but not bodies or exact bytes. For that:\n\n- `--trace-ascii trace.txt` (or `-` for stdout) logs everything sent and received, including request and response bodies, in readable form; `--trace` gives a hex dump. Add `--trace-time` for timestamps.\n- Remember that trace files contain tokens and cookies; scrub them before sharing.\n\n**Proxies.** `-x http://proxy.corp:3128` routes the request through a proxy (`socks5h://` for SOCKS with remote DNS). curl also reads proxy settings from environment variables: `https_proxy`, `all_proxy`, and lowercase-only `http_proxy` (uppercase `HTTP_PROXY` is ignored on purpose, because CGI environments let a request header set it). `no_proxy=localhost,.internal` lists hosts that bypass the proxy, and `--noproxy '*'` disables proxies for one command. For HTTPS through an HTTP proxy, curl sends a `CONNECT` and tunnels TLS end to end; `-v` shows the CONNECT exchange and the proxy's answer.\n\n**Name resolution.** `-4` / `-6` force IPv4 or IPv6, which isolates the classic \"slow first request\" caused by an unreachable IPv6 route. `--dns-servers` (needs a c-ares build) picks resolvers, and `--doh-url https://dns.example/dns-query` resolves via DNS-over-HTTPS. `%{remote_ip}` in `-w` confirms where you actually connected.",
+   "code": "curl -sS --trace-ascii - --json '{\"a\":1}' https://api.example.com/echo | head -20\n# => Send header, 154 bytes ...  => Send data, 7 bytes: {\"a\":1}\ncurl -sS -x http://proxy.corp:3128 https://example.com -o /dev/null -v 2>&1 | grep CONNECT\n# > CONNECT example.com:443 HTTP/1.1\nexport https_proxy=http://proxy.corp:3128 no_proxy=localhost,.internal\ncurl -sS https://example.com -o /dev/null            # via proxy\ncurl -sS http://wiki.internal/ -o /dev/null           # direct (no_proxy)\ncurl -sS --noproxy '*' https://example.com -o /dev/null   # direct this time\ncurl -4 -sS -o /dev/null -w '%{remote_ip} %{time_connect}\\n' https://example.com\ncurl -x socks5h://localhost:1080 http://grafana.internal:3000/   # DNS via proxy",
+   "code_lang": "bash",
+   "takeaways": [
+    "--trace-ascii shows full bodies and exact bytes",
+    "-x or https_proxy/http_proxy (lowercase) route via a proxy; no_proxy bypasses",
+    "-4/-6 and %{remote_ip} isolate DNS and IP-version problems"
+   ],
+   "pitfalls": [
+    "Setting HTTP_PROXY in uppercase and wondering why curl ignores it for http:// URLs."
+   ],
+   "quiz": [
+    {
+     "q": "curl ignores your `HTTP_PROXY=...` setting for http:// URLs. Why?",
+     "options": [
+      "curl does not support HTTP proxies",
+      "For http_proxy curl reads only the lowercase name, for security reasons",
+      "Proxies require -k",
+      "The variable must be named CURL_PROXY"
+     ],
+     "answer": 1,
+     "explain": "Uppercase HTTP_PROXY can be injected via the Proxy request header in CGI environments, so curl only honours http_proxy."
+    }
+   ],
+   "docs": "https://curl.se/docs/manpage.html#-x",
+   "requires": [
+    "curl.tls-certs",
+    "curl.timeouts-retries"
+   ]
+  },
+  {
+   "id": "curl.libcurl",
+   "name": "libcurl: curl as a library",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 12,
+   "summary": "libcurl is the C library behind curl, with easy and multi interfaces, bindings for most languages and --libcurl to generate code.",
+   "why": "Knowing libcurl explains curl's behaviour and lets you move a working command into application code.",
+   "body": "The `curl` tool is a thin front-end over **libcurl**, a portable C library used in cars, TVs, game consoles, PHP's curl extension, Python's pycurl, git's HTTP transport and countless apps. Everything a command-line option does maps to a library option.\n\nThe **easy interface** handles one transfer synchronously:\n\n- `curl_easy_init()` creates a handle,\n- `curl_easy_setopt(h, CURLOPT_URL, ...)` and other `CURLOPT_*` options configure it,\n- `curl_easy_perform(h)` runs the transfer and returns a `CURLcode` (the same numbers as the tool's exit codes),\n- `curl_easy_cleanup(h)` frees it. Reusing a handle for further requests keeps its connection cache.\n\nThe **multi interface** drives many easy handles concurrently in one thread (event-loop style with `curl_multi_perform` and `curl_multi_poll`); that is how `curl -Z` works.\n\nThe fastest way to start: build the command you want with the tool, then add `--libcurl code.c`. curl writes a C program that sets the equivalent options, which is also a great way to learn which `CURLOPT` matches a flag.\n\nLibrary defaults differ from the tool in places (for example libcurl does not follow redirects or read `.curlrc`), and callbacks such as `CURLOPT_WRITEFUNCTION` receive data in arbitrary-sized chunks, so never assume one callback equals one response.",
+   "code": "#include <curl/curl.h>\n#include <stdio.h>\n\nint main(void) {\n  curl_global_init(CURL_GLOBAL_DEFAULT);\n  CURL *h = curl_easy_init();\n  curl_easy_setopt(h, CURLOPT_URL, \"https://example.com/\");\n  curl_easy_setopt(h, CURLOPT_FOLLOWLOCATION, 1L);   /* like -L */\n  curl_easy_setopt(h, CURLOPT_TIMEOUT, 20L);         /* like --max-time 20 */\n  CURLcode rc = curl_easy_perform(h);                /* body -> stdout */\n  long code = 0;\n  curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &code);\n  fprintf(stderr, \"rc=%d http=%ld\\n\", (int)rc, code);  /* rc=0 http=200 */\n  curl_easy_cleanup(h);\n  curl_global_cleanup();\n  return rc != CURLE_OK;\n}\n/* build: cc get.c -lcurl   |  generate similar code: curl -L --libcurl get.c URL */",
+   "code_lang": "c",
+   "takeaways": [
+    "easy interface: init, setopt, perform, cleanup",
+    "multi interface runs many transfers concurrently in one thread",
+    "--libcurl file.c turns a working command into C code"
+   ],
+   "pitfalls": [
+    "Assuming the write callback receives the whole response at once; it is called with chunks."
+   ],
+   "quiz": [
+    {
+     "q": "What does `curl --libcurl out.c https://example.com` do?",
+     "options": [
+      "Downloads libcurl's source",
+      "Compiles a C program",
+      "Prints the libcurl version",
+      "Performs the request and writes C code that does the same with libcurl"
+     ],
+     "answer": 3,
+     "explain": "--libcurl records the options used by the command as a libcurl program."
+    }
+   ],
+   "docs": "https://curl.se/libcurl/c/libcurl-tutorial.html",
+   "requires": [
+    "curl.config-variables",
+    "curl.parallel-globbing"
+   ]
+  }
+ ]
+}

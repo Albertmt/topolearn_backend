@@ -1,0 +1,653 @@
+{
+ "tool": {
+  "id": "statsmodels",
+  "name": "statsmodels",
+  "category": "library",
+  "tagline": "Statistical models, tests and time series with full inference in Python",
+  "description": "statsmodels estimates statistical models such as linear and generalised linear regression, mixed models and ARIMA-family time series, and reports the inference around them: standard errors, confidence intervals, hypothesis tests and diagnostics. It supports R-style formulas on pandas DataFrames. Use it when you need to explain and test relationships in data, not just predict.",
+  "icon": "sm",
+  "color": "#4A5C8C",
+  "official_docs": "https://www.statsmodels.org/stable/",
+  "version": "0.15",
+  "aliases": [
+   "statsmodels.api",
+   "smf",
+   "statsmodels formula"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 1
+   },
+   {
+    "tool": "pandas",
+    "level": 1
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "regression",
+   "name": "Linear regression"
+  },
+  {
+   "id": "glm",
+   "name": "Generalised linear models"
+  },
+  {
+   "id": "diagnostics",
+   "name": "Diagnostics and inference"
+  },
+  {
+   "id": "timeseries",
+   "name": "Time series"
+  },
+  {
+   "id": "advanced",
+   "name": "Advanced models and internals"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "statsmodels.ols-basics",
+   "name": "Linear regression with OLS",
+   "module": "regression",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Fit an ordinary least squares model with statsmodels.api and get coefficients with their uncertainty.",
+   "why": "statsmodels gives you not just predictions but standard errors, p-values and confidence intervals for every coefficient.",
+   "body": "statsmodels has two entry points. `statsmodels.api` (imported as `sm`) takes arrays or DataFrames directly; `statsmodels.formula.api` (`smf`) takes R-style formulas. This lesson uses the array interface.\n\nFitting is two steps: build a **model** from data, then call `.fit()` to get a **results** object:\n\n```python\nX = sm.add_constant(df[[\"area\", \"rooms\"]])\nres = sm.OLS(df[\"price\"], X).fit()\n```\n\nNote the argument order: **y first, then X** (scikit-learn uses `fit(X, y)`). And unlike scikit-learn, `sm.OLS` does **not** add an intercept for you: without `add_constant` the line is forced through the origin, which is rarely what you want.\n\nThe results object holds everything:\n\n- `res.params`: coefficients, labelled with the column names,\n- `res.bse`: standard errors, `res.pvalues`, `res.conf_int()`,\n- `res.rsquared`, `res.rsquared_adj`, `res.aic`, `res.bic`,\n- `res.resid`, `res.fittedvalues`,\n- `res.summary()`: the full table.\n\nPassing pandas objects is worth it: parameters, residuals and predictions keep names and the index. Rows with missing values make fitting fail by default (`missing=\"none\"`); pass `missing=\"drop\"` or clean the data first.",
+   "code": "import numpy as np\nimport pandas as pd\nimport statsmodels.api as sm\n\nrng = np.random.default_rng(0)\ndf = pd.DataFrame({\"area\": rng.uniform(40, 150, 100), \"rooms\": rng.integers(1, 6, 100)})\ndf[\"price\"] = 20 + 2.5 * df[\"area\"] + 10 * df[\"rooms\"] + rng.normal(0, 15, 100)\n\nX = sm.add_constant(df[[\"area\", \"rooms\"]])   # adds a 'const' column of ones\nres = sm.OLS(df[\"price\"], X).fit()           # y first, then X\n\nprint(res.params.round(2).to_dict())   # {'const': 20.06, 'area': 2.51, 'rooms': 9.08}\nprint(res.bse.round(2).to_dict())      # {'const': 6.05, 'area': 0.05, 'rooms': 1.1}\nprint(round(res.rsquared, 3))          # 0.967\nprint(res.conf_int().loc[\"area\"].round(2).tolist())  # [2.41, 2.61]",
+   "code_lang": "python",
+   "takeaways": [
+    "`sm.OLS(y, X).fit()`: y first, then X",
+    "Add the intercept yourself with `sm.add_constant`",
+    "The results object holds params, standard errors, p-values and fit statistics"
+   ],
+   "pitfalls": [
+    "Forgetting `add_constant`, which forces the regression line through the origin."
+   ],
+   "quiz": [
+    {
+     "q": "You fit sm.OLS(y, df[[\"x\"]]).fit() and get one coefficient and no intercept. Why?",
+     "options": [
+      "statsmodels drops intercepts with one feature",
+      "The intercept is stored in res.bse",
+      "y and X are in the wrong order",
+      "sm.OLS does not add a constant automatically"
+     ],
+     "answer": 3,
+     "explain": "With the array API you add the intercept column explicitly with sm.add_constant."
+    }
+   ],
+   "docs": "https://www.statsmodels.org/stable/regression.html",
+   "requires": [
+    "pandas.dataframe",
+    "python.functions"
+   ]
+  },
+  {
+   "id": "statsmodels.formulas",
+   "name": "Model formulas",
+   "module": "regression",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Describe models as R-style formulas like 'price ~ area + C(city)' and let statsmodels build the design matrix.",
+   "why": "Formulas handle intercepts, categories, transformations and interactions in one readable string.",
+   "body": "`statsmodels.formula.api` (imported as `smf`) fits models from a formula and a DataFrame: `smf.ols(\"price ~ area + rooms\", data=df).fit()`. The left of `~` is the response, the right lists predictors separated by `+`.\n\nThe formula engine (formulaic in current versions, patsy in older ones) builds the design matrix for you:\n\n- an **intercept is included automatically**; remove it with `- 1` or `+ 0`,\n- string or category columns are dummy-encoded automatically; force it for numeric codes with `C(zip_code)`,\n- functions apply inline: `np.log(income)`, `center(x)`, `standardize(x)`,\n- arithmetic needs `I(...)`, because `+` and `*` have formula meanings: `I(area ** 2)`, `I(price / 1000)`,\n- `a:b` is the interaction only, `a * b` means `a + b + a:b`.\n\nModel classes have lowercase formula versions: `smf.ols`, `smf.logit`, `smf.glm`, `smf.poisson`, `smf.mixedlm`, `smf.quantreg`. Rows with missing values in used columns are dropped by default; compare `res.nobs` with `len(df)` to notice.\n\nThe formula is stored with the model, so `res.predict(new_df)` applies the same transformations, including the same dummy columns, to new data. That makes formulas the most convenient way to work with statsmodels on DataFrames.",
+   "code": "import numpy as np\nimport pandas as pd\nimport statsmodels.formula.api as smf\n\nrng = np.random.default_rng(1)\ndf = pd.DataFrame({\"area\": rng.uniform(40, 150, 120),\n                   \"city\": rng.choice([\"Oslo\", \"Rome\", \"Lima\"], 120)})\nbonus = df[\"city\"].map({\"Lima\": 0, \"Oslo\": 60, \"Rome\": 30})\ndf[\"price\"] = 50 + 2 * df[\"area\"] + bonus + rng.normal(0, 10, 120)\n\nres = smf.ols(\"price ~ area + C(city)\", data=df).fit()\nprint(res.params.round(1).to_dict())\n# {'Intercept': 43.4, 'C(city)[T.Oslo]': 61.6, 'C(city)[T.Rome]': 31.4, 'area': 2.0}\n\nres2 = smf.ols(\"np.log(price) ~ area + I(area ** 2)\", data=df).fit()\nprint(list(res2.params.index))   # ['Intercept', 'area', 'I(area ** 2)']\n\nnew = pd.DataFrame({\"area\": [100], \"city\": [\"Rome\"]})\nprint(res.predict(new).round(1).tolist())   # [279.0]",
+   "code_lang": "python",
+   "takeaways": [
+    "`smf.ols(\"y ~ a + b\", data=df)` adds the intercept and encodes categories",
+    "Use `C()` for categorical codes and `I()` for arithmetic",
+    "`predict(new_df)` re-applies the formula's transformations"
+   ],
+   "pitfalls": [
+    "Writing `y ~ x**2` instead of `y ~ I(x**2)`, which does not square x."
+   ],
+   "quiz": [
+    {
+     "q": "What does the formula `y ~ a * b` fit?",
+     "options": [
+      "a, b and their interaction a:b",
+      "Only the product a times b",
+      "a and b without an intercept",
+      "The ratio of a and b"
+     ],
+     "answer": 0,
+     "explain": "In formulas, * expands to main effects plus interaction; use I(a * b) for the arithmetic product."
+    }
+   ],
+   "docs": "https://www.statsmodels.org/stable/example_formulas.html",
+   "requires": [
+    "statsmodels.ols-basics"
+   ]
+  },
+  {
+   "id": "statsmodels.reading-summary",
+   "name": "Reading a regression summary",
+   "module": "regression",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Interpret coefficients, standard errors, t-statistics, p-values, confidence intervals, R² and the F-test.",
+   "why": "The summary table is what you report and decide from, so you must read it correctly.",
+   "body": "`res.summary()` prints three blocks.\n\n**Top block (model fit)**: number of observations, **R²** (share of variance explained) and **adjusted R²** (penalised for the number of predictors), the **F-statistic** and its p-value (do the predictors together explain anything?), log-likelihood, **AIC** and **BIC** (lower is better when comparing models on the same data).\n\n**Coefficient table**, one row per term:\n\n- `coef`: the estimated effect: the change in y for a one-unit change in that predictor, holding the others fixed,\n- `std err`: its uncertainty,\n- `t` = coef / std err and `P>|t|`: the test of \"this coefficient is zero\",\n- `[0.025 0.975]`: the 95% confidence interval.\n\n**Bottom block (residual diagnostics)**: Omnibus and Jarque-Bera test normality of residuals, Durbin-Watson checks autocorrelation (around 2 is fine), and the **condition number** warns about multicollinearity or badly scaled variables; a note appears when it is large.\n\nInterpretation cautions: a small p-value says the effect is distinguishable from zero, not that it is large or causal. Coefficients of correlated predictors are individually uncertain even when the model fits well. All of it assumes the model is reasonably specified, which diagnostics check. Programmatic access is through `res.params`, `res.pvalues`, `res.conf_int()` and `res.summary2().tables[1]` as a DataFrame.",
+   "code": "import numpy as np\nimport pandas as pd\nimport statsmodels.formula.api as smf\n\nrng = np.random.default_rng(2)\ndf = pd.DataFrame({\"ads\": rng.uniform(0, 10, 80), \"noise\": rng.normal(size=80)})\ndf[\"sales\"] = 5 + 1.5 * df[\"ads\"] + rng.normal(0, 3, 80)\n\nres = smf.ols(\"sales ~ ads + noise\", data=df).fit()\ntable = res.summary2().tables[1]               # coefficient table as a DataFrame\nprint(table[[\"Coef.\", \"Std.Err.\", \"P>|t|\"]].round(3))\n#            Coef.  Std.Err.  P>|t|\n# Intercept  4.250     0.813  0.000\n# ads        1.644     0.140  0.000\n# noise     -0.067     0.423  0.874   (no evidence of an effect)\nprint(round(res.rsquared, 3), round(res.rsquared_adj, 3))   # 0.642 0.632\nprint(f\"{res.f_pvalue:.1e}\")                              # 7.0e-18",
+   "code_lang": "python",
+   "takeaways": [
+    "coef = effect of a one-unit change holding others fixed",
+    "p-value tests coef = 0; the confidence interval shows the plausible range",
+    "Use AIC/BIC and adjusted R² to compare models on the same data"
+   ],
+   "pitfalls": [
+    "Reading a large p-value as proof that a predictor has no effect."
+   ],
+   "quiz": [
+    {
+     "q": "In a summary, a coefficient is 0.8 with 95% CI [0.1, 1.5]. Which statement is right?",
+     "options": [
+      "The effect is exactly 0.8",
+      "The data are consistent with effects from about 0.1 to 1.5",
+      "The p-value must be above 0.05",
+      "The predictor causes y to increase"
+     ],
+     "answer": 1,
+     "explain": "The interval excludes 0 (so p < 0.05) and shows the range of effects compatible with the data."
+    }
+   ],
+   "docs": "https://www.statsmodels.org/stable/generated/statsmodels.regression.linear_model.RegressionResults.html",
+   "requires": [
+    "statsmodels.ols-basics"
+   ]
+  },
+  {
+   "id": "statsmodels.predictions",
+   "name": "Prediction and confidence intervals",
+   "module": "regression",
+   "level": 1,
+   "minutes": 9,
+   "summary": "Predict new values and quantify their uncertainty with get_prediction and summary_frame.",
+   "why": "A point prediction without an interval hides how wrong it could be.",
+   "body": "`res.predict(new_data)` returns point predictions. For uncertainty use `res.get_prediction(new_data)` and `.summary_frame(alpha=0.05)`, which returns a DataFrame with:\n\n- `mean`: the predicted value,\n- `mean_ci_lower`, `mean_ci_upper`: the **confidence interval** for the average response at those predictor values,\n- `obs_ci_lower`, `obs_ci_upper`: the **prediction interval** for a single new observation.\n\nThe difference matters. The confidence interval only reflects uncertainty in the estimated coefficients, and shrinks as you collect more data. The prediction interval adds the irreducible noise of individual observations, so it is always wider and does not shrink below the noise level. \"What is the average price of 100 m² flats?\" needs the first; \"what will this flat sell for?\" needs the second.\n\nWith a formula model, pass a DataFrame with the original column names and the formula is applied automatically. With the array API, `new_data` must have the same columns, including the constant: `sm.add_constant(new_X, has_constant=\"add\")` is needed when new_X has a single row, because `add_constant` skips columns it thinks are already constant.\n\nIntervals assume the model is correct and residuals are roughly normal with constant variance. Far outside the range of the training data (extrapolation) they are optimistic.",
+   "code": "import numpy as np\nimport pandas as pd\nimport statsmodels.formula.api as smf\n\nrng = np.random.default_rng(3)\ndf = pd.DataFrame({\"area\": rng.uniform(40, 150, 200)})\ndf[\"price\"] = 30 + 2.5 * df[\"area\"] + rng.normal(0, 20, 200)\nres = smf.ols(\"price ~ area\", data=df).fit()\n\nnew = pd.DataFrame({\"area\": [60, 100, 140]})\nframe = res.get_prediction(new).summary_frame(alpha=0.05)\nprint(frame[[\"mean\", \"mean_ci_lower\", \"mean_ci_upper\", \"obs_ci_lower\", \"obs_ci_upper\"]].round(1))\n#     mean  mean_ci_lower  mean_ci_upper  obs_ci_lower  obs_ci_upper\n# 0  181.5          177.2          185.9         142.4         220.6\n# 1  280.5          277.7          283.2         241.5         319.4\n# 2  379.4          374.5          384.3         340.2         418.6",
+   "code_lang": "python",
+   "takeaways": [
+    "`get_prediction(...).summary_frame()` gives means and both interval types",
+    "Confidence intervals cover the average response; prediction intervals cover one new observation",
+    "Prediction intervals are always wider"
+   ],
+   "pitfalls": [
+    "Quoting the confidence interval as the range for an individual future value."
+   ],
+   "quiz": [
+    {
+     "q": "Which interval should you give for the sale price of one specific new house?",
+     "options": [
+      "The confidence interval of the mean (mean_ci)",
+      "The coefficient's confidence interval",
+      "The prediction interval (obs_ci)",
+      "None; only the point prediction"
+     ],
+     "answer": 2,
+     "explain": "A single observation includes residual noise, which only the prediction interval accounts for."
+    }
+   ],
+   "docs": "https://www.statsmodels.org/stable/generated/statsmodels.regression.linear_model.RegressionResults.get_prediction.html",
+   "requires": [
+    "statsmodels.formulas",
+    "statsmodels.reading-summary"
+   ]
+  },
+  {
+   "id": "statsmodels.logit",
+   "name": "Logistic regression and odds ratios",
+   "module": "glm",
+   "level": 1,
+   "minutes": 11,
+   "summary": "Model a binary outcome with Logit and interpret coefficients as log-odds and odds ratios.",
+   "why": "Binary outcomes (converted, churned, defaulted) are everywhere, and the coefficients need special interpretation.",
+   "body": "For a 0/1 outcome, `smf.logit(\"converted ~ price + C(channel)\", data=df).fit()` fits a logistic regression by maximum likelihood. Unlike scikit-learn's `LogisticRegression`, there is **no regularisation by default**, so coefficients are the classical maximum likelihood estimates with valid standard errors and p-values.\n\nCoefficients are on the **log-odds** scale: a one-unit increase in x adds `coef` to the log-odds of y = 1. Exponentiate them for **odds ratios**: `np.exp(res.params)`. An odds ratio of 1.5 means the odds are 50% higher per unit; below 1 means lower. Exponentiate the confidence interval bounds too: `np.exp(res.conf_int())`.\n\nOdds ratios are not probability ratios. For effects on the probability scale use **average marginal effects**: `res.get_margeff().summary_frame()` reports how much the predicted probability changes per unit of each predictor, averaged over the data.\n\nFit statistics differ from OLS: `res.prsquared` is McFadden's pseudo R², `res.llr_pvalue` tests the model against an intercept-only model. `res.predict(new)` returns probabilities.\n\nThe fitter prints an optimisation log; pass `disp=0` to silence it. If a predictor perfectly separates the classes, the maximum likelihood estimate does not exist and you get huge coefficients or a `PerfectSeparationWarning`.",
+   "code": "import numpy as np\nimport pandas as pd\nimport statsmodels.formula.api as smf\n\nrng = np.random.default_rng(4)\nn = 2000\ndf = pd.DataFrame({\"discount\": rng.integers(0, 2, n), \"visits\": rng.poisson(3, n)})\nlogit_p = -2 + 0.7 * df[\"discount\"] + 0.3 * df[\"visits\"]\ndf[\"bought\"] = rng.binomial(1, 1 / (1 + np.exp(-logit_p)))\n\nres = smf.logit(\"bought ~ discount + visits\", data=df).fit(disp=0)\nprint(res.params.round(2).to_dict())     # {'Intercept': -1.97, 'discount': 0.84, 'visits': 0.29}\nprint(np.exp(res.params).round(2).to_dict())\n# {'Intercept': 0.14, 'discount': 2.32, 'visits': 1.33}  (odds ratios)\n\nme = res.get_margeff().summary_frame()\nprint(me[\"dy/dx\"].round(3).to_dict())    # {'discount': 0.175, 'visits': 0.06}\nprint(res.predict(pd.DataFrame({\"discount\": [1], \"visits\": [5]})).round(3).tolist())  # [0.578]",
+   "code_lang": "python",
+   "takeaways": [
+    "Logit coefficients are changes in log-odds; `np.exp` gives odds ratios",
+    "Use `get_margeff()` for effects on the probability scale",
+    "statsmodels' Logit is unregularised, unlike scikit-learn's default"
+   ],
+   "pitfalls": [
+    "Describing an odds ratio of 2 as 'twice as likely'."
+   ],
+   "quiz": [
+    {
+     "q": "A logit coefficient for 'discount' is 0.69. What is the odds ratio?",
+     "options": [
+      "0.69",
+      "About 0.5",
+      "1.69",
+      "About 2.0"
+     ],
+     "answer": 3,
+     "explain": "exp(0.69) is about 2, so a discount roughly doubles the odds of buying."
+    }
+   ],
+   "docs": "https://www.statsmodels.org/stable/discretemod.html",
+   "requires": [
+    "statsmodels.formulas"
+   ]
+  },
+  {
+   "id": "statsmodels.categorical-interactions",
+   "name": "Categories, contrasts and interactions",
+   "module": "regression",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Choose reference levels, read dummy coefficients and model effects that depend on each other.",
+   "why": "Most real questions are about groups and about whether an effect differs between groups.",
+   "body": "A categorical predictor with k levels becomes k - 1 dummy columns. The missing level is the **reference**, and each coefficient is the difference from it. By default the reference is the first level alphabetically, which may not be meaningful. Choose it with **treatment coding**: `C(city, Treatment(reference=\"Rome\"))`. Other contrasts are available, such as `Sum` (deviations from the grand mean).\n\nAn **interaction** lets the effect of one variable depend on another. `price ~ area * C(city)` fits a separate area slope per city: the `area` coefficient is the slope in the reference city, and `area:C(city)[T.Oslo]` is how much steeper or flatter it is in Oslo. With interactions, main effects alone are no longer \"the effect of area\"; they are conditional on the reference level (or on zero for numeric variables, which is why centring numeric variables helps).\n\nTo test whether a whole categorical factor or interaction matters, look at joint tests rather than individual p-values:\n\n- `res.wald_test_terms()` tests each term (all its dummies together),\n- `sm.stats.anova_lm(res_small, res_big)` compares nested OLS models with an F-test,\n- `res.f_test(\"area:C(city)[T.Oslo] = 0\")` tests any linear hypothesis.\n\nToo many interactions quickly overfit; add them because you have a reason to expect the effect to differ.",
+   "code": "import numpy as np\nimport pandas as pd\nimport statsmodels.api as sm\nimport statsmodels.formula.api as smf\n\nrng = np.random.default_rng(5)\ndf = pd.DataFrame({\"area\": rng.uniform(40, 150, 300),\n                   \"city\": rng.choice([\"Oslo\", \"Rome\", \"Lima\"], 300)})\nslope = df[\"city\"].map({\"Lima\": 1.0, \"Oslo\": 3.0, \"Rome\": 2.0})\ndf[\"price\"] = 40 + slope * df[\"area\"] + rng.normal(0, 15, 300)\n\nf = \"price ~ area * C(city, Treatment(reference='Rome'))\"\nres = smf.ols(f, data=df).fit()\nprint(res.params.filter(like=\"area\").round(2).tolist())   # [2.04, -1.08, 1.0]\n# Rome slope 2.0; Lima is 1.0 lower; Oslo is 1.0 higher\n\nsmall = smf.ols(\"price ~ area + C(city)\", data=df).fit()\nprint(sm.stats.anova_lm(small, res).round(3)[[\"F\", \"Pr(>F)\"]].iloc[1].tolist())\n# [448.065, 0.0]  (interaction clearly needed)",
+   "code_lang": "python",
+   "takeaways": [
+    "Each dummy coefficient is a difference from the reference level",
+    "Set the reference with `C(x, Treatment(reference=...))`",
+    "Test whole factors and interactions jointly with F or Wald tests"
+   ],
+   "pitfalls": [
+    "Interpreting a main effect as the overall effect when an interaction with it is in the model."
+   ],
+   "quiz": [
+    {
+     "q": "In `y ~ x * C(group)` with reference 'A', what does the `x` coefficient represent?",
+     "options": [
+      "The slope of x in group A",
+      "The average slope of x across all groups",
+      "The difference in slopes between groups",
+      "The intercept of group A"
+     ],
+     "answer": 0,
+     "explain": "With an interaction, the main effect of x is its slope at the reference level of group."
+    }
+   ],
+   "docs": "https://www.statsmodels.org/stable/contrasts.html",
+   "requires": [
+    "statsmodels.formulas",
+    "statsmodels.reading-summary"
+   ]
+  },
+  {
+   "id": "statsmodels.glm",
+   "name": "Generalised linear models",
+   "module": "glm",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Model counts, rates, proportions and skewed positive outcomes with GLM families and link functions.",
+   "why": "Many outcomes are not normal; GLMs model them correctly instead of forcing them into OLS.",
+   "body": "A **generalised linear model** has three parts: a linear predictor (`b0 + b1*x1 + ...`), a **link function** connecting it to the mean of y, and a **family** describing y's distribution. In statsmodels: `smf.glm(\"y ~ x\", data=df, family=sm.families.Poisson()).fit()`.\n\nCommon choices:\n\n- `Binomial()` (logit link): binary outcomes or proportions,\n- `Poisson()` (log link): counts; coefficients exponentiate to **rate ratios**,\n- `NegativeBinomial(alpha=...)` (or `smf.negativebinomial`): counts with more variance than the mean (**overdispersion**),\n- `Gamma(link=sm.families.links.Log())`: positive, right-skewed amounts such as claim sizes,\n- `Tweedie(var_power=1.5)`: zero-inflated continuous data such as insurance losses.\n\nFor rates, include **exposure**: claims per policy-year or clicks per impression. Pass `exposure=df[\"years\"]` (or `offset=np.log(df[\"years\"])`) so the model estimates a rate, not a raw count.\n\nCheck overdispersion for Poisson models: `res.pearson_chi2 / res.df_resid` well above 1 means standard errors are too small. Switch to negative binomial, or use `scale=\"X2\"` in `fit` to rescale them.\n\nGLM results include `deviance`, `aic`, `pearson_chi2`, and `predict` returns values on the response scale (counts, probabilities) by default.",
+   "code": "import numpy as np\nimport pandas as pd\nimport statsmodels.api as sm\nimport statsmodels.formula.api as smf\n\nrng = np.random.default_rng(6)\nn = 1000\ndf = pd.DataFrame({\"young\": rng.integers(0, 2, n), \"years\": rng.uniform(0.5, 3, n)})\nrate = np.exp(-2.0 + 0.6 * df[\"young\"])            # claims per policy-year\ndf[\"claims\"] = rng.poisson(rate * df[\"years\"])\n\nres = smf.glm(\"claims ~ young\", data=df, family=sm.families.Poisson(),\n              exposure=df[\"years\"]).fit()\nprint(res.params.round(2).to_dict())         # {'Intercept': -1.99, 'young': 0.58}\nprint(np.exp(res.params[\"young\"]).round(2))  # 1.78 (young drivers: 78% higher claim rate)\nprint(round(res.pearson_chi2 / res.df_resid, 2))   # 0.89 (no overdispersion)",
+   "code_lang": "python",
+   "takeaways": [
+    "Pick the family from the outcome type and the link from how effects combine",
+    "Use `exposure=` or `offset=` to model rates",
+    "Check Poisson overdispersion via Pearson chi² / df"
+   ],
+   "pitfalls": [
+    "Modelling counts per varying exposure without an offset, which confuses rate with exposure."
+   ],
+   "quiz": [
+    {
+     "q": "You model claim counts where policies were active for different lengths of time. What should you add?",
+     "options": [
+      "A Gamma family",
+      "exposure=policy_years (log offset)",
+      "More dummy variables",
+      "A logit link"
+     ],
+     "answer": 1,
+     "explain": "The exposure turns the model into one for claims per unit time, the quantity of interest."
+    }
+   ],
+   "docs": "https://www.statsmodels.org/stable/glm.html",
+   "requires": [
+    "statsmodels.logit",
+    "statsmodels.categorical-interactions"
+   ]
+  },
+  {
+   "id": "statsmodels.diagnostics",
+   "name": "Regression diagnostics",
+   "module": "diagnostics",
+   "level": 2,
+   "minutes": 13,
+   "summary": "Check residuals, heteroscedasticity, influential points and multicollinearity before trusting a model.",
+   "why": "Inference is only as good as the model's assumptions, and diagnostics tell you when they fail.",
+   "body": "Every p-value and interval from OLS rests on assumptions: a correct functional form, independent errors, constant variance, roughly normal residuals, and no single point dominating. statsmodels has a test or plot for each.\n\n**Functional form and variance**: plot `res.resid` against `res.fittedvalues`. A curve suggests a missing transformation or term; a funnel shape suggests **heteroscedasticity**. Test it with `het_breuschpagan(res.resid, res.model.exog)` from `statsmodels.stats.diagnostic`. `linear_reset(res)` tests for omitted non-linearity.\n\n**Normality**: `sm.qqplot(res.resid, line=\"s\")`, and the Jarque-Bera test in the summary. With large samples, mild non-normality barely matters for coefficient inference.\n\n**Influence**: `infl = res.get_influence()` gives leverage (`hat_matrix_diag`), studentized residuals and **Cook's distance** (`infl.cooks_distance[0]`). A common rule of thumb flags points with Cook's distance above 4/n. `sm.graphics.influence_plot(res)` shows them. Investigate flagged points; don't delete them automatically.\n\n**Multicollinearity**: `variance_inflation_factor(exog, i)` from `statsmodels.stats.outliers_influence`; values above roughly 5-10 mean a coefficient's variance is inflated by correlation with other predictors. The summary's condition number warns about the same thing.\n\n**Autocorrelation** (time-ordered data): the Durbin-Watson statistic and `acorr_ljungbox(res.resid)`.",
+   "code": "import numpy as np\nimport pandas as pd\nimport statsmodels.formula.api as smf\nfrom statsmodels.stats.diagnostic import het_breuschpagan\nfrom statsmodels.stats.outliers_influence import variance_inflation_factor\n\nrng = np.random.default_rng(7)\ndf = pd.DataFrame({\"x1\": rng.uniform(1, 10, 200)})\ndf[\"x2\"] = df[\"x1\"] * 0.9 + rng.normal(0, 0.5, 200)        # nearly collinear with x1\ndf[\"y\"] = 3 + 2 * df[\"x1\"] + rng.normal(0, df[\"x1\"])        # noise grows with x1\nres = smf.ols(\"y ~ x1 + x2\", data=df).fit()\n\nlm_stat, lm_p, f_stat, f_p = het_breuschpagan(res.resid, res.model.exog)\nprint(f\"{lm_p:.1e}\")             # 3.8e-07 (heteroscedasticity detected)\n\nexog = res.model.exog\nprint([round(float(variance_inflation_factor(exog, i)), 1) for i in (1, 2)])   # [24.9, 24.9]\n\ncooks = res.get_influence().cooks_distance[0]\nprint((cooks > 4 / len(df)).sum())   # 12 (points worth a look)",
+   "code_lang": "python",
+   "takeaways": [
+    "Plot residuals vs fitted values first",
+    "Test heteroscedasticity with Breusch-Pagan; check VIF for collinearity",
+    "Use Cook's distance to find influential observations"
+   ],
+   "pitfalls": [
+    "Deleting every flagged influential point instead of understanding why it is unusual."
+   ],
+   "quiz": [
+    {
+     "q": "Residuals fan out as fitted values grow. Which problem is this and what does it affect most?",
+     "options": [
+      "Multicollinearity; the coefficients",
+      "Autocorrelation; the R²",
+      "Heteroscedasticity; the standard errors and p-values",
+      "Non-normality; the predictions"
+     ],
+     "answer": 2,
+     "explain": "Non-constant variance leaves OLS coefficients unbiased but makes the usual standard errors wrong."
+    }
+   ],
+   "docs": "https://www.statsmodels.org/stable/diagnostic.html",
+   "requires": [
+    "statsmodels.reading-summary"
+   ]
+  },
+  {
+   "id": "statsmodels.robust-se",
+   "name": "Robust and clustered standard errors",
+   "module": "diagnostics",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Get valid standard errors under heteroscedasticity or clustered data with cov_type options.",
+   "why": "Wrong standard errors produce falsely confident conclusions even when the coefficients are fine.",
+   "body": "When residual variance is not constant, or observations are grouped (students in schools, repeated measures on customers), OLS coefficients are still unbiased, but the default standard errors are wrong, usually too small.\n\nThe fix is to keep the estimates and change the **covariance estimator** at fit time with `cov_type`:\n\n- `fit(cov_type=\"HC3\")`: heteroscedasticity-consistent (\"robust\", \"White\") standard errors. HC3 behaves best in small samples; HC0-HC2 also exist.\n- `fit(cov_type=\"cluster\", cov_kwds={\"groups\": df[\"school_id\"]})`: cluster-robust standard errors, allowing arbitrary correlation within each group. You need a reasonable number of clusters (dozens, not five).\n- `fit(cov_type=\"HAC\", cov_kwds={\"maxlags\": 4})`: Newey-West standard errors for time series with autocorrelation.\n\nCoefficients are identical across these options; only `bse`, `pvalues`, `conf_int()` and the tests change. The summary notes which covariance type was used.\n\n`cov_type` also works for GLM and discrete models such as `logit`. For clustered data where you also want to model the within-group correlation, mixed models or GEE are the next step.\n\nIn practice, robust standard errors are a cheap default for cross-sectional data, and clustering at the level where treatment or sampling happened is essential in experiments and panel data.",
+   "code": "import numpy as np\nimport pandas as pd\nimport statsmodels.formula.api as smf\n\nrng = np.random.default_rng(8)\nschools = np.repeat(np.arange(40), 25)                   # 40 schools x 25 students\ntutoring = rng.integers(0, 2, 40)[schools]               # assigned per school\nschool_effect = rng.normal(0, 5, 40)[schools]\ndf = pd.DataFrame({\"school\": schools, \"tutoring\": tutoring,\n                   \"score\": 60 + 3 * tutoring + school_effect + rng.normal(0, 5, 1000)})\n\nnaive = smf.ols(\"score ~ tutoring\", data=df).fit()\nrobust = smf.ols(\"score ~ tutoring\", data=df).fit(cov_type=\"HC3\")\nclustered = smf.ols(\"score ~ tutoring\", data=df).fit(\n    cov_type=\"cluster\", cov_kwds={\"groups\": df[\"school\"]})\n\nfor r in (naive, robust, clustered):\n    print(round(r.params[\"tutoring\"], 2), round(r.bse[\"tutoring\"], 2), round(r.pvalues[\"tutoring\"], 4))\n# 2.8 0.49 0.0      (same coefficient everywhere...)\n# 2.8 0.49 0.0\n# 2.8 1.91 0.1424   (...but the honest uncertainty is 4x larger)",
+   "code_lang": "python",
+   "takeaways": [
+    "`cov_type` changes standard errors, never coefficients",
+    "HC3 for heteroscedasticity, cluster for grouped data, HAC for autocorrelation",
+    "Cluster at the level where treatment or sampling happened"
+   ],
+   "pitfalls": [
+    "Using default standard errors when the treatment was assigned to groups, not individuals."
+   ],
+   "quiz": [
+    {
+     "q": "Treatment was assigned per school but you analyse students. Which standard errors are appropriate?",
+     "options": [
+      "Default OLS",
+      "HC3",
+      "HAC with 4 lags",
+      "Clustered by school"
+     ],
+     "answer": 3,
+     "explain": "Students in a school share shocks, so errors must be allowed to correlate within schools."
+    }
+   ],
+   "docs": "https://www.statsmodels.org/stable/generated/statsmodels.regression.linear_model.OLS.fit.html",
+   "requires": [
+    "statsmodels.diagnostics"
+   ]
+  },
+  {
+   "id": "statsmodels.time-series-basics",
+   "name": "Decomposition, ACF and stationarity",
+   "module": "timeseries",
+   "level": 2,
+   "minutes": 13,
+   "summary": "Decompose series into trend and seasonality, read ACF/PACF plots and test for stationarity.",
+   "why": "Every forecasting model choice starts from understanding trend, seasonality and autocorrelation.",
+   "body": "statsmodels' time series tools live in `statsmodels.tsa`. Give them a pandas Series with a `DatetimeIndex` and a frequency (`series.asfreq(\"MS\")`) so dates carry through to results and forecasts.\n\n**Decomposition** splits a series into trend, seasonal and residual parts. `STL(series, period=12).fit()` (from `statsmodels.tsa.seasonal`) is robust and flexible; the older `seasonal_decompose` uses moving averages. Plot the result with `.plot()`.\n\n**Autocorrelation**: `acf(x, nlags)` and `pacf(x, nlags)` (in `statsmodels.tsa.stattools`), or `plot_acf` / `plot_pacf` from `statsmodels.graphics.tsaplots`. The ACF shows correlation with each lag; the PACF shows the correlation at a lag after removing shorter lags. Slowly decaying ACF suggests a trend; spikes at lag 12 in monthly data suggest yearly seasonality.\n\n**Stationarity**: many models assume the series' mean and variance don't drift. The **ADF test** `adfuller(x, result_object=True)` (read `.pvalue`) has the null \"a unit root (non-stationary)\"; a small p-value suggests stationarity. **KPSS** `kpss(x)` has the opposite null, so using both is informative. Differencing (`x.diff()`) or seasonal differencing (`x.diff(12)`) usually makes a series stationary; logs stabilise growing variance.\n\nNever shuffle time series for validation: hold out the last part of the series.",
+   "code": "import numpy as np\nimport pandas as pd\nfrom statsmodels.tsa.seasonal import STL\nfrom statsmodels.tsa.stattools import acf, adfuller\n\nrng = np.random.default_rng(9)\nidx = pd.date_range(\"2015-01-01\", periods=96, freq=\"MS\")\nt = np.arange(96)\ny = pd.Series(100 + 0.8 * t + 10 * np.sin(2 * np.pi * t / 12) + rng.normal(0, 2, 96), index=idx)\n\nstl = STL(y, period=12).fit()\nprint(stl.seasonal.iloc[:3].round(1).tolist())    # [-0.5, 7.6, 7.8] (seasonal pattern)\n\nprint(round(adfuller(y, result_object=True).pvalue, 3))   # 0.99 (trend: not stationary)\nprint(round(adfuller(y.diff(12).dropna(), result_object=True).pvalue, 3))  # 0.0\n\nprint(acf(y.diff().dropna(), nlags=12)[[1, 6, 12]].round(2))   # [ 0.3 -0.6  0.6]",
+   "code_lang": "python",
+   "takeaways": [
+    "Use a Series with a DatetimeIndex and frequency",
+    "STL separates trend, seasonality and remainder",
+    "ADF null = non-stationary; difference to remove trend and seasonality"
+   ],
+   "pitfalls": [
+    "Reading a high ADF p-value as proof of stationarity; the null is non-stationarity."
+   ],
+   "quiz": [
+    {
+     "q": "adfuller returns a p-value of 0.70 for your series. What does it suggest?",
+     "options": [
+      "You cannot reject a unit root; consider differencing",
+      "The series is stationary",
+      "The series has no trend",
+      "The test failed"
+     ],
+     "answer": 0,
+     "explain": "ADF's null is a unit root (non-stationarity); a large p-value means no evidence against it."
+    }
+   ],
+   "docs": "https://www.statsmodels.org/stable/tsa.html",
+   "requires": [
+    "statsmodels.reading-summary",
+    "pandas.dates-basics"
+   ]
+  },
+  {
+   "id": "statsmodels.arima",
+   "name": "ARIMA and SARIMAX forecasting",
+   "module": "timeseries",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Fit seasonal ARIMA models with exogenous regressors, check residuals and forecast with intervals.",
+   "why": "ARIMA-family models are the standard statistical baseline for forecasting with honest uncertainty.",
+   "body": "An **ARIMA(p, d, q)** model differences the series d times, then models it with p autoregressive lags and q moving-average error terms. **Seasonal** ARIMA adds `(P, D, Q, s)` terms at the seasonal lag s (12 for monthly data). **SARIMAX** further adds exogenous regressors such as price or holidays.\n\nIn statsmodels:\n\n```python\nfrom statsmodels.tsa.statespace.sarimax import SARIMAX\nres = SARIMAX(y, exog=X, order=(1, 1, 1), seasonal_order=(0, 1, 1, 12)).fit(disp=False)\n```\n\n`statsmodels.tsa.arima.model.ARIMA` offers the same model class with a simpler interface and more estimation methods.\n\nChoosing orders: use ACF/PACF of the differenced series as a starting point, then compare candidates by **AIC** on the same data and by out-of-sample error on a held-out final period.\n\nAfter fitting, check the residuals: `res.plot_diagnostics()` and `res.test_serial_correlation(\"ljungbox\")` should show no remaining autocorrelation.\n\nForecasting: `fc = res.get_forecast(steps=12, exog=future_X)`, then `fc.predicted_mean` and `fc.conf_int()`. Exogenous regressors must be known (or forecast) for the future period. Intervals widen with the horizon, as they should.\n\nFor a new observation, `res.append(new_y)` or `res.extend(new_y)` updates the model without refitting from scratch.",
+   "code": "import numpy as np\nimport pandas as pd\nfrom statsmodels.tsa.statespace.sarimax import SARIMAX\n\nrng = np.random.default_rng(10)\nidx = pd.date_range(\"2016-01-01\", periods=96, freq=\"MS\")\nt = np.arange(96)\ny = pd.Series(200 + 1.5 * t + 15 * np.sin(2 * np.pi * t / 12) + rng.normal(0, 3, 96), index=idx)\ntrain, test = y[:-12], y[-12:]\n\nres = SARIMAX(train, order=(1, 1, 1), seasonal_order=(0, 1, 1, 12)).fit(disp=False)\nprint(round(res.aic, 1))                              # 362.7\n\nfc = res.get_forecast(steps=12)\nmae = (fc.predicted_mean - test).abs().mean()\nprint(round(mae, 2))                                  # 2.75\nprint(fc.conf_int().iloc[[0, -1]].round(1).values.tolist())\n# [[319.5, 329.8], [328.6, 339.2]]  (interval widens with horizon)\nprint(round(res.test_serial_correlation(\"ljungbox\")[0, 1, -1], 2))  # 0.56 (no leftover autocorrelation)",
+   "code_lang": "python",
+   "takeaways": [
+    "`order=(p, d, q)`, `seasonal_order=(P, D, Q, s)`, optional `exog`",
+    "Select by AIC and by error on a held-out final period",
+    "Check residual autocorrelation and use `get_forecast` for intervals"
+   ],
+   "pitfalls": [
+    "Evaluating a forecast model on randomly sampled points instead of a final hold-out period."
+   ],
+   "quiz": [
+    {
+     "q": "What must you provide to forecast a SARIMAX model that was fitted with exogenous regressors?",
+     "options": [
+      "Nothing extra",
+      "Future values of the exogenous regressors via exog=",
+      "The training residuals",
+      "A new seasonal period"
+     ],
+     "answer": 1,
+     "explain": "The model's predictions depend on the regressors, so their future values must be supplied."
+    }
+   ],
+   "docs": "https://www.statsmodels.org/stable/generated/statsmodels.tsa.statespace.sarimax.SARIMAX.html",
+   "requires": [
+    "statsmodels.time-series-basics"
+   ]
+  },
+  {
+   "id": "statsmodels.mixed-models",
+   "name": "Mixed effects models",
+   "module": "advanced",
+   "level": 3,
+   "minutes": 13,
+   "summary": "Model grouped or repeated-measures data with random intercepts and slopes using MixedLM.",
+   "why": "Students in schools, patients over time and users across sessions are not independent rows.",
+   "body": "When data are grouped, observations within a group share something unobserved. A **linear mixed model** represents that with **random effects**: group-specific deviations drawn from a normal distribution, estimated alongside the usual **fixed effects**.\n\n`smf.mixedlm(\"score ~ hours\", data=df, groups=df[\"school\"]).fit()` gives each school its own random intercept. Add random slopes with `re_formula=\"~hours\"`, letting the effect of hours vary by school too.\n\nReading the results:\n\n- fixed effects (`res.fe_params`) are population-level effects, interpreted like OLS coefficients,\n- `Group Var` in the summary is the variance of the random intercepts; compare it with the residual variance (`res.scale`) to see how much variation is between groups (the intraclass correlation),\n- `res.random_effects` gives each group's estimated deviation, shrunk towards zero for small groups (**partial pooling**).\n\nWhy not dummies per group? Mixed models generalise to new groups, handle many small groups gracefully, and let you include group-level predictors that would be collinear with group dummies.\n\nFitting uses REML by default (`reml=False` for comparing fixed-effect structures by likelihood). Convergence warnings are common with complex random effects; simplify the random structure or rescale predictors. For non-normal outcomes, `BinomialBayesMixedGLM` exists, and GEE is an alternative when you want population-averaged effects.",
+   "code": "import numpy as np\nimport pandas as pd\nimport statsmodels.formula.api as smf\n\nrng = np.random.default_rng(11)\nschool = np.repeat(np.arange(30), 20)                 # 30 schools x 20 students\nhours = rng.uniform(0, 10, 600)\nschool_int = rng.normal(0, 4, 30)[school]             # schools differ in baseline\ndf = pd.DataFrame({\"school\": school, \"hours\": hours,\n                   \"score\": 50 + 2 * hours + school_int + rng.normal(0, 3, 600)})\n\nres = smf.mixedlm(\"score ~ hours\", data=df, groups=df[\"school\"]).fit()\nprint(res.fe_params.round(2).to_dict())        # {'Intercept': 50.6, 'hours': 1.99}\ngroup_var = res.cov_re.iloc[0, 0]\nprint(round(group_var, 1), round(res.scale, 1))  # 29.5 9.7\nprint(round(group_var / (group_var + res.scale), 2))  # 0.75 (intraclass correlation)\nprint(round(res.random_effects[0].iloc[0], 2))   # 2.33 (school 0 above average)",
+   "code_lang": "python",
+   "takeaways": [
+    "Random effects model group-level variation; fixed effects are population effects",
+    "Random intercepts via `groups=`, random slopes via `re_formula=`",
+    "Group estimates are shrunk towards the mean (partial pooling)"
+   ],
+   "pitfalls": [
+    "Ignoring grouping and treating repeated measurements as independent rows."
+   ],
+   "quiz": [
+    {
+     "q": "Why are estimated random effects for small groups pulled towards zero?",
+     "options": [
+      "A numerical bug",
+      "REML removes them",
+      "Partial pooling: little data means more reliance on the population distribution",
+      "Small groups are dropped"
+     ],
+     "answer": 2,
+     "explain": "The model balances each group's data against the overall distribution, weighting it by how much data the group has."
+    }
+   ],
+   "docs": "https://www.statsmodels.org/stable/mixed_linear.html",
+   "requires": [
+    "statsmodels.robust-se",
+    "statsmodels.categorical-interactions"
+   ]
+  },
+  {
+   "id": "statsmodels.anova-power",
+   "name": "ANOVA, multiple comparisons and power analysis",
+   "module": "diagnostics",
+   "level": 3,
+   "minutes": 12,
+   "summary": "Compare groups with ANOVA tables, adjust for multiple comparisons and size experiments with power analysis.",
+   "why": "Designing an experiment with enough data, and testing many groups honestly, are core statistical skills.",
+   "body": "**ANOVA tables**: `sm.stats.anova_lm(res, typ=2)` on a fitted OLS model gives an F-test per term. Type 2 tests each term after the others (respecting marginality) and is a good default without interactions; with interactions and unbalanced data, type 3 with sum-to-zero contrasts is common. `anova_lm(m1, m2)` compares nested models.\n\n**Multiple comparisons**: after finding that groups differ, `pairwise_tukeyhsd(endog, groups)` from `statsmodels.stats.multicomp` tests all pairs while controlling the family-wise error rate. For an arbitrary list of p-values, `multipletests(pvals, method=\"fdr_bh\")` from `statsmodels.stats.multitest` applies Benjamini-Hochberg, Holm, Bonferroni and others.\n\n**Power analysis** answers \"how many samples do I need?\" before running an experiment. `statsmodels.stats.power` has classes such as `TTestIndPower`, `NormalIndPower` and `FTestAnovaPower`. Their `solve_power` method takes all but one of effect size, sample size, alpha and power, and solves for the missing one. Effect sizes are standardised: Cohen's d for means, `proportion_effectsize(p1, p2)` for proportions.\n\nUnderpowered studies are a major source of unreliable findings: they miss real effects, and the significant results they do produce overstate the effect size. Fix the sample size in advance, and don't stop early the moment p dips below 0.05.",
+   "code": "import numpy as np\nimport pandas as pd\nfrom statsmodels.stats.multicomp import pairwise_tukeyhsd\nfrom statsmodels.stats.power import NormalIndPower, TTestIndPower\nfrom statsmodels.stats.proportion import proportion_effectsize\n\nn = TTestIndPower().solve_power(effect_size=0.3, alpha=0.05, power=0.8)\nprint(round(n))                                  # 175 per group for d = 0.3\n\nes = proportion_effectsize(0.12, 0.10)           # conversion 10% -> 12%\nprint(round(NormalIndPower().solve_power(es, alpha=0.05, power=0.8)))  # 3835 per group\n\nrng = np.random.default_rng(12)\ndf = pd.DataFrame({\"group\": np.repeat([\"A\", \"B\", \"C\"], 30),\n                   \"y\": np.r_[rng.normal(10, 2, 30), rng.normal(10.2, 2, 30), rng.normal(12, 2, 30)]})\ntukey = pairwise_tukeyhsd(df[\"y\"], df[\"group\"])\nprint(tukey.reject.tolist())                     # [False, True, False] (A-B, A-C, B-C)",
+   "code_lang": "python",
+   "takeaways": [
+    "`anova_lm(res, typ=2)` tests each term; Tukey HSD compares all pairs",
+    "`multipletests` adjusts lists of p-values (Holm, FDR)",
+    "Use `solve_power` to fix sample size before the experiment"
+   ],
+   "pitfalls": [
+    "Peeking at results repeatedly and stopping as soon as p < 0.05."
+   ],
+   "quiz": [
+    {
+     "q": "What happens to the required sample size per group if the effect size you want to detect halves?",
+     "options": [
+      "It halves",
+      "It roughly doubles",
+      "It stays the same",
+      "It roughly quadruples"
+     ],
+     "answer": 3,
+     "explain": "Required n scales with 1 / effect size squared, so halving the effect needs about four times the data."
+    }
+   ],
+   "docs": "https://www.statsmodels.org/stable/stats.html",
+   "requires": [
+    "statsmodels.categorical-interactions",
+    "statsmodels.glm"
+   ]
+  },
+  {
+   "id": "statsmodels.state-space",
+   "name": "State space models and the Kalman filter",
+   "module": "timeseries",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Use statsmodels' state space framework: unobserved components, smoothed states, missing data and custom models.",
+   "why": "SARIMAX, ETS and unobserved components all run on one state space engine you can extend.",
+   "body": "Much of `statsmodels.tsa.statespace` is one general model: an unobserved **state** evolves by a linear transition equation, and observations are noisy linear functions of it. The **Kalman filter** computes the likelihood and filtered states; the **smoother** gives the best estimate of each state using all data. SARIMAX, `UnobservedComponents`, `DynamicFactor`, `VARMAX` and `ExponentialSmoothing` in that module are all built on it.\n\nPractical benefits:\n\n- **Missing values** are handled natively: the filter simply skips the update step, and you still get smoothed estimates for the gaps.\n- **Interpretable components**: `UnobservedComponents(y, level=\"local linear trend\", freq_seasonal=[{\"period\": 12}])` estimates trend and seasonality as states; `res.smoothed_state` or `res.level.smoothed` give them.\n- **Diagnostics and forecasts** with intervals come for free, and `res.simulate` draws scenarios.\n\nTo build a custom model, subclass `sm.tsa.statespace.MLEModel`: declare `k_states`, fill system matrices (`design`, `transition`, `selection`, `state_cov`, `obs_cov`) in `__init__`, define `start_params` and `param_names`, and write `update(params)` to put parameters into the matrices. Optional `transform_params` keeps variances positive during optimisation. Then `fit()`, `smooth()` and `get_forecast()` work as for built-in models.\n\nLarge or long models can be slow; options such as `concentrate_scale=True` and good starting parameters help convergence.",
+   "code": "import numpy as np\nimport pandas as pd\nimport statsmodels.api as sm\n\nrng = np.random.default_rng(13)\nidx = pd.date_range(\"2018-01-01\", periods=72, freq=\"MS\")\nlevel = 100 + np.cumsum(rng.normal(0.5, 1.0, 72))            # slowly drifting level\ny = pd.Series(level + 8 * np.sin(2 * np.pi * np.arange(72) / 12) + rng.normal(0, 1.5, 72), index=idx)\ny.iloc[30:34] = np.nan                                      # a gap in the data\n\nmod = sm.tsa.UnobservedComponents(y, level=\"local linear trend\",\n                                  freq_seasonal=[{\"period\": 12, \"harmonics\": 2}])\nres = mod.fit(disp=False)\n\nsmoothed_level = res.level.smoothed\nprint(np.isnan(smoothed_level).sum())         # 0 (gap filled by the smoother)\nprint(round(np.abs(smoothed_level - level).mean(), 2))     # 0.77 (close to the true level)\nprint(res.get_forecast(6).predicted_mean.round(1).iloc[:2].tolist())  # [147.9, 151.4]",
+   "code_lang": "python",
+   "takeaways": [
+    "SARIMAX, UnobservedComponents, VARMAX and more share one Kalman filter engine",
+    "Missing observations are handled natively by the filter and smoother",
+    "Subclass `MLEModel` to build custom state space models"
+   ],
+   "pitfalls": [
+    "Interpolating gaps before fitting a state space model, which understates uncertainty."
+   ],
+   "quiz": [
+    {
+     "q": "How does the Kalman filter treat a missing observation?",
+     "options": [
+      "It skips the measurement update and only propagates the state",
+      "It raises an error",
+      "It fills it with zero",
+      "It drops the whole series"
+     ],
+     "answer": 0,
+     "explain": "With no observation the filter just predicts forward, and the smoother later refines the estimate using later data."
+    }
+   ],
+   "docs": "https://www.statsmodels.org/stable/statespace.html",
+   "requires": [
+    "statsmodels.arima"
+   ]
+  },
+  {
+   "id": "statsmodels.custom-likelihood",
+   "name": "Custom maximum likelihood models",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 13,
+   "summary": "Estimate any model you can write a log-likelihood for with GenericLikelihoodModel and get full inference.",
+   "why": "When no built-in model fits your data-generating process, writing the likelihood gives you estimates and standard errors anyway.",
+   "body": "Maximum likelihood estimation picks parameters that make the observed data most probable. statsmodels' `GenericLikelihoodModel` (in `statsmodels.base.model`) turns a log-likelihood into a full model with the usual results object.\n\nSubclass it and implement `loglikeobs(params)`, returning the log-likelihood of **each observation** as an array (or `nloglikeobs`, its negative). Then:\n\n- `fit(start_params=..., method=\"bfgs\", maxiter=...)` optimises the total likelihood,\n- standard errors come from the inverse Hessian, computed numerically unless you supply `score` and `hessian`,\n- `summary()`, `conf_int()`, `t_test()`, `wald_test()` and `cov_type=\"HC0\"` (sandwich) standard errors all work.\n\nImplementing per-observation log-likelihoods enables the robust (sandwich) covariance, which uses each observation's score contribution.\n\nPractical points:\n\n- Reparameterise constrained parameters: estimate `log(sigma)` instead of `sigma` so the optimiser can't step into invalid values; transform back and use the delta method for its standard error.\n- Good starting values (for example OLS estimates) prevent many convergence failures.\n- Use `scipy.stats` log-densities (`stats.norm.logpdf`, `stats.t.logpdf`) to write likelihoods accurately.\n- Name parameters with `exog_names` or the `extra_params_names` argument so the summary is readable.\n\nThe same machinery underlies the built-in discrete and count models.",
+   "code": "import numpy as np\nfrom scipy import stats\nfrom statsmodels.base.model import GenericLikelihoodModel\n\nclass TRegression(GenericLikelihoodModel):\n    \"\"\"Linear regression with Student-t errors (robust to outliers).\"\"\"\n    def loglikeobs(self, params):\n        beta, log_scale, log_df = params[:-2], params[-2], params[-1]\n        resid = self.endog - self.exog @ beta\n        return stats.t.logpdf(resid, df=np.exp(log_df), scale=np.exp(log_scale))\n\nrng = np.random.default_rng(14)\nx = rng.uniform(0, 10, 300)\ny = 1 + 2 * x + stats.t.rvs(df=3, size=300, random_state=rng)\nX = np.column_stack([np.ones(300), x])\n\nmod = TRegression(y, X, extra_params_names=[\"log_scale\", \"log_df\"])\nres = mod.fit(start_params=[0, 1, 0, 1], method=\"bfgs\", disp=0)\nprint(res.params.round(2))            # [0.91 1.99 0.   1.15]\nprint(res.bse[:2].round(3))           # [0.139 0.024]\nprint(round(np.exp(res.params[-1]), 1))  # 3.2 (estimated degrees of freedom)",
+   "code_lang": "python",
+   "takeaways": [
+    "Implement `loglikeobs` returning per-observation log-likelihoods",
+    "Reparameterise constrained parameters (log scale) and give good start values",
+    "You get standard errors, tests and robust covariances for free"
+   ],
+   "pitfalls": [
+    "Returning the total log-likelihood from loglikeobs instead of one value per observation."
+   ],
+   "quiz": [
+    {
+     "q": "Why estimate log(sigma) instead of sigma in a custom likelihood?",
+     "options": [
+      "It makes the model linear",
+      "The optimiser can then never propose a negative scale",
+      "statsmodels requires logs",
+      "It removes the need for start values"
+     ],
+     "answer": 1,
+     "explain": "Any real number maps to a positive sigma, so unconstrained optimisers stay in the valid region."
+    }
+   ],
+   "docs": "https://www.statsmodels.org/stable/examples/notebooks/generated/generic_mle.html",
+   "requires": [
+    "statsmodels.glm",
+    "statsmodels.mixed-models"
+   ]
+  },
+  {
+   "id": "statsmodels.estimation-pitfalls",
+   "name": "Convergence, separation and identification",
+   "module": "advanced",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Diagnose failed or misleading fits: non-convergence, perfect separation, collinearity and unidentified parameters.",
+   "why": "Fits that silently fail produce enormous or meaningless estimates that look like results.",
+   "body": "Iteratively fitted models (Logit, GLM, MixedLM, ARIMA, custom MLE) can fail in ways a summary doesn't make obvious. Learn the symptoms.\n\n**Non-convergence**: a `ConvergenceWarning`, `res.mle_retvals[\"converged\"] == False`, or a summary note. Remedies: rescale predictors to similar magnitudes, give better `start_params`, raise `maxiter`, or switch optimiser (`method=\"newton\"`, `\"bfgs\"`, `\"lbfgs\"`, `\"nm\"`). Comparing estimates across two methods is a cheap sanity check.\n\n**Perfect separation** in binary models: a predictor (or combination) predicts the outcome exactly, so the likelihood keeps increasing as the coefficient grows to infinity. Symptoms: `PerfectSeparationWarning`, huge coefficients with huge standard errors. Fixes: penalised estimation with `fit_regularized(alpha=..., L1_wt=0)` (ridge-like), merging sparse categories, or reconsidering the variable.\n\n**Collinearity and identification**: if columns are linearly dependent (all dummies plus an intercept, or `total = a + b` together with a and b), OLS uses a pseudo-inverse and still returns numbers, but individual coefficients are arbitrary. Recent versions emit a `SingularMatrixWarning`, and the summary warns of a small eigenvalue. Check `np.linalg.matrix_rank(res.model.exog)` against the number of columns.\n\n**Boundary estimates**: variance components estimated at zero in mixed models, or ARIMA roots near the unit circle, signal an over-specified model.\n\nTreat warnings as errors during development (`warnings.simplefilter(\"error\")`) so these never slip into reports.",
+   "code": "import warnings\nimport numpy as np\nimport pandas as pd\nimport statsmodels.formula.api as smf\n\ndf = pd.DataFrame({\"x\": [1, 2, 3, 4, 5, 6, 7, 8], \"y\": [0, 0, 0, 0, 1, 1, 1, 1]})  # x > 4.5 -> y = 1\n\nwith warnings.catch_warnings(record=True) as w:\n    warnings.simplefilter(\"always\")\n    res = smf.logit(\"y ~ x\", data=df).fit(disp=0, maxiter=100)\nprint(sorted({type(x.message).__name__ for x in w}))\n# ['ConvergenceWarning', 'PerfectSeparationWarning']\nprint(abs(res.params[\"x\"]) > 10)          # True (coefficient running off to infinity)\n\nreg = smf.logit(\"y ~ x\", data=df).fit_regularized(alpha=1.0, L1_wt=0.0, disp=0)\nprint(reg.params.round(2).to_dict())      # {'Intercept': -0.65, 'x': 0.27} (finite, shrunk)\n\ndf[\"x2\"] = 2 * df[\"x\"]                     # perfectly collinear copy\nexog = smf.ols(\"y ~ x + x2\", data=df).fit().model.exog\nprint(np.linalg.matrix_rank(exog), exog.shape[1])   # 2 3 + SingularMatrixWarning",
+   "code_lang": "python",
+   "takeaways": [
+    "Treat convergence and separation warnings as failures, not noise",
+    "Rescale, give start values or switch optimiser when fits don't converge",
+    "Check the design matrix rank; collinear columns make coefficients arbitrary"
+   ],
+   "pitfalls": [
+    "Reporting coefficients from a fit that emitted a ConvergenceWarning."
+   ],
+   "quiz": [
+    {
+     "q": "A logit fit returns a coefficient of 45 with a standard error of 9000. What is the likely cause?",
+     "options": [
+      "A very strong but well-estimated effect",
+      "Heteroscedasticity",
+      "Perfect or quasi-perfect separation",
+      "Too few iterations of OLS"
+     ],
+     "answer": 2,
+     "explain": "Under separation the likelihood has no finite maximum, so the estimate and its uncertainty explode."
+    }
+   ],
+   "docs": "https://www.statsmodels.org/stable/generated/statsmodels.discrete.discrete_model.Logit.fit_regularized.html",
+   "requires": [
+    "statsmodels.logit",
+    "statsmodels.diagnostics"
+   ]
+  }
+ ]
+}
