@@ -19,13 +19,17 @@ def _mock_links_and_mail(monkeypatch, link="https://topolearn-gcloud.firebaseapp
     return asked, sent
 
 
-def test_verification_email_sends_a_sign_in_link(client, monkeypatch):
+def test_verification_email_sends_a_verify_link_to_our_page(client, monkeypatch):
     asked, sent = _mock_links_and_mail(monkeypatch)
+    links = []
+    monkeypatch.setattr(mail, "send", lambda to, subject, title, intro, button, url, *a, **k: links.append(url) or sent.append((to, subject)) or True)
     tok = fake_token("u-new", email="New@Example.com", email_verified=False, provider="password")
     r = client.post("/api/v1/auth/verification-email", headers=bearer(tok))
     assert r.status_code == 202
-    assert asked == [("EMAIL_SIGNIN", "new@example.com", "https://topolearnapp.com/verify?email=new%40example.com")]
+    # VERIFY_EMAIL, never EMAIL_SIGNIN: an email-link sign-in would delete the unverified password.
+    assert asked == [("VERIFY_EMAIL", "new@example.com", "https://topolearnapp.com/verify")]
     assert sent == [("new@example.com", "Confirm your email for Topolearn")]
+    assert links == ["https://topolearnapp.com/verify?mode=verifyEmail&oobCode=abc&email=new%40example.com"]
 
 
 def test_verified_accounts_get_nothing(client, monkeypatch):

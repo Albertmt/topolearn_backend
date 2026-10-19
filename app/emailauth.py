@@ -6,9 +6,11 @@ emails from our own address, so the server asks Firebase for the action
 link (Identity Toolkit `accounts:sendOobCode` with `returnOobLink`) and mails
 it through Resend from do-not-reply@topolearnapp.com.
 
-The verification mail carries a *sign-in* link: opening it signs the person
-in on the web and marks the address verified, so a brand-new account goes
-straight into onboarding. Their password keeps working afterwards.
+The verification mail carries a VERIFY_EMAIL code on a link to our own
+/verify page, which confirms the address; the person then signs in with
+their password (automatically, if it's the browser they signed up in).
+Not an email *sign-in* link: Firebase deletes an unverified password when
+someone signs in by email link, which locked people out of password sign-in.
 """
 import logging
 import re
@@ -16,7 +18,7 @@ import threading
 import time
 from collections import defaultdict, deque
 from typing import Deque, Dict, Literal, Optional
-from urllib.parse import quote
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, Field
@@ -93,12 +95,19 @@ def _oob_link(request_type: Literal["EMAIL_SIGNIN", "PASSWORD_RESET", "VERIFY_EM
     return None
 
 
+def _oob_code(link: Optional[str]) -> Optional[str]:
+    """The oobCode query parameter of a Firebase action link."""
+    if not link:
+        return None
+    return (parse_qs(urlparse(link).query).get("oobCode") or [None])[0]
+
+
 # ----------------------------------------------------------------- endpoints
 
 @router.post("/verification-email", status_code=202)
 def send_verification_email(request: Request):
-    """Email the signed-in (not yet verified) person a link that signs them in
-    and verifies their address. Needs their Firebase ID token."""
+    """Email the signed-in (not yet verified) person a link that confirms their
+    address (SITE_URL/verify applies it). Needs their Firebase ID token."""
     ident = auth.identity(request)
     if not ident.email:
         raise HTTPException(400, "This account has no email address")
@@ -106,15 +115,21 @@ def send_verification_email(request: Request):
         return Response(status_code=204)
     if not _per_email.allow(ident.email) or not _per_ip.allow(_client_ip(request)):
         raise HTTPException(429, "Too many emails sent. Check your inbox, or try again in an hour.")
-    link = _oob_link("EMAIL_SIGNIN", ident.email, f"{config.SITE_URL}/verify?email={quote(ident.email)}")
-    if not link:
+    # A VERIFY_EMAIL code, not an EMAIL_SIGNIN link: signing in by email link
+    # to an account with an unverified password makes Firebase delete that
+    # password (anti-takeover rule), so the person couldn't sign in with it.
+    firebase_link = _oob_link("VERIFY_EMAIL", ident.email, f"{config.SITE_URL}/verify")
+    code = _oob_code(firebase_link)
+    if not code:
         raise HTTPException(503, "Couldn't create a verification link right now. Try again in a minute.")
+    # Straight to our own page, which applies the code (no Firebase-hosted page in between).
+    link = f"{config.SITE_URL}/verify?" + urlencode({"mode": "verifyEmail", "oobCode": code, "email": ident.email})
     sent = mail.send(
         ident.email,
         "Confirm your email for Topolearn",
         "Confirm your email",
-        "One click and you're in. This link signs you in to Topolearn and confirms your email address. It expires in an hour.",
-        "Confirm and sign in",
+        "One click to confirm your email address, then sign in with your password, on the web or in the app. The link expires in a few days.",
+        "Confirm my email",
         link,
         "If you didn't create a Topolearn account, you can ignore this email and nothing will happen.",
     )
