@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
-from . import auth, catalog, config, learning, repository, social, users
+from . import auth, catalog, config, emailauth, learning, repository, social, users
 from .db import DatabaseMissing, get_conn, graph_loaded
 
 # Every request that names a learner (`user_id` in the path or query) must come
@@ -28,6 +28,7 @@ app.include_router(catalog.router)
 app.include_router(catalog.pages)
 app.include_router(learning.router)
 app.include_router(social.router)
+app.include_router(emailauth.router)
 
 _NOT_LOADED = "The tool catalog isn't loaded yet. Load it with: python scripts/build_db.py"
 

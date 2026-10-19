@@ -56,5 +56,13 @@ SEARCH_LIMIT = _int("SEARCH_LIMIT", 20)
 # "topolearn-gcloud"). Without it, every signed-in endpoint answers 503.
 FIREBASE_PROJECT_ID = os.environ.get("FIREBASE_PROJECT_ID", "").strip()
 
+# The website, for links in emails (verification, password reset).
+SITE_URL = os.environ.get("SITE_URL", "https://topolearnapp.com").rstrip("/")
+
+# Transactional email through Resend. Without the key, emails are logged, not sent.
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "").strip()
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "Topolearn <do-not-reply@topolearnapp.com>")
+EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO", "support@topolearnapp.com")
+
 # Who may review problem reports: comma-separated emails, signed in with a verified address.
 ADMIN_EMAILS = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}

@@ -29,6 +29,12 @@ PROD_DATABASE_URL_DIRECT="postgresql://…"
 FIREBASE_PROJECT_ID="topolearn-gcloud"
 # Who may list problem reports and tool requests (verified email, comma-separated).
 ADMIN_EMAILS="you@example.com"
+# Email/password sign-up: the confirmation and password-reset emails go out
+# through Resend (resend.com) from do-not-reply@topolearnapp.com. Without the
+# key the links are only logged (fine locally).
+RESEND_API_KEY="re_…"
+# Where emailed links point (the website).
+SITE_URL="https://topolearnapp.com"
 ```
 
 Keep the values in **double quotes**: the connection strings contain `&`, which a shell would otherwise treat
@@ -217,11 +223,16 @@ gcloud secrets add-iam-policy-binding database-url \
 ```bash
 gcloud run deploy topolearn-api --source . --region us-west1 \
   --allow-unauthenticated --memory 512Mi --max-instances 2 \
-  --set-secrets DATABASE_URL=database-url:latest \
-  --set-env-vars "FIREBASE_PROJECT_ID=topolearn-gcloud,ADMIN_EMAILS=you@example.com"
+  --set-secrets DATABASE_URL=database-url:latest,RESEND_API_KEY=resend-api-key:latest \
+  --set-env-vars "FIREBASE_PROJECT_ID=topolearn-gcloud,ADMIN_EMAILS=you@example.com,SITE_URL=https://topolearnapp.com"
 ```
 
-Once, so that deleting an account in the app also deletes the person's Firebase sign-in record:
+(`resend-api-key` is a Secret Manager secret like `database-url`; create it once with
+`printf '%s' "re_…" | gcloud secrets create resend-api-key --data-file=-` and grant the
+same `secretAccessor` binding as above.)
+
+Once, so that deleting an account also deletes the Firebase sign-in record, and so the server
+can mint the sign-in / password-reset links it emails:
 
 ```bash
 gcloud projects add-iam-policy-binding topolearn-gcloud \
