@@ -1,0 +1,1041 @@
+{
+ "tool": {
+  "id": "llamaindex",
+  "name": "LlamaIndex",
+  "category": "library",
+  "tagline": "Data framework for LLM apps: RAG over your documents, agents and workflows",
+  "description": "LlamaIndex is a Python framework for connecting LLMs to your own data. It loads documents, splits and embeds them into indexes, and answers questions through query engines, chat engines and retrievers; on top of that it offers tool-using agents and event-driven Workflows. It integrates with hundreds of model providers and vector databases, and with LlamaParse for document parsing.",
+  "icon": "LI",
+  "color": "#6B3FA0",
+  "official_docs": "https://developers.llamaindex.ai/python/framework/",
+  "version": "0.14 (llama-index-core 0.14.x, Workflows 2.x, Oct 2026)",
+  "aliases": [
+   "llama index",
+   "llama-index",
+   "llama_index",
+   "gpt index",
+   "llama-index-core"
+  ],
+  "requires": [
+   {
+    "tool": "python",
+    "level": 2
+   },
+   {
+    "tool": "ai-fundamentals",
+    "level": 2
+   }
+  ]
+ },
+ "modules": [
+  {
+   "id": "basics",
+   "name": "Getting started"
+  },
+  {
+   "id": "ingest",
+   "name": "Loading and indexing data"
+  },
+  {
+   "id": "query",
+   "name": "Querying and chatting"
+  },
+  {
+   "id": "rag-quality",
+   "name": "Better retrieval"
+  },
+  {
+   "id": "agents",
+   "name": "Agents and workflows"
+  },
+  {
+   "id": "production",
+   "name": "Evaluation and production"
+  }
+ ],
+ "concepts": [
+  {
+   "id": "llamaindex.overview",
+   "name": "What LlamaIndex is",
+   "module": "basics",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Understand what LlamaIndex does, its RAG pipeline, and how the core and integration packages fit together.",
+   "why": "Knowing the pipeline and the package layout prevents import errors and confusion from outdated tutorials.",
+   "body": "Imagine asking a question about your company's 500-page handbook and getting an answer with the exact paragraphs it came from. That is what **LlamaIndex** is built for: connecting LLMs to *your* data.\n\nIts core job is retrieval-augmented generation (RAG), done in stages:\n\n- **Load**: read files, web pages or databases into `Document` objects.\n- **Index**: split documents into small chunks called **nodes**, turn them into embeddings and store them.\n- **Query**: find the chunks most relevant to a question and give them to the LLM to write an answer.\n\nOn top of that, LlamaIndex has **agents** (LLMs that use tools, including your indexes, in a loop) and **Workflows**, a way to write multi-step AI programs as steps that react to events.\n\n**Packages.** LlamaIndex is split into many pip packages:\n\n- `llama-index-core`: all the core classes. Imports start with `llama_index.core`.\n- **Integrations**, one package each: `llama-index-llms-openai`, `llama-index-llms-anthropic`, `llama-index-llms-ollama`, `llama-index-embeddings-huggingface`, `llama-index-vector-stores-chroma` and hundreds more. Their imports look like `llama_index.llms.openai`.\n- `llama-index`: a starter bundle with core plus the OpenAI integrations.\n\nOlder tutorials (before version 0.10) import from `llama_index` directly, use `ServiceContext`, or build agents with `OpenAIAgent` and `ReActAgent.from_tools`. Those APIs are gone or legacy. Current code uses `Settings`, `llama_index.core` imports and workflow-based agents such as `FunctionAgent`.",
+   "code": "# pip install llama-index            # core + OpenAI LLM and embeddings\n# pip install llama-index-llms-ollama llama-index-vector-stores-chroma   # extras as needed\nimport importlib.metadata as md\n\nfor pkg in [\"llama-index-core\", \"llama-index-llms-openai\", \"llama-index-embeddings-openai\"]:\n    try:\n        print(f\"{pkg:32} {md.version(pkg)}\")\n    except md.PackageNotFoundError:\n        print(f\"{pkg:32} not installed\")\n# llama-index-core                 0.14.x\n\nfrom llama_index.core import VectorStoreIndex, Settings     # core classes\nfrom llama_index.llms.openai import OpenAI                   # an integration package",
+   "code_lang": "python",
+   "takeaways": [
+    "Pipeline: load, index (chunk + embed + store), query",
+    "`llama-index-core` plus one package per integration",
+    "Pre-0.10 imports, ServiceContext and OpenAIAgent are outdated"
+   ],
+   "pitfalls": [
+    "Following a 2023 tutorial that uses ServiceContext or `from llama_index import ...`, which fails on current versions."
+   ],
+   "quiz": [
+    {
+     "q": "You want to use a Chroma vector database with LlamaIndex. What do you install?",
+     "options": [
+      "llama-index-vector-stores-chroma (plus chromadb)",
+      "Nothing; every integration is in llama-index-core",
+      "llama-index-llms-chroma",
+      "llama-cloud"
+     ],
+     "answer": 0,
+     "explain": "Each integration lives in its own package; vector stores use the llama-index-vector-stores-* naming."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/getting_started/starter_example/",
+   "requires": [
+    "ai-fundamentals.rag",
+    "python.venv-pip"
+   ]
+  },
+  {
+   "id": "llamaindex.first-rag",
+   "name": "Your first RAG app in five lines",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Load a folder, build a VectorStoreIndex, and ask questions with a query engine.",
+   "why": "Seeing the whole pipeline work end to end first makes every later component easier to place.",
+   "body": "The smallest useful LlamaIndex program answers questions about a folder of files:\n\n```python\ndocuments = SimpleDirectoryReader(\"data\").load_data()\nindex = VectorStoreIndex.from_documents(documents)\nquery_engine = index.as_query_engine()\nresponse = query_engine.query(\"What is our refund policy?\")\nprint(response)\n```\n\nWhat happens behind these lines:\n\n1. `SimpleDirectoryReader` reads every supported file in `data/` (text, Markdown, PDF, Word and more) into `Document` objects.\n2. `VectorStoreIndex.from_documents` splits the documents into chunks, sends each chunk to an embedding model and keeps the vectors in memory.\n3. `as_query_engine()` builds an object that, for each question, embeds the question, finds the most similar chunks (2 by default), puts them into a prompt, and asks the LLM to answer from them.\n4. `query` returns a `Response`. Printing it shows the answer; `response.source_nodes` lists the chunks that were used, with similarity scores.\n\nBy default LlamaIndex uses OpenAI for both the LLM and the embeddings, so set the `OPENAI_API_KEY` environment variable first. The next lesson shows how to choose other models, including local ones.\n\nAlways look at `source_nodes` when an answer seems wrong. If the right chunk isn't there, the problem is retrieval, not the LLM, and no prompt change will fix it.",
+   "code": "# pip install llama-index ; export OPENAI_API_KEY=sk-...\nfrom llama_index.core import SimpleDirectoryReader, VectorStoreIndex\n\ndocuments = SimpleDirectoryReader(\"data\").load_data()   # every file in ./data\nindex = VectorStoreIndex.from_documents(documents)     # chunk + embed + store\nquery_engine = index.as_query_engine()\n\nresponse = query_engine.query(\"How long do refunds take?\")\nprint(response)                    # Refunds are processed within 5 business days.\n\nfor src in response.source_nodes:  # the chunks the answer was based on\n    print(round(src.score, 2), src.node.metadata[\"file_name\"])\n# 0.83 refunds.md\n# 0.71 faq.md",
+   "code_lang": "python",
+   "takeaways": [
+    "Reader, then `VectorStoreIndex.from_documents`, then `as_query_engine().query()`",
+    "The default LLM and embeddings are OpenAI's (needs OPENAI_API_KEY)",
+    "`response.source_nodes` shows which chunks the answer used"
+   ],
+   "pitfalls": [
+    "Judging a RAG app only by its answers without checking source_nodes, so retrieval problems look like model problems."
+   ],
+   "quiz": [
+    {
+     "q": "A query answer is wrong and source_nodes shows unrelated chunks. Where is the problem most likely?",
+     "options": [
+      "The LLM's temperature",
+      "The API key",
+      "The print statement",
+      "Retrieval: chunking, embeddings or the number of chunks retrieved"
+     ],
+     "answer": 3,
+     "explain": "If the right chunks were never retrieved, the LLM had no way to answer correctly."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/getting_started/starter_example/",
+   "requires": [
+    "llamaindex.overview"
+   ]
+  },
+  {
+   "id": "llamaindex.settings-models",
+   "name": "Settings: LLMs and embedding models",
+   "module": "basics",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Choose the LLM and embedding model globally with Settings or per component, including local models via Ollama.",
+   "why": "Model choice sets quality, cost, privacy and speed, and mixing up embedding models silently breaks retrieval.",
+   "body": "LlamaIndex uses two kinds of models:\n\n- an **LLM**, which writes answers, and\n- an **embedding model**, which turns text into vectors for search.\n\n**`Settings`** is a global object holding the defaults every component uses:\n\n```python\nSettings.llm = OpenAI(model=\"gpt-4o-mini\", temperature=0)\nSettings.embed_model = OpenAIEmbedding(model=\"text-embedding-3-small\")\n```\n\nSet these once at program start. You can also pass `llm=` or `embed_model=` to a single component (for example `index.as_query_engine(llm=other_llm)`) to override the default there.\n\nEach provider is its own package: `llama-index-llms-anthropic` gives `Anthropic`, `llama-index-llms-ollama` gives `Ollama`, `llama-index-embeddings-huggingface` gives `HuggingFaceEmbedding`, and so on. Model names change often, so check the provider's current list.\n\n**Local models.** With Ollama (a free app that runs open models on your own machine), use `Ollama(model=\"llama3.1\", request_timeout=120.0)` for the LLM and `OllamaEmbedding` or `HuggingFaceEmbedding(model_name=\"BAAI/bge-small-en-v1.5\")` for embeddings. Nothing leaves your computer, but local LLMs are slower and less capable.\n\n`Settings` also holds defaults such as `chunk_size` (1024 tokens) and `chunk_overlap`.\n\nThe most important rule: **index and query with the same embedding model.** Vectors from different models are not comparable. If you change the embedding model, rebuild the index.",
+   "code": "# pip install llama-index-llms-ollama llama-index-embeddings-huggingface\nfrom llama_index.core import Settings\nfrom llama_index.llms.openai import OpenAI\nfrom llama_index.embeddings.openai import OpenAIEmbedding\n\nSettings.llm = OpenAI(model=\"gpt-4o-mini\", temperature=0)                 # OPENAI_API_KEY\nSettings.embed_model = OpenAIEmbedding(model=\"text-embedding-3-small\")\nSettings.chunk_size = 512                                                  # default 1024\n\n# Fully local alternative (Ollama running on this machine):\n# from llama_index.llms.ollama import Ollama\n# from llama_index.embeddings.huggingface import HuggingFaceEmbedding\n# Settings.llm = Ollama(model=\"llama3.1\", request_timeout=120.0)\n# Settings.embed_model = HuggingFaceEmbedding(model_name=\"BAAI/bge-small-en-v1.5\")\n\nvec = Settings.embed_model.get_text_embedding(\"hello world\")\nprint(len(vec))                          # 1536 for text-embedding-3-small\nprint(Settings.llm.complete(\"Say hi in 3 words.\").text)",
+   "code_lang": "python",
+   "takeaways": [
+    "`Settings.llm` and `Settings.embed_model` set global defaults",
+    "Override per component with `llm=` or `embed_model=`",
+    "Index and query with the same embedding model; re-index after changing it"
+   ],
+   "pitfalls": [
+    "Switching Settings.embed_model while loading an index built with another model, which returns nonsense matches without any error."
+   ],
+   "quiz": [
+    {
+     "q": "You change the embedding model and load an index saved yesterday. What should you do?",
+     "options": [
+      "Nothing; vectors are model-independent",
+      "Increase similarity_top_k",
+      "Rebuild the index with the new embedding model",
+      "Lower the temperature"
+     ],
+     "answer": 2,
+     "explain": "Vectors from different embedding models live in different spaces, so the index must be rebuilt."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/supporting_modules/settings/",
+   "requires": [
+    "llamaindex.first-rag",
+    "ai-fundamentals.embeddings"
+   ]
+  },
+  {
+   "id": "llamaindex.loading-data",
+   "name": "Loading data with readers",
+   "module": "ingest",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Load files with SimpleDirectoryReader options and other sources with LlamaHub readers.",
+   "why": "What you load and how determines everything downstream; garbage in means garbage answers.",
+   "body": "A **reader** (also called a data connector) turns a source into a list of `Document` objects.\n\n**`SimpleDirectoryReader`** handles local files and is built in. It picks a parser by file extension: plain text and Markdown, PDF, Word, PowerPoint, CSV, images and more (some types need extra packages such as `pypdf`). Useful options:\n\n- `input_dir=\"data\"` or `input_files=[\"a.pdf\", \"b.md\"]`.\n- `recursive=True` to include subfolders.\n- `required_exts=[\".md\", \".pdf\"]` to load only those types.\n- `exclude=[\"*.tmp\"]` to skip files.\n- `filename_as_id=True` gives each document a stable id based on its path, which matters for updating an index later.\n- `num_workers=4` loads files in parallel.\n\nEach document gets **metadata** automatically: `file_name`, `file_path`, `file_type`, size and dates. Metadata travels with every chunk and is used for citations and filters.\n\nFor other sources, **LlamaHub** (the integrations catalogue) offers hundreds of readers, each a separate package: web pages, Notion, Google Drive, Slack, databases and more. They all return `Document` lists, so the rest of your code stays the same.\n\nComplex PDFs with tables, columns or scanned pages often come out messy with simple parsers. LlamaParse (a later lesson) is LlamaIndex's hosted parser for those.\n\nFor huge folders, use `reader.iter_data()` to process one file at a time instead of loading everything into memory.",
+   "code": "from llama_index.core import SimpleDirectoryReader\n\nreader = SimpleDirectoryReader(\n    input_dir=\"data\",\n    recursive=True,                    # include subfolders\n    required_exts=[\".md\", \".txt\", \".pdf\"],\n    filename_as_id=True,               # stable ids from file paths\n)\ndocs = reader.load_data()\nprint(len(docs))                       # e.g. 12\nprint(docs[0].metadata[\"file_name\"])   # refunds.md\nprint(docs[0].doc_id)                  # .../data/refunds.md\nprint(docs[0].text[:40])               # Refunds are processed within 5 busin\n\nfor file_docs in reader.iter_data():   # one file at a time for big folders\n    pass",
+   "code_lang": "python",
+   "takeaways": [
+    "`SimpleDirectoryReader` loads many file types and adds file metadata",
+    "Use `recursive`, `required_exts` and `filename_as_id`",
+    "LlamaHub readers load other sources into the same Document type"
+   ],
+   "pitfalls": [
+    "Loading a whole folder including backups and temporary files, which fills the index with duplicates and junk."
+   ],
+   "quiz": [
+    {
+     "q": "Why set filename_as_id=True when loading?",
+     "options": [
+      "It speeds up embeddings",
+      "Each document gets a stable id from its path, so re-loading can update rather than duplicate",
+      "It removes metadata",
+      "It is required for PDFs"
+     ],
+     "answer": 1,
+     "explain": "Stable document ids let LlamaIndex recognise the same file later for updates and de-duplication."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/loading/simpledirectoryreader/",
+   "requires": [
+    "llamaindex.first-rag",
+    "python.files"
+   ]
+  },
+  {
+   "id": "llamaindex.documents-nodes",
+   "name": "Documents, nodes and metadata",
+   "module": "ingest",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Work with Document and TextNode objects, attach metadata, and control what metadata the LLM and embeddings see.",
+   "why": "Nodes and their metadata are the unit of retrieval, citation and filtering in every LlamaIndex app.",
+   "body": "A **Document** is a whole source, such as one file or one web page. A **node** (usually a `TextNode`) is a chunk of a document: the actual unit that gets embedded, retrieved and shown to the LLM.\n\nBoth carry:\n\n- `text`: the content.\n- `metadata`: a dictionary such as `{\"file_name\": \"policy.pdf\", \"department\": \"hr\", \"year\": 2025}`.\n- an id: `doc_id` for documents, `node_id` for nodes.\n\nWhen a document is split, each node copies the document's metadata and records a **relationship** back to its source (`node.ref_doc_id`), plus links to the previous and next nodes.\n\nYou can create documents yourself from any data, for example rows from a database: `Document(text=..., metadata={...})`.\n\nMetadata is powerful but has a cost: by default it is included in the text sent to the embedding model and to the LLM. That helps when it adds meaning (a title or section name) and hurts when it is noise (file sizes, internal ids). Control it per document:\n\n- `excluded_embed_metadata_keys=[\"file_size\"]`: not used for embeddings.\n- `excluded_llm_metadata_keys=[\"internal_id\"]`: not shown to the LLM.\n\n`node.get_content(metadata_mode=MetadataMode.LLM)` shows exactly what the LLM will see, which is the quickest way to debug it.\n\nGood metadata to add: title, section, source URL, date, product, language and access level. It enables citations and filters later.",
+   "code": "from llama_index.core import Document\nfrom llama_index.core.schema import MetadataMode\nfrom llama_index.core.node_parser import SentenceSplitter\n\ndoc = Document(\n    text=\"Employees get 25 days of paid leave per year. Unused days expire in March.\",\n    metadata={\"title\": \"Leave policy\", \"department\": \"hr\", \"internal_id\": \"HR-17\"},\n    excluded_llm_metadata_keys=[\"internal_id\"],     # hide from the LLM\n    excluded_embed_metadata_keys=[\"internal_id\"],   # and from embeddings\n)\nnodes = SentenceSplitter().get_nodes_from_documents([doc])\nprint(len(nodes))                                   # 1 (short text, one chunk)\nprint(nodes[0].metadata[\"title\"], nodes[0].ref_doc_id == doc.doc_id)   # Leave policy True\nprint(nodes[0].get_content(metadata_mode=MetadataMode.LLM))\n# title: Leave policy\n# department: hr\n#\n# Employees get 25 days of paid leave per year. Unused days expire in March.",
+   "code_lang": "python",
+   "takeaways": [
+    "Documents are whole sources; nodes are the chunks that get retrieved",
+    "Nodes inherit metadata and link back to their document",
+    "Exclude noisy metadata from embeddings or the LLM"
+   ],
+   "pitfalls": [
+    "Stuffing long metadata (like full JSON records) into every node, which crowds out the real text in embeddings and prompts."
+   ],
+   "quiz": [
+    {
+     "q": "What is the unit that LlamaIndex embeds and retrieves?",
+     "options": [
+      "A node (chunk of a document)",
+      "The whole Document",
+      "A metadata key",
+      "The index"
+     ],
+     "answer": 0,
+     "explain": "Documents are split into nodes; each node is embedded and retrieved separately."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/loading/documents_and_nodes/",
+   "requires": [
+    "llamaindex.loading-data",
+    "python.dicts"
+   ]
+  },
+  {
+   "id": "llamaindex.node-parsers",
+   "name": "Chunking with node parsers",
+   "module": "ingest",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Split documents into nodes with SentenceSplitter and structure-aware parsers, and choose chunk size and overlap.",
+   "why": "Chunking is one of the biggest levers on RAG quality, and the defaults are rarely optimal for your data.",
+   "body": "A **node parser** (or text splitter) cuts documents into nodes. The default is **`SentenceSplitter`**: it fills chunks up to `chunk_size` tokens (1024 by default) while trying not to break sentences, and repeats `chunk_overlap` tokens (200 by default) between neighbouring chunks so an idea cut at a boundary is not lost.\n\n```python\nsplitter = SentenceSplitter(chunk_size=512, chunk_overlap=50)\nnodes = splitter.get_nodes_from_documents(documents)\n```\n\nTo use it during indexing, pass it as a **transformation**: `VectorStoreIndex.from_documents(docs, transformations=[splitter])`.\n\nChoosing a size:\n\n- Small chunks (around 128 to 256 tokens) match precise questions well but may lack context.\n- Large chunks (around 1024) carry more context but mix topics, which blurs their embeddings and costs more prompt tokens.\n- Start near 512, then measure retrieval on real questions and adjust.\n\nStructure-aware parsers often beat plain splitting:\n\n- `MarkdownNodeParser` splits on headings and records the heading path in metadata.\n- `CodeSplitter` splits source code by syntax.\n- `SentenceWindowNodeParser` and `HierarchicalNodeParser` support advanced retrieval tricks (an Expert lesson).\n- `SemanticSplitterNodeParser` splits where the meaning changes, using embeddings.\n\nParsers can be chained: Markdown sections first, then `SentenceSplitter` for sections that are still too long. Whatever you choose, keep useful metadata (title, heading) on every node, because a chunk without context is hard to retrieve.",
+   "code": "from llama_index.core import Document\nfrom llama_index.core.node_parser import MarkdownNodeParser, SentenceSplitter\n\nmd = Document(text=\"# Billing\\n## Refunds\\nRefunds take 5 days.\\n## Invoices\\nInvoices are PDFs.\")\n\nsections = MarkdownNodeParser().get_nodes_from_documents([md])\nfor n in sections:\n    print(n.metadata.get(\"header_path\"), \"|\", n.text.splitlines()[0])\n# / | # Billing\n# /Billing/ | ## Refunds\n# /Billing/ | ## Invoices\n\nsplitter = SentenceSplitter(chunk_size=512, chunk_overlap=50)\nlong_doc = Document(text=\"A sentence about refunds. \" * 400)\nnodes = splitter.get_nodes_from_documents([long_doc])\nprint(len(nodes), len(nodes[0].text.split()))      # 6 340  (6 chunks, ~340 words each)\n\n# During indexing:\n# index = VectorStoreIndex.from_documents(docs, transformations=[splitter])",
+   "code_lang": "python",
+   "takeaways": [
+    "`SentenceSplitter` defaults: chunk_size 1024, overlap 200 tokens",
+    "Pass parsers as `transformations` when building an index",
+    "Structure-aware parsers (Markdown, code) keep sections intact"
+   ],
+   "pitfalls": [
+    "Picking a chunk size once by intuition and never measuring retrieval quality on real questions."
+   ],
+   "quiz": [
+    {
+     "q": "Why do chunks overlap a little?",
+     "options": [
+      "To make the index larger",
+      "To speed up search",
+      "It is required by OpenAI",
+      "So an idea split across a boundary still appears whole in at least one chunk"
+     ],
+     "answer": 3,
+     "explain": "Overlap repeats some text between neighbours so boundary-crossing content is not lost."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/loading/node_parsers/",
+   "requires": [
+    "llamaindex.documents-nodes"
+   ]
+  },
+  {
+   "id": "llamaindex.vector-index",
+   "name": "VectorStoreIndex",
+   "module": "ingest",
+   "level": 1,
+   "minutes": 10,
+   "summary": "Build a VectorStoreIndex from documents or nodes, add and delete content, and understand what it stores.",
+   "why": "The vector index is the default and most-used index in LlamaIndex; everything else builds on it.",
+   "body": "An **index** is a data structure that makes your nodes searchable. The most common is **`VectorStoreIndex`**: it stores an embedding for every node and finds the nodes whose embeddings are closest to the question's embedding.\n\nTwo ways to build one:\n\n```python\nindex = VectorStoreIndex.from_documents(documents)   # parses into nodes for you\nindex = VectorStoreIndex(nodes)                      # when you already have nodes\n```\n\nBuilding calls the embedding model once per node (in batches), so large datasets take time and money. `show_progress=True` displays a progress bar.\n\nBy default the vectors live in memory in a `SimpleVectorStore`. For anything persistent or large, you plug in a real vector database (a later lesson). Alongside vectors, the index keeps a **docstore** (the node texts and metadata) and an **index store** (bookkeeping), all grouped in a `StorageContext`.\n\nKeeping it up to date:\n\n- `index.insert(document)` adds a new document.\n- `index.delete_ref_doc(doc_id, delete_from_docstore=True)` removes all nodes of a document.\n- `index.refresh_ref_docs(documents)` re-indexes only documents whose text changed, which is why stable document ids matter.\n\nFrom one index you create the objects you use day to day: `as_retriever()` for search, `as_query_engine()` for answers and `as_chat_engine()` for conversations.\n\nOther index types exist, such as `SummaryIndex` (reads every node, good for summarising a small set) and `PropertyGraphIndex` (a knowledge graph), but start with the vector index.",
+   "code": "from llama_index.core import Document, VectorStoreIndex\n\ndocs = [\n    Document(text=\"Refunds take 5 business days.\", id_=\"faq-refunds\"),\n    Document(text=\"Shipping is free over 50 EUR.\", id_=\"faq-shipping\"),\n]\nindex = VectorStoreIndex.from_documents(docs, show_progress=True)\n\nindex.insert(Document(text=\"Support is open Mon-Fri.\", id_=\"faq-support\"))\nprint(len(index.docstore.docs))                         # 3 nodes\n\nindex.delete_ref_doc(\"faq-shipping\", delete_from_docstore=True)\nprint(len(index.docstore.docs))                         # 2\n\nchanged = index.refresh_ref_docs([Document(text=\"Refunds take 3 business days.\", id_=\"faq-refunds\")])\nprint(changed)                                          # [True]  (text changed, re-indexed)\n\nretriever = index.as_retriever(similarity_top_k=1)\nprint(retriever.retrieve(\"money back\")[0].node.text)   # Refunds take 3 business days.",
+   "code_lang": "python",
+   "takeaways": [
+    "`VectorStoreIndex.from_documents(docs)` or `VectorStoreIndex(nodes)`",
+    "Insert, delete and refresh documents by stable ids",
+    "Create retrievers, query engines and chat engines from the index"
+   ],
+   "pitfalls": [
+    "Rebuilding the whole index from scratch on every change instead of inserting or refreshing changed documents."
+   ],
+   "quiz": [
+    {
+     "q": "What does refresh_ref_docs do with a document whose text is unchanged?",
+     "options": [
+      "Re-embeds it anyway",
+      "Deletes it",
+      "Skips it, re-indexing only changed documents",
+      "Raises an error"
+     ],
+     "answer": 2,
+     "explain": "It compares document content by id and only re-processes documents that changed."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/indexing/vector_store_index/",
+   "requires": [
+    "llamaindex.node-parsers",
+    "llamaindex.settings-models"
+   ]
+  },
+  {
+   "id": "llamaindex.query-engines",
+   "name": "Query engines and responses",
+   "module": "query",
+   "level": 1,
+   "minutes": 12,
+   "summary": "Configure as_query_engine (top-k, response mode, streaming) and read answers, sources and metadata from the Response.",
+   "why": "The query engine is the main interface for question answering over your data.",
+   "body": "A **query engine** takes a question and returns an answer. `index.as_query_engine()` builds one from two parts:\n\n- a **retriever** that finds relevant nodes, and\n- a **response synthesizer** that sends them with the question to the LLM.\n\nCommon options:\n\n- `similarity_top_k=4`: how many nodes to retrieve (default 2). More gives the LLM more context but costs tokens and can add noise.\n- `response_mode=\"compact\"`: how nodes are turned into an answer (the default; a later lesson compares modes).\n- `streaming=True`: return tokens as they are generated.\n- `filters=...`: only search nodes with certain metadata (a later lesson).\n- `llm=...`: use a different LLM for this engine.\n\nThe result of `query_engine.query(\"...\")` is a **Response**:\n\n- `str(response)` or `response.response`: the answer text.\n- `response.source_nodes`: a list of `NodeWithScore`, the retrieved nodes with similarity scores. Use them to show citations (\"Source: refunds.md\").\n- `response.metadata`: metadata of the source nodes by id.\n\nWith `streaming=True` you get a streaming response: iterate `response.response_gen` for text pieces, or call `response.print_response_stream()`.\n\nThe default prompt tells the LLM to answer from the context and not from prior knowledge. Even so, check answers against sources for important uses, and consider telling users when no relevant source was found.",
+   "code": "from llama_index.core import Document, VectorStoreIndex\n\nindex = VectorStoreIndex.from_documents([\n    Document(text=\"Refunds take 5 business days.\", metadata={\"source\": \"faq.md\"}),\n    Document(text=\"Our office is in Oslo.\", metadata={\"source\": \"about.md\"}),\n])\nqe = index.as_query_engine(similarity_top_k=2)\n\nresponse = qe.query(\"How long do refunds take?\")\nprint(response.response)                     # Refunds take 5 business days.\nfor n in response.source_nodes:\n    print(f\"{n.score:.2f}\", n.node.metadata[\"source\"])\n# 0.86 faq.md\n# 0.72 about.md\n\nstreaming_qe = index.as_query_engine(streaming=True)\nstream = streaming_qe.query(\"Where is the office?\")\nfor piece in stream.response_gen:            # text arrives piece by piece\n    print(piece, end=\"\", flush=True)         # The office is in Oslo.",
+   "code_lang": "python",
+   "takeaways": [
+    "`as_query_engine(similarity_top_k=..., streaming=...)` configures retrieval and output",
+    "Response: `.response` text plus `.source_nodes` with scores",
+    "Use source metadata for citations"
+   ],
+   "pitfalls": [
+    "Raising similarity_top_k to 20 to \"be safe\", which adds noise and cost and can make answers worse."
+   ],
+   "quiz": [
+    {
+     "q": "What are the two main parts of a default query engine?",
+     "options": [
+      "A reader and a parser",
+      "A retriever and a response synthesizer",
+      "An agent and a tool",
+      "A docstore and a cache"
+     ],
+     "answer": 1,
+     "explain": "The retriever finds nodes; the synthesizer turns nodes plus question into an answer with the LLM."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/deploying/query_engine/",
+   "requires": [
+    "llamaindex.vector-index"
+   ]
+  },
+  {
+   "id": "llamaindex.persistence",
+   "name": "Saving and loading indexes",
+   "module": "ingest",
+   "level": 1,
+   "minutes": 8,
+   "summary": "Persist an in-memory index to disk with storage_context.persist and load it back with load_index_from_storage.",
+   "why": "Re-embedding every document on each start is slow and costs money; persistence avoids it.",
+   "body": "An in-memory index disappears when your program exits. Rebuilding it means embedding every chunk again, which is slow and costs money with paid embedding APIs.\n\n**Save** it to a folder:\n\n```python\nindex.storage_context.persist(persist_dir=\"storage\")\n```\n\nThis writes JSON files for the vectors, the docstore (node texts and metadata) and the index store.\n\n**Load** it later:\n\n```python\nstorage_context = StorageContext.from_defaults(persist_dir=\"storage\")\nindex = load_index_from_storage(storage_context)\n```\n\nA common pattern is \"build once, load afterwards\": check whether the folder exists, and only build the index if it doesn't.\n\nThings to watch:\n\n- The embedding model is **not** saved. Set the same `Settings.embed_model` before loading, or queries will be compared against vectors from a different model.\n- The default stores are JSON files loaded fully into memory. That is fine for thousands of chunks but not for millions.\n- If the source files change, you need to update the index (insert, delete, refresh) and persist again.\n\nFor larger or shared data, use a **vector database** integration instead (Chroma, Qdrant, pgvector, Pinecone and many others). Those store vectors themselves, so you reconnect to them rather than loading files; a later lesson covers it.",
+   "code": "import os\nfrom llama_index.core import (SimpleDirectoryReader, StorageContext, VectorStoreIndex,\n                              load_index_from_storage)\n\nPERSIST_DIR = \"storage\"\n\nif not os.path.exists(PERSIST_DIR):\n    documents = SimpleDirectoryReader(\"data\").load_data()\n    index = VectorStoreIndex.from_documents(documents)       # embeds everything once\n    index.storage_context.persist(persist_dir=PERSIST_DIR)\n    print(\"built and saved\")\nelse:\n    storage_context = StorageContext.from_defaults(persist_dir=PERSIST_DIR)\n    index = load_index_from_storage(storage_context)          # no re-embedding\n    print(\"loaded from disk\")\n\nprint(index.as_query_engine().query(\"How long do refunds take?\"))",
+   "code_lang": "python",
+   "takeaways": [
+    "`index.storage_context.persist(persist_dir=...)` saves to disk",
+    "`load_index_from_storage(StorageContext.from_defaults(persist_dir=...))` loads it",
+    "Set the same embedding model before loading"
+   ],
+   "pitfalls": [
+    "Loading a saved index with a different Settings.embed_model than the one used to build it."
+   ],
+   "quiz": [
+    {
+     "q": "What is NOT saved by storage_context.persist()?",
+     "options": [
+      "The embedding model configuration",
+      "Node texts",
+      "Vectors",
+      "Index bookkeeping"
+     ],
+     "answer": 0,
+     "explain": "Only data is persisted; you must configure the same embedding model again before querying."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/storing/save_load/",
+   "requires": [
+    "llamaindex.vector-index",
+    "python.files"
+   ]
+  },
+  {
+   "id": "llamaindex.chat-engines",
+   "name": "Chat engines",
+   "module": "query",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Hold multi-turn conversations over your data with as_chat_engine and the condense_plus_context mode.",
+   "why": "Users ask follow-up questions like \"and for Germany?\"; a chat engine remembers what they mean.",
+   "body": "A query engine treats every question on its own. A **chat engine** keeps the conversation history, so follow-ups work:\n\n```python\nchat_engine = index.as_chat_engine(chat_mode=\"condense_plus_context\")\nchat_engine.chat(\"What is the refund period?\")\nchat_engine.chat(\"Does that apply to sale items too?\")\n```\n\nThe second question only makes sense with the first. The **`condense_plus_context`** mode handles this in two steps:\n\n1. It asks the LLM to rewrite (\"condense\") the latest message plus history into a standalone question, such as \"Does the refund period apply to sale items?\".\n2. It retrieves context for that question and answers with the history and the context.\n\nOther modes:\n\n- `context`: retrieves using the raw latest message, then answers with history. Simpler, weaker on follow-ups.\n- `condense_question`: rewrites the question and runs a query engine, without history in the final answer.\n- `simple`: plain chat with the LLM, no retrieval.\n\nUseful methods:\n\n- `chat(msg)` returns a response with `.response` and `.source_nodes`.\n- `stream_chat(msg)` streams tokens through `.response_gen`.\n- `reset()` clears the history.\n- `chat_history` shows the stored messages.\n\nHistory is kept in a memory object with a token limit, so very long conversations drop their oldest turns. A chat engine object holds one conversation, so in a web app create or restore one per user session; never share one engine between users.\n\nFor conversations that also need tools or several data sources, use an agent instead (a later lesson).",
+   "code": "from llama_index.core import Document, VectorStoreIndex\n\nindex = VectorStoreIndex.from_documents([\n    Document(text=\"Refunds are possible within 30 days of delivery.\"),\n    Document(text=\"Sale items can be refunded within 14 days only.\"),\n])\nchat = index.as_chat_engine(chat_mode=\"condense_plus_context\",\n                            system_prompt=\"You answer questions about our shop policies.\")\n\nprint(chat.chat(\"What is the refund period?\").response)\n# You can request a refund within 30 days of delivery.\nprint(chat.chat(\"And for items bought on sale?\").response)\n# Sale items can only be refunded within 14 days.\nprint(len(chat.chat_history))     # 4 messages (2 user, 2 assistant)\n\nchat.reset()                      # start a fresh conversation",
+   "code_lang": "python",
+   "takeaways": [
+    "Chat engines keep history so follow-up questions work",
+    "`condense_plus_context` rewrites the question, then retrieves and answers",
+    "One chat engine per conversation; `reset()` clears history"
+   ],
+   "pitfalls": [
+    "Sharing one chat engine instance across all users of a web app, so they see each other's conversation context."
+   ],
+   "quiz": [
+    {
+     "q": "In condense_plus_context mode, why is the question rewritten first?",
+     "options": [
+      "To translate it",
+      "To shorten the answer",
+      "To skip the LLM",
+      "So retrieval uses a standalone question that includes what the follow-up refers to"
+     ],
+     "answer": 3,
+     "explain": "A follow-up like 'and for sale items?' retrieves poorly; the rewrite adds the missing context."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/deploying/chat_engines/",
+   "requires": [
+    "llamaindex.query-engines",
+    "ai-fundamentals.prompts-and-messages"
+   ]
+  },
+  {
+   "id": "llamaindex.retrievers",
+   "name": "Retrievers and custom query engines",
+   "module": "query",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Use retrievers directly, inspect NodeWithScore results, and assemble a RetrieverQueryEngine with postprocessors.",
+   "why": "Separating retrieval from answering lets you test, tune and reuse each part on its own.",
+   "body": "A **retriever** does only the search half: question in, ranked nodes out. Get one from an index:\n\n```python\nretriever = index.as_retriever(similarity_top_k=5)\nresults = retriever.retrieve(\"refund for damaged items\")\n```\n\nEach result is a **`NodeWithScore`**: `.node` (text, metadata, id) and `.score` (how similar it is; higher is closer for most vector stores). Testing retrievers directly, without an LLM, is fast and cheap, and is the best way to tune chunking and `similarity_top_k`.\n\nYou can build a query engine from explicit parts with **`RetrieverQueryEngine`**:\n\n```python\nquery_engine = RetrieverQueryEngine.from_args(\n    retriever,\n    node_postprocessors=[SimilarityPostprocessor(similarity_cutoff=0.75)],\n    response_mode=\"compact\",\n)\n```\n\n**Node postprocessors** run between retrieval and the LLM. They can drop, reorder or change nodes:\n\n- `SimilarityPostprocessor(similarity_cutoff=...)` drops weak matches.\n- `KeywordNodePostprocessor` keeps or removes nodes containing given words.\n- Rerankers re-score nodes with a stronger model (an Advanced lesson).\n\nScore scales depend on the embedding model and vector store, so pick a cutoff by looking at real scores for good and bad matches, not by guessing.\n\nBecause retrievers share one interface, you can swap in other kinds (keyword search, hybrid, routing between indexes) without changing the rest of your pipeline. Agents can also use a retriever wrapped as a tool.",
+   "code": "from llama_index.core import Document, VectorStoreIndex\nfrom llama_index.core.postprocessor import SimilarityPostprocessor\nfrom llama_index.core.query_engine import RetrieverQueryEngine\n\nindex = VectorStoreIndex.from_documents([\n    Document(text=\"Damaged items are refunded in full.\"),\n    Document(text=\"Gift cards cannot be refunded.\"),\n    Document(text=\"Our office dog is called Biscuit.\"),\n])\nretriever = index.as_retriever(similarity_top_k=3)\n\nfor r in retriever.retrieve(\"refund for a broken product\"):\n    print(f\"{r.score:.2f}  {r.node.text}\")\n# 0.84  Damaged items are refunded in full.\n# 0.77  Gift cards cannot be refunded.\n# 0.61  Our office dog is called Biscuit.\n\nqe = RetrieverQueryEngine.from_args(\n    retriever, node_postprocessors=[SimilarityPostprocessor(similarity_cutoff=0.7)])\nresp = qe.query(\"Can I get a refund for a broken product?\")\nprint(len(resp.source_nodes))     # 2  (the dog was filtered out)",
+   "code_lang": "python",
+   "takeaways": [
+    "`as_retriever(similarity_top_k=k).retrieve(q)` returns NodeWithScore list",
+    "`RetrieverQueryEngine.from_args(retriever, node_postprocessors=[...])`",
+    "Tune retrieval on its own before touching prompts"
+   ],
+   "pitfalls": [
+    "Choosing a similarity_cutoff without looking at actual score distributions, which silently filters out every result."
+   ],
+   "quiz": [
+    {
+     "q": "Why test a retriever on its own, without the LLM?",
+     "options": [
+      "Retrievers need no embeddings",
+      "Query engines cannot be tested",
+      "It is fast and cheap and shows whether the right nodes are found, separately from answer writing",
+      "It improves the LLM's temperature"
+     ],
+     "answer": 2,
+     "explain": "Isolating retrieval shows if failures come from search or from answer generation."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/querying/retriever/",
+   "requires": [
+    "llamaindex.query-engines"
+   ]
+  },
+  {
+   "id": "llamaindex.metadata-filters",
+   "name": "Metadata filters",
+   "module": "query",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Restrict retrieval to nodes whose metadata matches conditions, using MetadataFilters and FilterOperator.",
+   "why": "Filters enforce hard constraints such as year, product or user permissions that similarity search alone can't.",
+   "body": "Similarity search finds text that *sounds* related. It can't guarantee hard conditions like \"only 2025 documents\" or \"only documents this user may see\". **Metadata filters** add those conditions to the search.\n\n```python\nfilters = MetadataFilters(filters=[\n    MetadataFilter(key=\"department\", value=\"hr\"),\n    MetadataFilter(key=\"year\", value=2024, operator=FilterOperator.GTE),\n])\nretriever = index.as_retriever(filters=filters, similarity_top_k=3)\n```\n\n- `MetadataFilter(key, value, operator)`: the default operator is equality. Others include `NE`, `GT`, `GTE`, `LT`, `LTE`, `IN`, `NIN` (not in) and `TEXT_MATCH`.\n- `MetadataFilters(filters=[...], condition=\"and\")`: combine with `\"and\"` (default) or `\"or\"`. Filter groups can be nested.\n\nThe same `filters=` argument works on `as_query_engine` and `as_chat_engine`.\n\nFilters only work on metadata you stored, so plan it during ingestion: department, product, language, date as a number (such as `2025`) and access level.\n\nSupport for each operator depends on the vector store. The simple in-memory store and most popular databases handle the common ones, but check the integration's docs before relying on `TEXT_MATCH` or nested groups.\n\nFor **permissions**, filters are the right tool: add the user's allowed groups as a filter on every query. Never rely on the prompt (\"don't reveal HR documents\"); a filter makes sure such nodes are never retrieved at all.\n\nWhen the filter comes from the user's question (\"reports from 2023\"), an LLM can extract it, but validate the values before using them.",
+   "code": "from llama_index.core import Document, VectorStoreIndex\nfrom llama_index.core.vector_stores import FilterOperator, MetadataFilter, MetadataFilters\n\nindex = VectorStoreIndex.from_documents([\n    Document(text=\"2023 HR handbook: 20 leave days.\", metadata={\"dept\": \"hr\", \"year\": 2023}),\n    Document(text=\"2025 HR handbook: 25 leave days.\", metadata={\"dept\": \"hr\", \"year\": 2025}),\n    Document(text=\"2025 sales targets.\", metadata={\"dept\": \"sales\", \"year\": 2025}),\n])\n\nfilters = MetadataFilters(filters=[\n    MetadataFilter(key=\"dept\", value=\"hr\"),                                # equality\n    MetadataFilter(key=\"year\", value=2024, operator=FilterOperator.GTE),\n])\nfor r in index.as_retriever(filters=filters, similarity_top_k=5).retrieve(\"leave days\"):\n    print(r.node.metadata, r.node.text)\n# {'dept': 'hr', 'year': 2025} 2025 HR handbook: 25 leave days.\n\nqe = index.as_query_engine(filters=filters)    # same filters for answers",
+   "code_lang": "python",
+   "takeaways": [
+    "`MetadataFilters([MetadataFilter(key, value, operator)])` restricts search",
+    "Works on retrievers, query engines and chat engines via `filters=`",
+    "Use filters, not prompts, for permissions"
+   ],
+   "pitfalls": [
+    "Storing years as strings like \"2025\" and then using GTE comparisons, which may compare text instead of numbers or fail."
+   ],
+   "quiz": [
+    {
+     "q": "How should you stop users from retrieving documents they are not allowed to see?",
+     "options": [
+      "Tell the LLM in the system prompt not to reveal them",
+      "Apply a metadata filter with the user's allowed groups on every query",
+      "Lower similarity_top_k",
+      "Use a chat engine"
+     ],
+     "answer": 1,
+     "explain": "Filters prevent restricted nodes from being retrieved at all; prompts can be ignored or bypassed."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/indexing/vector_store_guide",
+   "requires": [
+    "llamaindex.retrievers",
+    "llamaindex.documents-nodes"
+   ]
+  },
+  {
+   "id": "llamaindex.vector-stores",
+   "name": "Vector store integrations",
+   "module": "ingest",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Store embeddings in a real vector database such as Chroma via StorageContext, and reconnect with from_vector_store.",
+   "why": "Production RAG needs persistent, scalable, shareable storage instead of JSON files in memory.",
+   "body": "A **vector store** is the database that holds embeddings and runs similarity search. LlamaIndex's default `SimpleVectorStore` keeps everything in memory. For real applications you use an integration, each in its own package: Chroma, Qdrant, Weaviate, Milvus, Pinecone, Elasticsearch, OpenSearch, Postgres with pgvector, MongoDB Atlas, Redis and many more.\n\nThe pattern is the same for all of them:\n\n1. Create the database client and the LlamaIndex vector store object.\n2. Wrap it in a `StorageContext` and build the index with it:\n\n```python\nstorage_context = StorageContext.from_defaults(vector_store=vector_store)\nindex = VectorStoreIndex.from_documents(docs, storage_context=storage_context)\n```\n\n3. Later, reconnect without re-embedding:\n\n```python\nindex = VectorStoreIndex.from_vector_store(vector_store)\n```\n\nMost of these databases also store the node text and metadata, so you don't need to persist a separate docstore.\n\nHow to choose:\n\n- **Chroma** or **LanceDB**: embedded, file-based, easy for local work and small deployments.\n- **pgvector**: if you already run Postgres, keeps vectors next to your other data.\n- **Qdrant, Weaviate, Milvus, Pinecone**: dedicated servers or managed services for large collections, with strong filtering and hybrid search.\n\nCheck what each integration supports: metadata filter operators, hybrid (keyword plus vector) search, deletion by document id and async calls. The vector dimension is fixed by your embedding model, so changing models means creating a new collection.",
+   "code": "# pip install llama-index-vector-stores-chroma chromadb\nimport chromadb\nfrom llama_index.core import Document, StorageContext, VectorStoreIndex\nfrom llama_index.vector_stores.chroma import ChromaVectorStore\n\nclient = chromadb.PersistentClient(path=\"./chroma_db\")        # data saved on disk\ncollection = client.get_or_create_collection(\"handbook\")\nvector_store = ChromaVectorStore(chroma_collection=collection)\n\n# First run: embed and store\nstorage_context = StorageContext.from_defaults(vector_store=vector_store)\nindex = VectorStoreIndex.from_documents(\n    [Document(text=\"Refunds take 5 days.\", metadata={\"dept\": \"support\"})],\n    storage_context=storage_context,\n)\n\n# Any later run (or another process): reconnect, no re-embedding\nindex = VectorStoreIndex.from_vector_store(vector_store)\nprint(index.as_retriever().retrieve(\"refund time\")[0].node.text)   # Refunds take 5 days.\nprint(collection.count())                                          # 1",
+   "code_lang": "python",
+   "takeaways": [
+    "Each vector database is a separate integration package",
+    "Build with `StorageContext.from_defaults(vector_store=...)`",
+    "Reconnect with `VectorStoreIndex.from_vector_store(vector_store)`"
+   ],
+   "pitfalls": [
+    "Calling from_documents on every application start against a persistent store, which inserts duplicate copies of every chunk."
+   ],
+   "quiz": [
+    {
+     "q": "Your Chroma collection already contains embedded documents. How do you get an index to query it?",
+     "options": [
+      "VectorStoreIndex.from_vector_store(vector_store)",
+      "VectorStoreIndex.from_documents again",
+      "load_index_from_storage with no arguments",
+      "SimpleDirectoryReader"
+     ],
+     "answer": 0,
+     "explain": "from_vector_store wraps the existing store without embedding anything again."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/storing/vector_stores/",
+   "requires": [
+    "llamaindex.persistence"
+   ]
+  },
+  {
+   "id": "llamaindex.response-synthesis",
+   "name": "Response synthesis and prompts",
+   "module": "query",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Choose response modes such as compact, refine and tree_summarize, and customise the QA prompt.",
+   "why": "How retrieved text becomes an answer affects accuracy, cost and how well long contexts are handled.",
+   "body": "After retrieval, a **response synthesizer** turns the question plus nodes into an answer. The `response_mode` decides how:\n\n- `compact` (default): packs as many nodes as fit into each prompt, then refines across prompts if needed. Few LLM calls.\n- `refine`: one call per node; each call improves the previous answer with the next node. Thorough but slow and costly.\n- `tree_summarize`: answers over groups of nodes, then summarises those answers, repeating until one remains. Good for summaries over many chunks.\n- `simple_summarize`: truncates everything into one prompt. Cheap, may lose information.\n- `accumulate`: answers separately per node and joins the results, useful for \"list what each document says\".\n- `no_text`: retrieval only, no LLM call. Handy for testing.\n\nSet it with `index.as_query_engine(response_mode=\"tree_summarize\")` or build one with `get_response_synthesizer(response_mode=...)`.\n\n**Custom prompts.** The main question-answering prompt is called `text_qa_template`. It receives `{context_str}` (the retrieved text) and `{query_str}` (the question). Replace it to change tone, language, citation style or the \"I don't know\" behaviour:\n\n```python\nqe.update_prompts({\"response_synthesizer:text_qa_template\": PromptTemplate(...)})\n```\n\n`qe.get_prompts()` lists every prompt key an engine uses.\n\nPrompt rules that pay off: answer only from the context, say clearly when the context doesn't contain the answer, cite sources using metadata, and match the user's language.",
+   "code": "from llama_index.core import Document, PromptTemplate, VectorStoreIndex\n\nindex = VectorStoreIndex.from_documents([\n    Document(text=\"Refunds take 5 business days.\", metadata={\"source\": \"faq.md\"}),\n])\nqe = index.as_query_engine(response_mode=\"compact\", similarity_top_k=3)\nprint(list(qe.get_prompts()))\n# ['response_synthesizer:text_qa_template', 'response_synthesizer:refine_template', ...]\n\nqa = PromptTemplate(\n    \"Answer using ONLY the context below. If the answer is not there, reply \"\n    \"'I could not find this in our documents.' Cite the source file.\\n\"\n    \"Context:\\n{context_str}\\n\\nQuestion: {query_str}\\nAnswer: \"\n)\nqe.update_prompts({\"response_synthesizer:text_qa_template\": qa})\nprint(qe.query(\"Do you ship to Mars?\"))       # I could not find this in our documents.\n\nsummary_qe = index.as_query_engine(response_mode=\"tree_summarize\")",
+   "code_lang": "python",
+   "takeaways": [
+    "`compact` (default), `refine`, `tree_summarize`, `accumulate`, `no_text`",
+    "`text_qa_template` uses `{context_str}` and `{query_str}`",
+    "Use `get_prompts()` and `update_prompts()` to inspect and replace prompts"
+   ],
+   "pitfalls": [
+    "Using refine mode with a high similarity_top_k, which makes one LLM call per node and multiplies cost and latency."
+   ],
+   "quiz": [
+    {
+     "q": "You need a summary of themes across 40 retrieved chunks. Which response mode fits best?",
+     "options": [
+      "no_text",
+      "simple_summarize",
+      "compact with top_k=1",
+      "tree_summarize"
+     ],
+     "answer": 3,
+     "explain": "tree_summarize builds the answer hierarchically over all chunks, suited to summaries."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/querying/response_synthesizers/",
+   "requires": [
+    "llamaindex.retrievers",
+    "ai-fundamentals.prompt-writing"
+   ]
+  },
+  {
+   "id": "llamaindex.ingestion-pipeline",
+   "name": "Ingestion pipelines",
+   "module": "ingest",
+   "level": 2,
+   "minutes": 12,
+   "summary": "Run documents through an IngestionPipeline of transformations with caching and de-duplication into a vector store.",
+   "why": "Repeatable, incremental ingestion is what keeps a RAG index correct as source data changes.",
+   "body": "An **`IngestionPipeline`** applies a list of **transformations** to documents, in order, and can write the result straight to a vector store. Transformations include node parsers, metadata extractors and the embedding model itself.\n\n```python\npipeline = IngestionPipeline(\n    transformations=[SentenceSplitter(chunk_size=512), TitleExtractor(), embed_model],\n    vector_store=vector_store,\n    docstore=SimpleDocumentStore(),\n)\npipeline.run(documents=documents)\n```\n\nWhy use it instead of `from_documents`:\n\n- **Caching.** Each transformation's output is cached by input, so re-running on unchanged data skips the expensive steps.\n- **De-duplication.** With a `docstore` attached, the pipeline remembers each document's id and content hash. Unchanged documents are skipped; changed ones are re-processed and their old nodes replaced (the default `upserts` strategy). Stable document ids, such as from `filename_as_id=True`, make this work.\n- **One place for your ingestion logic**, which you can run from a scheduled job.\n\n**Metadata extractors** use an LLM to add metadata to nodes, for example `TitleExtractor`, `SummaryExtractor` or `QuestionsAnsweredExtractor`. They can improve retrieval but cost an LLM call per node, so use them where they measurably help.\n\nSave the pipeline's cache and docstore with `pipeline.persist(\"./pipeline_storage\")` and load them with `pipeline.load(...)` on the next run. `pipeline.run(..., num_workers=4)` processes in parallel.\n\nAfter ingestion, query with `VectorStoreIndex.from_vector_store(vector_store)`.",
+   "code": "from llama_index.core import Document, Settings, VectorStoreIndex\nfrom llama_index.core.ingestion import IngestionPipeline\nfrom llama_index.core.node_parser import SentenceSplitter\nfrom llama_index.core.storage.docstore import SimpleDocumentStore\nimport chromadb\nfrom llama_index.vector_stores.chroma import ChromaVectorStore\n\ncollection = chromadb.EphemeralClient().get_or_create_collection(\"docs\")   # in-memory demo\nvector_store = ChromaVectorStore(chroma_collection=collection)   # or Qdrant, pgvector...\npipeline = IngestionPipeline(\n    transformations=[SentenceSplitter(chunk_size=512, chunk_overlap=50),\n                     Settings.embed_model],   # embedding is the last step\n    docstore=SimpleDocumentStore(),          # enables de-duplication\n    vector_store=vector_store,\n)\ndocs = [Document(text=\"Refunds take 5 days.\", id_=\"faq.md\"),\n        Document(text=\"Office in Oslo.\", id_=\"about.md\")]\nprint(len(pipeline.run(documents=docs)))    # 2 nodes processed\nprint(len(pipeline.run(documents=docs)))    # 0  (unchanged, skipped)\n\ndocs[0] = Document(text=\"Refunds take 3 days.\", id_=\"faq.md\")\nprint(len(pipeline.run(documents=docs)))    # 1  (only the changed doc)\npipeline.persist(\"./pipeline_storage\")\n\nindex = VectorStoreIndex.from_vector_store(vector_store)",
+   "code_lang": "python",
+   "takeaways": [
+    "Pipelines chain parsers, extractors and the embedding model",
+    "A docstore enables skipping unchanged documents and replacing changed ones",
+    "Persist cache and docstore between runs"
+   ],
+   "pitfalls": [
+    "Running a pipeline with a docstore but unstable document ids (random UUIDs), so every run looks like new documents."
+   ],
+   "quiz": [
+    {
+     "q": "You re-run a pipeline (with a docstore) on 1,000 documents where only 3 changed. Roughly what gets re-processed?",
+     "options": [
+      "All 1,000",
+      "None",
+      "Only the 3 changed documents",
+      "Only new ones, never changed ones"
+     ],
+     "answer": 2,
+     "explain": "The docstore compares ids and content hashes and re-processes only changed or new documents."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/loading/ingestion_pipeline/",
+   "requires": [
+    "llamaindex.vector-stores",
+    "llamaindex.node-parsers"
+   ]
+  },
+  {
+   "id": "llamaindex.structured-outputs",
+   "name": "Structured outputs",
+   "module": "query",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Extract typed Pydantic objects with structured_predict, as_structured_llm and query engines with output_cls.",
+   "why": "Extraction and classification over documents feed other code, which needs fields, not prose.",
+   "body": "Sometimes you want data, not an answer: invoice fields from a PDF, a category for a ticket, a list of action items from meeting notes. Describe the data as a **Pydantic** model, a class with typed fields that Pydantic validates, and let LlamaIndex fill it.\n\nThree entry points:\n\n- **`llm.structured_predict(Model, prompt, **variables)`** formats a `PromptTemplate` and returns a `Model` instance. Good for one-off extraction.\n- **`llm.as_structured_llm(Model)`** wraps an LLM so every chat or completion returns the model. The parsed object is in `response.raw`.\n- **`index.as_query_engine(output_cls=Model)`** runs RAG and returns a structured answer: `response.response` is the `Model` instance and `source_nodes` still shows the evidence.\n\nAgents accept `output_cls=Model` too; read the result with `response.get_pydantic_model(Model)`.\n\nUnder the hood LlamaIndex uses the provider's function calling or JSON mode where available, and a text-parsing fallback otherwise. Function-calling models (current OpenAI, Anthropic, Gemini and many Ollama models) are most reliable.\n\nSchema tips:\n\n- Use descriptive field names and `Field(description=...)`; the model reads them.\n- Use `Literal[...]` or enums for categories.\n- Make fields optional when data may be missing, so the model isn't pushed to invent values.\n- Keep schemas small; for long documents, extract per chunk and merge in code.",
+   "code": "from typing import Literal, Optional\nfrom pydantic import BaseModel, Field\nfrom llama_index.core import PromptTemplate\nfrom llama_index.llms.openai import OpenAI\n\nclass Invoice(BaseModel):\n    vendor: str\n    total: float = Field(description=\"Total amount including tax\")\n    currency: Literal[\"EUR\", \"USD\", \"GBP\"]\n    due_date: Optional[str] = Field(None, description=\"YYYY-MM-DD if stated\")\n\nllm = OpenAI(model=\"gpt-4o-mini\", temperature=0)\nprompt = PromptTemplate(\"Extract the invoice details from:\\n{text}\")\n\ninv = llm.structured_predict(Invoice, prompt, text=\"ACME Ltd. Total due: 1,210.00 EUR by 2026-11-30.\")\nprint(inv)        # vendor='ACME Ltd.' total=1210.0 currency='EUR' due_date='2026-11-30'\n\nsllm = llm.as_structured_llm(Invoice)\nresp = sllm.complete(\"Bill from Globex, 99 USD, no due date.\")\nprint(resp.raw.vendor, resp.raw.due_date)    # Globex None\n\n# RAG + structure: index.as_query_engine(output_cls=Invoice).query(\"...\").response",
+   "code_lang": "python",
+   "takeaways": [
+    "`structured_predict(Model, prompt, **vars)` for one-off extraction",
+    "`as_structured_llm(Model)` makes every call return the model (in `.raw`)",
+    "`as_query_engine(output_cls=Model)` adds structure to RAG answers"
+   ],
+   "pitfalls": [
+    "Making every field required when source documents often lack some values, which encourages the model to make them up."
+   ],
+   "quiz": [
+    {
+     "q": "Where is the Pydantic object when you call a structured LLM's complete()?",
+     "options": [
+      "response.text only",
+      "response.raw",
+      "response.source_nodes",
+      "Settings.llm"
+     ],
+     "answer": 1,
+     "explain": "A structured LLM returns the parsed model instance in the response's raw attribute."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/models/llms/",
+   "requires": [
+    "llamaindex.query-engines",
+    "ai-fundamentals.structured-output",
+    "python.type-hints"
+   ]
+  },
+  {
+   "id": "llamaindex.agents",
+   "name": "Agents with FunctionAgent",
+   "module": "agents",
+   "level": 2,
+   "minutes": 14,
+   "summary": "Build a tool-using FunctionAgent from Python functions and query engine tools, and run it with async code.",
+   "why": "Agents can pick between several data sources and tools per question, which a fixed query engine can't.",
+   "body": "An agent is an LLM in a loop: it reads the request, decides which tool to call, looks at the result and repeats until it can answer. In LlamaIndex the standard agent is **`FunctionAgent`**, which uses the model's tool (function) calling:\n\n```python\nagent = FunctionAgent(tools=[multiply, search_docs], llm=OpenAI(model=\"gpt-4o-mini\"),\n                      system_prompt=\"You are a helpful assistant.\")\nresponse = await agent.run(\"What is 7 * 8, and what does the handbook say about leave?\")\n```\n\n**Tools.** A plain Python function becomes a tool automatically: its name, type hints and docstring tell the model what it does, so write the docstring for the model. `FunctionTool.from_defaults(fn, name=..., description=...)` gives more control. **`QueryEngineTool.from_defaults(query_engine, name=..., description=...)`** turns a whole RAG pipeline into one tool. That is how an agent can choose between, say, an HR index and a product index.\n\n**Async.** `agent.run(...)` is asynchronous. `async`/`await` is Python's way of running code that waits for slow things (like model calls) without blocking everything else. In practice: put your calls inside an `async def main():`, write `await` before `agent.run(...)`, and start it with `asyncio.run(main())`. In Jupyter notebooks you can use `await` directly.\n\n**Other agent types.** `ReActAgent` works with models that lack native tool calling, by reasoning in text. `CodeActAgent` writes and runs code as its actions, which needs a sandbox.\n\nOlder APIs such as `OpenAIAgent`, `AgentRunner` and `ReActAgent.from_tools` are legacy; use the workflow-based agents.",
+   "code": "import asyncio\nfrom llama_index.core import Document, VectorStoreIndex\nfrom llama_index.core.agent.workflow import FunctionAgent\nfrom llama_index.core.tools import QueryEngineTool\nfrom llama_index.llms.openai import OpenAI\n\ndef multiply(a: float, b: float) -> float:\n    \"\"\"Multiply two numbers.\"\"\"\n    return a * b\n\nhr_index = VectorStoreIndex.from_documents([Document(text=\"Staff get 25 leave days a year.\")])\nhr_tool = QueryEngineTool.from_defaults(\n    hr_index.as_query_engine(), name=\"hr_handbook\",\n    description=\"Answers questions about HR policies such as leave and benefits.\")\n\nagent = FunctionAgent(tools=[multiply, hr_tool], llm=OpenAI(model=\"gpt-4o-mini\"),\n                      system_prompt=\"Use tools for facts and arithmetic.\")\n\nasync def main():\n    response = await agent.run(\"How many leave days do 3 employees get in total?\")\n    print(str(response))        # 3 employees get 75 leave days in total.\n\nasyncio.run(main())",
+   "code_lang": "python",
+   "takeaways": [
+    "`FunctionAgent(tools, llm, system_prompt)` runs a tool-calling loop",
+    "Functions become tools via name, type hints and docstring; QueryEngineTool wraps RAG",
+    "`await agent.run(...)` inside `async def`, started with `asyncio.run`"
+   ],
+   "pitfalls": [
+    "Calling agent.run(...) without await in normal code and printing a handler object instead of the answer."
+   ],
+   "quiz": [
+    {
+     "q": "You have separate indexes for HR policies and product manuals. How can one agent use both?",
+     "options": [
+      "Wrap each query engine in a QueryEngineTool with a clear description",
+      "Merge them into one prompt",
+      "Set similarity_top_k higher",
+      "Use a chat engine"
+     ],
+     "answer": 0,
+     "explain": "Each QueryEngineTool is a tool; the agent picks the right one from its name and description."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/understanding/agent/",
+   "requires": [
+    "llamaindex.query-engines",
+    "ai-fundamentals.what-is-an-agent",
+    "ai-fundamentals.tool-calling"
+   ]
+  },
+  {
+   "id": "llamaindex.llamaparse",
+   "name": "Parsing complex documents with LlamaParse",
+   "module": "ingest",
+   "level": 2,
+   "minutes": 10,
+   "summary": "Know when to use LlamaIndex's hosted LlamaParse platform for PDFs with tables and layouts, and how to call it.",
+   "why": "Bad parsing of tables and multi-column PDFs is a common hidden cause of wrong RAG answers.",
+   "body": "Simple PDF readers extract text in reading order and often scramble tables, multi-column pages, charts and scanned pages. The RAG system then retrieves garbled chunks, and answers suffer.\n\n**LlamaParse** is LlamaIndex's hosted document platform. Its docs present several products under one API key:\n\n- **Parse**: converts PDFs, scans and Office files into clean Markdown or JSON, including tables.\n- **Extract**: pulls fields matching a schema you define.\n- **Classify** and **Split**: sort documents by type and split combined files.\n- **Index**: managed ingestion, embedding and retrieval for RAG.\n\nOlder material calls the platform **LlamaCloud** and uses the `llama-parse` or `llama-cloud-services` packages; the current Python SDK is `llama-cloud`, imported as `llama_cloud`, and reads the `LLAMA_CLOUD_API_KEY` environment variable. Parse and Extract have moved to a v2 API, so check the docs for current parameters. It is a paid service with a free allowance; pricing changes, so check the website.\n\nWhen to use it:\n\n- Many tables, forms, financial reports, slides or scanned pages.\n- When parsed text from `SimpleDirectoryReader` looks wrong on inspection.\n\nWhen not to: plain text, Markdown or simple PDFs parse fine locally and for free. Also check data policies, because documents are uploaded to a third party.\n\nWhatever parser you use, print a few parsed pages before indexing. Five minutes of looking at parser output can save days of prompt tuning.\n\nThe Markdown output works well with `MarkdownNodeParser`, which keeps table and section structure together.",
+   "code": "# pip install llama-cloud ; export LLAMA_CLOUD_API_KEY=llx-...\nfrom llama_cloud import LlamaCloud\nfrom llama_index.core import Document\n\nclient = LlamaCloud()                                   # reads LLAMA_CLOUD_API_KEY\nfile = client.files.create(file=\"annual_report.pdf\", purpose=\"parse\")\nresult = client.parsing.parse(\n    file_id=file.id,\n    tier=\"agentic\",                                     # parsing quality tier\n    version=\"latest\",\n    expand=[\"markdown\"],\n)\npages = [p.markdown for p in result.markdown.pages]\nprint(pages[0][:200])                                   # | Quarter | Revenue | ... (tables as Markdown)\n\ndocs = [Document(text=md, metadata={\"file_name\": \"annual_report.pdf\", \"page\": i + 1})\n        for i, md in enumerate(pages)]\n# then: MarkdownNodeParser / SentenceSplitter -> VectorStoreIndex",
+   "code_lang": "python",
+   "takeaways": [
+    "LlamaParse parses complex PDFs, tables and scans into Markdown/JSON",
+    "Current SDK: `llama-cloud` with `LLAMA_CLOUD_API_KEY`; older docs say LlamaCloud/llama-parse",
+    "Inspect parsed output before indexing, whatever parser you use"
+   ],
+   "pitfalls": [
+    "Uploading confidential documents to a hosted parser without checking your organisation's data policy."
+   ],
+   "quiz": [
+    {
+     "q": "Answers about numbers in financial-report tables are often wrong, and the parsed text shows table cells jumbled into one line. What is the best first fix?",
+     "options": [
+      "Increase the LLM temperature",
+      "Raise similarity_top_k",
+      "Switch to a chat engine",
+      "Use a layout-aware parser such as LlamaParse and check its output"
+     ],
+     "answer": 3,
+     "explain": "The retrieval input is broken at the parsing stage; better parsing fixes the root cause."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/llamaparse/",
+   "requires": [
+    "llamaindex.loading-data"
+   ]
+  },
+  {
+   "id": "llamaindex.agent-state-streaming",
+   "name": "Agent memory, state and streaming",
+   "module": "agents",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Keep conversations with Context, store state, serialise it between requests, and stream agent events.",
+   "why": "Real assistants must remember the conversation, survive across web requests and show progress while working.",
+   "body": "By default each `agent.run(...)` call starts fresh. To keep a conversation, pass a **`Context`**:\n\n```python\nctx = Context(agent)\nawait agent.run(\"My name is Ana.\", ctx=ctx)\nawait agent.run(\"What's my name?\", ctx=ctx)   # remembers: Ana\n```\n\nThe context holds the chat memory and a **store** of arbitrary state. Read and write it with `await ctx.store.get(\"key\", default=None)` and `await ctx.store.set(\"key\", value)`. Tools can receive the context too: add a parameter typed `ctx: Context` and LlamaIndex passes it in, so a tool can update state such as a shopping cart.\n\n**Between web requests**, turn the context into a plain dictionary with `ctx.to_dict()`, save it (database, cache), and rebuild it later with `Context.from_dict(agent, data)`. Values in the store must be serialisable (convertible to JSON-like data).\n\nLong conversations are trimmed by the agent's memory to fit a token limit. For control, pass a `Memory` object (`from llama_index.core.memory import Memory`), which supports a short-term token limit plus long-term memory blocks such as extracted facts.\n\n**Streaming.** `agent.run(...)` returns a handler. Iterate its events before awaiting the result:\n\n```python\nhandler = agent.run(\"...\", ctx=ctx)\nasync for ev in handler.stream_events():\n    ...\nresponse = await handler\n```\n\nUseful event types: `AgentStream` (`ev.delta` is new text), `ToolCall` and `ToolCallResult` (`ev.tool_name`, `ev.tool_kwargs`, `ev.tool_output`). Show tool activity in your interface; users trust agents more when they can see what was looked up.",
+   "code": "import asyncio\nfrom llama_index.core.agent.workflow import AgentStream, FunctionAgent, ToolCallResult\nfrom llama_index.core.workflow import Context\nfrom llama_index.llms.openai import OpenAI\nasync def add_to_cart(ctx: Context, item: str) -> str:\n    \"\"\"Add an item to the user's shopping cart.\"\"\"\n    cart = await ctx.store.get(\"cart\", default=[])\n    cart.append(item)\n    await ctx.store.set(\"cart\", cart)\n    return f\"Cart now has: {', '.join(cart)}\"\n\nagent = FunctionAgent(tools=[add_to_cart], llm=OpenAI(model=\"gpt-4o-mini\"))\n\nasync def main():\n    ctx = Context(agent)\n    handler = agent.run(\"Add apples and bread to my cart.\", ctx=ctx)\n    async for ev in handler.stream_events():\n        if isinstance(ev, ToolCallResult):\n            print(f\"[tool] {ev.tool_name}({ev.tool_kwargs}) -> {ev.tool_output}\")\n        elif isinstance(ev, AgentStream): print(ev.delta, end=\"\", flush=True)\n    await handler\n    ctx2 = Context.from_dict(agent, ctx.to_dict())         # e.g. saved between requests\n    print(\"\\n\", await ctx2.store.get(\"cart\", default=[]))             # ['apples', 'bread']\n\nasyncio.run(main())",
+   "code_lang": "python",
+   "takeaways": [
+    "Pass the same `Context` to keep conversation and state",
+    "`ctx.store.get/set` (awaited) for state; tools can take `ctx: Context`",
+    "`ctx.to_dict()` / `Context.from_dict()` across requests; stream with `stream_events()`"
+   ],
+   "pitfalls": [
+    "Creating a new Context on every web request and wondering why the agent forgets the conversation."
+   ],
+   "quiz": [
+    {
+     "q": "How do you continue a conversation in a later HTTP request handled by another server process?",
+     "options": [
+      "Reuse the agent object only",
+      "Increase the timeout",
+      "Save ctx.to_dict() and rebuild with Context.from_dict(agent, data)",
+      "Use a new Context"
+     ],
+     "answer": 2,
+     "explain": "Serialising the context preserves memory and state so another process can restore it."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/understanding/agent/state/",
+   "requires": [
+    "llamaindex.agents"
+   ]
+  },
+  {
+   "id": "llamaindex.workflows",
+   "name": "Workflows: steps and events",
+   "module": "agents",
+   "level": 3,
+   "minutes": 15,
+   "summary": "Write event-driven Workflows with @step methods, custom Events, StartEvent/StopEvent and shared Context state.",
+   "why": "Workflows are how LlamaIndex expresses any multi-step AI process, including its own agents, with full control.",
+   "body": "A **Workflow** is a class whose async methods, marked with `@step`, react to **events**. An event is a small typed message, a Pydantic class you define by subclassing `Event`.\n\nThe type hints define the wiring:\n\n```python\n@step\nasync def draft(self, ev: StartEvent) -> DraftEvent: ...\n@step\nasync def review(self, ev: DraftEvent) -> StopEvent: ...\n```\n\n- `StartEvent` carries the keyword arguments given to `run(...)`: `ev.topic`, or `ev.get(\"topic\")` when it may be missing.\n- A step returning `DraftEvent` triggers every step that accepts `DraftEvent`.\n- Returning `StopEvent(result=...)` ends the run; `await workflow.run(...)` gives you that result.\n\nLlamaIndex checks the wiring before running, so a step whose event nothing produces is caught early.\n\nPatterns:\n\n- **Branching**: return different event types from one step (annotate the return as `EventA | EventB`).\n- **Loops**: return an event handled by an earlier step, for example a retry after a failed check. Keep a counter.\n- **Parallel work**: `ctx.send_event(...)` several times, and collect results with `ctx.collect_events(ev, [ResultEvent] * n)`.\n- **Shared state**: add `ctx: Context` to a step and use `await ctx.store.get/set`.\n- **Progress**: `ctx.write_event_to_stream(ev)` sends events to `handler.stream_events()`.\n\nSet `timeout=` in the constructor (seconds) to stop runaway runs. Workflows are also published as the standalone `llama-index-workflows` package (imported as `workflows`); inside LlamaIndex use `llama_index.core.workflow`.\n\nUse a workflow when the steps are known (classify, retrieve, check, answer); use an agent when the LLM should choose the steps. Agents themselves are workflows, so they can be called from a step.",
+   "code": "import asyncio\nfrom llama_index.core.workflow import Context, Event, StartEvent, StopEvent, Workflow, step\n\nclass DraftEvent(Event):\n    text: str\nclass RetryEvent(Event): pass\nclass SloganFlow(Workflow):\n    @step\n    async def write(self, ctx: Context, ev: StartEvent | RetryEvent) -> DraftEvent:\n        tries = await ctx.store.get(\"tries\", default=0) + 1\n        await ctx.store.set(\"tries\", tries)\n        product = ev.get(\"product\") or await ctx.store.get(\"product\")\n        await ctx.store.set(\"product\", product)\n        # In real code: await llm.acomplete(...)\n        return DraftEvent(text=f\"{product}: try #{tries}\" + (\"!\" if tries > 1 else \"\"))\n\n    @step\n    async def check(self, ctx: Context, ev: DraftEvent) -> RetryEvent | StopEvent:\n        if not ev.text.endswith(\"!\") and await ctx.store.get(\"tries\") < 3:\n            return RetryEvent()                       # loop back to write\n        return StopEvent(result=ev.text)\n\nasync def main():\n    print(await SloganFlow(timeout=30).run(product=\"SunMug\"))   # SunMug: try #2!\nasyncio.run(main())",
+   "code_lang": "python",
+   "takeaways": [
+    "`@step` methods consume and return typed Events; type hints define the wiring",
+    "`StartEvent` holds run() arguments; `StopEvent(result=...)` ends the run",
+    "Use `ctx.store` for state and `timeout=` to bound runs"
+   ],
+   "pitfalls": [
+    "Returning an event type that no step accepts, which the validation reports before the run starts."
+   ],
+   "quiz": [
+    {
+     "q": "What starts a step annotated as async def review(self, ev: DraftEvent) -> StopEvent?",
+     "options": [
+      "Calling review() directly",
+      "Any step returning a DraftEvent",
+      "The StartEvent",
+      "A timer"
+     ],
+     "answer": 1,
+     "explain": "Steps are triggered by events of the type they accept; returning DraftEvent anywhere triggers review."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/llamaagents/workflows/",
+   "requires": [
+    "llamaindex.agent-state-streaming",
+    "python.classes"
+   ]
+  },
+  {
+   "id": "llamaindex.multi-agent",
+   "name": "Multi-agent systems with AgentWorkflow",
+   "module": "agents",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Coordinate several specialised agents with AgentWorkflow handoffs, shared state, or an orchestrator agent.",
+   "why": "Splitting a complex job across focused agents keeps each prompt and tool set small and reliable.",
+   "body": "One agent with twenty tools and a giant system prompt gets confused. Splitting the job across **several specialised agents**, each with a few tools and a narrow role, usually works better.\n\n**`AgentWorkflow`** is the built-in way to do this with **handoffs**:\n\n```python\nresearch = FunctionAgent(name=\"researcher\", description=\"Finds facts with web search\",\n                         tools=[search], can_handoff_to=[\"writer\"], llm=llm)\nwriter = FunctionAgent(name=\"writer\", description=\"Writes the final report\", llm=llm)\nworkflow = AgentWorkflow(agents=[research, writer], root_agent=\"researcher\")\nresponse = await workflow.run(user_msg=\"Write a short report on heat pumps.\")\n```\n\n- Every agent needs a unique `name` and a `description`; other agents read the description when deciding whom to hand off to.\n- `can_handoff_to` limits who an agent may pass control to.\n- `root_agent` receives the user's message first.\n- `initial_state={...}` creates shared state that tools can read and write through `ctx.store`, for example research notes the writer later uses.\n\nOnly one agent is active at a time; a handoff passes the conversation along.\n\nOther patterns:\n\n- **Orchestrator**: one top-level agent calls other agents *as tools* (wrap each sub-agent's `run` in an async function). The orchestrator keeps control and decides when to finish.\n- **Custom workflow**: write a `Workflow` that calls agents in a fixed order or in parallel. Most predictable.\n\nStream events to watch handoffs: `AgentOutput` and the `current_agent_name` field on events show which agent is speaking. Multi-agent runs make many LLM calls, so measure cost and use simpler designs when they suffice.",
+   "code": "import asyncio\nfrom llama_index.core.agent.workflow import AgentWorkflow, FunctionAgent\nfrom llama_index.core.workflow import Context\nfrom llama_index.llms.openai import OpenAI\n\nllm = OpenAI(model=\"gpt-4o-mini\")\nasync def save_note(ctx: Context, note: str) -> str:\n    \"\"\"Save a research note for the writer.\"\"\"\n    state = await ctx.store.get(\"state\")\n    state[\"notes\"].append(note)\n    await ctx.store.set(\"state\", state)\n    return \"saved\"\n\nresearcher = FunctionAgent(name=\"researcher\", description=\"Collects key facts as notes.\",\n    system_prompt=\"Save 3 short facts with save_note, then hand off to writer.\",\n    tools=[save_note], llm=llm, can_handoff_to=[\"writer\"])\nwriter = FunctionAgent(name=\"writer\", description=\"Writes the final answer from notes.\",\n    system_prompt=\"Write a 3-sentence summary from the saved notes in state.\",\n    tools=[], llm=llm)\n\nworkflow = AgentWorkflow(agents=[researcher, writer], root_agent=\"researcher\",\n                         initial_state={\"notes\": []})\nasync def main():\n    print(await workflow.run(user_msg=\"Summarize why heat pumps are efficient.\"))\nasyncio.run(main())",
+   "code_lang": "python",
+   "takeaways": [
+    "`AgentWorkflow(agents, root_agent)` coordinates agents through handoffs",
+    "Names, descriptions and `can_handoff_to` steer who gets control",
+    "Shared `initial_state` lets agents pass data via `ctx.store`"
+   ],
+   "pitfalls": [
+    "Writing vague agent descriptions, so agents hand off to the wrong colleague or never hand off."
+   ],
+   "quiz": [
+    {
+     "q": "What do agents use to decide which other agent to hand off to?",
+     "options": [
+      "The other agents' names and descriptions",
+      "The order of the agents list only",
+      "Random choice",
+      "similarity_top_k"
+     ],
+     "answer": 0,
+     "explain": "Handoff decisions are made by the LLM from the available agents' names and descriptions."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/understanding/agent/multi_agent/",
+   "requires": [
+    "llamaindex.agent-state-streaming"
+   ]
+  },
+  {
+   "id": "llamaindex.reranking-hybrid",
+   "name": "Reranking and hybrid search",
+   "module": "rag-quality",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Improve retrieval precision with rerankers and recall with hybrid BM25 + vector search fused by QueryFusionRetriever.",
+   "why": "These two techniques give some of the largest, most reliable quality gains in production RAG.",
+   "body": "Plain vector search has two common weaknesses. Its top results are often *roughly* related rather than exactly right, and it can miss exact terms such as product codes, names or error numbers.\n\n**Reranking** fixes the first. Retrieve generously (say the top 20), then let a stronger, slower model re-score those candidates and keep the best few:\n\n```python\nquery_engine = index.as_query_engine(similarity_top_k=20,\n    node_postprocessors=[SentenceTransformerRerank(model=\"cross-encoder/ms-marco-MiniLM-L-6-v2\", top_n=4)])\n```\n\nA **cross-encoder** reads the question and a passage *together* and outputs a relevance score, which is more accurate than comparing two separate embeddings. Options: `SentenceTransformerRerank` (local model, needs `sentence-transformers`), `LLMRerank` (asks your LLM to rank), and hosted rerankers such as Cohere's via integration packages.\n\n**Hybrid search** fixes the second. Combine vector search with **BM25**, a classic keyword-ranking method that rewards exact word matches. Then merge the two ranked lists:\n\n- `BM25Retriever` (package `llama-index-retrievers-bm25`) does the keyword part.\n- `QueryFusionRetriever([vector_retriever, bm25_retriever], mode=\"reciprocal_rerank\")` merges them with reciprocal rank fusion: documents ranked high in either list rise to the top. Set `num_queries=1` to disable its default behaviour of generating extra query variations with the LLM.\n\nMany vector databases (Qdrant, Weaviate, Elasticsearch, pgvector setups) offer hybrid search natively, which scales better than in-memory BM25.\n\nMeasure before and after with a retrieval evaluation; both techniques add latency.",
+   "code": "# pip install llama-index-retrievers-bm25 sentence-transformers\nfrom llama_index.core import Document, VectorStoreIndex\nfrom llama_index.core.node_parser import SentenceSplitter\nfrom llama_index.core.postprocessor import SentenceTransformerRerank\nfrom llama_index.core.query_engine import RetrieverQueryEngine\nfrom llama_index.core.retrievers import QueryFusionRetriever\nfrom llama_index.retrievers.bm25 import BM25Retriever\n\ndocs = [Document(text=\"Error E-4031 means the printer drum is worn.\"),\n        Document(text=\"Replace toner when prints look faded.\"),\n        Document(text=\"Paper jams: open tray 2 and remove the sheet.\")]\nnodes = SentenceSplitter(chunk_size=256).get_nodes_from_documents(docs)\nindex = VectorStoreIndex(nodes)\n\nhybrid = QueryFusionRetriever(\n    [index.as_retriever(similarity_top_k=10), BM25Retriever.from_defaults(nodes=nodes, similarity_top_k=10)],\n    similarity_top_k=10, num_queries=1, mode=\"reciprocal_rerank\", use_async=False)\n\nrerank = SentenceTransformerRerank(model=\"cross-encoder/ms-marco-MiniLM-L-6-v2\", top_n=2)\nqe = RetrieverQueryEngine.from_args(hybrid, node_postprocessors=[rerank])\nresp = qe.query(\"What does E-4031 mean?\")\nprint(resp.source_nodes[0].node.text)   # Error E-4031 means the printer drum is worn.",
+   "code_lang": "python",
+   "takeaways": [
+    "Rerank: retrieve many, re-score with a cross-encoder or LLM, keep few",
+    "Hybrid: BM25 keyword + vector results merged by reciprocal rank fusion",
+    "`QueryFusionRetriever(..., num_queries=1, mode=\"reciprocal_rerank\")`"
+   ],
+   "pitfalls": [
+    "Adding a reranker but keeping similarity_top_k at 2, leaving the reranker nothing to choose from."
+   ],
+   "quiz": [
+    {
+     "q": "Users search for part numbers like 'X-220B' and vector search misses them. What helps most?",
+     "options": [
+      "A higher temperature",
+      "tree_summarize mode",
+      "A bigger chunk size",
+      "Hybrid search adding BM25 keyword matching"
+     ],
+     "answer": 3,
+     "explain": "Keyword ranking matches exact tokens like part numbers that embeddings may not capture."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/querying/node_postprocessors/",
+   "requires": [
+    "llamaindex.retrievers",
+    "llamaindex.response-synthesis"
+   ]
+  },
+  {
+   "id": "llamaindex.evaluation",
+   "name": "Evaluating RAG",
+   "module": "production",
+   "level": 3,
+   "minutes": 14,
+   "summary": "Measure retrieval with hit rate and MRR, and answers with faithfulness and relevancy evaluators, over a test set.",
+   "why": "Without measurements, every chunking, model or prompt change is a guess that may make things worse.",
+   "body": "RAG has two parts to measure: did retrieval find the right chunks, and did the LLM answer well from them?\n\n**Retrieval metrics** need questions paired with the node ids that *should* be found:\n\n- **Hit rate**: how often a correct node appears in the top k.\n- **MRR** (mean reciprocal rank): rewards finding it near the top; 1 if first, 0.5 if second, and so on.\n\n```python\nevaluator = RetrieverEvaluator.from_metric_names([\"hit_rate\", \"mrr\"], retriever=retriever)\nresult = await evaluator.aevaluate(query=\"...\", expected_ids=[node_id])\n```\n\nThese need no LLM, so they are cheap to run on hundreds of questions.\n\n**Response evaluators** use an LLM as a judge:\n\n- `FaithfulnessEvaluator`: is the answer supported by the retrieved context, or did the model make things up?\n- `RelevancyEvaluator`: do the answer and context actually address the question?\n- `CorrectnessEvaluator`: compares the answer with a reference answer and gives a score.\n\nEach returns an `EvaluationResult` with `passing`, `score` and `feedback`. `BatchEvalRunner` runs several evaluators over many questions concurrently.\n\nBuilding a test set: write 30 to 100 real user questions with expected sources and answers. An LLM can draft extra questions from your documents, but review them by hand. Include questions whose answer is *not* in the data, to test \"I don't know\" behaviour.\n\nUse a strong model as judge, check a sample of its verdicts yourself, and compare versions on the same set. External tools (such as Ragas, DeepEval or observability platforms) integrate with LlamaIndex for larger evaluation setups.",
+   "code": "import asyncio\nfrom llama_index.core import Document, VectorStoreIndex\nfrom llama_index.core.evaluation import FaithfulnessEvaluator, RetrieverEvaluator\nfrom llama_index.llms.openai import OpenAI\n\nindex = VectorStoreIndex.from_documents([\n    Document(text=\"Refunds take 5 business days.\", id_=\"refunds\"),\n    Document(text=\"Shipping is free over 50 EUR.\", id_=\"shipping\")])\nretriever = index.as_retriever(similarity_top_k=2)\nrefund_node = next(n.node_id for n in index.docstore.docs.values() if \"Refunds\" in n.text)\n\nasync def main():\n    r_eval = RetrieverEvaluator.from_metric_names([\"hit_rate\", \"mrr\"], retriever=retriever)\n    res = await r_eval.aevaluate(query=\"How long until I get my money back?\",\n                                 expected_ids=[refund_node])\n    print(res.metric_vals_dict)                 # {'hit_rate': 1.0, 'mrr': 1.0}\n\n    judge = FaithfulnessEvaluator(llm=OpenAI(model=\"gpt-4o\"))\n    response = index.as_query_engine().query(\"How long do refunds take?\")\n    verdict = await judge.aevaluate_response(response=response)\n    print(verdict.passing, verdict.score)       # True 1.0\n\nasyncio.run(main())",
+   "code_lang": "python",
+   "takeaways": [
+    "Retrieval: hit rate and MRR against expected node ids (no LLM needed)",
+    "Answers: Faithfulness, Relevancy and Correctness evaluators (LLM judge)",
+    "Keep a reviewed test set, including unanswerable questions"
+   ],
+   "pitfalls": [
+    "Evaluating only answer quality, so you can't tell whether a regression came from retrieval or generation."
+   ],
+   "quiz": [
+    {
+     "q": "An answer adds a detail that appears nowhere in the retrieved chunks. Which evaluator should flag it?",
+     "options": [
+      "RetrieverEvaluator",
+      "hit rate",
+      "FaithfulnessEvaluator",
+      "SimilarityPostprocessor"
+     ],
+     "answer": 2,
+     "explain": "Faithfulness checks whether the answer is supported by the retrieved context."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/evaluating/",
+   "requires": [
+    "llamaindex.retrievers",
+    "llamaindex.response-synthesis"
+   ]
+  },
+  {
+   "id": "llamaindex.advanced-retrieval",
+   "name": "Advanced retrieval patterns",
+   "module": "rag-quality",
+   "level": 4,
+   "minutes": 15,
+   "summary": "Apply sentence-window and auto-merging retrieval, query routing and sub-question decomposition to hard RAG problems.",
+   "why": "When chunking and reranking are not enough, these patterns fix specific, recurring failure modes.",
+   "body": "Each pattern targets one failure you can observe in evaluations.\n\n**Small chunks match well but lack context.** Use *small-to-big* retrieval: search on small units, then give the LLM bigger surroundings.\n\n- **Sentence window**: `SentenceWindowNodeParser` makes one node per sentence and stores the surrounding sentences in metadata (`window`). At query time, `MetadataReplacementPostProcessor(target_metadata_key=\"window\")` swaps each matched sentence for its window.\n- **Auto-merging**: `HierarchicalNodeParser` creates parent chunks (for example 2048 tokens) split into children (512, then 128). Only the leaves (`get_leaf_nodes`) go into the vector index; all nodes go into the docstore. `AutoMergingRetriever` replaces many retrieved children of one parent with the parent itself.\n\n**Different questions need different sources or strategies.** A `RouterQueryEngine` with an LLM selector (`LLMSingleSelector`) picks one of several query engines by their descriptions, for example a summary engine for \"summarise\" questions and a vector engine for specific facts.\n\n**Complex questions combine several lookups** (\"Compare the 2024 and 2025 leave policies\"). `SubQuestionQueryEngine` asks the LLM to split the question into sub-questions, each sent to a matching tool, then combines the answers. An agent with query-engine tools solves the same problem more flexibly.\n\n**Vague questions.** Query rewriting (HyDE, which embeds a hypothetical answer instead of the question, or `QueryFusionRetriever` with several generated queries) improves recall.\n\nAll of these add LLM calls or storage. Adopt one at a time, and keep it only if your retrieval and answer metrics improve.",
+   "code": "from llama_index.core import Document, VectorStoreIndex\nfrom llama_index.core.node_parser import SentenceWindowNodeParser\nfrom llama_index.core.postprocessor import MetadataReplacementPostProcessor\n\ntext = (\"The 2025 leave policy changed. Staff now get 25 days. \"\n        \"Unused days expire in March. Managers must approve carry-over. \"\n        \"Part-time staff get a pro-rated amount.\")\nparser = SentenceWindowNodeParser.from_defaults(\n    window_size=2, window_metadata_key=\"window\", original_text_metadata_key=\"original_text\")\nnodes = parser.get_nodes_from_documents([Document(text=text)])\nprint(len(nodes))                           # 5 (one per sentence)\nprint(nodes[2].text)                        # Unused days expire in March.\nprint(nodes[2].metadata[\"window\"][:60])     # The 2025 leave policy changed. Staff now get 25 days. ...\n\nindex = VectorStoreIndex(nodes)\nqe = index.as_query_engine(\n    similarity_top_k=2,\n    node_postprocessors=[MetadataReplacementPostProcessor(target_metadata_key=\"window\")],\n)\nprint(qe.query(\"When do unused leave days expire?\"))   # In March; carry-over needs approval.",
+   "code_lang": "python",
+   "takeaways": [
+    "Sentence window and auto-merging: retrieve small, answer with bigger context",
+    "RouterQueryEngine picks an engine; SubQuestionQueryEngine decomposes questions",
+    "Add one technique at a time and keep it only if metrics improve"
+   ],
+   "pitfalls": [
+    "Stacking every advanced technique at once, making the pipeline slow and impossible to debug."
+   ],
+   "quiz": [
+    {
+     "q": "With sentence-window retrieval, what does the LLM receive for a matched sentence?",
+     "options": [
+      "Only that sentence",
+      "The surrounding window of sentences stored in metadata",
+      "The whole document",
+      "Nothing; it is filtered"
+     ],
+     "answer": 1,
+     "explain": "MetadataReplacementPostProcessor replaces the sentence with its stored window before synthesis."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/querying/retriever/",
+   "requires": [
+    "llamaindex.reranking-hybrid",
+    "llamaindex.evaluation"
+   ]
+  },
+  {
+   "id": "llamaindex.observability",
+   "name": "Observability and instrumentation",
+   "module": "production",
+   "level": 4,
+   "minutes": 12,
+   "summary": "Trace every retrieval, LLM call and tool call with the instrumentation module, global handlers and tracing integrations.",
+   "why": "RAG and agent bugs hide in intermediate steps; traces show exactly what each step received and returned.",
+   "body": "A single query can involve embedding calls, retrieval, postprocessing, several LLM calls and tool calls. When an answer is wrong or slow, you need to see each step.\n\n**Quick look.** `set_global_handler(\"simple\")` prints LLM inputs and outputs to the console. Good for local debugging, too noisy for anything else.\n\n**Instrumentation module.** LlamaIndex emits **events** (things that happened, such as an LLM call starting or a retrieval finishing) and **spans** (timed sections of work, nested in a tree) through a dispatcher in `llama_index.core.instrumentation`. You can attach your own handlers:\n\n```python\ndispatcher = get_dispatcher()\ndispatcher.add_event_handler(MyEventHandler())\n```\n\nA handler subclasses `BaseEventHandler` and receives every event in `handle(event)`, for example `LLMChatEndEvent` or `RetrievalEndEvent`. Use this to log token usage, latency or retrieved node ids to your own systems. Your own functions can join traces with the `@dispatcher.span` decorator.\n\n**Tracing platforms.** One-line integrations send full traces to tools such as Arize Phoenix, Langfuse, MLflow, Weights & Biases Weave, OpenLLMetry and others, many based on OpenTelemetry (an open standard for traces). These show the tree of steps for each request with inputs, outputs, tokens and timings, and usually support evaluation on recorded traces. Workflows also emit step-level events you can stream.\n\nWhat to record in production: question, retrieved node ids and scores, final prompt size, answer, tokens, latency per step and errors. Remove or mask personal data before sending traces to a third party.",
+   "code": "from llama_index.core import Document, VectorStoreIndex\nfrom llama_index.core.instrumentation import get_dispatcher\nfrom llama_index.core.instrumentation.event_handlers import BaseEventHandler\nfrom llama_index.core.instrumentation.events.llm import LLMChatEndEvent, LLMCompletionEndEvent\nfrom llama_index.core.instrumentation.events.retrieval import RetrievalEndEvent\n\nclass TraceLogger(BaseEventHandler):\n    @classmethod\n    def class_name(cls) -> str:\n        return \"TraceLogger\"\n\n    def handle(self, event, **kwargs):\n        if isinstance(event, RetrievalEndEvent):\n            print(\"[retrieval]\", [n.node.node_id[:8] for n in event.nodes])\n        elif isinstance(event, (LLMChatEndEvent, LLMCompletionEndEvent)):\n            print(\"[llm] done:\", type(event).__name__)\n\nget_dispatcher().add_event_handler(TraceLogger())   # root dispatcher sees everything\n\nindex = VectorStoreIndex.from_documents([Document(text=\"Refunds take 5 days.\")])\nindex.as_query_engine().query(\"Refund time?\")\n# [retrieval] ['3f2a9c1b']\n# [llm] done: LLMChatEndEvent",
+   "code_lang": "python",
+   "takeaways": [
+    "`set_global_handler(\"simple\")` for quick console tracing",
+    "Instrumentation: events and spans via `get_dispatcher()` and custom handlers",
+    "Tracing integrations (Phoenix, Langfuse, MLflow, OpenTelemetry) for production"
+   ],
+   "pitfalls": [
+    "Sending full prompts with customer data to a third-party tracing service without masking or a data agreement."
+   ],
+   "quiz": [
+    {
+     "q": "You want to log which node ids were retrieved for every query into your own database. What fits best?",
+     "options": [
+      "A custom event handler on the instrumentation dispatcher handling RetrievalEndEvent",
+      "set_global_handler('simple')",
+      "A higher similarity_top_k",
+      "A chat engine"
+     ],
+     "answer": 0,
+     "explain": "Custom handlers receive retrieval events with the nodes, so you can store exactly what you need."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/module_guides/observability/",
+   "requires": [
+    "llamaindex.evaluation",
+    "llamaindex.workflows"
+   ]
+  },
+  {
+   "id": "llamaindex.production",
+   "name": "Running LlamaIndex in production",
+   "module": "production",
+   "level": 4,
+   "minutes": 14,
+   "summary": "Design for scale, freshness, cost, latency and security: async ingestion, caching, permissions, and serving workflows.",
+   "why": "A notebook prototype and a reliable service differ in data freshness, concurrency, cost control and safety.",
+   "body": "Moving from notebook to service raises a predictable set of questions.\n\n**Data freshness.** Run ingestion as a scheduled or event-driven job, separate from the query service. Use stable document ids, an `IngestionPipeline` with a docstore, and a persistent vector database, so updates replace old chunks instead of duplicating them. Record which embedding model built each collection, and plan re-indexing when you change it.\n\n**Concurrency and latency.** Use async methods (`aquery`, `aretrieve`, `achat`, `agent.run`) in async web servers so one slow LLM call doesn't block other users. Stream answers to the interface. Keep `similarity_top_k` and prompt size modest, and cache answers to frequent questions.\n\n**Cost.** Most spending is LLM tokens: retrieved context times number of calls. Use the cheapest model that passes your evaluations, small response modes, and fewer agent steps. Track tokens per request through instrumentation.\n\n**Security.**\n\n- Enforce document permissions with metadata filters on every query, never with prompts.\n- Treat retrieved text as untrusted: a document can contain prompt injection, text that tries to instruct the model. Give agents only the tools they need, and require confirmation for actions with side effects.\n- Avoid code-executing agents (`CodeActAgent`) outside a sandbox.\n\n**Serving workflows.** Agents and workflows are ordinary Python, so you can wrap them in your own API. LlamaIndex also offers `llamactl` and LlamaAgents for running workflows as services and deploying them to its cloud; check the current docs for details.\n\n**Keep evaluating.** Re-run your test set on every change to data processing, models or prompts, and sample real traffic for review.",
+   "code": "import asyncio\nfrom llama_index.core import VectorStoreIndex\nfrom llama_index.core.vector_stores import FilterOperator, MetadataFilter, MetadataFilters\n\nasync def answer(index: VectorStoreIndex, question: str, user_groups: list[str]) -> dict:\n    # Permission filter on EVERY query: only chunks tagged with the user's groups.\n    filters = MetadataFilters(filters=[\n        MetadataFilter(key=\"access_group\", value=user_groups, operator=FilterOperator.IN)])\n    qe = index.as_query_engine(similarity_top_k=4, filters=filters)\n    response = await qe.aquery(question)             # async: doesn't block other users\n    return {\n        \"answer\": str(response),\n        \"sources\": [n.node.metadata.get(\"file_name\") for n in response.source_nodes],\n    }\n\nasync def main(index):\n    results = await asyncio.gather(                 # many users at once\n        answer(index, \"What is the travel policy?\", [\"staff\"]),\n        answer(index, \"Show me salary bands\", [\"staff\"]),   # hr-only docs never retrieved\n    )\n    print(results)",
+   "code_lang": "python",
+   "takeaways": [
+    "Separate, incremental ingestion jobs with stable ids and a persistent store",
+    "Async APIs, streaming and modest context for latency and cost",
+    "Permissions via filters; treat retrieved text as untrusted"
+   ],
+   "pitfalls": [
+    "Running ingestion inside the request path, so the first user after a change waits minutes and concurrent requests re-embed the same files."
+   ],
+   "quiz": [
+    {
+     "q": "Which is the right place to enforce that interns can't see HR salary documents?",
+     "options": [
+      "The system prompt",
+      "The response mode",
+      "The chunk size",
+      "A metadata filter applied on every query based on the user's groups"
+     ],
+     "answer": 3,
+     "explain": "Filters keep restricted chunks out of retrieval entirely; prompts can be bypassed."
+    }
+   ],
+   "docs": "https://developers.llamaindex.ai/python/framework/getting_started/starter_example/",
+   "requires": [
+    "llamaindex.observability",
+    "llamaindex.ingestion-pipeline",
+    "llamaindex.metadata-filters"
+   ]
+  }
+ ]
+}
