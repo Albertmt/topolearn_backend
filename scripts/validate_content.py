@@ -16,6 +16,8 @@ import sys
 from collections import defaultdict, deque
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 ROOT = Path(__file__).resolve().parent.parent
 TOOLS_DIR = ROOT / "data" / "tools"
 
@@ -201,10 +203,73 @@ def check_graph(files: dict, rep: Report, all_known: dict) -> None:
                 rep.warn(path.name, f"only {levels[lv]} lessons at level {lv} ({LEVELS[lv]})")
 
 
+# How many not-yet-taught terms one paragraph may introduce, by level. Over the
+# limit is an error in Essentials (a newcomer drowns), a warning above.
+TERM_LIMITS = {1: 2, 2: 3, 3: 4, 4: 4}
+MAX_DEF_CHARS = 300
+
+
+def check_glossary_entries(where: str, entries, rep: Report) -> None:
+    if not isinstance(entries, list):
+        rep.err(where, "glossary must be a list")
+        return
+    seen = {}
+    for g in entries:
+        if not isinstance(g, dict) or not str(g.get("term", "")).strip():
+            rep.err(where, f"glossary entry without a term: {g!r}")
+            continue
+        t = g["term"].strip()
+        d = str(g.get("def", "")).strip()
+        if not d:
+            rep.err(where, f"glossary term {t!r} has no def")
+        elif len(d) > MAX_DEF_CHARS:
+            rep.err(where, f"glossary term {t!r}: def longer than {MAX_DEF_CHARS} characters")
+        for form in [t, *(g.get("aliases") or [])]:
+            k = str(form).strip().lower()
+            if k in seen:
+                rep.err(where, f"glossary: {form!r} is used by both {seen[k]!r} and {t!r}")
+            seen[k] = t
+
+
+def check_clarity(files: dict, loaded: dict, rep: Report) -> None:
+    """Every term a lesson uses must be taught by what it builds on, taught by
+    the lesson itself (`defines`), or have a glossary definition the app can
+    show; and Essentials lessons must not pile up new terms."""
+    from app.glossary import Glossary, lesson_texts, load_shared, paragraph_label
+
+    shared = load_shared()
+    check_glossary_entries("data/glossary.json", shared, rep)
+    docs = [d for d in loaded.values() if isinstance(d.get("tool"), dict) and d["tool"].get("id")]
+    try:
+        g = Glossary(docs, shared)
+    except Exception as e:  # noqa: BLE001
+        rep.err("glossary", f"can't load: {e}")
+        return
+    for path, d in files.items():
+        tid = d["tool"]["id"]
+        check_glossary_entries(f"{path.name} glossary", d.get("glossary") or [], rep)
+        visible = g.visible(tid)
+        for c in d.get("concepts", []):
+            cid = c["id"]
+            cw = f"{path.name} {cid}"
+            lvl = c.get("level", 1)
+            for name in c.get("defines") or []:
+                if str(name).lower() not in visible:
+                    rep.err(cw, f"defines {name!r}, which has no glossary entry (add it to this tool's glossary)")
+            limit = TERM_LIMITS.get(lvl, 4)
+            for i, names in sorted(g.new_terms_by_paragraph(cid).items()):
+                if len(names) > limit:
+                    msg = (f"{paragraph_label(c, i)} introduces {len(names)} terms the learner hasn't been taught "
+                           f"({', '.join(names)}); at most {limit} at this level. Explain them in plain words "
+                           "(and list them in `defines`), spread them out, or teach them in a prerequisite lesson")
+                    (rep.err if lvl == 1 else rep.warn)(cw, msg)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("files", nargs="*", type=Path)
     p.add_argument("--strict", action="store_true", help="treat warnings as errors")
+    p.add_argument("--no-clarity", action="store_true", help="skip the glossary/jargon checks")
     args = p.parse_args()
     every = sorted(TOOLS_DIR.glob("*.json"))
     targets = [f.resolve() for f in args.files] or every
@@ -225,6 +290,8 @@ def main() -> int:
         check_file(f, d, rep)
     if not rep.errors:
         check_graph(files, rep, known)
+    if not rep.errors and not args.no_clarity:
+        check_clarity(files, loaded, rep)
     for w in rep.warnings:
         print("warning:", w)
     for e in rep.errors:

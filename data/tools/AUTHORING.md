@@ -116,6 +116,74 @@ Field rules:
   Lessons of another tool may be listed only if that tool is in `tool.requires` and the
   lesson id exists in its file.
 
+## Clarity: no unexplained jargon
+
+The whole product is about lessons a learner can actually follow. **A lesson may assume
+only what the lessons it builds on teach** — its `requires` (transitively, across tools)
+and, for a tool with `tool.requires`, the lessons of those tools up to the declared
+level. Everything else is explained in plain words the first time it appears.
+
+Bad (Docker Essentials): "A hypervisor runs several complete guest operating systems, each
+with its own kernel, drivers and init system." Five terms a newcomer doesn't know, in the
+first sentence.
+
+Better: "A virtual machine (VM) is a whole pretend computer running inside your real one.
+It gets its own copy of an operating system — Windows or Linux, say — with everything that
+system needs to start up. The program that creates and runs these pretend computers is
+called a **hypervisor**."
+
+- **Essentials assume the least.** A level 1 lesson of a tool with no `requires` assumes no
+  programming background. Open with a plain sentence a newcomer understands, give an
+  everyday example, then name the idea.
+- **One new idea per paragraph; short sentences.** Never stack several new terms in one
+  sentence. Define a term where it first appears: "an API key (a secret password your code
+  sends so the service knows who's calling)".
+- **Drop jargon that isn't needed.** If a term only shows off, leave it out. If it's needed
+  and big, teach it in its own (prerequisite) lesson.
+- Higher levels can be denser, but still only assume what the tree below has taught.
+- Summary, why, takeaways, pitfalls and quiz follow the same rule.
+
+### Glossary and `defines`
+
+Terms get tap/hover definitions in the app and on the website. Two places hold them:
+
+- `data/glossary.json` — shared general terms (kernel, API, JSON, environment variable...).
+- the tool file's top-level `"glossary"` — terms specific to this tool:
+
+```json
+"glossary": [
+  {"term": "container image", "aliases": ["image", "images"], "def": "A packaged snapshot of an app and everything it needs to run, used as the template for containers."},
+  {"term": "Dockerfile", "def": "A text file of step-by-step instructions Docker follows to build an image.", "case": true}
+]
+```
+
+- `def`: 1–2 plain sentences (≤ 300 characters), no unexplained jargon inside, never circular.
+- `aliases`: plurals/other names; matching is case-insensitive whole-word (plural `s`/`es`
+  is automatic) unless `"case": true`.
+- Only distinctive terms: avoid ordinary English words that would be underlined everywhere
+  ("table", "run") unless as part of a phrase ("hash table"). Don't repeat a shared term —
+  unless it means something different in this tool (Swift's "protocol", Java's "package"):
+  then add it here with this tool's meaning, and it replaces the shared one in this tool.
+
+A lesson lists the terms it **actually explains in plain words** in `"defines"`:
+
+```json
+"defines": ["virtual machine", "hypervisor"]
+```
+
+Every term in `defines` needs a glossary entry (shared, this tool's, or a required tool's).
+Lessons that build on this one then treat the term as known. Terms a lesson uses that
+aren't taught yet are shown with their definition on tap/hover.
+
+Check with
+
+    python3 scripts/clarity_audit.py <tool id>   # per lesson: what it may assume, new terms
+
+The validator fails an Essentials lesson whose paragraph introduces more than **2** terms
+the learner hasn't been taught (Practical 3, Advanced/Expert 4 are warnings). Words that
+another tool's glossary defines ("move", "record") don't matter here: only the shared
+glossary, this tool's and the tools it builds on apply.
+
 ## Shape of a good curriculum
 
 - 30–45 lessons for a language, 18–30 for a library/framework/tool, spread over all four

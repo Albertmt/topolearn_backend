@@ -40,6 +40,87 @@
    "name": "Internals and alternatives"
   }
  ],
+ "glossary": [
+  {
+   "term": "hashable",
+   "aliases": [
+    "unhashable",
+    "hashability"
+   ],
+   "def": "Usable as a dict key or set item: the value has a fixed hash and never changes in a way that affects equality. Strings, numbers and tuples are; lists, dicts and sets aren't."
+  },
+  {
+   "term": "default factory",
+   "aliases": [
+    "default_factory",
+    "default factories"
+   ],
+   "def": "A function a dataclass calls to make a fresh default value for each new object, such as list for a new empty list, so objects never share one."
+  },
+  {
+   "term": "frozen dataclass",
+   "aliases": [
+    "frozen dataclasses",
+    "frozen instance",
+    "frozen instances"
+   ],
+   "def": "A dataclass made with frozen=True: its fields can't be changed after the object is created."
+  },
+  {
+   "term": "derived field",
+   "aliases": [
+    "derived fields"
+   ],
+   "def": "A field whose value is worked out from other fields (like a total from price and quantity) rather than passed in."
+  },
+  {
+   "term": "pseudo-field",
+   "aliases": [
+    "pseudo-fields"
+   ],
+   "def": "A name in a dataclass body that looks like a field but isn't stored as one, such as an InitVar or the _: KW_ONLY marker."
+  },
+  {
+   "term": "InitVar",
+   "def": "A dataclass annotation for a value passed to __init__ and on to __post_init__ but never stored on the object, such as a raw password to hash.",
+   "case": true
+  },
+  {
+   "term": "ClassVar",
+   "def": "A type annotation marking a class attribute shared by all objects, such as a constant; dataclasses don't turn it into a field.",
+   "case": true
+  },
+  {
+   "term": "deep copy",
+   "aliases": [
+    "deep copies",
+    "deep-copy",
+    "deep-copies",
+    "deep-copying",
+    "deepcopy"
+   ],
+   "def": "A copy that also copies everything inside, all the way down, so changing the copy's lists or dicts never affects the original."
+  },
+  {
+   "term": "Pydantic",
+   "def": "A popular third-party library for classes that check and convert their data while the program runs, typically used for input from outside such as JSON.",
+   "case": true
+  },
+  {
+   "term": "attrs",
+   "def": "A third-party Python library for writing data classes, older than and the inspiration for dataclasses, with extra features such as value checks and converters.",
+   "case": true
+  },
+  {
+   "term": "TypedDict",
+   "def": "A typing tool that describes which keys a plain dict should have and the type of each value; the data stays an ordinary dict.",
+   "case": true
+  },
+  {
+   "term": "JSON Schema",
+   "def": "A standard way to describe the shape of JSON data (which keys, which types) in JSON itself, so tools can check data against it."
+  }
+ ],
  "concepts": [
   {
    "id": "py-dataclasses.first-dataclass",
@@ -49,7 +130,7 @@
    "minutes": 8,
    "summary": "Decorate a class with @dataclass to get __init__, __repr__ and __eq__ generated from its annotated fields.",
    "why": "Data-holding classes are everywhere, and writing their boilerplate by hand is tedious and error-prone.",
-   "body": "A **dataclass** is a normal class whose special methods are generated from its **annotated class attributes**:\n\n```python\n@dataclass\nclass Point:\n    x: float\n    y: float\n```\n\nFrom these two lines you get:\n\n- `__init__(self, x, y)` that stores the arguments as attributes, in field order,\n- `__repr__` such as `Point(x=1, y=2)`, great for debugging and logs,\n- `__eq__` that compares all fields, so `Point(1, 2) == Point(1, 2)` is `True` (a plain class would compare identity).\n\nOnly names with a type annotation become fields. A class attribute without an annotation is an ordinary class attribute, and an annotation like `ClassVar[int]` is excluded on purpose.\n\nThe annotations are **not enforced**: `Point(\"a\", None)` works at runtime. Type checkers use them, and libraries like Pydantic add runtime validation if you need it.\n\nEverything else about the class is normal: you can add methods, properties, class methods and docstrings, and subclass it. A dataclass is not a special kind of object; the decorator just writes methods you would otherwise type by hand.",
+   "body": "A **dataclass** is a normal class whose special methods are written for you from its **annotated class attributes**:\n\n```python\n@dataclass\nclass Point:\n    x: float\n    y: float\n```\n\nFrom these few lines you get:\n\n- `__init__(self, x, y)`, which stores the arguments as attributes, in field order,\n- `__repr__`, which prints as `Point(x=1, y=2)`: handy when printing objects to find bugs,\n- `__eq__`, which compares all fields, so `Point(1, 2) == Point(1, 2)` is `True` (objects of a plain class are only equal to themselves).\n\nOnly names with a type annotation become fields. A class attribute without an annotation stays an ordinary class attribute, and an annotation like `ClassVar[int]` is left out on purpose.\n\nThe annotations are **not enforced**: `Point(\"a\", None)` works at runtime. Type checkers use them. If you need the values checked while the program runs, called **validation**, libraries such as Pydantic do that.\n\nEverything else about the class is normal: you can add methods, class methods and docstrings, and subclass it. A dataclass is not a special kind of object; the decorator just writes methods you would otherwise type by hand.",
    "code": "from dataclasses import dataclass\n\n@dataclass\nclass Point:\n    x: float\n    y: float\n\n    def distance_to_origin(self) -> float:\n        return (self.x ** 2 + self.y ** 2) ** 0.5\n\np = Point(3, 4)\nprint(p)                          # Point(x=3, y=4)\nprint(p.distance_to_origin())     # 5.0\nprint(p == Point(3, 4))           # True  (field-by-field)\nprint(p is Point(3, 4))           # False\nprint(Point(\"a\", None))           # Point(x='a', y=None)  types are not enforced",
    "code_lang": "python",
    "takeaways": [
@@ -76,6 +157,9 @@
    "docs": "https://docs.python.org/3/library/dataclasses.html#module-contents",
    "requires": [
     "python.classes"
+   ],
+   "defines": [
+    "validation"
    ]
   },
   {
@@ -84,18 +168,18 @@
    "module": "basics",
    "level": 1,
    "minutes": 8,
-   "summary": "Give fields default values, and use field(default_factory=list) for mutable defaults.",
-   "why": "Getting defaults wrong either raises at class creation or shares one list between all instances.",
-   "body": "Fields can have default values: `retries: int = 3`. Fields with defaults become optional constructor parameters, and they must come **after** fields without defaults, just like function parameters. Otherwise you get `TypeError: non-default argument 'b' follows default argument` when the class is created.\n\nMutable defaults are a classic Python trap: a default list in a function signature is shared across calls. Dataclasses protect you: `tags: list[str] = []` raises `ValueError: mutable default <class 'list'> for field tags is not allowed: use default_factory`. The check rejects any default that is unhashable, which covers `list`, `dict` and `set`.\n\nThe fix is `field(default_factory=...)`, a zero-argument callable called for **each** new instance:\n\n```python\ntags: list[str] = field(default_factory=list)\ncreated: datetime = field(default_factory=datetime.now)\n```\n\nAny callable works: `list`, `dict`, a lambda, or a function returning a fresh default config.\n\nDefault values are also stored as class attributes, so `Config.retries` is `3`. Fields using `default_factory` have no class attribute.\n\nKeyword-only fields (a later lesson) relax the ordering rule.",
+   "summary": "Give fields default values, and use field(default_factory=list) for changeable defaults like lists.",
+   "why": "Getting defaults wrong either raises an error when the class is defined or shares one list between all objects.",
+   "body": "Fields can have default values: `retries: int = 3`. They become optional parameters of the generated `__init__`, the **constructor** (the method that sets up each new object). Fields with defaults must come **after** fields without, just like function parameters. Otherwise you get `TypeError: non-default argument 'b' follows default argument` when the class is defined.\n\nMutable defaults are a classic Python trap: a default list in a function definition is one list, shared by every call. Dataclasses protect you: `tags: list[str] = []` raises `ValueError: mutable default <class 'list'> for field tags is not allowed: use default_factory`. The check rejects any default that can't be used as a dict key, that is, any **unhashable** value, which covers `list`, `dict` and `set`.\n\nThe fix is a **default factory**: `field(default_factory=...)` takes a function with no arguments, and calls it for **each** new object to make a fresh value:\n\n```python\ntags: list[str] = field(default_factory=list)\ncreated: datetime = field(default_factory=datetime.now)\n```\n\nAnything you can call without arguments works: `list`, `dict`, a lambda, or a function returning a fresh default config.\n\nDefault values are also stored as class attributes, so `Config.retries` is `3`. Fields using `default_factory` have no class attribute.\n\nKeyword-only fields (a later lesson) relax the ordering rule.",
    "code": "from dataclasses import dataclass, field\nfrom datetime import datetime\n\n@dataclass\nclass Task:\n    title: str\n    priority: int = 3\n    tags: list[str] = field(default_factory=list)\n    created: datetime = field(default_factory=datetime.now)\n\na, b = Task(\"write docs\"), Task(\"fix bug\", priority=1)\na.tags.append(\"docs\")\nprint(a.tags, b.tags)              # ['docs'] []   (separate lists)\nprint(b.priority, Task.priority)   # 1 3\n\ntry:\n    @dataclass\n    class Bad:\n        items: list[int] = []\nexcept ValueError as e:\n    print(e)   # mutable default <class 'list'> for field items is not allowed: use default_factory",
    "code_lang": "python",
    "takeaways": [
     "Fields with defaults must follow fields without",
     "Mutable defaults like [] are rejected",
-    "field(default_factory=list) creates a fresh value per instance"
+    "field(default_factory=list) creates a fresh value for each object"
    ],
    "pitfalls": [
-    "Using a mutable custom object as a default; it is shared unless it is unhashable and rejected."
+    "Using a changeable object of your own class as a default; it is shared by all objects unless it is unhashable and so rejected."
    ],
    "quiz": [
     {
@@ -113,6 +197,11 @@
    "docs": "https://docs.python.org/3/library/dataclasses.html#mutable-default-values",
    "requires": [
     "py-dataclasses.first-dataclass"
+   ],
+   "defines": [
+    "constructor",
+    "hashable",
+    "default factory"
    ]
   },
   {
@@ -122,8 +211,8 @@
    "level": 1,
    "minutes": 8,
    "summary": "Understand dataclass equality and enable sorting and comparisons with order=True.",
-   "why": "Value objects need sensible equality and ordering to be used in tests, sets and sorted collections.",
-   "body": "The generated `__eq__` compares two instances **as tuples of their fields**, in definition order, and only if they are of exactly the same class. Comparing with any other type returns `NotImplemented`, so `Point(1, 2) == (1, 2)` is `False`.\n\n`@dataclass(order=True)` additionally generates `__lt__`, `__le__`, `__gt__` and `__ge__`, again comparing field tuples: the first field decides, ties fall through to the next field, like sorting tuples. That makes instances usable with `sorted()`, `min()`, `max()` and `heapq`.\n\nBecause comparison follows field order, **declare fields in the order you want to sort by**, or exclude fields from comparison with `field(compare=False)` (for example, a cache or a description). A common trick for priority queues is a first field `sort_index` set in `__post_init__`.\n\nNotes:\n\n- Ordering between different dataclass types raises `TypeError`.\n- `eq=False` keeps identity-based equality from `object`, useful for entities whose identity matters more than their values.\n- If you define `__lt__` yourself and pass `order=True`, you get a `TypeError`; define your own or let the decorator do it, not both.\n- For ordering by one key only, `functools.total_ordering` or a `key=` function in `sorted` may be clearer.",
+   "why": "Value objects need sensible equality and ordering to be used in tests, sets and sorted lists.",
+   "body": "The generated `__eq__` compares two objects **as tuples of their fields**, in the order the fields were written, and only if both are of exactly the same class. Against any other type it returns `NotImplemented`, Python's signal for \"I can't compare these\", so `Point(1, 2) == (1, 2)` is `False`.\n\n`@dataclass(order=True)` also generates `__lt__`, `__le__`, `__gt__` and `__ge__`, again comparing field tuples: the first field decides, and only on a tie does the next field count, just like comparing tuples. That makes objects usable with `sorted()`, `min()` and `max()`.\n\nBecause comparison follows field order, **write the fields in the order you want to sort by**, or leave a field out of comparisons with `field(compare=False)`, for example a saved helper value or a free-text description.\n\nNotes:\n\n- Ordering objects of two different dataclasses raises `TypeError`.\n- `eq=False` keeps Python's default equality, where an object is equal only to itself. That suits things whose identity matters more than their values, like two customers who happen to share a name.\n- If you write `__lt__` yourself and also pass `order=True`, you get a `TypeError`: do one or the other, not both.\n- To order by a single value, a `key=` function in `sorted` may be clearer.",
    "code": "from dataclasses import dataclass, field\n\n@dataclass(order=True)\nclass Version:\n    major: int\n    minor: int\n    patch: int = 0\n    label: str = field(default=\"\", compare=False)   # ignored in == and <\n\nversions = [Version(1, 10), Version(1, 2, 5), Version(0, 9, label=\"beta\")]\nprint(sorted(versions))\n# [Version(major=0, minor=9, patch=0, label='beta'), Version(major=1, minor=2, ...), Version(major=1, minor=10, ...)]\nprint(Version(2, 0) > Version(1, 99))             # True\nprint(Version(1, 0, label=\"a\") == Version(1, 0))  # True: label not compared\nprint(Version(1, 0) == (1, 0, 0))                 # False: different type",
    "code_lang": "python",
    "takeaways": [
@@ -158,18 +247,18 @@
    "module": "basics",
    "level": 1,
    "minutes": 8,
-   "summary": "Make instances immutable with frozen=True, get hashability for free, and create modified copies with replace().",
-   "why": "Immutable values are safe to share, cache and use as dict keys or set members.",
-   "body": "`@dataclass(frozen=True)` makes instances read-only after `__init__`: assigning or deleting an attribute raises `dataclasses.FrozenInstanceError` (a subclass of `AttributeError`).\n\nBenefits:\n\n- Instances can't be changed behind your back when shared between functions or threads.\n- With `eq=True` (the default) and `frozen=True`, a `__hash__` is generated from the fields, so instances work as **dict keys and set members**.\n- They signal intent: this is a value, like a date or a coordinate.\n\nTo \"change\" a frozen instance, make a new one: `dataclasses.replace(obj, field=new_value)` copies all fields and overrides the given ones. Python 3.13 also adds the generic `copy.replace(obj, ...)`, which works for dataclasses, named tuples and other supporting types.\n\nTwo caveats:\n\n- Frozen is **shallow**: a `list` field can still be mutated in place. Use tuples or `frozenset` for truly immutable data.\n- Inside `__post_init__`, normal assignment is blocked too. To set a derived field there, use `object.__setattr__(self, \"name\", value)`, the documented escape hatch.\n\nFrozen instances are slightly slower to create, since `__init__` uses `object.__setattr__`.",
+   "summary": "Make objects unchangeable with frozen=True, get dict-key support for free, and create changed copies with replace().",
+   "why": "Unchangeable values are safe to share, to keep for reuse, and to use as dict keys or set items.",
+   "body": "`@dataclass(frozen=True)` makes objects read-only once `__init__` has finished. Assigning or deleting an attribute then raises `dataclasses.FrozenInstanceError` (a kind of `AttributeError`). Such a class is a **frozen dataclass**.\n\nBenefits:\n\n- Objects can't be changed behind your back when passed between different parts of a program.\n- With `eq=True` (the default) and `frozen=True`, a `__hash__` is generated from the fields, so objects are **hashable**: they work as **dict keys and set items**.\n- They show intent: this is a value, like a date or a coordinate.\n\nTo \"change\" a frozen object, make a new one: `dataclasses.replace(obj, field=new_value)` copies all fields and swaps in the ones you give. Python 3.13 also adds the general `copy.replace(obj, ...)`, which works for dataclasses, named tuples and other types that support it.\n\nTwo caveats:\n\n- Frozen only goes one level deep: a `list` field can still be changed with `append`. Use tuples or `frozenset` for data that truly can't change.\n- Inside `__post_init__` (a setup step covered in a later lesson), normal assignment is blocked too. To set a field there, use `object.__setattr__(self, \"name\", value)`, the documented way round it.\n\nFrozen objects are slightly slower to create, since `__init__` has to use `object.__setattr__`.",
    "code": "import copy\nfrom dataclasses import dataclass, replace, FrozenInstanceError\n\n@dataclass(frozen=True)\nclass Money:\n    amount: int\n    currency: str = \"EUR\"\n\nprice = Money(500)\ntry:\n    price.amount = 600\nexcept FrozenInstanceError as e:\n    print(\"blocked:\", e)                    # blocked: cannot assign to field 'amount'\n\ndiscounted = replace(price, amount=450)\nprint(price, discounted)                    # Money(amount=500, currency='EUR') Money(amount=450, currency='EUR')\nprint(copy.replace(price, currency=\"USD\"))  # Money(amount=500, currency='USD')  (3.13)\n\ntotals = {Money(500): \"five euros\"}         # hashable: usable as a dict key\nprint(totals[Money(500)])                   # five euros",
    "code_lang": "python",
    "takeaways": [
     "frozen=True blocks attribute assignment after __init__",
-    "Frozen + eq makes instances hashable",
-    "replace() and copy.replace() (3.13) create modified copies"
+    "Frozen + eq makes objects hashable, usable as dict keys",
+    "replace() and copy.replace() (3.13) create changed copies"
    ],
    "pitfalls": [
-    "Assuming frozen means deeply immutable; list fields can still be changed in place."
+    "Assuming frozen means nothing inside can change; list fields can still be changed in place."
    ],
    "quiz": [
     {
@@ -187,6 +276,10 @@
    "docs": "https://docs.python.org/3/library/dataclasses.html#frozen-instances",
    "requires": [
     "py-dataclasses.ordering"
+   ],
+   "defines": [
+    "frozen dataclass",
+    "hashable"
    ]
   },
   {
@@ -195,15 +288,15 @@
    "module": "fields",
    "level": 2,
    "minutes": 10,
-   "summary": "Run validation and compute derived attributes after the generated __init__ with __post_init__ and field(init=False).",
-   "why": "Real models need invariants checked at construction and values computed from other fields.",
-   "body": "You normally don't write `__init__` for a dataclass (defining one replaces the generated one). Instead, define `__post_init__(self)`: the generated `__init__` calls it after assigning all fields.\n\nUse it to:\n\n- **validate**: `if self.quantity < 0: raise ValueError(...)`,\n- **normalise**: `self.email = self.email.strip().lower()`,\n- **derive fields**: compute values from other fields.\n\nA derived field shouldn't be a constructor parameter. Declare it with `field(init=False)`, then set it in `__post_init__`:\n\n```python\ntotal: float = field(init=False)\ndef __post_init__(self):\n    self.total = self.price * self.quantity\n```\n\nIt still shows up in `repr` and comparisons unless you also pass `repr=False` / `compare=False`.\n\nKeep in mind:\n\n- Validation runs only at construction. Later assignments (`item.quantity = -5`) are not checked; make the class frozen or use properties if that matters.\n- With `frozen=True`, set derived fields via `object.__setattr__(self, \"total\", ...)`.\n- For per-field conversion on assignment, a descriptor or a library such as Pydantic or attrs (with converters) may fit better.",
+   "summary": "Check values and compute derived fields after the generated __init__, with __post_init__ and field(init=False).",
+   "why": "Real models need rules about their values checked when an object is created, and values computed from other fields.",
+   "body": "You normally don't write `__init__` for a dataclass (writing one replaces the generated one). Instead, define `__post_init__(self)`: the generated `__init__` calls it after assigning all the fields.\n\nUse it to:\n\n- **validate**: `if self.quantity < 0: raise ValueError(...)`,\n- **normalise** (tidy a value into a standard form): `self.email = self.email.strip().lower()`,\n- **derive fields**: compute values from other fields.\n\nA **derived field** shouldn't be a constructor parameter. Declare it with `field(init=False)`, then set it in `__post_init__`:\n\n```python\ntotal: float = field(init=False)\ndef __post_init__(self):\n    self.total = self.price * self.quantity\n```\n\nIt still shows up in `repr` and comparisons unless you also pass `repr=False` / `compare=False`.\n\nKeep in mind:\n\n- Validation runs only when the object is created. Later assignments (`item.quantity = -5`) are not checked; make the class frozen if that matters.\n- With `frozen=True`, set derived fields via `object.__setattr__(self, \"total\", ...)`.\n- To convert or check a field every time it is assigned, a library such as Pydantic or attrs (with converters) may fit better.",
    "code": "from dataclasses import dataclass, field\n\n@dataclass\nclass LineItem:\n    sku: str\n    price: float\n    quantity: int = 1\n    total: float = field(init=False)\n\n    def __post_init__(self):\n        self.sku = self.sku.strip().upper()\n        if self.quantity < 1:\n            raise ValueError(f\"quantity must be >= 1, got {self.quantity}\")\n        self.total = round(self.price * self.quantity, 2)\n\nitem = LineItem(\" ab-12 \", 9.99, 3)\nprint(item)          # LineItem(sku='AB-12', price=9.99, quantity=3, total=29.97)\ntry:\n    LineItem(\"x\", 1.0, 0)\nexcept ValueError as e:\n    print(e)         # quantity must be >= 1, got 0\nitem.quantity = 0    # not validated after construction!",
    "code_lang": "python",
    "takeaways": [
     "__post_init__ runs after the generated __init__",
     "field(init=False) declares derived fields set in __post_init__",
-    "Validation only covers construction, not later assignments"
+    "Validation only covers creation, not later assignments"
    ],
    "pitfalls": [
     "Defining __init__ yourself, which silently replaces the generated one."
@@ -224,6 +317,9 @@
    "docs": "https://docs.python.org/3/library/dataclasses.html#post-init-processing",
    "requires": [
     "py-dataclasses.defaults"
+   ],
+   "defines": [
+    "derived field"
    ]
   },
   {
@@ -233,17 +329,17 @@
    "level": 2,
    "minutes": 10,
    "summary": "Control each field's role in __init__, repr, comparison and hashing with field(), and attach metadata.",
-   "why": "Secrets in reprs, caches in comparisons and per-field config are common needs field() solves.",
-   "body": "`dataclasses.field()` customises one field. Its parameters:\n\n- `default=` / `default_factory=`: the default value or a factory (never both).\n- `init=False`: not a constructor parameter (set it in `__post_init__` or give a default).\n- `repr=False`: hide from `__repr__`. Use it for passwords, tokens and huge blobs, so they don't leak into logs.\n- `compare=False`: exclude from `__eq__` and ordering, for caches, timestamps or descriptions.\n- `hash=None|True|False`: include in `__hash__`; `None` (default) follows `compare`.\n- `kw_only=True`: keyword-only parameter (3.10+).\n- `metadata=`: a read-only mapping for your own use; dataclasses ignores it. Libraries and your code read it via `fields()`, which is how you build per-field config such as column names, units or validation rules.\n\n`dataclasses.fields(obj_or_class)` returns `Field` objects with `.name`, `.type`, `.default` and `.metadata`, letting you write generic code: serialisers, CSV writers, form builders.\n\n`field()` must be used as a class attribute in the dataclass body; using it elsewhere has no meaning.",
+   "why": "Keeping passwords out of printouts, leaving helper data out of comparisons and attaching per-field settings are common needs that field() solves.",
+   "body": "`dataclasses.field()` customises one field. Its parameters:\n\n- `default=` / `default_factory=`: the default value or a default factory (never both).\n- `init=False`: not a constructor parameter (set it in `__post_init__` or give a default).\n- `repr=False`: hide it from `__repr__`. Use it for passwords, access keys and very large values, so they don't end up in printed output or log files.\n- `compare=False`: leave it out of `__eq__` and ordering, for saved helper data, creation times or descriptions.\n- `hash=None|True|False`: include it in `__hash__`; `None` (the default) follows `compare`.\n- `kw_only=True`: make it a keyword-only parameter (3.10+).\n- `metadata=`: a read-only dict for your own use; dataclasses ignores it.\n\nYour code and libraries read `metadata` through `fields()`. That's how you attach per-field settings such as environment variable names, units, or rules for checking values.\n\n`dataclasses.fields(obj_or_class)` returns `Field` objects with `.name`, `.type`, `.default` and `.metadata`. That lets you write code that works for any dataclass: JSON converters, CSV writers, form builders.\n\n`field()` only has a meaning as a class attribute in the dataclass body.",
    "code": "from dataclasses import dataclass, field, fields\n\n@dataclass\nclass DbConfig:\n    host: str = field(metadata={\"env\": \"DB_HOST\"})\n    port: int = field(default=5432, metadata={\"env\": \"DB_PORT\"})\n    password: str = field(default=\"\", repr=False, metadata={\"env\": \"DB_PASSWORD\"})\n    _cache: dict = field(default_factory=dict, repr=False, compare=False)\n\ncfg = DbConfig(\"db.local\", password=\"s3cret\")\nprint(cfg)                          # DbConfig(host='db.local', port=5432)  (no password)\ncfg._cache[\"x\"] = 1\nprint(cfg == DbConfig(\"db.local\", password=\"s3cret\"))   # True: _cache not compared\n\ndef from_env(env: dict[str, str]) -> DbConfig:\n    kwargs = {f.name: f.type(env[f.metadata[\"env\"]])\n              for f in fields(DbConfig) if f.metadata.get(\"env\") in env}\n    return DbConfig(**kwargs)\n\nprint(from_env({\"DB_HOST\": \"prod\", \"DB_PORT\": \"6543\"}))  # DbConfig(host='prod', port=6543)",
    "code_lang": "python",
    "takeaways": [
-    "field(repr=False) hides secrets; compare=False excludes fields from ==",
+    "field(repr=False) hides passwords; compare=False leaves fields out of ==",
     "metadata= attaches your own per-field information",
-    "fields() lets generic code inspect names, types and metadata"
+    "fields() lets code inspect any dataclass's names, types and metadata"
    ],
    "pitfalls": [
-    "Printing or logging config objects whose secret fields aren't repr=False."
+    "Printing or logging config objects whose password fields aren't repr=False."
    ],
    "quiz": [
     {
@@ -270,18 +366,18 @@
    "module": "fields",
    "level": 2,
    "minutes": 9,
-   "summary": "Turn dataclasses into dicts and tuples for JSON, introspect them, and copy with replace().",
-   "why": "Serialisation and copying are what you do with data objects most, and the helpers have important subtleties.",
-   "body": "The module provides helpers that work on any dataclass instance:\n\n- `asdict(obj)` returns a dict of field names to values, **recursively** converting nested dataclasses, and copying lists, tuples and dicts with `copy.deepcopy` for other values. Perfect for `json.dumps(asdict(obj))`, as long as the values are JSON-serialisable (dates and Decimals need `default=str`).\n- `astuple(obj)` does the same into a tuple.\n- `dict_factory=` customises the result, e.g. dropping `None` values.\n- `replace(obj, **changes)` creates a new instance through `__init__`, so `__post_init__` and validation run again. Fields with `init=False` can't be passed and are recomputed.\n- `fields(obj)` lists the fields; `is_dataclass(x)` checks for a dataclass class or instance.\n\n`asdict` is convenient but not free: it deep-copies, which is slow for large objects. For hot paths, a hand-written `{\"a\": self.a, ...}` or `vars(obj)` (shallow, includes only instance attributes, not for slotted classes) is much faster.\n\nThe reverse direction, dict to dataclass, is `MyClass(**data)` for flat data; nested structures need your own code or a library such as cattrs, dacite or Pydantic.",
+   "summary": "Turn dataclasses into dicts and tuples for JSON, inspect their fields, and copy them with replace().",
+   "why": "Turning data objects into dicts or JSON and copying them are the most common things you do with them, and the helpers have important subtleties.",
+   "body": "The module provides helpers that work on any dataclass object:\n\n- `asdict(obj)` returns a dict of field names to values. It converts nested dataclasses too, all the way down, and makes a **deep copy** of lists, tuples, dicts and other values (copies of everything inside them). Perfect for `json.dumps(asdict(obj))`, as long as `json` can handle the values (dates and Decimals need `default=str`).\n- `astuple(obj)` does the same into a tuple.\n- `dict_factory=` customises the result, e.g. dropping `None` values.\n- `replace(obj, **changes)` creates a new object through `__init__`, so `__post_init__` and its validation run again. Fields with `init=False` can't be passed and are computed afresh.\n- `fields(obj)` lists the fields; `is_dataclass(x)` checks whether something is a dataclass or one of its objects.\n\n`asdict` is convenient but not free: deep copying is slow for large objects. In code that runs millions of times, a hand-written `{\"a\": self.a, ...}` or `vars(obj)` (no copying, only the object's own attributes, and not for classes using `slots=True`) is much faster.\n\nThe reverse, dict to dataclass, is `MyClass(**data)` for flat data; nested structures need your own code or a library such as cattrs, dacite or Pydantic.",
    "code": "import json\nfrom dataclasses import asdict, astuple, dataclass, field, replace\n\n@dataclass\nclass Address:\n    city: str\n    zip: str | None = None\n\n@dataclass\nclass User:\n    name: str\n    address: Address\n    roles: list[str] = field(default_factory=list)\n\nu = User(\"ada\", Address(\"London\"), [\"admin\"])\nprint(asdict(u))\n# {'name': 'ada', 'address': {'city': 'London', 'zip': None}, 'roles': ['admin']}\nprint(astuple(u))                       # ('ada', ('London', None), ['admin'])\nno_none = asdict(u.address, dict_factory=lambda kv: {k: v for k, v in kv if v is not None})\nprint(json.dumps(no_none))              # {\"city\": \"London\"}\n\nmoved = replace(u, address=Address(\"Paris\", \"75001\"))\nprint(moved.address.city, u.address.city)   # Paris London\nprint(User(**{\"name\": \"bob\", \"address\": Address(\"Rome\")}))",
    "code_lang": "python",
    "takeaways": [
-    "asdict/astuple convert recursively, deep-copying values",
+    "asdict/astuple convert nested dataclasses too, deep-copying values",
     "replace() re-runs __init__ and __post_init__",
-    "Dict to nested dataclass needs custom code or a library"
+    "Dict to nested dataclass needs your own code or a library"
    ],
    "pitfalls": [
-    "Calling asdict on large objects in a hot loop; its deep copy is expensive."
+    "Calling asdict on large objects inside a loop that runs very often; its deep copy is expensive."
    ],
    "quiz": [
     {
@@ -300,6 +396,9 @@
    "requires": [
     "py-dataclasses.frozen",
     "py-dataclasses.field-options"
+   ],
+   "defines": [
+    "deep copy"
    ]
   },
   {
@@ -308,9 +407,9 @@
    "module": "design",
    "level": 3,
    "minutes": 11,
-   "summary": "Save memory and speed up attribute access with slots=True, and make constructors clearer with kw_only and KW_ONLY.",
-   "why": "Large numbers of instances and many-field constructors are where these options pay off.",
-   "body": "**`slots=True`** (3.10+) generates a class with `__slots__` for its fields. Instances then have no per-instance `__dict__`:\n\n- noticeably less memory per instance, which matters for millions of objects,\n- slightly faster attribute access,\n- assigning an attribute that isn't a field raises `AttributeError`, which catches typos.\n\nBecause `__slots__` must exist at class creation, the decorator builds a **new class**. Consequences: anything that captured the original class before the swap (for example a registry filled by a decorator applied underneath) points at the old class, and weak references need `weakref_slot=True` (3.11).\n\n**Keyword-only fields** make call sites self-documenting and remove the default-ordering restriction:\n\n- `@dataclass(kw_only=True)` makes every field keyword-only.\n- `field(kw_only=True)` marks individual fields.\n- A pseudo-field `_: KW_ONLY` makes all fields after it keyword-only.\n\nKeyword-only fields are moved after positional ones in `__init__`, so a required keyword-only field may follow a field with a default. That's the clean fix for inheritance ordering problems (next lesson).\n\n`Config(host=\"x\", port=1, debug=True)` reads far better than `Config(\"x\", 1, True)`; use keyword-only for anything beyond two or three fields.",
+   "summary": "Save memory and speed up attribute access with slots=True, and make constructor calls clearer with kw_only and KW_ONLY.",
+   "why": "Huge numbers of objects and classes with many fields are where these options pay off.",
+   "body": "**`slots=True`** (3.10+) gives the class `__slots__`: a fixed list of its field names, so each object keeps its fields in fixed places instead of in its own `__dict__`:\n\n- noticeably less memory per object, which matters for millions of objects,\n- slightly faster attribute access,\n- assigning an attribute that isn't a field raises `AttributeError`, which catches typos.\n\nBecause `__slots__` must exist when the class is created, the decorator builds a **new class**. Consequences: anything that captured the original class before the swap (for example a decorator listed below `@dataclass` that recorded the class in a list) points at the old class. And **weak references** (references that don't keep an object alive) need `weakref_slot=True` (3.11).\n\n**Keyword-only fields** make calls explain themselves and remove the rule that defaults come last:\n\n- `@dataclass(kw_only=True)` makes every field keyword-only.\n- `field(kw_only=True)` marks individual fields.\n- A **pseudo-field** `_: KW_ONLY` (a marker, not a real field) makes all fields after it keyword-only.\n\nKeyword-only fields are moved after positional ones in `__init__`, so a required keyword-only field may follow a field with a default. That's the clean fix for ordering problems with inheritance (next lesson).\n\n`Config(host=\"x\", port=1, debug=True)` reads far better than `Config(\"x\", 1, True)`; use keyword-only for anything beyond two or three fields.",
    "code": "import sys\nfrom dataclasses import dataclass, KW_ONLY\n@dataclass\nclass PlainPoint:\n    x: float; y: float\n\n@dataclass(slots=True)\nclass SlotPoint:\n    x: float; y: float\n\np, s = PlainPoint(1, 2), SlotPoint(1, 2)\nprint(hasattr(p, \"__dict__\"), hasattr(s, \"__dict__\"))   # True False\nprint(sys.getsizeof(p) + sys.getsizeof(p.__dict__), sys.getsizeof(s))  # e.g. 344 48\ntry:\n    s.z = 3\nexcept AttributeError as e:\n    print(\"typo caught:\", e)        # 'SlotPoint' object has no attribute 'z' ...\n\n@dataclass\nclass Request:\n    url: str\n    _: KW_ONLY\n    timeout: float = 10.0\n    retries: int                    # required, allowed after a default because kw-only\nprint(Request(\"https://x.io\", retries=2))   # Request(url='https://x.io', timeout=10.0, retries=2)",
    "code_lang": "python",
    "takeaways": [
@@ -337,6 +436,10 @@
    "docs": "https://docs.python.org/3/library/dataclasses.html#dataclasses.KW_ONLY",
    "requires": [
     "py-dataclasses.field-options"
+   ],
+   "defines": [
+    "weak reference",
+    "pseudo-field"
    ]
   },
   {
@@ -346,7 +449,7 @@
    "level": 3,
    "minutes": 11,
    "summary": "Extend dataclasses with subclasses, understand how fields are merged and ordered, and fix default-ordering errors.",
-   "why": "Hierarchies of models (base entity, timestamps, subtypes) are common and have sharp edges.",
+   "why": "Families of models (a base record, creation times, more specific kinds) are common and have sharp edges.",
    "body": "When a dataclass inherits from another dataclass, the decorator collects fields from base classes in **reverse MRO order** (base first), then adds the subclass's own fields. A redefined field keeps its **original position** but takes the new type and default.\n\nThe famous error: the base has a field with a default and the subclass adds a field without one:\n\n```python\n@dataclass\nclass Base:\n    id: int\n    active: bool = True\n@dataclass\nclass User(Base):\n    name: str          # TypeError: non-default argument 'name' follows default argument\n```\n\nThe generated `__init__(id, active=True, name)` would be invalid. Fixes:\n\n- make the new fields keyword-only (`kw_only=True` on the subclass, or `field(kw_only=True)`), the cleanest option since 3.10,\n- give the new field a default too,\n- or restructure so defaults live in the most-derived class.\n\nOther rules:\n\n- `__post_init__` is not chained automatically: call `super().__post_init__()` in the subclass if the base defines one.\n- Decorator options aren't inherited per se: each class gets the options of its own `@dataclass(...)`. A frozen dataclass can't inherit from a non-frozen one, or vice versa.\n- `eq` compares only instances of the exact same class, so a `User` never equals a `Base` with the same fields.",
    "code": "from dataclasses import dataclass, field\nfrom datetime import datetime\n\n@dataclass\nclass Entity:\n    id: int\n    created: datetime = field(default_factory=lambda: datetime(2026, 1, 1))\n\n    def __post_init__(self):\n        if self.id <= 0:\n            raise ValueError(\"id must be positive\")\n\n@dataclass(kw_only=True)\nclass User(Entity):\n    name: str                       # required, but keyword-only: no ordering error\n    email: str = \"\"\n\n    def __post_init__(self):\n        super().__post_init__()     # not called automatically\n        self.email = self.email.lower()\n\nu = User(7, name=\"Ada\", email=\"ADA@X.IO\")\nprint(u)   # User(id=7, created=datetime.datetime(2026, 1, 1, 0, 0), name='Ada', email='ada@x.io')\nprint(u == Entity(7))               # False: different classes",
    "code_lang": "python",
@@ -384,15 +487,15 @@
    "module": "design",
    "level": 3,
    "minutes": 9,
-   "summary": "Pass init-only values to __post_init__ with InitVar, and keep class-level constants out of fields with ClassVar.",
-   "why": "Constructors often need inputs that shouldn't be stored, and classes need constants that aren't per-instance data.",
-   "body": "Two special annotations change how a name is treated.\n\n**`ClassVar[T]`** marks a true class attribute: not a field, not in `__init__`, `__repr__` or comparisons. Use it for constants and registries shared by all instances:\n\n```python\nMAX_ITEMS: ClassVar[int] = 100\n```\n\nWithout `ClassVar`, an annotated name with a default would become a per-instance field.\n\n**`InitVar[T]`** marks an **init-only** pseudo-field: it becomes a parameter of `__init__` and is passed to `__post_init__` as an argument, in field order, but is **not stored** on the instance, not shown in `repr`, and not returned by `fields()`.\n\n```python\n@dataclass\nclass User:\n    name: str\n    password: InitVar[str]\n    password_hash: str = field(init=False)\n    def __post_init__(self, password):\n        self.password_hash = hash_it(password)\n```\n\nTypical uses: raw inputs to transform (a password to hash, a path to load), a database handle used only to fetch a value, or a flag that changes initialisation.\n\nNote that `replace()` must be given every `InitVar` without a default, because it calls `__init__` again and InitVars aren't stored.",
+   "summary": "Pass setup-only values to __post_init__ with InitVar, and keep class-level constants out of fields with ClassVar.",
+   "why": "Setting up an object often needs inputs that shouldn't be stored, and classes need constants that aren't per-object data.",
+   "body": "Two special annotations change how a name is treated.\n\n**`ClassVar[T]`** marks a true class attribute: not a field, and not in `__init__`, `__repr__` or comparisons. Use it for constants and for lookup tables shared by all objects:\n\n```python\nMAX_ITEMS: ClassVar[int] = 100\n```\n\nWithout `ClassVar`, an annotated name with a default would become a field of every object.\n\n**`InitVar[T]`** marks a setup-only **pseudo-field**, something that looks like a field but isn't stored as one: it becomes a parameter of `__init__` and is passed on to `__post_init__` as an argument, in field order, but it is **not stored** on the object, not shown in `repr`, and not returned by `fields()`.\n\n```python\n@dataclass\nclass User:\n    name: str\n    password: InitVar[str]\n    password_hash: str = field(init=False)\n    def __post_init__(self, password):\n        self.password_hash = hash_it(password)\n```\n\nTypical uses: raw inputs to transform (a password to scramble into a hash, a path to load), a connection used only to look up a value, or a flag that changes how the object is set up.\n\nNote that `replace()` must be given every `InitVar` without a default, because it calls `__init__` again and InitVars aren't stored.",
    "code": "import hashlib\nfrom dataclasses import InitVar, dataclass, field, fields\nfrom typing import ClassVar\n\n@dataclass\nclass Account:\n    username: str\n    password: InitVar[str]\n    password_hash: str = field(init=False, repr=False)\n    MIN_LENGTH: ClassVar[int] = 8                 # class constant, not a field\n\n    def __post_init__(self, password: str) -> None:\n        if len(password) < self.MIN_LENGTH:\n            raise ValueError(\"password too short\")\n        self.password_hash = hashlib.sha256(password.encode()).hexdigest()[:12]\n\nacct = Account(\"ada\", \"correct horse\")\nprint(acct)                                 # Account(username='ada')\nprint(acct.password_hash)                   # 4104d36f8da2\nprint([f.name for f in fields(acct)])       # ['username', 'password_hash']\nprint(hasattr(acct, \"password\"))            # False: InitVar is not stored",
    "code_lang": "python",
    "takeaways": [
     "ClassVar annotations are class attributes, not fields",
     "InitVar values go to __init__ and __post_init__ but aren't stored",
-    "fields() lists neither ClassVar nor InitVar pseudo-fields"
+    "fields() lists neither ClassVar names nor InitVar pseudo-fields"
    ],
    "pitfalls": [
     "Forgetting ClassVar on a class constant, which turns it into a constructor parameter."
@@ -413,6 +516,11 @@
    "docs": "https://docs.python.org/3/library/dataclasses.html#init-only-variables",
    "requires": [
     "py-dataclasses.post-init"
+   ],
+   "defines": [
+    "InitVar",
+    "ClassVar",
+    "pseudo-field"
    ]
   },
   {
@@ -423,7 +531,7 @@
    "minutes": 12,
    "summary": "Know exactly when dataclasses generate, keep or remove __hash__, and why unsafe_hash is dangerous.",
    "why": "Getting __hash__ wrong breaks sets and dicts in silent, hard-to-debug ways.",
-   "body": "Python requires that objects which compare equal have equal hashes, and that a hash never changes while the object is in a set or dict. Dataclasses follow these rules from the `eq` and `frozen` options:\n\n- `eq=True, frozen=True`: `__hash__` is **generated** from the fields (those with `compare=True`, adjustable via `field(hash=...)`).\n- `eq=True, frozen=False` (the default): `__hash__` is **set to None**, so instances are unhashable. Mutable values with value-equality can't safely be hashed: change a field and the object is lost in its set.\n- `eq=False`: `__hash__` is left alone, so the identity hash from `object` (or a parent) is used.\n- If you define `__hash__` explicitly in the class body, it's kept unchanged.\n\n`unsafe_hash=True` forces a field-based `__hash__` on a mutable class. It's for cases where you promise not to mutate instances after hashing them, such as \"logically immutable\" objects that can't be frozen for performance or library reasons. If the promise is broken, lookups silently fail.\n\nFrozen-ness is about instance attributes; a hash over fields that contain lists raises `TypeError: unhashable type: 'list'` at hash time. For dict keys, prefer frozen dataclasses with immutable field types (tuples, frozensets, other frozen dataclasses).",
+   "body": "Python requires that objects which compare equal have equal hashes, and that a hash never changes while the object is in a set or dict. Dataclasses follow these rules from the `eq` and `frozen` options:\n\n- `eq=True, frozen=True`: `__hash__` is **generated** from the fields (those with `compare=True`, adjustable via `field(hash=...)`).\n- `eq=True, frozen=False` (the default): `__hash__` is **set to None**, so instances are unhashable. Changeable objects that compare by value can't safely be hashed: change a field and the object is lost in its set.\n- `eq=False`: `__hash__` is left alone, so the identity hash from `object` (or a parent) is used.\n- If you define `__hash__` explicitly in the class body, it's kept unchanged.\n\n`unsafe_hash=True` forces a field-based `__hash__` on a mutable class. It's for cases where you promise not to change objects after hashing them, such as \"logically immutable\" objects that can't be frozen for performance or library reasons. If the promise is broken, lookups silently fail.\n\nFrozen-ness is about instance attributes; a hash over fields that contain lists raises `TypeError: unhashable type: 'list'` at hash time. For dict keys, prefer frozen dataclasses with immutable field types (tuples, frozensets, other frozen dataclasses).",
    "code": "from dataclasses import dataclass\n\n@dataclass\nclass Mutable: x: int\n@dataclass(frozen=True)\nclass Frozen: x: int\n@dataclass(unsafe_hash=True)\nclass Risky: x: int\n\nprint(Mutable.__hash__)                 # None -> unhashable\nprint(hash(Frozen(1)) == hash(Frozen(1)))   # True\n\nr = Risky(1)\nbucket = {r}\nr.x = 2                                 # mutate after hashing...\nprint(r in bucket, Risky(2) in bucket)  # False False  -> object lost in its own set\n\n@dataclass(frozen=True)\nclass WithList: items: list\ntry:\n    hash(WithList([1]))\nexcept TypeError as e:\n    print(e)                            # unhashable type: 'list'",
    "code_lang": "python",
    "takeaways": [
@@ -432,7 +540,7 @@
     "unsafe_hash=True is only safe if instances never change after hashing"
    ],
    "pitfalls": [
-    "Using unsafe_hash=True on objects that are later mutated while in sets or dict keys."
+    "Using unsafe_hash=True on objects that are later changed while in sets or used as dict keys."
    ],
    "quiz": [
     {
@@ -459,9 +567,9 @@
    "module": "internals",
    "level": 4,
    "minutes": 13,
-   "summary": "Look inside the decorator: __dataclass_fields__, exec-generated methods, __match_args__, make_dataclass and descriptor fields.",
+   "summary": "Look inside the decorator: __dataclass_fields__, methods generated with exec, __match_args__, make_dataclass and descriptor fields.",
    "why": "Understanding the generated code explains performance, pattern matching, and how dataclass-like libraries work.",
-   "body": "`@dataclass` runs once, at class creation. It reads the class's `__annotations__` in order, builds a `Field` object for each and stores them in `__dataclass_fields__` (with options in `__dataclass_params__`). Then it **generates source code** for methods such as `__init__`, `__repr__` and `__eq__` as text, compiles it with `exec`, and attaches the functions to the class, unless the class already defines them (for `__init__`, `__repr__`, `__eq__`) or raises `TypeError` on conflict (ordering methods with `order=True`).\n\nSo the generated `__init__` is ordinary Python, as fast as one you'd write by hand. There's no per-instance overhead beyond normal attribute storage; the cost is paid once at import.\n\nOther generated pieces:\n\n- `__match_args__`: a tuple of positional field names, enabling `case Point(x, y):` in structural pattern matching (`match_args=False` turns it off).\n- `__slots__` or `__weakref__` with the corresponding options.\n- `__replace__` (3.13), used by `copy.replace()`.\n\n`make_dataclass(\"Point\", [(\"x\", float), (\"y\", float, 0.0)])` builds a dataclass dynamically, useful when the fields come from a schema.\n\n**Descriptor-typed fields**: if a field's default is a descriptor (with `__get__`/`__set__`), `__init__` assigns through it, which lets you add per-field validation or conversion while keeping dataclass ergonomics.",
+   "body": "`@dataclass` runs once, when the class is created. It reads the class's `__annotations__` in order, builds a `Field` object for each and stores them in `__dataclass_fields__` (with the options in `__dataclass_params__`). Then it **writes Python code as text** for methods such as `__init__`, `__repr__` and `__eq__`, turns that text into real functions with `exec`, and attaches them to the class. It skips methods the class already defines (`__init__`, `__repr__`, `__eq__`), or raises `TypeError` on a clash (ordering methods with `order=True`).\n\nSo the generated `__init__` is ordinary Python, as fast as one you'd write by hand. Objects carry no extra cost beyond normal attribute storage; the work is done once, when the module is imported.\n\nOther generated pieces:\n\n- `__match_args__`: a tuple of positional field names, enabling `case Point(x, y):` in pattern matching (`match_args=False` turns it off).\n- `__slots__` or `__weakref__` with the matching options.\n- `__replace__` (3.13), used by `copy.replace()`.\n\n`make_dataclass(\"Point\", [(\"x\", float), (\"y\", float, 0.0)])` builds a dataclass while the program runs, useful when the list of fields comes from data, such as a config file.\n\n**Descriptor fields**: a descriptor is an object with `__get__`/`__set__` methods that controls what happens when an attribute is read or set. If a field's default is one, `__init__` assigns through it, which lets you add per-field validation or conversion while keeping everything else a dataclass gives you.",
    "code": "import inspect\nfrom dataclasses import dataclass, make_dataclass\n\n@dataclass\nclass Point:\n    x: float\n    y: float = 0.0\n\nprint(list(Point.__dataclass_fields__))       # ['x', 'y']\nprint(inspect.signature(Point))               # (x: float, y: float = 0.0) -> None\nprint(Point.__match_args__)                   # ('x', 'y')\nprint(Point.__init__.__qualname__)            # Point.__init__  (generated with exec)\n\ndef describe(obj):\n    match obj:\n        case Point(0, 0): return \"origin\"\n        case Point(x, 0): return f\"on the x-axis at {x}\"\n        case Point(): return \"somewhere\"\n\nprint(describe(Point(0, 0)), \"|\", describe(Point(5)))   # origin | on the x-axis at 5\n\nColor = make_dataclass(\"Color\", [(\"r\", int), (\"g\", int), (\"b\", int, 0)], frozen=True)\nprint(Color(255, 128), hasattr(Color, \"__replace__\"))   # Color(r=255, g=128, b=0) True",
    "code_lang": "python",
    "takeaways": [
@@ -490,6 +598,9 @@
     "py-dataclasses.inheritance",
     "py-dataclasses.asdict-replace",
     "python.pattern-matching"
+   ],
+   "defines": [
+    "descriptor object"
    ]
   },
   {
@@ -499,12 +610,12 @@
    "level": 4,
    "minutes": 11,
    "summary": "Choose between dataclasses, NamedTuple, TypedDict, attrs and Pydantic, and know how dataclass_transform connects them to type checkers.",
-   "why": "Picking the right record type affects validation, performance, immutability and API ergonomics.",
-   "body": "Python has several ways to define record-like types:\n\n- **dataclass**: standard library, mutable or frozen, methods and inheritance, no runtime validation. The default choice for internal domain objects.\n- **`typing.NamedTuple`**: an immutable tuple subclass with named fields. Supports unpacking and indexing, memory-light, but tuple semantics leak: `Point(1, 2) == (1, 2)` is `True`. Good for small, positional return values.\n- **`TypedDict`**: types plain dicts; no class instances at all. Good for JSON-shaped data that stays a dict.\n- **attrs**: the third-party library that inspired dataclasses; adds validators, converters, and more options, with `slots=True` by default in its modern API.\n- **Pydantic**: runtime **validation and parsing** from untrusted input (JSON, env vars), coercion, serialisation and JSON Schema. Heavier, but the right tool at system boundaries.\n\nA common architecture: Pydantic models at the edges (API requests, config), plain dataclasses inside.\n\nHow do type checkers understand attrs, Pydantic, SQLAlchemy models and others? `typing.dataclass_transform()` (PEP 681, 3.11) marks a decorator, base class or metaclass as \"creates dataclass-like classes\", so mypy and pyright synthesise the right `__init__` signature without plugins.",
+   "why": "Picking the right record type affects validation, speed, whether objects can change, and how pleasant the code is to use.",
+   "body": "Python has several ways to define record-like types:\n\n- **dataclass**: standard library, changeable or frozen, with methods and inheritance, no checking of values while running. The default choice for your program's own objects.\n- **`typing.NamedTuple`**: an unchangeable kind of tuple with named fields. It unpacks and indexes and is light on memory, but it behaves like a tuple everywhere: `Point(1, 2) == (1, 2)` is `True`. Good for small results that callers unpack.\n- **TypedDict**: describes the keys and value types of plain dicts; no class objects at all. Good for JSON-shaped data that stays a dict.\n- **attrs**: the third-party library that inspired dataclasses; adds validators, converters and more options, with `slots=True` by default in its modern style.\n- **Pydantic**: checks and converts data while the program runs, for input you can't trust: JSON from outside, environment variables. It turns `\"42\"` into `42` where the field says `int`, and can export a **JSON Schema**, a standard description of the data's shape. Heavier, but the right tool where data enters your system.\n\nA common design: Pydantic models at the edges (data arriving in web requests, config files), plain dataclasses inside.\n\nHow do type checkers understand attrs, Pydantic, SQLAlchemy models and others? `typing.dataclass_transform()` (added in 3.11 by the change proposal PEP 681) marks a decorator, base class or metaclass (the class that creates classes) as \"creates dataclass-like classes\". Type checkers such as mypy and pyright then work out the right `__init__` signature without special add-ons.",
    "code": "from dataclasses import dataclass\nfrom typing import NamedTuple, TypedDict, dataclass_transform\n\n@dataclass(frozen=True, slots=True)\nclass PointDC:\n    x: int; y: int\n\nclass PointNT(NamedTuple):\n    x: int; y: int\n\nclass PointTD(TypedDict):\n    x: int; y: int\n\nprint(PointDC(1, 2) == (1, 2), PointNT(1, 2) == (1, 2))   # False True\nx, y = PointNT(3, 4)                                       # tuple unpacking works\nprint(x, PointTD(x=1, y=2))                                # 3 {'x': 1, 'y': 2}\n\n@dataclass_transform()\ndef model(cls):                    # checkers now treat @model classes like dataclasses\n    return dataclass(cls)\n\n@model\nclass User:\n    name: str\nprint(User(name=\"ada\"))            # User(name='ada')",
    "code_lang": "python",
    "takeaways": [
-    "Dataclasses for internal objects; Pydantic for validating untrusted input",
+    "Dataclasses for your own objects; Pydantic for checking input from outside",
     "NamedTuple is a tuple: it equals plain tuples and supports unpacking",
     "dataclass_transform teaches type checkers about dataclass-like libraries"
    ],
@@ -528,6 +639,12 @@
    "requires": [
     "py-dataclasses.slots-kw-only",
     "py-dataclasses.asdict-replace"
+   ],
+   "defines": [
+    "Pydantic",
+    "attrs",
+    "TypedDict",
+    "JSON Schema"
    ]
   }
  ]

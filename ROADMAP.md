@@ -28,9 +28,23 @@ week or more. Order within a section is the suggested order.
     public content or shared across orgs), SSO (Google Workspace, Microsoft),
     per-seat pricing.
 
+## Monetization: Topolearn Pro
+
+- [ ] **Topolearn Pro subscription** (L): paid plan for the bigger features (AI
+  tutor, offline mode, guided projects, certificates). In-app purchases on iOS
+  and Android plus web payments, through one service (RevenueCat or Stripe) so
+  one subscription works everywhere; paywall screens, trial, restore purchases,
+  Armapp LLC as the seller. Design the free/Pro split before building the paid
+  features.
+
 ## Content quality (do first)
 
-- [ ] **Lesson clarity review: no unexplained jargon** (L)
+- [x] **Lesson clarity review: no unexplained jargon** (L) — done Oct 2026: all
+  168 tools rewritten, shared + per-tool glossaries, `defines`, clarity check in
+  the validator, tap/hover definitions on web and app. Follow-up: a second pass
+  on Practical/Expert (long lists of unexplained function names, code harder
+  than the prose), and one shared intro lesson for ML / HTTP basics that six
+  tools each re-teach.
   Every lesson must be understandable at its level. Example of the problem:
   Docker → Essentials → "Containers vs virtual machines" opens with
   hypervisor, kernel, drivers, init system and VM, none of them explained.
@@ -41,8 +55,12 @@ week or more. Order within a section is the suggested order.
   3. Per-tool glossary, with tap/hover definitions in the app and on the web,
      adapted to the learner's level.
   4. A `validate_content.py` check that fails on undefined terms in Essentials.
+- [ ] **Lessons in other languages** (L): Spanish, Portuguese, Hindi, Armenian…
+  Machine translation checked against each tool's glossary so technical terms
+  stay consistent; language setting in app and web; translations re-generated
+  when a lesson changes. Same clarity bar in every language.
 - [ ] **Expand the tool catalog** (L, ongoing)
-  Beyond the current 155 tools / ~3,200 lessons. Prioritise by tool-request
+  Beyond the current 168 tools / ~3,500 lessons. Prioritise by tool-request
   votes, search demand, and prerequisites that point outside the catalog.
   Same clarity bar as above.
 
@@ -107,6 +125,18 @@ Trust and polish:
 
 ## Learning experience
 
+- [ ] **Job posting → learning plan** (L): paste a job posting; Topolearn reads
+  the tools and levels it asks for, compares them with what the learner already
+  knows, and builds one plan of only the missing lessons across tools (in tree
+  order, with time estimates). Enrol in the whole plan in one tap. Job postings
+  only (no requirements files / package.json).
+- [ ] **Guided projects** (L): small builds that use several lessons together
+  ("a command-line to-do app in Python", "deploy a web app with Docker and
+  Nginx"). Shown on the map as project nodes above the lessons they need, with
+  steps, a reference solution and a "done" check.
+- [ ] **Offline mode in the app** (M–L): download a tool to read lessons, take
+  quizzes and do reviews without a connection; progress syncs when back online
+  (conflicts resolved per lesson, latest change wins).
 - [ ] **Placement test** (M): ~5-minute adaptive quiz per tool; passing a
   lesson's question marks it and everything it builds on as known. Offered in
   onboarding and when adding a tool.
@@ -123,6 +153,10 @@ Trust and polish:
   reviews don't repeat.
 - [ ] **Cheat sheet per tool** (S): from lesson takeaways; public web page
   (SEO), print/PDF, linked from the app.
+
+- [ ] **Interview practice mode** (M, low priority): timed question sets per
+  tool and level from the lessons done; score per topic, misses go into
+  reviews. Pairs with the job-posting plan.
 
 ## Community
 

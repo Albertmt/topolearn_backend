@@ -42,6 +42,56 @@
    "name": "Hooks and introspection"
   }
  ],
+ "glossary": [
+  {
+   "term": "standard streams",
+   "aliases": [
+    "standard stream"
+   ],
+   "def": "The three channels every program starts with: standard input (what it reads), standard output (its results) and standard error (its error messages)."
+  },
+  {
+   "term": "SystemExit",
+   "case": true,
+   "def": "The exception sys.exit() raises to end a Python program; clean-up code still runs while it travels up, and its code becomes the exit code."
+  },
+  {
+   "term": "site-packages",
+   "def": "The folder inside a Python installation or virtual environment where pip puts third-party packages; it is on sys.path."
+  },
+  {
+   "term": "filter",
+   "aliases": [
+    "filters"
+   ],
+   "def": "A command-line program that reads standard input, changes or selects the data, and writes the result to standard output, so it can sit in a chain of pipes (like grep or sort)."
+  },
+  {
+   "term": "interning",
+   "aliases": [
+    "intern",
+    "interned"
+   ],
+   "def": "Keeping one shared copy of equal strings, so they are the same object in memory; Python does it automatically for names in code, and sys.intern does it on request."
+  },
+  {
+   "term": "audit event",
+   "aliases": [
+    "audit events",
+    "audit hook",
+    "audit hooks"
+   ],
+   "def": "A notice CPython gives at sensitive actions, such as opening a file or a network connection; functions registered with sys.addaudithook see every one."
+  },
+  {
+   "term": "trace function",
+   "aliases": [
+    "trace functions",
+    "tracer"
+   ],
+   "def": "A function Python calls on every function call, line and return while it is installed with sys.settrace; debuggers are built on it."
+  }
+ ],
  "concepts": [
   {
    "id": "py-sys.argv",
@@ -49,14 +99,14 @@
    "module": "cli",
    "level": 1,
    "minutes": 7,
-   "summary": "Read the arguments a script was started with from sys.argv.",
-   "why": "Even tiny scripts become reusable once they take file names or options from the command line.",
-   "body": "When you run `python greet.py Ann --loud`, Python stores the command line in **sys.argv**, a list of strings:\n\n- `sys.argv[0]` is the script name as given (`'greet.py'`), or `'-c'` when running `python -c`, or the full path of the module with `python -m`.\n- `sys.argv[1:]` are the arguments, always as strings, split by the shell: quoting `\"New York\"` keeps the space inside one argument.\n\nEverything arrives as text, so convert explicitly: `int(sys.argv[2])`. Check the length before indexing, or you get an `IndexError` when the user forgets an argument; print a usage message to stderr and exit with a non-zero code instead.\n\nFor anything beyond one or two positional arguments, such as options, defaults, `--help` and type checking, use **argparse**, which reads `sys.argv[1:]` for you. Writing your own option parser over `sys.argv` is a common source of bugs.\n\nA useful pattern is to pass the argument list into `main(argv)` instead of reading `sys.argv` inside your logic. Tests can then call `main([\"a.txt\", \"-n\", \"3\"])` directly without touching global state.\n\n`sys.orig_argv` (3.10+) holds the full original command line including interpreter options like `-X dev`.",
-   "code": "import subprocess\nimport sys\n\nscript = '''\nimport sys\ndef main(argv):\n    if len(argv) < 1:\n        print(\"usage: greet NAME [TIMES]\", file=sys.stderr)\n        return 2\n    name = argv[0]\n    times = int(argv[1]) if len(argv) > 1 else 1\n    print(\" \".join([f\"hi {name}\"] * times))\n    return 0\nsys.exit(main(sys.argv[1:]))\n'''\nopen(\"greet.py\", \"w\").write(script)\nrun = lambda *a: subprocess.run([sys.executable, \"greet.py\", *a],\n                                capture_output=True, text=True)\nprint(run(\"Ann\", \"2\").stdout.strip())   # hi Ann hi Ann\nprint(run(\"New York\").stdout.strip())   # hi New York\nprint(run().returncode)                 # 2",
+   "summary": "Read the command-line arguments a script was started with from sys.argv.",
+   "why": "Even tiny scripts become reusable once they take file names or options when you start them.",
+   "body": "When you start a script in the terminal, you can type extra words after its name: `python greet.py Ann --loud`. Those words are **command-line arguments**. They tell the program what to work on, the way you'd pick a file from a menu in an app. Python stores the whole line in `sys.argv`, a list of strings:\n\n- `sys.argv[0]` is the script name as you typed it (`'greet.py'`), or `'-c'` when you ran `python -c \"some code\"`, or the module's full path (from the top of the disk) with `python -m module`.\n- `sys.argv[1:]` are the arguments, always strings. The **shell** (the program in your terminal that reads what you type) splits the line at spaces, so quoting `\"New York\"` keeps the space inside one argument.\n\nEverything arrives as text, so convert it yourself: `int(sys.argv[2])`. Check the length before indexing, or you get an `IndexError` when the user forgets an argument. Instead, print a short usage message to `sys.stderr` (the error output, see the lesson on stdin and stdout) and end with `sys.exit(2)` (see the lesson on sys.exit).\n\nFor anything beyond one or two plain arguments, such as options like `--loud`, default values, `--help` and checking types, use the standard-library module **argparse**, which reads `sys.argv[1:]` for you. Writing your own option reader over `sys.argv` is a common source of bugs.\n\nA useful pattern is to pass the argument list into `main(argv)` instead of reading `sys.argv` deep inside your code. Tests can then call `main([\"a.txt\", \"-n\", \"3\"])` directly, without faking a command line.\n\n`sys.orig_argv` (3.10+) holds the full original line, including options given to Python itself, like `-X dev`.",
+   "code": "import subprocess\nimport sys\n\nscript = '''\nimport sys\ndef main(argv):\n    if len(argv) < 1:\n        print(\"usage: greet NAME [TIMES]\", file=sys.stderr)\n        return 2\n    name = argv[0]\n    times = int(argv[1]) if len(argv) > 1 else 1\n    print(\" \".join([f\"hi {name}\"] * times))\n    return 0\nsys.exit(main(sys.argv[1:]))\n'''\nopen(\"greet.py\", \"w\").write(script)\n# run greet.py as a separate program and capture what it prints\nrun = lambda *a: subprocess.run([sys.executable, \"greet.py\", *a],\n                                capture_output=True, text=True)\nprint(run(\"Ann\", \"2\").stdout.strip())   # hi Ann hi Ann\nprint(run(\"New York\").stdout.strip())   # hi New York\nprint(run().returncode)                 # 2",
    "code_lang": "python",
    "takeaways": [
     "`sys.argv[0]` is the script; `sys.argv[1:]` are the arguments, all strings",
-    "Validate the count and convert types yourself, or use argparse",
+    "Check the count and convert types yourself, or use argparse",
     "Pass `sys.argv[1:]` into `main(argv)` so the logic is testable"
    ],
    "pitfalls": [
@@ -76,7 +126,11 @@
     }
    ],
    "docs": "https://docs.python.org/3/library/sys.html#sys.argv",
-   "requires": []
+   "requires": [],
+   "defines": [
+    "command-line argument",
+    "shell"
+   ]
   },
   {
    "id": "py-sys.streams",
@@ -84,15 +138,15 @@
    "module": "cli",
    "level": 1,
    "minutes": 9,
-   "summary": "Read input from sys.stdin, write results to sys.stdout and diagnostics to sys.stderr.",
-   "why": "Programs that use the standard streams correctly can be combined with pipes and redirection like any Unix tool.",
-   "body": "Every process starts with three open **standard streams**, which `sys` exposes as text file objects:\n\n- `sys.stdin`: input, from the keyboard or from a pipe (`cat data.txt | python script.py`).\n- `sys.stdout`: normal output; `print` writes here by default.\n- `sys.stderr`: errors, warnings and progress messages.\n\nKeep the two outputs separate. When a user runs `python report.py > out.csv`, only stdout goes to the file; messages on stderr still reach the terminal and don't corrupt the data. Write to stderr with `print(\"warning: ...\", file=sys.stderr)`.\n\nReading input:\n\n- `for line in sys.stdin:` processes input line by line without loading it all; each line keeps its `\\n`, so call `line.rstrip(\"\\n\")`.\n- `sys.stdin.read()` reads everything at once.\n- `input()` reads one line from stdin and strips the newline.\n\nBuffering matters: stdout is **line-buffered** in a terminal but block-buffered when redirected to a file or pipe, so output may appear late. Use `print(..., flush=True)` or `sys.stdout.flush()` for progress output; stderr is always line-buffered. `sys.stdout.reconfigure(line_buffering=True)` changes the mode.\n\nFor binary data use the underlying buffers, `sys.stdin.buffer` and `sys.stdout.buffer`, which read and write bytes.",
-   "code": "import subprocess\nimport sys\n\nscript = '''\nimport sys\ntotal = 0\nfor line in sys.stdin:\n    line = line.rstrip(\"\\\\n\")\n    if not line.isdigit():\n        print(f\"skipping {line!r}\", file=sys.stderr)\n        continue\n    total += int(line)\nprint(total)\n'''\nr = subprocess.run([sys.executable, \"-c\", script], input=\"4\\nx\\n6\\n\",\n                   capture_output=True, text=True)\nprint(r.stdout.strip())   # 10\nprint(r.stderr.strip())   # skipping 'x'",
+   "summary": "Read input from sys.stdin, write results to sys.stdout and messages to sys.stderr.",
+   "why": "Programs that use standard input and output correctly can be chained with other terminal tools, and their results saved to files.",
+   "body": "A running program is called a **process**. Every process starts with three open channels, the **standard streams**, which `sys` gives you as file objects:\n\n- `sys.stdin`, **standard input**: what the program reads, from the keyboard or from another program.\n\n- `sys.stdout`, **standard output**: normal results; `print` writes here by default.\n\n- `sys.stderr`, **standard error**: errors, warnings and progress messages.\n\nKeep the two outputs separate. In the terminal, `python report.py > out.csv` saves a program's output in a file instead of showing it, which is called **output redirection**. Only stdout goes into the file; messages on stderr still reach the screen and don't spoil the data. Write to stderr with `print(\"warning: ...\", file=sys.stderr)`.\n\nLikewise, `cat data.txt | python script.py` sends one program's output straight into another one's input. That `|` connection is a **pipe**.\n\nReading input:\n\n- `for line in sys.stdin:` handles input line by line without loading it all; each line keeps its `\\n`, so call `line.rstrip(\"\\n\")`.\n- `sys.stdin.read()` reads everything at once.\n- `input()` reads one line from stdin and removes the newline.\n\nOutput is collected in a **buffer** (a holding area) and written out in pieces. In a terminal, stdout writes each line straight away; going to a file or pipe, it waits for a big chunk, so output may appear late. Use `print(..., flush=True)` or `sys.stdout.flush()` for progress output; stderr always writes each line straight away. `sys.stdout.reconfigure(line_buffering=True)` changes the mode.\n\nFor data that isn't text (images, zip files), use the underlying `sys.stdin.buffer` and `sys.stdout.buffer`, which read and write bytes.",
+   "code": "import subprocess\nimport sys\n\nscript = '''\nimport sys\ntotal = 0\nfor line in sys.stdin:\n    line = line.rstrip(\"\\\\n\")\n    if not line.isdigit():\n        print(f\"skipping {line!r}\", file=sys.stderr)\n        continue\n    total += int(line)\nprint(total)\n'''\n# run the script as a separate program, feeding it three lines of input\nr = subprocess.run([sys.executable, \"-c\", script], input=\"4\\nx\\n6\\n\",\n                   capture_output=True, text=True)\nprint(r.stdout.strip())   # 10\nprint(r.stderr.strip())   # skipping 'x'",
    "code_lang": "python",
    "takeaways": [
     "stdout is for results, stderr for messages, so redirection stays clean",
-    "`for line in sys.stdin` streams input; lines keep their newline",
-    "Redirected stdout is block-buffered; flush progress output explicitly"
+    "`for line in sys.stdin` reads input line by line; lines keep their newline",
+    "Output to a file or pipe is written in chunks; flush progress output yourself"
    ],
    "pitfalls": [
     "Printing progress messages to stdout in a tool whose output is piped into another program."
@@ -113,6 +167,16 @@
    "docs": "https://docs.python.org/3/library/sys.html#sys.stdout",
    "requires": [
     "python.files"
+   ],
+   "defines": [
+    "process",
+    "standard streams",
+    "standard input",
+    "standard output",
+    "standard error",
+    "output redirection",
+    "pipe",
+    "buffer"
    ]
   },
   {
@@ -122,14 +186,14 @@
    "level": 1,
    "minutes": 7,
    "summary": "End a program with sys.exit, return meaningful exit codes, and understand that it works by raising SystemExit.",
-   "why": "Shells, CI pipelines and schedulers decide success or failure purely from a process's exit code.",
-   "body": "A process reports success or failure to whoever started it with an **exit code**: `0` means success, anything from 1 to 255 means failure. Shell `&&`, `set -e`, CI jobs and cron alerts all depend on it.\n\n`sys.exit(arg)` ends the program:\n\n- `sys.exit()` or `sys.exit(0)`: success.\n- `sys.exit(2)`: exit with code 2 (by convention, 2 means a usage error).\n- `sys.exit(\"error: config missing\")`: prints the message to stderr and exits with code 1.\n\nAn uncaught exception also exits with code 1 after printing the traceback.\n\n`sys.exit` does not stop the interpreter immediately. It raises the **SystemExit** exception. That means `finally` blocks and `with` statements still run their cleanup, and `atexit` handlers run afterwards. It also means a bare `except:` or `except BaseException:` will swallow it; `except Exception:` does not, because `SystemExit` derives directly from `BaseException`.\n\nIn a script, the common shape is:\n\n```python\nif __name__ == \"__main__\":\n    sys.exit(main())\n```\n\nwhere `main()` returns an int. Prefer `sys.exit` over the built-in `exit()`/`quit()`, which are meant for the interactive prompt. `os._exit(code)` exits instantly without any cleanup and is only for special cases such as forked children.",
-   "code": "import subprocess\nimport sys\n\ndef code_of(src):\n    return subprocess.run([sys.executable, \"-c\", src],\n                          capture_output=True, text=True)\n\nprint(code_of(\"import sys; sys.exit()\").returncode)     # 0\nprint(code_of(\"import sys; sys.exit(3)\").returncode)    # 3\nr = code_of(\"import sys; sys.exit('bad config')\")\nprint(r.returncode, r.stderr.strip())                   # 1 bad config\nprint(code_of(\"1 / 0\").returncode)                      # 1\n\ntry:\n    sys.exit(5)\nexcept SystemExit as e:          # it is just an exception\n    print(\"caught\", e.code)      # caught 5\nfinally:\n    print(\"cleanup runs\")        # cleanup runs",
+   "why": "Scripts, automatic test runs and scheduled jobs decide success or failure purely from a program's exit code.",
+   "body": "When a program ends, it tells whoever started it whether it worked, with a number called its **exit code**: `0` means success, and anything from 1 to 255 means failure. Commands chained in a terminal (`make && ./run`, \"run the second only if the first succeeded\"), automatic test runs and scheduled jobs all depend on it.\n\n`sys.exit(arg)` ends the program:\n\n- `sys.exit()` or `sys.exit(0)`: success.\n- `sys.exit(2)`: exit with code 2 (by convention, 2 means the program was started with wrong arguments).\n- `sys.exit(\"error: config missing\")`: prints the message to the error output (`sys.stderr`) and exits with code 1.\n\nAn uncaught exception also exits with code 1, after printing the traceback.\n\n`sys.exit` does not stop Python immediately. It raises the **SystemExit** exception. So `finally` blocks (code attached to a `try` that always runs) and `with` statements still run their clean-up, and functions registered with the `atexit` module run afterwards. It also means a bare `except:` or `except BaseException:` will catch it. `except Exception:` does not, because `SystemExit` isn't a kind of `Exception`; both are kinds of `BaseException`, the root of all exceptions.\n\nIn a script, the common shape is:\n\n```python\nif __name__ == \"__main__\":\n    sys.exit(main())\n```\n\nwhere `main()` returns a number. Prefer `sys.exit` over the built-in `exit()` / `quit()`, which are meant for the REPL. `os._exit(code)` exits instantly without any clean-up and is only for special cases (see the os module).",
+   "code": "import subprocess\nimport sys\n\ndef code_of(src):                 # run src as a separate Python program\n    return subprocess.run([sys.executable, \"-c\", src],\n                          capture_output=True, text=True)\n\nprint(code_of(\"import sys; sys.exit()\").returncode)     # 0\nprint(code_of(\"import sys; sys.exit(3)\").returncode)    # 3\nr = code_of(\"import sys; sys.exit('bad config')\")\nprint(r.returncode, r.stderr.strip())                   # 1 bad config\nprint(code_of(\"1 / 0\").returncode)                      # 1\n\ntry:\n    sys.exit(5)\nexcept SystemExit as e:          # it is just an exception\n    print(\"caught\", e.code)      # caught 5\nfinally:\n    print(\"cleanup runs\")        # cleanup runs",
    "code_lang": "python",
    "takeaways": [
     "Exit code 0 means success; non-zero means failure",
     "`sys.exit(n)` raises SystemExit, so `finally` and `with` cleanup still run",
-    "`sys.exit('msg')` prints to stderr and exits with code 1"
+    "`sys.exit('msg')` prints the message as an error and exits with code 1"
    ],
    "pitfalls": [
     "Wrapping code in `except BaseException:` or a bare `except:` that swallows SystemExit, so the program never exits."
@@ -150,6 +214,10 @@
    "docs": "https://docs.python.org/3/library/sys.html#sys.exit",
    "requires": [
     "python.errors-basics"
+   ],
+   "defines": [
+    "exit code",
+    "SystemExit"
    ]
   },
   {
@@ -159,17 +227,17 @@
    "level": 1,
    "minutes": 7,
    "summary": "Find out which Python and operating system you are running on with sys.version_info, sys.platform and sys.executable.",
-   "why": "Scripts that support several Python versions or platforms need reliable feature checks.",
-   "body": "`sys` tells you about the interpreter that is running your code:\n\n- `sys.version_info` is a named tuple like `(3, 13, 1, 'final', 0)`. Compare it as a tuple: `sys.version_info >= (3, 11)`. Don't parse the human-readable `sys.version` string.\n- `sys.platform` identifies the OS: `'linux'`, `'darwin'` (macOS), `'win32'` (all Windows, even 64-bit). Check with `sys.platform.startswith(\"linux\")` for safety.\n- `sys.executable` is the absolute path of the Python binary. Use it to run child Python processes so they use the same interpreter and virtual environment: `subprocess.run([sys.executable, \"-m\", \"pip\", \"list\"])`.\n- `sys.implementation.name` is `'cpython'`, `'pypy'` and so on.\n- `sys.maxsize` is the largest container index (`2**63 - 1` on 64-bit builds); Python ints themselves are unbounded.\n- `sys.byteorder` is `'little'` or `'big'`.\n\nType checkers such as mypy and pyright understand `sys.version_info` and `sys.platform` comparisons and skip branches that don't apply, so those checks are preferable to `try`/`except ImportError` tricks for typing.\n\nPython 3.13 introduced an optional **free-threaded** build without the GIL; `sys._is_gil_enabled()` reports whether the GIL is active at runtime.",
-   "code": "import sys\n\nprint(sys.version_info >= (3, 8))         # True\nmajor, minor = sys.version_info[:2]\nprint(type(major).__name__)               # int\nprint(sys.platform in {\"linux\", \"darwin\", \"win32\"})  # True\nprint(sys.implementation.name)            # cpython\nprint(sys.maxsize == 2**63 - 1)           # True\n\nif sys.version_info >= (3, 11):\n    import tomllib                        # stdlib since 3.11\nelse:\n    import tomli as tomllib               # third-party backport\nprint(tomllib.loads('x = 1'))             # {'x': 1}",
+   "why": "Scripts that support several Python versions or operating systems need reliable checks.",
+   "body": "`sys` tells you about the Python interpreter running your code, and about the **operating system** (OS) underneath, such as Windows, macOS or Linux:\n\n- `sys.version_info` is a tuple-like value such as `(3, 13, 1, 'final', 0)`, whose parts also have names (`.major`, `.minor`). Compare it as a tuple: `sys.version_info >= (3, 11)`. Don't pick apart the human-readable `sys.version` string.\n- `sys.platform` names the OS: `'linux'`, `'darwin'` (macOS), `'win32'` (every Windows version). Check with `sys.platform.startswith(\"linux\")` to be safe.\n- `sys.executable` is the full path (from the top of the disk) of the Python program file. Use it to start another Python with the same installed packages: `subprocess.run([sys.executable, \"-m\", \"pip\", \"list\"])` (the `subprocess` module runs other programs).\n- `sys.implementation.name` is `'cpython'` (the standard Python from python.org), `'pypy'` and so on.\n- `sys.maxsize` is the largest possible list length or index (`2**63 - 1` on today's usual computers); Python integers themselves have no size limit.\n- `sys.byteorder` is `'little'` or `'big'`: the order in which this computer stores the bytes of a number.\n\nTools that check your code before it runs, such as mypy and pyright, understand `sys.version_info` and `sys.platform` comparisons and skip code that doesn't apply, so prefer these checks over `try` / `except ImportError` tricks.\n\nPython 3.13 introduced an optional **free-threaded build**: a special version of Python without the **GIL**, the lock that normally lets only one part of a program run Python code at a time. `sys._is_gil_enabled()` reports whether the GIL is on.",
+   "code": "import sys\n\nprint(sys.version_info >= (3, 8))         # True\nmajor, minor = sys.version_info[:2]\nprint(type(major).__name__)               # int\nprint(sys.platform in {\"linux\", \"darwin\", \"win32\"})  # True\nprint(sys.implementation.name)            # cpython\nprint(sys.maxsize == 2**63 - 1)           # True (on 64-bit computers)\n\n# tomllib reads TOML settings files\nif sys.version_info >= (3, 11):\n    import tomllib                        # standard library since 3.11\nelse:\n    import tomli as tomllib               # third-party copy for older Pythons\nprint(tomllib.loads('x = 1'))             # {'x': 1}",
    "code_lang": "python",
    "takeaways": [
-    "Compare `sys.version_info` tuples instead of parsing `sys.version`",
+    "Compare `sys.version_info` tuples instead of picking apart `sys.version`",
     "`sys.platform` is 'linux', 'darwin' or 'win32'",
-    "Use `sys.executable` to launch child Python processes in the same environment"
+    "Use `sys.executable` to start another Python with the same packages"
    ],
    "pitfalls": [
-    "Checking `sys.version[0] == '3'` style string slices; they break on versions like 3.10 vs 3.9."
+    "Checking `sys.version[0] == '3'` or other string slices; they break on versions like 3.10 vs 3.9."
    ],
    "quiz": [
     {
@@ -187,6 +255,12 @@
    "docs": "https://docs.python.org/3/library/sys.html#sys.version_info",
    "requires": [
     "python.modules-imports"
+   ],
+   "defines": [
+    "operating system",
+    "free-threaded build",
+    "GIL",
+    "absolute path"
    ]
   },
   {
@@ -197,13 +271,13 @@
    "minutes": 11,
    "summary": "See where imports are searched for with sys.path and which modules are already loaded in sys.modules.",
    "why": "Most 'ModuleNotFoundError' and 'wrong version imported' problems are explained by sys.path.",
-   "body": "When you `import foo`, Python first looks in **sys.modules**, a dict cache of every module already imported. If `foo` is there, that object is returned immediately; that's why a module's top-level code runs only once.\n\nOtherwise the import system searches the directories in **sys.path**, in order, and takes the first match. `sys.path` is built at startup from:\n\n1. The directory of the script being run (or the current directory for `-c`, `-m` and the REPL). This is why a local file named `random.py` or `json.py` shadows the standard library module.\n2. Entries from the `PYTHONPATH` environment variable.\n3. The standard library directories.\n4. `site-packages` of the active environment, where pip installs packages.\n\nDebug import problems by printing `sys.path` and `module.__file__`, or run `python -m site`.\n\nYou can append to `sys.path` at runtime, but it's a fragile habit: the code then depends on its location. Installing your project in editable mode (`pip install -e .`) or running with `python -m package.module` from the project root is cleaner.\n\n`python -P` or `PYTHONSAFEPATH=1` (3.11+) skip adding the script's directory, avoiding accidental shadowing.\n\nDeleting an entry from `sys.modules` forces a fresh import next time; `importlib.reload(mod)` re-executes a module in place, but existing references to old objects remain.",
+   "body": "When you `import foo`, Python first looks in **sys.modules**, a dict of every module already imported. If `foo` is there, that module object is returned immediately; that's why a module's top-level code runs only once.\n\nOtherwise Python searches the folders listed in **sys.path**, in order, and takes the first match. `sys.path` is built at startup from:\n\n1. The folder of the script being run (or the current folder for `-c`, `-m` and the REPL). This is why a file of yours named `random.py` or `json.py` hides the standard library module of that name.\n2. Folders from the `PYTHONPATH` environment variable (a setting passed to programs when they start).\n3. The standard library folders.\n4. **site-packages**, the folder of the Python you're running (or of its virtual environment) where pip installs third-party packages.\n\nTrack down import problems by printing `sys.path` and `module.__file__` (the file a module was loaded from), or run `python -m site`.\n\nYou can add folders to `sys.path` while the program runs, but it's a fragile habit: the code then depends on where it lives. Installing your project with `pip install -e .` (so Python finds it from anywhere) or running `python -m package.module` from the project's top folder is cleaner.\n\n`python -P` or `PYTHONSAFEPATH=1` (3.11+) skip adding the script's folder, so your own files can't hide standard modules by accident.\n\nDeleting an entry from `sys.modules` forces a fresh import next time; `importlib.reload(mod)` runs a module's code again in place, but existing references to the old objects remain.",
    "code": "import sys\n\nprint(\"json\" in sys.modules)        # False\nimport json\nprint(\"json\" in sys.modules)        # True\nprint(sys.modules[\"json\"] is json)  # True\n\n# a local file shadows the standard library module of the same name\nopen(\"calendar.py\", \"w\").write(\"WHO = 'local file'\\n\")\nsys.path.insert(0, \".\")\nimport calendar\nprint(getattr(calendar, \"WHO\", \"stdlib\"))   # local file\nprint(calendar.__file__.endswith(\"calendar.py\"))  # True",
    "code_lang": "python",
    "takeaways": [
-    "`sys.modules` caches imported modules; module code runs once",
-    "`sys.path` is searched in order: script dir, PYTHONPATH, stdlib, site-packages",
-    "A local file with a stdlib name shadows the real module"
+    "`sys.modules` remembers imported modules; module code runs once",
+    "`sys.path` is searched in order: script folder, PYTHONPATH, standard library, site-packages",
+    "A file of yours with a standard-library name hides the real module"
    ],
    "pitfalls": [
     "Naming your own script `random.py`, `email.py` or `test.py` and then wondering why imports behave strangely."
@@ -224,6 +298,10 @@
    "docs": "https://docs.python.org/3/library/sys.html#sys.path",
    "requires": [
     "py-sys.version-platform"
+   ],
+   "defines": [
+    "environment variable",
+    "site-packages"
    ]
   },
   {
@@ -232,15 +310,15 @@
    "module": "cli",
    "level": 2,
    "minutes": 11,
-   "summary": "Make a script behave like a proper Unix filter: stream stdin, handle encodings and binary data, and exit cleanly on a closed pipe.",
-   "why": "Tools used in pipelines like `cat big.log | python tool.py | head` must not crash or garble data.",
-   "body": "A good filter reads stdin incrementally, writes stdout, and plays well with the rest of the pipeline.\n\n**Closed pipes.** In `python gen.py | head -n 3`, `head` exits after three lines. The next write raises `BrokenPipeError`, and an ugly traceback appears. The recipe from the Python docs: catch it, point stdout at `os.devnull` so the final flush at shutdown doesn't fail again, and exit with code 1.\n\n**Encodings.** Text streams use the locale encoding unless UTF-8 mode is active; Python 3.15 will make UTF-8 mode the default. Set `PYTHONIOENCODING=utf-8`, run with `-X utf8`, or call `sys.stdout.reconfigure(encoding=\"utf-8\", errors=\"replace\")` to be explicit.\n\n**Binary data.** Images or compressed data must go through `sys.stdin.buffer` and `sys.stdout.buffer`, never through the text layer.\n\n**Many inputs.** `fileinput.input()` iterates over the lines of every file named in `sys.argv[1:]`, or stdin if there are none, mirroring tools like `cat` and `grep`.\n\n**Interrupts.** Ctrl-C raises `KeyboardInterrupt`; catch it in `main` and exit with code 130 to avoid a traceback.",
+   "summary": "Make a script behave like a classic command-line filter: read stdin bit by bit, handle encodings and bytes, and exit cleanly when the reader goes away.",
+   "why": "Tools used in chains of pipes like `cat big.log | python tool.py | head` must not crash or garble data.",
+   "body": "A **filter** is a program that reads standard input, changes the data, and writes standard output, so it can sit in the middle of a chain of pipes. A good one reads its input bit by bit rather than all at once.\n\n**Closed pipes.** In `python gen.py | head -n 3`, `head` (which prints only the first lines) exits after three lines. Your next write then raises `BrokenPipeError`, and an ugly traceback appears. The recipe from the Python docs: catch it, point stdout at `os.devnull` (a special file that throws away whatever is written) so the final flush when Python shuts down doesn't fail again, and exit with code 1.\n\n**Encodings.** Text streams use your system's default encoding, taken from its language settings (the **locale**), unless Python's UTF-8 mode is on; Python 3.15 will make UTF-8 mode the default. Set `PYTHONIOENCODING=utf-8`, run with `-X utf8`, or call `sys.stdout.reconfigure(encoding=\"utf-8\", errors=\"replace\")` to be explicit.\n\n**Binary data.** Images or compressed data must go through `sys.stdin.buffer` and `sys.stdout.buffer`, never through the text layer.\n\n**Many inputs.** `fileinput.input()` goes through the lines of every file named in `sys.argv[1:]`, or stdin if there are none, like the classic tools `cat` and `grep`.\n\n**Interrupts.** Ctrl-C raises `KeyboardInterrupt`; catch it in `main` and exit with code 130 (the usual code for \"stopped by Ctrl-C\") to avoid a traceback.",
    "code": "import subprocess\nimport sys\n\ngen = '''\nimport os, sys\ntry:\n    for i in range(100_000):\n        print(f\"line {i}\")\n    sys.stdout.flush()\nexcept BrokenPipeError:\n    devnull = os.open(os.devnull, os.O_WRONLY)\n    os.dup2(devnull, sys.stdout.fileno())   # silence the shutdown flush\n    sys.exit(1)\n'''\np1 = subprocess.Popen([sys.executable, \"-c\", gen], stdout=subprocess.PIPE,\n                      stderr=subprocess.PIPE)\nfirst = p1.stdout.readline()\np1.stdout.close()                          # reader goes away, like `head`\n_, err = p1.communicate()\nprint(first.decode().strip())              # line 0\nprint(p1.returncode, err == b\"\")           # 1 True",
    "code_lang": "python",
    "takeaways": [
-    "Catch BrokenPipeError, redirect stdout to devnull, and exit non-zero",
+    "Catch BrokenPipeError, point stdout at devnull, and exit non-zero",
     "Use `sys.stdin.buffer`/`sys.stdout.buffer` for bytes",
-    "`fileinput.input()` reads named files or stdin, like classic Unix tools"
+    "`fileinput.input()` reads named files or stdin, like classic command-line tools"
    ],
    "pitfalls": [
     "Decoding binary input through `sys.stdin`; it raises UnicodeDecodeError or corrupts the data."
@@ -262,6 +340,9 @@
    "requires": [
     "py-sys.streams",
     "py-sys.exit"
+   ],
+   "defines": [
+    "locale"
    ]
   },
   {
@@ -271,8 +352,8 @@
    "level": 2,
    "minutes": 10,
    "summary": "Inspect the exception being handled with sys.exception() and customise how uncaught exceptions are reported.",
-   "why": "Crash reporting, logging uncaught errors and friendly CLI error messages all hook in here.",
-   "body": "Inside an `except` block, `sys.exception()` (3.11+) returns the exception currently being handled, or `None` outside one. The older `sys.exc_info()` returns the triple `(type, value, traceback)`; since 3.11 the type and traceback are always derivable from the value (`type(e)`, `e.__traceback__`). Library code such as logging helpers uses these to access the exception without being passed it.\n\nWhen an exception escapes the program, Python calls **sys.excepthook(type, value, tb)**, whose default prints the traceback to stderr. Replace it to change that behaviour:\n\n- Show a one-line message to end users of a CLI, but the full traceback when a `--debug` flag is set.\n- Send crashes to logging or an error-tracking service.\n\nKeep the original in `sys.__excepthook__` and call it for cases you don't handle. An excepthook should never raise.\n\nRelated hooks:\n\n- `threading.excepthook` handles exceptions escaping threads, which do not go through `sys.excepthook`.\n- `sys.unraisablehook` receives exceptions that can't be raised, such as errors in `__del__`.\n- In asyncio, use the loop's exception handler.\n\n`KeyboardInterrupt` also passes through the excepthook, so let it fall back to the default when you only want to reformat ordinary errors.",
+   "why": "Crash reporting, logging uncaught errors and friendly error messages in command-line tools all hook in here.",
+   "body": "Inside an `except` block, `sys.exception()` (3.11+) returns the exception currently being handled, or `None` outside one. The older `sys.exc_info()` returns the triple `(type, value, traceback)`; since 3.11 the type and traceback are always derivable from the value (`type(e)`, `e.__traceback__`). Helper code, such as functions that log errors, uses these to get the exception without being handed it.\n\nWhen an exception escapes the program, Python calls **sys.excepthook(type, value, tb)**, whose default prints the traceback to stderr. Replace it to change that behaviour:\n\n- Show a one-line message to the users of a command-line tool, but the full traceback when a `--debug` option is given.\n- Send crashes to a log file or an error-reporting service.\n\nKeep the original in `sys.__excepthook__` and call it for cases you don't handle. An excepthook should never raise.\n\nRelated hooks:\n\n- `threading.excepthook` handles exceptions escaping threads, which do not go through `sys.excepthook`.\n- `sys.unraisablehook` receives exceptions that can't be raised anywhere, such as errors while Python is deleting an object.\n- Code using asyncio (Python's library for doing many waits at once) has its own exception handler.\n\n`KeyboardInterrupt` also passes through the excepthook, so let it fall back to the default when you only want to reformat ordinary errors.",
    "code": "import subprocess\nimport sys\n\ntry:\n    {}[\"missing\"]\nexcept KeyError:\n    e = sys.exception()\n    print(type(e).__name__, e)     # KeyError 'missing'\nprint(sys.exception())             # None\n\napp = '''\nimport sys\ndef hook(exc_type, exc, tb):\n    if issubclass(exc_type, KeyboardInterrupt):\n        return sys.__excepthook__(exc_type, exc, tb)\n    print(f\"error: {exc}\", file=sys.stderr)   # short message, no traceback\nsys.excepthook = hook\nraise FileNotFoundError(\"settings.toml not found\")\n'''\nr = subprocess.run([sys.executable, \"-c\", app], capture_output=True, text=True)\nprint(r.returncode, r.stderr.strip())  # 1 error: settings.toml not found",
    "code_lang": "python",
    "takeaways": [
@@ -309,14 +390,14 @@
    "level": 3,
    "minutes": 10,
    "summary": "Understand sys.getrecursionlimit, why RecursionError exists, and when raising the limit is safe.",
-   "why": "Deeply recursive code (tree walkers, parsers) hits RecursionError around 1000 levels by default.",
-   "body": "CPython limits how deep Python calls may nest. `sys.getrecursionlimit()` is 1000 by default; exceeding it raises **RecursionError**, a subclass of `RuntimeError`. The limit exists to stop infinite recursion quickly and to protect the C stack, whose overflow would crash the whole process with a segmentation fault instead of a catchable exception.\n\n`sys.setrecursionlimit(n)` raises it. Since 3.11, Python-to-Python calls no longer consume C stack frames, and since 3.12 the limit counts only Python frames while the C stack is guarded separately, so moderately higher limits (say 10,000 to 100,000) are usually fine for pure-Python recursion. Recursion through C code (for example `repr` of nested lists, `json.dumps`, `pickle`) is protected by its own internal limit.\n\nStill, Python has **no tail-call optimisation**, and each frame costs memory. Before raising the limit, consider:\n\n- Rewriting with an explicit stack (a list) and a loop; this handles any depth.\n- Using an iterative library function (`os.walk` instead of hand-written recursion).\n- Running deep recursion in a thread created after `threading.stack_size(...)` increases its stack.\n\nCatching `RecursionError` is legitimate when processing untrusted nested input, for example to reject absurdly deep JSON.",
+   "why": "Code that calls itself many levels deep, such as code walking a tree of folders or nested data, hits RecursionError around 1000 levels by default.",
+   "body": "A function that calls itself is **recursive**; each call gets its own **frame**, a record of its local variables and where it is. CPython limits how deep calls may nest. `sys.getrecursionlimit()` is 1000 by default, and going deeper raises **RecursionError**, a kind of `RuntimeError`. The limit stops runaway recursion quickly. It also protects the memory area that the interpreter's own C code uses for its calls (the C stack): overflowing that would crash the whole process instead of raising an exception you can catch.\n\n`sys.setrecursionlimit(n)` raises it. Since 3.11, Python-to-Python calls no longer use up the C stack, and since 3.12 the limit counts only Python frames while the C stack is guarded separately. So moderately higher limits (say 10,000 to 100,000) are usually fine for pure-Python recursion. Recursion through C code (for example `repr` of nested lists, `json.dumps`, `pickle`) has its own internal limit.\n\nStill, Python never reuses a frame when a function ends by calling itself (it has **no tail-call optimisation**), and each frame costs memory. Before raising the limit, consider:\n\n- Rewriting with your own list as a to-do pile and a loop; this handles any depth.\n- Using a library function that loops instead (`os.walk` instead of hand-written recursion over folders).\n- Running deep recursion in a thread created after `threading.stack_size(...)` gives threads more room.\n\nCatching `RecursionError` is reasonable when processing nested input from outside, for example to reject absurdly deep JSON.",
    "code": "import sys\n\nprint(sys.getrecursionlimit())        # 1000\n\ndef depth(n):\n    return 0 if n == 0 else 1 + depth(n - 1)\n\ntry:\n    depth(5000)\nexcept RecursionError as e:\n    print(type(e).__mro__[1].__name__)  # RuntimeError\n\ndef depth_iter(n):            # explicit loop: no limit at all\n    total = 0\n    while n:\n        n, total = n - 1, total + 1\n    return total\nprint(depth_iter(5000))               # 5000\n\nsys.setrecursionlimit(10_000)\nprint(depth(5000))                    # 5000",
    "code_lang": "python",
    "takeaways": [
-    "Default limit is 1000 frames; exceeding it raises RecursionError",
-    "Raising the limit is safer since 3.11/3.12 but Python still has no tail calls",
-    "An explicit stack or loop removes the depth problem entirely"
+    "The default limit is 1000 frames; going deeper raises RecursionError",
+    "Raising the limit is safer since 3.11/3.12, but Python still has no tail-call optimisation",
+    "Your own list and a loop remove the depth problem entirely"
    ],
    "pitfalls": [
     "Setting the recursion limit to millions to 'fix' an infinite recursion bug."
@@ -338,6 +419,10 @@
    "requires": [
     "py-sys.version-platform",
     "python.functions"
+   ],
+   "defines": [
+    "recursion",
+    "call stack"
    ]
   },
   {
@@ -347,8 +432,8 @@
    "level": 3,
    "minutes": 9,
    "summary": "Measure how many bytes an object occupies with sys.getsizeof, and why the answer is shallow.",
-   "why": "Choosing between data structures for millions of items needs real numbers about per-object overhead.",
-   "body": "`sys.getsizeof(obj)` returns the size of an object in bytes, as reported by the object itself plus garbage-collector overhead. It's useful for comparing representations, but it is **shallow**: for containers it counts the container's own structure (header plus pointer array), not the objects it refers to.\n\nSo `sys.getsizeof([big_string])` is small regardless of the string's length, and a dict's size doesn't include its keys and values. To estimate a structure's total footprint, walk it recursively, keeping a set of `id`s to count shared objects once, or use `tracemalloc` to measure actual allocations.\n\nUseful observations on 64-bit CPython:\n\n- Every object has a header; even `0` and `True` take around 24 to 28 bytes.\n- Lists over-allocate when they grow, so a list built by `append` may report more than one created at its final size.\n- `__slots__` classes avoid a per-instance `__dict__`, which matters for millions of small objects.\n- `array.array` and NumPy arrays store raw values, so a million floats take about 8 MB instead of roughly 32 MB in a list of float objects.\n\nExact numbers vary between Python versions and builds, so compare relative sizes rather than hard-coding them.",
+   "why": "Choosing between data structures for millions of items needs real numbers about how much memory each object costs.",
+   "body": "`sys.getsizeof(obj)` returns the size of an object in bytes, as reported by the object itself, plus a little bookkeeping memory Python adds. It's useful for comparing ways to store data, but it is **shallow**: for a container such as a list it counts the container's own structure (a header plus a table of references), not the objects it refers to.\n\nSo `sys.getsizeof([big_string])` is small however long the string is, and a dict's size doesn't include its keys and values. To estimate the total memory of a structure, go through it yourself (counting each object once, by `id`), or use the `tracemalloc` module to measure how much memory was actually reserved.\n\nUseful observations on 64-bit CPython:\n\n- Every object has a header; even `0` and `True` take around 24 to 28 bytes.\n- Lists reserve extra room when they grow, so a list built by `append` may report more than one created at its final size.\n- Classes (Python's way to define your own kinds of object) that declare `__slots__` skip the per-object attribute dict, which matters for millions of small objects.\n- `array.array` and NumPy arrays store raw numbers, so a million floats take about 8 MB instead of roughly 32 MB in a list of float objects.\n\nExact numbers vary between Python versions and builds, so compare relative sizes rather than hard-coding them.",
    "code": "import array\nimport sys\n\ntext = \"x\" * 10_000\nprint(sys.getsizeof(text) > 10_000)            # True\nprint(sys.getsizeof([text]) < 100)             # True: shallow\n\nnums = list(range(100_000))\ndeep = sys.getsizeof(nums) + sum(sys.getsizeof(n) for n in nums)\npacked = sys.getsizeof(array.array(\"q\", nums))\nprint(deep > 3 * packed)                       # True\n\nclass P:\n    def __init__(self, x): self.x = x\nclass S:\n    __slots__ = (\"x\",)\n    def __init__(self, x): self.x = x\np, s = P(1), S(1)\nprint(sys.getsizeof(s) < sys.getsizeof(p) + sys.getsizeof(p.__dict__))  # True",
    "code_lang": "python",
    "takeaways": [
@@ -385,7 +470,7 @@
    "minutes": 8,
    "summary": "Detect whether code runs inside a virtual environment and where its packages come from.",
    "why": "'It works on my machine' bugs often come from the wrong interpreter or environment being active.",
-   "body": "A virtual environment is a directory with its own `site-packages` and a `pyvenv.cfg` file pointing at a base Python installation. `sys` describes the relationship:\n\n- `sys.prefix` is the active environment's root directory.\n- `sys.base_prefix` is the installation the environment was created from.\n- Inside a venv they differ; outside one they are equal. So `sys.prefix != sys.base_prefix` is the standard check.\n\n`sys.executable` points into the venv's `bin/` (or `Scripts\\` on Windows), even though it is usually a symlink to the base binary. That's how Python finds `pyvenv.cfg` at startup and sets the prefixes accordingly; no shell activation is required. Running `.venv/bin/python script.py` directly uses the environment just as well as activating it first.\n\nDiagnosing environment mix-ups:\n\n- `python -c \"import sys; print(sys.executable)\"` shows which interpreter a command resolves to.\n- `python -m pip ...` guarantees pip installs into that same interpreter, unlike a bare `pip` that may belong to another one.\n- `python -m site` prints `sys.path` and the user site directory.\n\nActivation only puts the venv's `bin` first on `PATH` and sets `VIRTUAL_ENV`; the environment variable alone does not make Python use the venv.",
+   "body": "A virtual environment is a directory with its own `site-packages` and a `pyvenv.cfg` file pointing at a base Python installation. `sys` describes the relationship:\n\n- `sys.prefix` is the active environment's root directory.\n- `sys.base_prefix` is the installation the environment was created from.\n- Inside a venv they differ; outside one they are equal. So `sys.prefix != sys.base_prefix` is the standard check.\n\n`sys.executable` points into the venv's `bin/` (or `Scripts\\` on Windows), even though it is usually a symbolic link (a pointer file) to the base Python program. That's how Python finds `pyvenv.cfg` at startup and sets the prefixes accordingly; no shell activation is required. Running `.venv/bin/python script.py` directly uses the environment just as well as activating it first.\n\nDiagnosing environment mix-ups:\n\n- `python -c \"import sys; print(sys.executable)\"` shows which interpreter a command resolves to.\n- `python -m pip ...` guarantees pip installs into that same interpreter, unlike a bare `pip` that may belong to another one.\n- `python -m site` prints `sys.path` and the user site directory.\n\nActivation only puts the venv's `bin` first on `PATH` and sets `VIRTUAL_ENV`; the environment variable alone does not make Python use the venv.",
    "code": "import subprocess\nimport sys\nimport venv\n\ndef in_venv():\n    return sys.prefix != sys.base_prefix\n\nvenv.create(\"env\", with_pip=False)\npy = \"env/Scripts/python.exe\" if sys.platform == \"win32\" else \"env/bin/python\"\ncheck = \"import sys; print(sys.prefix != sys.base_prefix, sys.prefix.endswith('env'))\"\nout = subprocess.run([py, \"-c\", check], capture_output=True, text=True)\nprint(out.stdout.strip())     # True True\nprint(isinstance(in_venv(), bool))   # True",
    "code_lang": "python",
    "takeaways": [
@@ -423,7 +508,7 @@
    "minutes": 12,
    "summary": "Observe CPython's reference counting with sys.getrefcount, immortal objects, and string interning with sys.intern.",
    "why": "Memory leaks, object lifetimes and identity surprises make sense once you see the reference counts.",
-   "body": "CPython frees most objects through **reference counting**: each object records how many references point to it, and when the count drops to zero it is deallocated immediately. Cycles are cleaned up separately by the garbage collector.\n\n`sys.getrefcount(obj)` returns the current count. It is always at least one higher than you expect, because passing `obj` as the argument creates a temporary reference. Watching the count change is a quick way to see which operations keep objects alive: appending to a list, storing in a dict, capturing in a closure.\n\nSince 3.12, objects like `None`, `True`, small ints and interned strings are **immortal** (PEP 683): their count is fixed at a huge sentinel and never changes, which avoids cache-line writes across threads. Don't use refcounts for such objects, and don't rely on exact values in general; free-threaded 3.13 builds use biased, deferred counting.\n\n**Interning** stores one canonical copy of a string. Identifiers and many compile-time constants are interned automatically. `sys.intern(s)` interns a runtime string, so equal interned strings are the same object and dictionary lookups can short-circuit on identity. It can save memory when millions of repeated tokens (log levels, column names) are kept around.\n\nNever use `is` to compare strings in normal code; interning is an optimisation, not a guarantee.",
+   "body": "CPython frees most objects through **reference counting**: each object records how many references point to it, and when the count drops to zero it is deallocated immediately. Cycles are cleaned up separately by the garbage collector.\n\n`sys.getrefcount(obj)` returns the current count. It is always at least one higher than you expect, because passing `obj` as the argument creates a temporary reference. Watching the count change is a quick way to see which operations keep objects alive: appending to a list, storing in a dict, capturing in a closure.\n\nSince 3.12, objects like `None`, `True`, small ints and interned strings are **immortal** (PEP 683): their count is fixed at a huge sentinel and never changes, which saves threads from constantly updating the same shared memory. Don't use refcounts for such objects, and don't rely on exact values in general; free-threaded 3.13 builds count references differently.\n\n**Interning** stores one canonical copy of a string. Identifiers and many compile-time constants are interned automatically. `sys.intern(s)` interns a runtime string, so equal interned strings are the same object and dictionary lookups can short-circuit on identity. It can save memory when millions of repeated tokens (log levels, column names) are kept around.\n\nNever use `is` to compare strings in normal code; interning is an optimisation, not a guarantee.",
    "code": "import sys\n\ndata = object()\nbase = sys.getrefcount(data)\nholder = [data, data]\nprint(sys.getrefcount(data) - base)        # 2\ndel holder\nprint(sys.getrefcount(data) - base)        # 0\n\nprint(sys.getrefcount(None) > 10**9)       # True: immortal since 3.12\n\na = \"\".join([\"log\", \"-\", \"level\"])         # built at runtime\nb = \"\".join([\"log\", \"-\", \"level\"])\nprint(a == b, a is b)                      # True False\na, b = sys.intern(a), sys.intern(b)\nprint(a is b)                              # True",
    "code_lang": "python",
    "takeaways": [
@@ -499,8 +584,8 @@
    "level": 4,
    "minutes": 11,
    "summary": "Observe security-relevant runtime events such as file opens, imports and subprocess launches with sys.addaudithook.",
-   "why": "Sandboxing experiments, compliance logging and investigating what a third-party package actually does rely on audit events.",
-   "body": "CPython raises **audit events** at sensitive operations (PEP 578): `open` when a file is opened, `import`, `subprocess.Popen`, `socket.connect`, `exec`, `compile`, `os.system` and many more. The full list is in the \"Audit events table\" of the docs.\n\n`sys.addaudithook(hook)` registers a function called as `hook(event, args)` for every event, where `args` is a tuple specific to the event: for `open` it is `(path, mode, flags)`. Your own code can raise events with `sys.audit(\"myapp.login\", user)`.\n\nImportant properties:\n\n- Hooks **cannot be removed** once added, and they apply to the whole process, including all threads.\n- A hook that raises an exception aborts the operation that triggered it. That's how you can block, for example, all `socket.connect` calls in a test run.\n- Hooks are called very often; keep them fast and avoid triggering events inside the hook itself, or you will recurse.\n\nAudit hooks are a **visibility** tool, not a security sandbox. Code running in the same interpreter can bypass them with ctypes or by corrupting memory. Use them to log or detect behaviour, such as reporting which files a test suite touches, and use OS-level isolation for real containment.",
+   "why": "Sandboxing experiments, logging for compliance, and finding out what a third-party package actually does all rely on audit events.",
+   "body": "CPython raises **audit events** at sensitive operations (PEP 578): `open` when a file is opened, `import`, `subprocess.Popen`, `socket.connect`, `exec`, `compile`, `os.system` and many more. The full list is in the \"Audit events table\" of the docs.\n\n`sys.addaudithook(hook)` registers a function called as `hook(event, args)` for every event, where `args` is a tuple specific to the event: for `open` it is `(path, mode, flags)`. Your own code can raise events with `sys.audit(\"myapp.login\", user)`.\n\nImportant properties:\n\n- Hooks **cannot be removed** once added, and they apply to the whole process, including all threads.\n- A hook that raises an exception aborts the operation that triggered it. That's how you can block, for example, all `socket.connect` calls in a test run.\n- Hooks are called very often; keep them fast and avoid triggering events inside the hook itself, or you will recurse.\n\nAudit hooks are a **visibility** tool, not a security sandbox. Code running in the same interpreter can bypass them with ctypes or by corrupting memory. Use them to log or detect behaviour, such as reporting which files a test suite touches, and use the operating system's isolation (separate users, containers) to actually contain untrusted code.",
    "code": "import socket\nimport sys\n\nopened = []\n\ndef hook(event, args):\n    if event == \"open\" and isinstance(args[0], str) and args[0].endswith(\".cfg\"):\n        opened.append((args[0], args[1]))\n    elif event == \"socket.connect\":\n        raise PermissionError(\"network disabled in tests\")\n\nsys.addaudithook(hook)      # cannot be removed afterwards\n\nwith open(\"app.cfg\", \"w\") as f:\n    f.write(\"debug=1\")\nprint(opened)               # [('app.cfg', 'w')]\n\ntry:\n    socket.create_connection((\"127.0.0.1\", 9), timeout=1)\nexcept PermissionError as e:\n    print(e)                # network disabled in tests",
    "code_lang": "python",
    "takeaways": [

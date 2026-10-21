@@ -212,7 +212,7 @@ def get_lesson(conn: Conn, slug: str) -> Optional[dict]:
     """The whole lesson: tutorial, code, quiz, and its neighbours in the tree."""
     row = conn.execute(
         f"""SELECT {_REF_COLS}, c.why, c.body, c.code, c.code_lang, c.takeaways, c.pitfalls, c.quiz,
-                   c.docs_url, t.modules
+                   c.docs_url, c.glossary, t.modules
             FROM {_REF_FROM} WHERE c.slug = ?""",
         (slug,),
     ).fetchone()
@@ -231,6 +231,7 @@ def get_lesson(conn: Conn, slug: str) -> Optional[dict]:
         "pitfalls": row["pitfalls"] or [],
         "quiz": row["quiz"] or [],
         "docs_url": row["docs_url"],
+        "glossary": row["glossary"] or [],
         "requires": [
             _ref(r) for r in conn.execute(
                 f"""SELECT {_REF_COLS} FROM graph.prerequisites p JOIN {_REF_FROM} ON c.pk = p.prereq_pk

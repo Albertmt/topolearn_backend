@@ -61,7 +61,8 @@ CREATE TABLE {schema}.concepts (
     pitfalls     jsonb    NOT NULL DEFAULT '[]',
     quiz         jsonb    NOT NULL DEFAULT '[]',    -- [{"q", "options", "answer", "explain"}]
     docs_url     text,
-    prereq_count integer  NOT NULL DEFAULT 0
+    prereq_count integer  NOT NULL DEFAULT 0,
+    glossary     jsonb    NOT NULL DEFAULT '[]'     -- [{"term", "aliases", "def", "lesson"?}] not yet taught
 );
 
 CREATE TABLE {schema}.prerequisites (

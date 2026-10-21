@@ -44,6 +44,134 @@
    "name": "Internals and performance"
   }
  ],
+ "glossary": [
+  {
+   "term": "BaseModel",
+   "aliases": [
+    "Pydantic model",
+    "Pydantic models"
+   ],
+   "case": true,
+   "def": "Pydantic's base class. A class that inherits from it is a model: creating an instance checks every field against its type hint and converts values where that is safe."
+  },
+  {
+   "term": "lax mode",
+   "def": "Pydantic's default way of checking: it converts input when nothing is lost, such as the text \"42\" into the number 42, and rejects everything else."
+  },
+  {
+   "term": "strict mode",
+   "def": "A Pydantic setting that turns conversion off: each value must already have the declared type, so the text \"42\" is rejected for an int field."
+  },
+  {
+   "term": "ValidationError",
+   "case": true,
+   "def": "The exception Pydantic raises when data doesn't fit a model. It lists every failing field at once, with where it is and what went wrong."
+  },
+  {
+   "term": "Annotated",
+   "case": true,
+   "def": "A Python typing helper: Annotated[float, extra] means \"a float, plus these extra notes\". Pydantic reads the notes as rules, such as limits or checking functions."
+  },
+  {
+   "term": "field validator",
+   "aliases": [
+    "field validators",
+    "field_validator"
+   ],
+   "def": "A method marked @field_validator that Pydantic calls to check or reshape one or more fields, before or after its own checks."
+  },
+  {
+   "term": "model validator",
+   "aliases": [
+    "model validators",
+    "model_validator"
+   ],
+   "def": "A method marked @model_validator that sees the whole model (or its raw input) at once; the place for rules that involve several fields."
+  },
+  {
+   "term": "alias",
+   "aliases": [
+    "aliases",
+    "validation_alias",
+    "serialization_alias"
+   ],
+   "def": "In Pydantic, another name for a field: the key used in outside data (like userId) when it differs from the Python attribute name (user_id)."
+  },
+  {
+   "term": "computed field",
+   "aliases": [
+    "computed fields",
+    "computed_field"
+   ],
+   "def": "A value calculated from other fields, written as a property, that Pydantic includes when dumping the model and in its JSON Schema."
+  },
+  {
+   "term": "BaseSettings",
+   "case": true,
+   "def": "The base class from the pydantic-settings package. Its fields are filled from environment variables, .env files and secrets files, then checked like any model."
+  },
+  {
+   "term": "pydantic-settings",
+   "case": true,
+   "def": "A separate package you install next to Pydantic. It provides BaseSettings for loading configuration."
+  },
+  {
+   "term": "SecretStr",
+   "case": true,
+   "def": "A Pydantic string type for passwords and other secrets: it shows as ********** when printed, and you read the real value with .get_secret_value()."
+  },
+  {
+   "term": "discriminated union",
+   "aliases": [
+    "discriminated unions",
+    "tagged union",
+    "tagged unions",
+    "discriminator",
+    "discriminators"
+   ],
+   "def": "A union of models that each carry a label field with a fixed, distinct value (like type: \"click\"). Pydantic reads the label and checks the data against the matching model only."
+  },
+  {
+   "term": "TypeAdapter",
+   "aliases": [
+    "TypeAdapters"
+   ],
+   "case": true,
+   "def": "A Pydantic class that gives any type, such as list[int] or a TypedDict, the same validate, dump and JSON Schema powers a model has."
+  },
+  {
+   "term": "TypedDict",
+   "aliases": [
+    "TypedDicts"
+   ],
+   "case": true,
+   "def": "A Python typing tool that declares the keys of a dict and the type of each value, written like a class. The values stay ordinary dicts."
+  },
+  {
+   "term": "generic model",
+   "aliases": [
+    "generic models"
+   ],
+   "def": "A Pydantic model with a type parameter, like Page[T]. Page[User] then becomes a real model whose items are checked as User."
+  },
+  {
+   "term": "core schema",
+   "aliases": [
+    "core schemas"
+   ],
+   "def": "The nested dict Pydantic builds from your type hints, describing every check. pydantic-core turns it into fast ready-to-run code."
+  },
+  {
+   "term": "pydantic-core",
+   "case": true,
+   "def": "The engine inside Pydantic 2 that does the actual checking and converting. It is written in Rust, which makes it much faster than plain Python code."
+  },
+  {
+   "term": "Rust",
+   "case": true,
+   "def": "A fast programming language that is translated ahead of time into machine instructions. Many Python libraries write their speed-critical parts in it."
+  }
+ ],
  "concepts": [
   {
    "id": "pydantic.base-model",
@@ -51,15 +179,15 @@
    "module": "basics",
    "level": 1,
    "minutes": 10,
-   "summary": "Subclass BaseModel and annotate attributes; Pydantic validates and converts input when you create an instance.",
-   "why": "Every Pydantic feature starts from a model: it is how you turn untrusted dicts and JSON into typed objects.",
-   "body": "A Pydantic **model** is a class that inherits from `BaseModel` and declares its fields as annotated class attributes. Creating an instance runs validation: each value is checked against its annotation and, where it is safe, converted.\n\n```python\nclass User(BaseModel):\n    id: int\n    name: str\n```\n\n`User(id=\"42\", name=\"Ann\")` gives `id=42` as an int, because Pydantic's default **lax mode** accepts a numeric string for an `int`. `User(id=\"abc\", name=\"Ann\")` raises `ValidationError`. A field without a default is required; a field with a default is optional.\n\nThree ways in, all producing the same validated instance:\n\n- keyword arguments: `User(id=1, name=\"Ann\")`\n- a dict: `User.model_validate(data)`\n- a JSON string or bytes: `User.model_validate_json(raw)`, which parses and validates in one pass in Rust and is faster than `json.loads` followed by `model_validate`.\n\nInstances are normal objects: read fields as attributes, compare them with `==` (same type and same field values), and print them for a readable repr. Mutable defaults such as `tags: list[str] = []` are safe in Pydantic because each instance gets its own copy, unlike plain class attributes.\n\nAll the v2 methods start with `model_` (`model_validate`, `model_dump`, `model_copy`, `model_fields`), so they never clash with your field names. The v1 names like `parse_obj` and `.dict()` still exist but are deprecated.",
+   "summary": "Subclass BaseModel and add type hints; Pydantic checks and converts the input every time you create an instance.",
+   "why": "Every Pydantic feature starts from a model: it is how you turn dicts and JSON from outside your program into objects you can rely on.",
+   "body": "Data often arrives from outside your program: a form someone filled in, a JSON file, a message from another program. You can't trust it to have the right shape. A number might arrive as the text `\"42\"`, or a field might be missing. Checking data against the rules you expect is called **validation**, and Pydantic is a library that does it for you.\n\nYou describe the shape once, as a class. A Pydantic **model** is a class that inherits from `BaseModel` and lists its fields as class attributes with type hints:\n\n```python\nclass User(BaseModel):\n    id: int\n    name: str\n```\n\nCreating an instance runs validation: each value is checked against its type hint and, where it is safe, converted. `User(id=\"42\", name=\"Ann\")` gives `id=42` as an int, because Pydantic's default **lax mode** turns text holding a whole number into an `int`. `User(id=\"abc\", name=\"Ann\")` can't be converted, so it raises a `ValidationError` exception. A field without a default is required; a field with a default may be left out.\n\nThree ways in, all producing the same checked instance:\n\n- keyword arguments: `User(id=1, name=\"Ann\")`\n- a dict: `User.model_validate(data)`\n- JSON text, as a string or bytes: `User.model_validate_json(raw)`\n\nTurning text into Python values is called **parsing**. `model_validate_json` parses and validates in one step, and it is faster than `json.loads` followed by `model_validate`. Pydantic's engine is written in Rust, a fast programming language, so this work happens outside slower Python code.\n\nInstances are normal objects: read fields as attributes, compare them with `==` (same class and same field values), and print them to see every field. A default like `tags: list[str] = []` is safe in Pydantic, because each instance gets its own copy of the list.\n\nAll of Pydantic's own methods start with `model_` (`model_validate`, `model_dump`, `model_copy`, `model_fields`), so they never clash with your field names. Older names from Pydantic 1, like `parse_obj` and `.dict()`, still work but are **deprecated**: kept only so old code runs, and due to be removed.",
    "code": "from pydantic import BaseModel\n\nclass User(BaseModel):\n    id: int\n    name: str\n    tags: list[str] = []\n\nu = User(id=\"42\", name=\"Ann\")\nprint(u)                 # id=42 name='Ann' tags=[]\nprint(type(u.id))        # <class 'int'>\n\nu2 = User.model_validate({\"id\": 7, \"name\": \"Bo\", \"tags\": [\"admin\"]})\nu3 = User.model_validate_json('{\"id\": 7, \"name\": \"Bo\", \"tags\": [\"admin\"]}')\nprint(u2 == u3)          # True\nprint(User(id=1, name=\"x\").tags is User(id=2, name=\"y\").tags)  # False",
    "code_lang": "python",
    "takeaways": [
-    "Fields are annotated class attributes; no default means required",
+    "Fields are class attributes with type hints; no default means required",
     "Lax mode converts safe inputs like \"42\" to 42 and rejects the rest",
-    "model_validate for dicts, model_validate_json for raw JSON"
+    "model_validate for dicts, model_validate_json for raw JSON text"
    ],
    "pitfalls": [
     "Calling json.loads and then model_validate when model_validate_json does both, faster."
@@ -81,6 +209,15 @@
    "requires": [
     "python.classes",
     "python.type-hints"
+   ],
+   "defines": [
+    "validation",
+    "BaseModel",
+    "lax mode",
+    "ValidationError",
+    "parse",
+    "Rust",
+    "deprecated"
    ]
   },
   {
@@ -89,13 +226,13 @@
    "module": "basics",
    "level": 1,
    "minutes": 12,
-   "summary": "Use standard type hints, Optional, collections and other models as field types to describe nested data.",
-   "why": "Real payloads are nested and partly optional; the annotation is the whole specification.",
-   "body": "Pydantic understands the standard typing vocabulary, so the annotation is the schema:\n\n- scalars: `int`, `float`, `str`, `bool`, `bytes`, `Decimal`, `datetime`, `date`, `UUID`, `Path`\n- collections: `list[int]`, `set[str]`, `tuple[int, int]`, `dict[str, float]`\n- choices: `Literal[\"draft\", \"published\"]` and `Enum` subclasses\n- other models: a field typed `Address` validates a nested dict into an `Address` instance\n\n**Optional is not the same as not required.** `nickname: str | None` means the value may be `None` but must still be provided. To make it optional, give a default: `nickname: str | None = None`.\n\nContainers validate every element, and errors point at the exact position, such as `items.2.price`. Tuples check their length; `tuple[int, ...]` accepts any length.\n\nLax conversion is sensible rather than permissive: `\"2024-05-01\"` becomes a `date`, `\"true\"`, `\"yes\"` and `1` become `True`, and an `int` field accepts `3.0` but rejects `3.5`, because that would lose data. A `str` field does not accept an `int`; Pydantic will not silently stringify numbers.\n\n`datetime` fields accept ISO 8601 strings and Unix timestamps. Use `AwareDatetime` if you must reject timestamps without a timezone.\n\nTypes from `pydantic` such as `EmailStr`, `HttpUrl`, `PositiveInt` and `SecretStr` add common checks; `EmailStr` needs the extra `pip install \"pydantic[email]\"`.",
+   "summary": "Use ordinary type hints, X | None, collections and other models as field types to describe nested data.",
+   "why": "Real data is nested and partly optional; the type hints on the fields are the whole specification.",
+   "body": "Pydantic understands the same type hints you already write, so together they form the model's **schema**: the description of what valid data looks like.\n\n- simple values: `int`, `float`, `str`, `bool`, `bytes`, plus `Decimal` (exact decimal numbers, good for money), `datetime`, `date`, `UUID` and `Path`\n- collections: `list[int]`, `set[str]`, `tuple[int, int]`, `dict[str, float]`\n- a fixed set of choices: `Literal[\"draft\", \"published\"]` accepts only those exact values\n- other models: a field typed `Address` validates a nested dict into an `Address` instance\n\nFor choices you can also use an **enum**: a class that inherits from `Enum` and lists named constant values, like `class Color(Enum): RED = \"red\"`. Pydantic accepts `\"red\"` and gives you `Color.RED`.\n\n**Optional is not the same as not required.** `nickname: str | None` means the value may be `None` but must still be provided. To make it optional, give a default: `nickname: str | None = None`.\n\nLists, sets, tuples and dicts check every element, and errors point at the exact position, such as `items.2.price` (the `price` of the third item, counting from 0). Tuples check their length; `tuple[int, ...]` accepts any length.\n\nLax conversion is sensible rather than careless: `\"2024-05-01\"` becomes a `date`, `\"true\"`, `\"yes\"` and `1` become `True`, and an `int` field accepts `3.0` but rejects `3.5`, because that would lose data. A `str` field does not accept an `int`; Pydantic will not quietly turn numbers into text.\n\n`datetime` fields accept text in the standard date-and-time format, like `\"2024-05-01T09:30:00\"`, called **ISO 8601**. They also accept a **Unix timestamp**: a number of seconds since 1 January 1970, a common way for computers to store a moment.\n\nA clock time alone is ambiguous: 9:30 in Oslo and 9:30 in New York are different moments, because they are in different **time zones**. Use `AwareDatetime` instead of `datetime` if you must reject values that don't say which time zone they mean.\n\nTypes from `pydantic` such as `EmailStr`, `HttpUrl`, `PositiveInt` and `SecretStr` add common checks: an email address, a web link, a number above zero, a password that is hidden when printed. `EmailStr` needs the extra `pip install \"pydantic[email]\"`.",
    "code": "from datetime import date\nfrom typing import Literal\nfrom pydantic import BaseModel\n\nclass Address(BaseModel):\n    city: str\n    zip: str\n\nclass Order(BaseModel):\n    id: int\n    status: Literal[\"new\", \"paid\", \"shipped\"] = \"new\"\n    placed: date\n    note: str | None = None\n    items: list[tuple[str, int]]\n    ship_to: Address\n\no = Order.model_validate({\n    \"id\": 1, \"placed\": \"2024-05-01\",\n    \"items\": [[\"pen\", 2], [\"ink\", \"1\"]],\n    \"ship_to\": {\"city\": \"Oslo\", \"zip\": \"0150\"},\n})\nprint(o.placed, o.items, o.ship_to.city)\n# 2024-05-01 [('pen', 2), ('ink', 1)] Oslo",
    "code_lang": "python",
    "takeaways": [
-    "The type hint is the schema: collections, Literal, Enum and nested models all validate",
+    "The type hint is the schema: collections, `Literal`, `Enum` and nested models all validate",
     "X | None allows None; only a default makes a field optional",
     "Lax mode converts without losing data: 3.0 -> 3 is fine, 3.5 -> int fails"
    ],
@@ -129,6 +266,13 @@
    "docs": "https://docs.pydantic.dev/latest/concepts/types/",
    "requires": [
     "pydantic.base-model"
+   ],
+   "defines": [
+    "schema",
+    "enum",
+    "ISO 8601",
+    "Unix timestamp",
+    "time zone"
    ]
   },
   {
@@ -138,14 +282,14 @@
    "level": 1,
    "minutes": 8,
    "summary": "Catch ValidationError and use errors() to get every failing field with its location, message and type.",
-   "why": "Good APIs and CLIs report all problems at once with exact locations, and ValidationError gives you that for free.",
-   "body": "When input does not fit the model, Pydantic raises `pydantic.ValidationError`. It does not stop at the first problem: it validates every field and collects **all** failures.\n\n`str(exc)` is a readable multi-line report. For programs, use `exc.errors()`, a list of dicts with:\n\n- `loc`: a tuple path to the failing value, such as `('items', 1, 'qty')`\n- `msg`: a human message, such as `Input should be a valid integer`\n- `type`: a stable machine code, such as `int_parsing`, `missing` or `greater_than`\n- `input`: the offending value, plus `ctx` with details like the limit that was exceeded\n\n`exc.error_count()` returns the number of errors, and `exc.json()` gives the same list as JSON. FastAPI's 422 responses are exactly this list.\n\nBranch on `type`, never on `msg`: messages are for humans and can change wording between versions, while error types are documented and stable.\n\n`ValidationError` is a subclass of `ValueError`. Inside your own validators, raise `ValueError` (or `AssertionError` via `assert`, which is skipped under `python -O`, so prefer `ValueError`) and Pydantic turns it into a `value_error` entry in the collected errors, alongside any other failures.\n\nTo silence the URL line at the end of each message, set the environment variable `PYDANTIC_ERRORS_INCLUDE_URL=0`.",
+   "why": "Good programs report every problem at once, with exactly where it is, and ValidationError gives you that for free.",
+   "body": "When input does not fit the model, Pydantic raises `pydantic.ValidationError`. It does not stop at the first problem: it validates every field and collects **all** failures.\n\n`str(exc)` is a readable multi-line report. For programs, use `exc.errors()`, a list of dicts with:\n\n- `loc`: a tuple path to the failing value, such as `('items', 1, 'qty')`\n- `msg`: a human message, such as `Input should be a valid integer`\n- `type`: a short, fixed name for the kind of problem, such as `int_parsing`, `missing` or `greater_than`\n- `input`: the offending value, plus `ctx` with details like the limit that was exceeded\n\n`exc.error_count()` returns the number of errors, and `exc.json()` gives the same list as JSON. Programs built on Pydantic, such as FastAPI (a toolkit for building web services), send exactly this list back to whoever sent the bad data.\n\nWhen your code decides what to do about an error, check `type`, never `msg`: messages are for humans and can change wording between versions, while error types are documented and stable.\n\n`ValidationError` is a subclass of `ValueError`. In your own checking functions (custom validators, covered later), raise `ValueError` and Pydantic turns it into a `value_error` entry in the collected errors, alongside any other failures. An `assert` works too, but Python skips every `assert` when started with the `-O` option, so prefer `ValueError`.\n\nEach message ends with a link to Pydantic's documentation. To turn the links off, set the **environment variable** `PYDANTIC_ERRORS_INCLUDE_URL=0`. Environment variables are named settings that your system hands to every program it starts; each program can read them.",
    "code": "from pydantic import BaseModel, ValidationError\n\nclass Line(BaseModel):\n    sku: str\n    qty: int\n\nclass Cart(BaseModel):\n    user_id: int\n    items: list[Line]\n\ntry:\n    Cart.model_validate({\"user_id\": \"x\", \"items\": [{\"sku\": \"a\", \"qty\": 1}, {\"sku\": \"b\"}]})\nexcept ValidationError as exc:\n    print(exc.error_count())                 # 2\n    for e in exc.errors():\n        print(e[\"loc\"], e[\"type\"])\n    # ('user_id',) int_parsing\n    # ('items', 1, 'qty') missing",
    "code_lang": "python",
    "takeaways": [
     "All failing fields are reported in one ValidationError",
     "errors() gives loc, msg, type and input for each failure",
-    "Branch on the error type, not the message text"
+    "Make decisions based on the error type, not the message text"
    ],
    "pitfalls": [
     "Catching broad Exception around validation and losing the structured error list."
@@ -167,6 +311,9 @@
    "requires": [
     "pydantic.field-types",
     "python.exceptions"
+   ],
+   "defines": [
+    "environment variable"
    ]
   },
   {
@@ -175,13 +322,13 @@
    "module": "basics",
    "level": 1,
    "minutes": 10,
-   "summary": "Use Field to add constraints like gt, max_length and pattern, default factories, descriptions and examples.",
-   "why": "Most business rules are simple ranges and lengths; declaring them beats writing validators by hand.",
-   "body": "`Field()` attaches extra information to a field. Use it as the default value, or inside `Annotated` (the preferred style because the type and its rules travel together and can be reused):\n\n```python\nprice: Annotated[float, Field(gt=0)]\n```\n\nCommon arguments:\n\n- numbers: `gt`, `ge`, `lt`, `le`, `multiple_of`\n- strings and collections: `min_length`, `max_length`; strings also `pattern` (a regex)\n- `default=...` or `default_factory=list` for a fresh value per instance; the factory is how you get `datetime.now()` at creation time instead of at import\n- `description`, `title` and `examples` flow into JSON Schema and API docs\n- `alias` for an input name that differs from the attribute (covered later)\n- `exclude=True` to leave a field out of dumps, `repr=False` to hide it from the repr\n\nConstraints are enforced in the Rust core and produce specific error types, such as `greater_than` or `string_too_short`, with the limit in `ctx`.\n\nBecause `Annotated` types are just values, you can name them once and reuse them across models:\n\n```python\nSku = Annotated[str, Field(pattern=r\"^[A-Z]{3}-\\d{4}$\")]\n```\n\nA frequent bug is `created: datetime = datetime.now()`: the expression runs once when the class is defined, so every instance shares the same timestamp. Use `Field(default_factory=datetime.now)`.",
+   "summary": "Use Field to add limits like gt, max_length and pattern, fresh defaults per instance, descriptions and examples.",
+   "why": "Most business rules are simple ranges and lengths; declaring them is shorter and safer than writing the checks yourself.",
+   "body": "`Field()` attaches extra rules and information to a field. Use it as the default value, or inside `Annotated`.\n\n`Annotated[float, Field(gt=0)]` means \"a float, plus these extra notes\". Type checkers see a plain `float`; Pydantic reads the notes and enforces them. **Annotated** is the preferred style, because the type and its rules travel together and can be reused:\n\n```python\nprice: Annotated[float, Field(gt=0)]\n```\n\nCommon arguments:\n\n- numbers: `gt`, `ge`, `lt`, `le` (greater than, greater or equal, less than, less or equal), `multiple_of`\n- strings and collections: `min_length`, `max_length`\n- `default=...`, or `default_factory=list` for a fresh value per instance; `default_factory` is also how you get `datetime.now()` when each instance is created\n- `alias` for an input name that differs from the attribute (covered later)\n- `exclude=True` to leave a field out of dumps, `repr=False` to hide it when the instance is printed\n\nStrings can also take `pattern`, a **regular expression**: a small pattern language for text. `^[A-Z]{3}-\\d{4}$` means \"three capital letters, a dash, four digits, and nothing else\".\n\n`description`, `title` and `examples` are documentation. They appear in the **JSON Schema** that Pydantic can generate from a model: a standard JSON description of your data that other tools read to show forms, docs or checks.\n\nEach limit produces a specific error type, such as `greater_than` or `string_too_short`, with the limit itself in `ctx`.\n\nBecause `Annotated` types are just values, you can name them once and reuse them across models:\n\n```python\nSku = Annotated[str, Field(pattern=r\"^[A-Z]{3}-\\d{4}$\")]\n```\n\nA frequent bug is `created: datetime = datetime.now()`. That expression runs once, when the class is defined, so every instance gets the same creation time. Use `Field(default_factory=datetime.now)`.",
    "code": "from datetime import datetime\nfrom typing import Annotated\nfrom pydantic import BaseModel, Field, ValidationError\n\nSku = Annotated[str, Field(pattern=r\"^[A-Z]{3}-\\d{4}$\")]\n\nclass Product(BaseModel):\n    sku: Sku\n    name: Annotated[str, Field(min_length=2, max_length=50)]\n    price: Annotated[float, Field(gt=0, description=\"Unit price in EUR\")]\n    stock: int = Field(default=0, ge=0)\n    created: datetime = Field(default_factory=datetime.now)\n\nprint(Product(sku=\"PEN-0001\", name=\"Pen\", price=1.5).stock)   # 0\ntry:\n    Product(sku=\"pen\", name=\"P\", price=0)\nexcept ValidationError as e:\n    print([err[\"type\"] for err in e.errors()])\n# ['string_pattern_mismatch', 'string_too_short', 'greater_than']",
    "code_lang": "python",
    "takeaways": [
-    "Annotated[T, Field(...)] keeps type and constraints together and reusable",
+    "Annotated[T, Field(...)] keeps the type and its limits together and reusable",
     "gt/ge/lt/le, min_length/max_length and pattern cover most simple rules",
     "default_factory computes a fresh default per instance"
    ],
@@ -204,6 +351,11 @@
    "docs": "https://docs.pydantic.dev/latest/concepts/fields/",
    "requires": [
     "pydantic.field-types"
+   ],
+   "defines": [
+    "Annotated",
+    "regular expression",
+    "JSON Schema"
    ]
   },
   {
@@ -213,13 +365,13 @@
    "level": 1,
    "minutes": 8,
    "summary": "Turn models back into dicts or JSON with model_dump and model_dump_json, filtering fields with include, exclude and exclude_unset.",
-   "why": "Every API response, cache entry and log line needs the model as plain data again.",
-   "body": "Serialization is the reverse of validation. Two methods cover almost every case:\n\n- `model_dump()` returns a dict, recursing into nested models. By default it keeps Python objects such as `datetime` and `UUID`.\n- `model_dump(mode=\"json\")` returns a dict with only JSON-compatible values (strings for dates, lists for sets).\n- `model_dump_json()` returns a JSON string directly from the Rust core; pass `indent=2` for pretty output.\n\nFiltering options shared by both:\n\n- `include={\"id\", \"name\"}` or `exclude={\"password\"}`; nested sets or dicts select inside sub-models\n- `exclude_none=True` drops fields whose value is `None`\n- `exclude_defaults=True` drops fields still equal to their default\n- `exclude_unset=True` drops fields the caller never provided, which is exactly what a PATCH endpoint needs: only apply what the client sent\n\n`model_copy(update={...})` makes a copy with some fields changed. Note that it does **not** validate the update; to get validation, dump, change and call `model_validate` again.\n\n`model_fields_set` tells you which fields were explicitly set, the information behind `exclude_unset`.\n\nThe v1 methods `.dict()`, `.json()` and `.copy()` still work with deprecation warnings; use the `model_` versions in new code.",
+   "why": "Whenever you send, store or log a model, you need it as plain data again.",
+   "body": "Turning an object back into plain data, such as a dict or JSON text, so it can be saved or sent is called **serialization**. It is the reverse of validation, and Pydantic calls it \"dumping\". Three calls cover almost every case:\n\n- `model_dump()` returns a dict, going into nested models too. By default it keeps rich values such as `datetime` and `UUID` as they are.\n- `model_dump(mode=\"json\")` returns a dict holding only values JSON can store (text for dates, lists for sets).\n- `model_dump_json()` returns a JSON string directly, which is faster; pass `indent=2` for readable output.\n\nFiltering options shared by all of them:\n\n- `include={\"id\", \"name\"}` or `exclude={\"password\"}`; nested sets or dicts select inside sub-models\n- `exclude_none=True` drops fields whose value is `None`\n- `exclude_defaults=True` drops fields still equal to their default\n- `exclude_unset=True` drops fields the caller never provided\n\n`exclude_unset` is exactly what a partial update needs. When someone sends only the fields they want to change, you dump with `exclude_unset=True` and apply just those, without overwriting the rest with defaults.\n\n`model_fields_set` tells you which fields were explicitly set, the information behind `exclude_unset`.\n\n`model_copy(update={...})` makes a copy with some fields changed. Note that it does **not** validate the update; to get validation, dump, change and call `model_validate` again.\n\nThe Pydantic 1 methods `.dict()`, `.json()` and `.copy()` still work but print deprecation warnings; use the `model_` versions in new code.",
    "code": "from datetime import datetime\nfrom pydantic import BaseModel\n\nclass Profile(BaseModel):\n    name: str\n    bio: str | None = None\n    theme: str = \"light\"\n    joined: datetime\n\np = Profile(name=\"Ann\", joined=datetime(2024, 1, 2, 3, 4), theme=\"dark\")\nprint(p.model_dump())\n# {'name': 'Ann', 'bio': None, 'theme': 'dark', 'joined': datetime.datetime(2024, 1, 2, 3, 4)}\nprint(p.model_dump(mode=\"json\", exclude_none=True))\n# {'name': 'Ann', 'theme': 'dark', 'joined': '2024-01-02T03:04:00'}\npatch = Profile.model_validate({\"name\": \"Ann\", \"joined\": \"2024-01-02T03:04\"})\nprint(patch.model_dump(exclude_unset=True, include={\"name\", \"theme\"}))  # {'name': 'Ann'}\nprint(p.model_copy(update={\"bio\": \"hi\"}).bio)                            # hi",
    "code_lang": "python",
    "takeaways": [
     "model_dump() -> dict, model_dump(mode=\"json\") -> JSON-safe dict, model_dump_json() -> str",
-    "exclude_unset keeps only what the caller provided: ideal for PATCH",
+    "exclude_unset keeps only what the caller provided: ideal for partial updates",
     "model_copy(update=...) skips validation"
    ],
    "pitfalls": [
@@ -227,7 +379,7 @@
    ],
    "quiz": [
     {
-     "q": "Which call returns only the fields a client actually sent?",
+     "q": "Which call returns only the fields the caller actually provided?",
      "options": [
       "model_dump(exclude_none=True)",
       "model_dump(exclude_defaults=True)",
@@ -241,6 +393,9 @@
    "docs": "https://docs.pydantic.dev/latest/concepts/serialization/",
    "requires": [
     "pydantic.base-model"
+   ],
+   "defines": [
+    "serialization"
    ]
   },
   {
@@ -251,7 +406,7 @@
    "minutes": 14,
    "summary": "Add custom checks and transformations with @field_validator and @model_validator in before, after, wrap or plain mode.",
    "why": "Rules that span fields or need code, like normalizing input or checking that end > start, live in validators.",
-   "body": "When constraints are not enough, write a validator.\n\n`@field_validator(\"name\")` on a classmethod validates one or more fields. The mode decides when it runs:\n\n- `mode=\"after\"` (the default) runs after Pydantic's own validation, so you receive a value of the right type. Most validators should be after validators.\n- `mode=\"before\"` runs on the raw input, before type conversion. Use it to reshape input, for example splitting `\"a,b\"` into a list.\n- `mode=\"wrap\"` receives a `handler` you call to run the inner validation, so you can act before and after or catch its errors.\n- `mode=\"plain\"` replaces Pydantic's validation for that field entirely.\n\nThe validator must **return** the value to keep; forgetting the `return` sets the field to `None`. Raise `ValueError` to reject; the message lands in the error list.\n\n`@model_validator(mode=\"after\")` is an instance method that sees the fully built model, the right place for cross-field rules such as `end >= start`; it must return `self`. A `mode=\"before\"` model validator is a classmethod receiving the raw data, often a dict but possibly anything.\n\n`info: ValidationInfo` as a second parameter gives access to `info.data`, the fields validated so far (in definition order), and the validation context passed via `model_validate(data, context=...)`.\n\nValidators do not run on defaults unless you set `validate_default=True` on the field, and they do not run on attribute assignment unless `validate_assignment=True` is configured.",
+   "body": "When `Field` limits are not enough, write a **validator**: your own function that Pydantic calls while checking the data.\n\n`@field_validator(\"name\")` on a classmethod validates one or more fields. The mode decides when it runs:\n\n- `mode=\"after\"` (the default) runs after Pydantic's own validation, so you receive a value of the right type. Most validators should be after validators.\n- `mode=\"before\"` runs on the raw input, before type conversion. Use it to reshape input, for example splitting `\"a,b\"` into a list.\n- `mode=\"wrap\"` receives a `handler` you call to run the inner validation, so you can act before and after or catch its errors.\n- `mode=\"plain\"` replaces Pydantic's validation for that field entirely.\n\nThe validator must **return** the value to keep; forgetting the `return` sets the field to `None`. Raise `ValueError` to reject; the message lands in the error list.\n\n`@model_validator(mode=\"after\")` is an instance method that sees the fully built model, the right place for cross-field rules such as `end >= start`; it must return `self`. A `mode=\"before\"` model validator is a classmethod receiving the raw data, often a dict but possibly anything.\n\n`info: ValidationInfo` as a second parameter gives access to `info.data`, the fields validated so far (in definition order), and the validation context passed via `model_validate(data, context=...)`.\n\nValidators do not run on defaults unless you set `validate_default=True` on the field, and they do not run on attribute assignment unless `validate_assignment=True` is configured.",
    "code": "from datetime import date\nfrom pydantic import BaseModel, ValidationError, field_validator, model_validator\n\nclass Booking(BaseModel):\n    tags: list[str] = []\n    start: date\n    end: date\n\n    @field_validator(\"tags\", mode=\"before\")\n    @classmethod\n    def split_csv(cls, v):\n        return v.split(\",\") if isinstance(v, str) else v\n\n    @model_validator(mode=\"after\")\n    def check_dates(self):\n        if self.end < self.start:\n            raise ValueError(\"end must not be before start\")\n        return self\n\nb = Booking(tags=\"vip,late\", start=\"2025-01-01\", end=\"2025-01-03\")\nprint(b.tags)                              # ['vip', 'late']\ntry:\n    Booking(start=\"2025-01-05\", end=\"2025-01-01\")\nexcept ValidationError as e:\n    print(e.errors()[0][\"msg\"])            # Value error, end must not be before start",
    "code_lang": "python",
    "takeaways": [
@@ -291,6 +446,10 @@
    "requires": [
     "pydantic.validation-errors",
     "pydantic.field-constraints"
+   ],
+   "defines": [
+    "field validator",
+    "model validator"
    ]
   },
   {
@@ -300,15 +459,15 @@
    "level": 2,
    "minutes": 10,
    "summary": "Use model_config = ConfigDict(...) to forbid extra keys, freeze models, enable strict mode and validate on assignment.",
-   "why": "Config decides how forgiving a model is, which matters as soon as models guard an API boundary.",
-   "body": "Model-wide behavior is set with a class attribute `model_config = ConfigDict(...)` (it replaces v1's inner `class Config`). Settings are inherited by subclasses and can be overridden there.\n\nThe options you will reach for most:\n\n- `extra`: what to do with unknown keys. `\"ignore\"` (default) drops them, `\"forbid\"` raises `extra_forbidden`, `\"allow\"` keeps them, available via `model_extra`.\n- `frozen=True`: instances are immutable and become hashable, so they can be dict keys or set members.\n- `validate_assignment=True`: `obj.field = value` is validated too; otherwise assignment is unchecked.\n- `strict=True`: no type coercion at all; `\"42\"` is rejected for an `int`. You can also make single fields strict with `Field(strict=True)` or call `model_validate(data, strict=True)` for one call.\n- `str_strip_whitespace=True`, `str_to_lower=True`, `str_max_length`: global string handling.\n- `populate_by_name=True` / `validate_by_name=True`: accept field names as well as aliases.\n- `from_attributes=True`: validate from arbitrary objects such as ORM rows via `model_validate(row)`.\n- `use_enum_values=True`: store the enum's value instead of the member.\n\nStrict mode is not all-or-nothing in JSON: when validating JSON, strict still accepts an ISO string for a `datetime`, since JSON has no date type.\n\nChoose `extra=\"forbid\"` for inbound API payloads where a typo like `emial` should fail loudly, and the default `\"ignore\"` for reading third-party data that may grow new fields.",
+   "why": "Config decides how forgiving a model is, which matters as soon as models check data arriving from other programs.",
+   "body": "Model-wide behavior is set with a class attribute `model_config = ConfigDict(...)` (it replaces v1's inner `class Config`). Settings are inherited by subclasses and can be overridden there.\n\nThe options you will reach for most:\n\n- `extra`: what to do with unknown keys. `\"ignore\"` (default) drops them, `\"forbid\"` raises `extra_forbidden`, `\"allow\"` keeps them, available via `model_extra`.\n- `frozen=True`: instances are immutable and become hashable, so they can be dict keys or set members.\n- `validate_assignment=True`: `obj.field = value` is validated too; otherwise assignment is unchecked.\n- `strict=True` (**strict mode**): no conversion at all; `\"42\"` is rejected for an `int`. You can also make single fields strict with `Field(strict=True)` or call `model_validate(data, strict=True)` for one call.\n- `str_strip_whitespace=True`, `str_to_lower=True`, `str_max_length`: global string handling.\n- `populate_by_name=True` / `validate_by_name=True`: accept field names as well as aliases (alternative input names, covered in the next lesson).\n- `from_attributes=True`: validate from any object by reading its attributes, via `model_validate(obj)`. Typical use: rows from a database library that hands you each row as an object.\n- `use_enum_values=True`: store an enum's plain value (`\"red\"`) instead of the member (`Color.RED`).\n\nStrict mode is not all-or-nothing in JSON: when validating JSON, strict still accepts an ISO string for a `datetime`, since JSON has no date type.\n\nChoose `extra=\"forbid\"` for data your program receives from others, where a typo like `emial` should fail loudly, and the default `\"ignore\"` for reading third-party data that may grow new fields.",
    "code": "from pydantic import BaseModel, ConfigDict, ValidationError\n\nclass Point(BaseModel):\n    model_config = ConfigDict(frozen=True, extra=\"forbid\")\n    x: int\n    y: int\n\np = Point(x=1, y=\"2\")\nprint({p: \"origin-ish\"}[Point(x=1, y=2)])    # origin-ish  (frozen -> hashable)\nfor bad in ({\"x\": 1, \"y\": 2, \"z\": 3}, {\"x\": \"1\", \"y\": 2}):\n    try:\n        Point.model_validate(bad, strict=True)\n    except ValidationError as e:\n        print(e.errors()[0][\"type\"])        # extra_forbidden, then int_type\n\nclass Account(BaseModel):\n    model_config = ConfigDict(validate_assignment=True)\n    balance: int\n\na = Account(balance=10)\ntry:\n    a.balance = \"lots\"\nexcept ValidationError:\n    print(\"assignment rejected\")             # assignment rejected",
    "code_lang": "python",
    "takeaways": [
     "model_config = ConfigDict(...) replaces v1's class Config",
-    "extra=\"forbid\" catches typos in inbound payloads",
+    "extra=\"forbid\" catches typos in incoming data",
     "frozen=True makes instances immutable and hashable",
-    "strict mode disables coercion per model, field or call"
+    "strict mode disables conversion per model, field or call"
    ],
    "pitfalls": [
     "Assuming attribute assignment is validated; it is not without validate_assignment=True."
@@ -330,6 +489,9 @@
    "requires": [
     "pydantic.validation-errors",
     "pydantic.serialization-basics"
+   ],
+   "defines": [
+    "strict mode"
    ]
   },
   {
@@ -338,14 +500,14 @@
    "module": "serialization",
    "level": 2,
    "minutes": 14,
-   "summary": "Map external names with aliases, add computed_field properties and customize output with field_serializer.",
+   "summary": "Map external names with aliases, add calculated values with computed_field and customize output with field_serializer.",
    "why": "External JSON rarely matches Python naming, and outputs often need derived or reformatted values.",
-   "body": "**Aliases** decouple the attribute name from the external key.\n\n- `Field(alias=\"userId\")` sets the name for both validation and serialization (when you dump with `by_alias=True`).\n- `validation_alias` and `serialization_alias` set each direction separately. `validation_alias=AliasChoices(\"user_id\", \"userId\")` accepts either spelling, and `AliasPath(\"data\", 0, \"id\")` digs into nested input.\n- `model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)` (with `to_camel` from `pydantic.alias_generators`) gives every field a camelCase alias while still allowing snake_case input.\n\nBy default, input must use the alias once one is set, and dumps use field names unless you pass `by_alias=True` (or configure `serialize_by_alias=True`).\n\n**Computed fields** are properties included in dumps and JSON Schema:\n\n```python\n@computed_field\n@property\ndef total(self) -> float: ...\n```\n\nThey are read-only and recomputed on each access; annotate the return type so the schema knows it.\n\n**Custom serializers** change how a field is written without changing how it is stored. `@field_serializer(\"amount\")` returns the output value; for example, a `Decimal` as a string to avoid float rounding. `when_used=\"json\"` limits it to JSON mode. `@model_serializer` takes over the whole model's output.\n\nKeep these output concerns on the model rather than post-processing dicts in every endpoint: one definition, consistent everywhere.",
+   "body": "An **alias** is a second name for a field: the key used in the outside data, when it differs from your Python attribute name.\n\n- `Field(alias=\"userId\")` sets the name for both validation and serialization (when you dump with `by_alias=True`).\n- `validation_alias` and `serialization_alias` set each direction separately. `validation_alias=AliasChoices(\"user_id\", \"userId\")` accepts either spelling, and `AliasPath(\"data\", 0, \"id\")` digs into nested input.\n- `model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)` (with `to_camel` from `pydantic.alias_generators`) gives every field a camelCase alias while still allowing snake_case input.\n\nBy default, input must use the alias once one is set, and dumps use field names unless you pass `by_alias=True` (or configure `serialize_by_alias=True`).\n\nA **computed field** is a value calculated from other fields and included in dumps and JSON Schema. You write it as a method marked `@property`, which turns a method into something you read like an attribute (`inv.total`, no parentheses):\n\n```python\n@computed_field\n@property\ndef total(self) -> float: ...\n```\n\nThey are read-only and recomputed on each access; annotate the return type so the schema knows it.\n\n**Custom serializers** change how a field is written without changing how it is stored. `@field_serializer(\"amount\")` returns the output value; for example, a `Decimal` as a string to avoid float rounding. `when_used=\"json\"` limits it to JSON mode. `@model_serializer` takes over the whole model's output.\n\nKeep these output rules on the model rather than fixing up dicts everywhere the data is sent: one definition, consistent everywhere.",
    "code": "from decimal import Decimal\nfrom pydantic import BaseModel, ConfigDict, computed_field, field_serializer\nfrom pydantic.alias_generators import to_camel\n\nclass Invoice(BaseModel):\n    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)\n    invoice_id: int\n    unit_price: Decimal\n    quantity: int\n\n    @computed_field\n    @property\n    def total_price(self) -> Decimal:\n        return self.unit_price * self.quantity\n\n    @field_serializer(\"unit_price\", \"total_price\", when_used=\"json\")\n    def money(self, v: Decimal) -> str:\n        return f\"{v:.2f}\"\n\ninv = Invoice.model_validate({\"invoiceId\": 9, \"unitPrice\": \"2.5\", \"quantity\": 3})\nprint(inv.invoice_id, inv.total_price)          # 9 7.5\nprint(inv.model_dump_json(by_alias=True))\n# {\"invoiceId\":9,\"unitPrice\":\"2.50\",\"quantity\":3,\"totalPrice\":\"7.50\"}\nprint(Invoice(invoice_id=1, unit_price=1, quantity=1).invoice_id)   # 1 (by name)",
    "code_lang": "python",
    "takeaways": [
     "alias, validation_alias and serialization_alias map external names",
-    "alias_generator=to_camel plus populate_by_name handles camelCase APIs",
+    "alias_generator=to_camel plus populate_by_name handles camelCase JSON",
     "@computed_field exposes derived values in dumps and schemas",
     "@field_serializer customizes output without changing stored values"
    ],
@@ -368,7 +530,13 @@
    "docs": "https://docs.pydantic.dev/latest/concepts/alias/",
    "requires": [
     "pydantic.serialization-basics",
-    "pydantic.model-config"
+    "pydantic.model-config",
+    "pydantic.field-constraints"
+   ],
+   "defines": [
+    "alias",
+    "computed field",
+    "property"
    ]
   },
   {
@@ -378,14 +546,14 @@
    "level": 2,
    "minutes": 10,
    "summary": "Load typed, validated configuration from environment variables and .env files with pydantic-settings' BaseSettings.",
-   "why": "Twelve-factor apps read config from the environment, and validating it at startup prevents late surprises.",
-   "body": "Configuration lives in the separate package `pydantic-settings` (`pip install pydantic-settings`). Subclass `BaseSettings` instead of `BaseModel` and each field is filled, in priority order, from:\n\n1. arguments passed to the constructor\n2. environment variables (case-insensitive by default)\n3. a dotenv file, if `env_file` is configured\n4. secrets files in `secrets_dir`\n5. the field's default\n\nEnvironment values are strings, and Pydantic converts them using the field type: `\"true\"` becomes a bool, `\"8000\"` an int, and complex types such as `list[str]` or nested models are parsed from JSON strings.\n\nConfigure with `model_config = SettingsConfigDict(env_prefix=\"APP_\", env_file=\".env\", env_nested_delimiter=\"__\")`. With a prefix, field `port` is read from `APP_PORT`. The nested delimiter lets `APP_DB__HOST` fill `db.host`.\n\nUse `SecretStr` for passwords and tokens: the value is masked as `**********` in repr and logs, and you read it explicitly with `.get_secret_value()`.\n\nThe usual pattern is to create one settings object at startup, so a missing or malformed variable crashes immediately with a clear error instead of failing on the first request. In web apps, wrap construction in a function decorated with `functools.lru_cache` so it is built once and easy to override in tests.",
+   "why": "Programs running on servers usually read their configuration from environment variables, and checking it at startup prevents surprises later.",
+   "body": "Configuration lives in the separate package `pydantic-settings` (`pip install pydantic-settings`). Subclass `BaseSettings` instead of `BaseModel` and each field is filled, in priority order, from:\n\n1. arguments you pass when creating the settings object\n2. environment variables (upper or lower case both match by default)\n3. a **.env file**, if `env_file` is configured: a text file of `NAME=value` lines, handy on your own machine\n4. secrets files in `secrets_dir`: a folder with one file per **secret** (a password or key that must not leak), which some hosting systems provide\n5. the field's default\n\nEnvironment values are always text, and Pydantic converts them using the field type: `\"true\"` becomes a bool, `\"8000\"` an int, and complex types such as `list[str]` or nested models are parsed from JSON text.\n\nConfigure with `model_config = SettingsConfigDict(env_prefix=\"APP_\", env_file=\".env\", env_nested_delimiter=\"__\")`. With a prefix, field `port` is read from `APP_PORT`. The nested separator `__` lets `APP_DB__HOST` fill `db.host`.\n\nUse `SecretStr` for passwords and other secret values: the value is shown as `**********` whenever it is printed, and you read it explicitly with `.get_secret_value()`.\n\nThe usual pattern is to create one settings object at startup, so a missing or malformed variable crashes immediately with a clear error instead of failing later in the middle of real work. In a long-running program such as a web app, wrap construction in a function decorated with `functools.lru_cache` (which remembers a function's result after the first call), so it is built once and easy to replace in tests.",
    "code": "import os\nfrom pydantic import BaseModel, SecretStr\nfrom pydantic_settings import BaseSettings, SettingsConfigDict\n\nclass DB(BaseModel):\n    host: str = \"localhost\"\n    port: int = 5432\n\nclass Settings(BaseSettings):\n    model_config = SettingsConfigDict(env_prefix=\"APP_\", env_nested_delimiter=\"__\")\n    debug: bool = False\n    allowed_hosts: list[str] = []\n    api_key: SecretStr\n    db: DB = DB()\n\nos.environ.update({\"APP_DEBUG\": \"true\", \"APP_API_KEY\": \"s3cr3t\",\n                   \"APP_ALLOWED_HOSTS\": '[\"a.com\",\"b.com\"]', \"APP_DB__PORT\": \"6543\"})\ns = Settings()\nprint(s.debug, s.allowed_hosts, s.db.port)   # True ['a.com', 'b.com'] 6543\nprint(s.api_key)                             # **********\nprint(s.api_key.get_secret_value())          # s3cr3t",
    "code_lang": "python",
    "takeaways": [
-    "BaseSettings reads fields from env vars, .env files and secrets",
+    "BaseSettings reads fields from environment variables, .env files and secrets files",
     "env_prefix and env_nested_delimiter map variable names to fields",
-    "SecretStr keeps secrets out of logs and reprs"
+    "SecretStr keeps secret values out of printed output"
    ],
    "pitfalls": [
     "Installing only pydantic: BaseSettings moved to the separate pydantic-settings package in v2."
@@ -406,6 +574,13 @@
    "docs": "https://docs.pydantic.dev/latest/concepts/pydantic_settings/",
    "requires": [
     "pydantic.model-config"
+   ],
+   "defines": [
+    "BaseSettings",
+    "pydantic-settings",
+    "env file",
+    "secret",
+    "SecretStr"
    ]
   },
   {
@@ -414,14 +589,14 @@
    "module": "types",
    "level": 3,
    "minutes": 12,
-   "summary": "Validate one-of-several shapes with unions, and use a Literal discriminator field for fast, precise results.",
-   "why": "Event streams, polymorphic API payloads and LLM tool calls are all tagged unions.",
-   "body": "A field typed `int | str` or `Cat | Dog` accepts any member. In the default **smart mode**, Pydantic first looks for an exact type match across all members (so `\"1\"` stays a `str` in `int | str`), then tries lax validation and picks the best match. With `Field(union_mode=\"left_to_right\")` it instead takes the first member that succeeds.\n\nFor unions of models, plain unions have two problems: every member may be tried, and when all fail you get errors from each member, which is hard to read.\n\nA **discriminated union** fixes both. Give each model a `Literal` field with a distinct value and name it as the discriminator:\n\n```python\npet: Cat | Dog = Field(discriminator=\"kind\")\n```\n\nPydantic reads `kind`, jumps straight to the matching model and reports errors only for that model. A missing or unknown tag raises a clear `union_tag_not_found` or `union_tag_invalid` error.\n\nTo validate a bare union outside a model, for example a list of events, combine it with `Annotated` and a `TypeAdapter`:\n\n```python\nEvent = Annotated[Click | Scroll, Field(discriminator=\"type\")]\n```\n\nWhen the tag is not a single field, `Discriminator(callable)` with `Tag` annotations lets a function choose the member, for example based on which keys are present.\n\nDiscriminated unions also produce a clean `oneOf` with a `discriminator` mapping in JSON Schema, which OpenAPI clients use to generate typed code.",
+   "summary": "Validate one-of-several shapes with unions, and use a `Literal` label field as discriminator for fast, precise results.",
+   "why": "Lots of real data comes in several shapes told apart by a label, like a list of events where each has a \"type\": click, scroll, key press.",
+   "body": "A field typed `int | str` or `Cat | Dog` is a **union**: it accepts any one of the listed types, its members. In the default **smart mode**, Pydantic first looks for an exact type match across all members (so `\"1\"` stays a `str` in `int | str`), then tries lax validation and picks the best match. With `Field(union_mode=\"left_to_right\")` it instead takes the first member that succeeds.\n\nFor unions of models, plain unions have two problems: every member may be tried, and when all fail you get errors from each member, which is hard to read.\n\nA **discriminated union** fixes both. Give each model a `Literal` field with a distinct value, and name that field as the **discriminator**, the label that says which member the data is:\n\n```python\npet: Cat | Dog = Field(discriminator=\"kind\")\n```\n\nPydantic reads `kind`, jumps straight to the matching model and reports errors only for that model. A missing or unknown tag raises a clear `union_tag_not_found` or `union_tag_invalid` error.\n\nTo validate a bare union outside a model, for example a list of events, combine it with `Annotated` and a `TypeAdapter` (Pydantic's way to validate a type that isn't a model; see the next lesson):\n\n```python\nEvent = Annotated[Click | Scroll, Field(discriminator=\"type\")]\n```\n\nWhen the tag is not a single field, `Discriminator(callable)` with `Tag` annotations lets a function choose the member, for example based on which keys are present.\n\nDiscriminated unions also produce a clean JSON Schema (a `oneOf` list plus a `discriminator` mapping), so other tools that read the schema, such as code generators, can tell the members apart too.",
    "code": "from typing import Annotated, Literal\nfrom pydantic import BaseModel, Field, TypeAdapter, ValidationError\n\nclass Click(BaseModel):\n    type: Literal[\"click\"]\n    x: int\n    y: int\n\nclass Scroll(BaseModel):\n    type: Literal[\"scroll\"]\n    delta: int\n\nEvent = Annotated[Click | Scroll, Field(discriminator=\"type\")]\nevents = TypeAdapter(list[Event])\n\nevs = events.validate_python([{\"type\": \"click\", \"x\": 1, \"y\": 2},\n                              {\"type\": \"scroll\", \"delta\": -3}])\nprint([type(e).__name__ for e in evs])          # ['Click', 'Scroll']\ntry:\n    events.validate_python([{\"type\": \"scroll\", \"delta\": \"lots\"}])\nexcept ValidationError as e:\n    print(e.errors()[0][\"loc\"])                 # (0, 'scroll', 'delta')",
    "code_lang": "python",
    "takeaways": [
     "Smart mode prefers exact type matches across union members",
-    "A Literal tag + Field(discriminator=...) picks the model directly",
+    "A `Literal` label + Field(discriminator=...) picks the model directly",
     "Discriminated unions give focused errors and a clean JSON Schema"
    ],
    "pitfalls": [
@@ -444,6 +619,9 @@
    "requires": [
     "pydantic.field-types",
     "pydantic.validators"
+   ],
+   "defines": [
+    "discriminated union"
    ]
   },
   {
@@ -452,19 +630,19 @@
    "module": "types",
    "level": 3,
    "minutes": 10,
-   "summary": "Validate, dump and get JSON Schema for types that are not models, such as list[Item] or TypedDicts, with TypeAdapter.",
+   "summary": "Validate, dump and get JSON Schema for types that are not models, such as list[Item] or a TypedDict, with TypeAdapter.",
    "why": "Not everything deserves a model class, but lists, dicts and TypedDicts at boundaries still need validation.",
-   "body": "`BaseModel` gives validation methods to classes. `TypeAdapter` gives the same powers to **any** type:\n\n```python\nta = TypeAdapter(list[int])\nta.validate_python([\"1\", 2])      # [1, 2]\nta.validate_json(b\"[1, 2]\")\nta.dump_json([1, 2])\nta.json_schema()\n```\n\nTypical uses:\n\n- top-level collections: a JSON array of objects, `TypeAdapter(list[User])`\n- `TypedDict`s, when you want plain dicts (no attribute access, no model overhead) but validated keys and types\n- standard library `dataclasses`, `NamedTuple`s and `Annotated` constraint types\n- unions that are not wrapped in a model\n\nCreating a `TypeAdapter` builds a validator, which costs time (it compiles a core schema). **Create adapters once**, at module level, and reuse them; building one inside a hot loop or per request is a common performance bug.\n\nPydantic also has its own `@pydantic.dataclasses.dataclass`, a drop-in for the standard decorator that validates on `__init__`. It suits code that wants dataclass semantics; `BaseModel` has more features (config inheritance, `model_*` methods), so prefer models for API schemas.\n\n`validate_call` is the function equivalent: decorate a function and its arguments are validated against their annotations on every call, with an optional `validate_return=True`.",
+   "body": "`BaseModel` gives validation methods to classes. `TypeAdapter` gives the same powers to **any** type:\n\n```python\nta = TypeAdapter(list[int])\nta.validate_python([\"1\", 2])      # [1, 2]\nta.validate_json(b\"[1, 2]\")\nta.dump_json([1, 2])\nta.json_schema()\n```\n\nTypical uses:\n\n- top-level collections: a JSON list of objects, `TypeAdapter(list[User])`\n- a `TypedDict`: a dict type whose keys and value types are declared like a class. Use it when you want plain dicts (no attribute access, no model instances to build) but checked keys and types\n- standard library `dataclasses`, `NamedTuple`s and `Annotated` constraint types\n- unions that are not wrapped in a model\n\nCreating a `TypeAdapter` builds a validator, which takes time: Pydantic turns the type into fast checking code up front. **Create adapters once**, at module level, and reuse them. Building one inside a loop, or inside a function that runs for every incoming request, is a common performance bug.\n\nPydantic also has its own `@pydantic.dataclasses.dataclass`, a drop-in for the standard decorator that validates on `__init__`. It suits code that wants dataclass semantics; `BaseModel` has more features (config inheritance, `model_*` methods), so prefer models for data you exchange with other programs.\n\n`validate_call` is the function equivalent: decorate a function and its arguments are validated against their annotations on every call, with an optional `validate_return=True`.",
    "code": "from typing import TypedDict\nfrom pydantic import TypeAdapter, validate_call\n\nclass Row(TypedDict):\n    id: int\n    score: float\n\nROWS = TypeAdapter(list[Row])          # build once, reuse\n\nrows = ROWS.validate_json(b'[{\"id\": \"1\", \"score\": 9}, {\"id\": 2, \"score\": \"7.5\"}]')\nprint(rows)              # [{'id': 1, 'score': 9.0}, {'id': 2, 'score': 7.5}]\nprint(type(rows[0]))     # <class 'dict'>\nprint(ROWS.json_schema()[\"$defs\"][\"Row\"][\"required\"])   # ['id', 'score']\n\n@validate_call\ndef repeat(text: str, times: int) -> str:\n    return text * times\n\nprint(repeat(\"ab\", \"3\"))   # ababab",
    "code_lang": "python",
    "takeaways": [
     "TypeAdapter(T) gives validate_python/validate_json/dump/json_schema for any type",
     "Good for top-level lists, TypedDicts and unions",
-    "Build adapters once; construction compiles a validator",
+    "Build adapters once; construction prepares a validator, which takes time",
     "@validate_call validates function arguments"
    ],
    "pitfalls": [
-    "Constructing a TypeAdapter inside a request handler or loop."
+    "Constructing a TypeAdapter inside a loop or a function that runs many times."
    ],
    "quiz": [
     {
@@ -476,13 +654,17 @@
       "TypedDicts cannot be used in functions"
      ],
      "answer": 1,
-     "explain": "Construction builds the core schema and validator; reusing one adapter avoids paying that per call."
+     "explain": "Construction builds and prepares the validator; reusing one adapter avoids paying that cost on every call."
     }
    ],
    "docs": "https://docs.pydantic.dev/latest/concepts/type_adapter/",
    "requires": [
     "pydantic.unions",
     "pydantic.serialization-basics"
+   ],
+   "defines": [
+    "TypeAdapter",
+    "TypedDict"
    ]
   },
   {
@@ -493,13 +675,13 @@
    "minutes": 12,
    "summary": "Build reusable constrained types with Annotated plus AfterValidator, BeforeValidator and PlainSerializer.",
    "why": "Validation logic attached to a type can be reused across many models instead of copied into each.",
-   "body": "Decorator validators belong to one model. The **annotated pattern** attaches logic to a type instead, so you define a domain type once and use it everywhere:\n\n```python\nSlug = Annotated[str, AfterValidator(check_slug)]\n```\n\nThe functional validators mirror the decorator modes:\n\n- `BeforeValidator(fn)` runs on raw input before the inner type validates it\n- `AfterValidator(fn)` runs on the already-validated value\n- `WrapValidator(fn)` gets `(value, handler)` and decides when to call the inner validation\n- `PlainValidator(fn)` replaces validation entirely\n\nSeveral metadata items in one `Annotated` apply in order: before validators from right to left, then the inner type, then after validators from left to right. You can mix in `Field` constraints and serializers such as `PlainSerializer(fn, when_used=\"json\")`.\n\nThese types compose with containers: `list[Slug]` validates every element, and `dict[Slug, int]` validates keys.\n\nBecause the logic is plain functions, you can unit-test it without models, and because the type is a value, it can be imported from a shared `types.py` module.\n\nFor truly custom classes (your own `Money` class, not just a constrained `str`), see `__get_pydantic_core_schema__` in the internals lesson. For most domain rules, `Annotated` with functional validators is enough and much simpler.",
+   "body": "Decorator validators belong to one model. The **annotated pattern** attaches logic to a type instead, so you define a domain type once and use it everywhere:\n\n```python\nSlug = Annotated[str, AfterValidator(check_slug)]\n```\n\nThe functional validators mirror the decorator modes:\n\n- `BeforeValidator(fn)` runs on raw input before the inner type validates it\n- `AfterValidator(fn)` runs on the already-validated value\n- `WrapValidator(fn)` gets `(value, handler)` and decides when to call the inner validation\n- `PlainValidator(fn)` replaces validation entirely\n\nSeveral metadata items in one `Annotated` apply in order: before validators from right to left, then the inner type, then after validators from left to right. You can mix in `Field` constraints and serializers such as `PlainSerializer(fn, when_used=\"json\")`.\n\nThese types work inside collections too: `list[Slug]` validates every element, and `dict[Slug, int]` validates keys.\n\nBecause the logic is plain functions, you can unit-test it without models, and because the type is a value, it can be imported from a shared `types.py` module.\n\nFor truly custom classes (your own `Money` class, not just a constrained `str`), see `__get_pydantic_core_schema__` in the internals lesson. For most domain rules, `Annotated` with functional validators is enough and much simpler.",
    "code": "import re\nfrom typing import Annotated\nfrom pydantic import AfterValidator, BaseModel, BeforeValidator, Field, PlainSerializer\n\ndef check_slug(v: str) -> str:\n    if not re.fullmatch(r\"[a-z0-9]+(-[a-z0-9]+)*\", v):\n        raise ValueError(\"not a slug\")\n    return v\n\nSlug = Annotated[str, BeforeValidator(lambda v: v.strip().lower() if isinstance(v, str) else v),\n                 AfterValidator(check_slug)]\nCents = Annotated[int, Field(ge=0), PlainSerializer(lambda c: f\"{c / 100:.2f}\", when_used=\"json\")]\n\nclass Post(BaseModel):\n    slug: Slug\n    tags: list[Slug] = []\n    price: Cents = 0\n\np = Post(slug=\"  Hello-World \", tags=[\"Py\", \"web-dev\"], price=1999)\nprint(p.slug, p.tags, p.price)     # hello-world ['py', 'web-dev'] 1999\nprint(p.model_dump_json())\n# {\"slug\":\"hello-world\",\"tags\":[\"py\",\"web-dev\"],\"price\":\"19.99\"}",
    "code_lang": "python",
    "takeaways": [
     "Annotated[T, AfterValidator(fn)] defines a reusable validated type",
     "Before/After/Wrap/Plain validators mirror the decorator modes",
-    "Annotated types compose inside list, dict and other containers"
+    "Annotated types work inside list, dict and other collections"
    ],
    "pitfalls": [
     "Copying the same @field_validator into many models instead of defining one Annotated type."
@@ -529,14 +711,14 @@
    "module": "types",
    "level": 4,
    "minutes": 12,
-   "summary": "Parametrize models with TypeVars, like Page[T] or Response[T], and get real validation for each concrete type.",
-   "why": "API envelopes and paginated responses repeat the same wrapper around different payloads.",
-   "body": "A **generic model** has fields typed with a `TypeVar`. In Python 3.12+ syntax:\n\n```python\nclass Page[T](BaseModel):\n    items: list[T]\n    total: int\n```\n\n(On older versions, inherit from `BaseModel, Generic[T]`.)\n\nParametrizing it, `Page[User]`, creates a real subclass with `T` replaced by `User`, so validation, serialization and JSON Schema are fully typed for that payload. Pydantic caches parametrized classes, so `Page[User] is Page[User]`.\n\nRules worth knowing:\n\n- An unparametrized `Page` validates `T` as `Any`, so items are passed through without validation. Always use the parametrized class at boundaries.\n- `TypeVar` bounds and defaults are respected: with `T: Number` (or `bound=`), unparametrized use validates against the bound.\n- Partial parametrization works with several TypeVars: `Pair[int, T]`.\n- A generic model can inherit from another; parametrize the subclass with new or same TypeVars.\n\nEach parametrization builds a new class and validator, so create them at import time (`UserPage = Page[User]`) rather than dynamically per request.\n\nGeneric models combine with everything else: a `Page[Event]` where `Event` is a discriminated union, or a `Response[T]` envelope that FastAPI uses as `response_model=Response[User]` to document each endpoint precisely.",
+   "summary": "Give models type parameters, like `Page[T]` or `Envelope[T]`, and get real validation for each concrete type.",
+   "why": "Results that come one page at a time, or wrapped in a standard envelope with status fields, repeat the same wrapper around different contents.",
+   "body": "A **generic model** has fields typed with a type parameter (a `TypeVar` in older syntax). In Python 3.12+ syntax:\n\n```python\nclass Page[T](BaseModel):\n    items: list[T]\n    total: int\n```\n\n(On older versions, inherit from `BaseModel, Generic[T]`.)\n\nParametrizing it, `Page[User]`, creates a real subclass with `T` replaced by `User`, so validation, serialization and JSON Schema are fully typed for that content. Pydantic keeps each parametrized class after building it once, so `Page[User] is Page[User]`.\n\nRules worth knowing:\n\n- An unparametrized `Page` validates `T` as `Any`, so items are passed through without validation. Always use the parametrized class at boundaries.\n- `TypeVar` bounds and defaults are respected: with `T: Number` (or `bound=`), unparametrized use validates against the bound.\n- Partial parametrization works with several TypeVars: `Pair[int, T]`.\n- A generic model can inherit from another; parametrize the subclass with new or same TypeVars.\n\nEach parametrization builds a new class and validator, so create them at import time (`UserPage = Page[User]`) rather than over and over while the program runs.\n\nGeneric models combine with everything else: a `Page[Event]` where `Event` is a discriminated union, or an `Envelope[T]` wrapper that FastAPI, a web framework built on Pydantic, uses as `response_model=Envelope[User]` to document exactly what each URL returns.",
    "code": "from pydantic import BaseModel\n\nclass User(BaseModel):\n    id: int\n    name: str\n\nclass Page[T](BaseModel):\n    items: list[T]\n    total: int\n    next_cursor: str | None = None\n\nUserPage = Page[User]\np = UserPage.model_validate({\"items\": [{\"id\": \"1\", \"name\": \"Ann\"}], \"total\": 1})\nprint(type(p.items[0]).__name__, p.items[0].id)     # User 1\nprint(UserPage.__name__)                            # Page[User]\nprint(Page[User] is UserPage)                       # True\n\nraw = Page.model_validate({\"items\": [{\"id\": \"1\"}], \"total\": 1})\nprint(raw.items)          # [{'id': '1'}]  (T unparametrized -> Any, no validation)",
    "code_lang": "python",
    "takeaways": [
     "class Page[T](BaseModel) + Page[User] gives a fully typed model",
-    "Parametrized classes are cached and should be created at import time",
+    "Parametrized classes are built once, reused, and best created at import time",
     "An unparametrized generic validates its TypeVar fields as Any (or the bound)"
    ],
    "pitfalls": [
@@ -559,6 +741,9 @@
    "requires": [
     "pydantic.type-adapter",
     "python.typing-advanced"
+   ],
+   "defines": [
+    "generic model"
    ]
   },
   {
@@ -567,9 +752,9 @@
    "module": "internals",
    "level": 4,
    "minutes": 15,
-   "summary": "Understand how models compile to a core schema run by Rust, and hook custom classes in with __get_pydantic_core_schema__.",
+   "summary": "See how models become a core schema that Rust code runs, and plug custom classes in with __get_pydantic_core_schema__.",
    "why": "Knowing the architecture explains performance, error behavior and how to support third-party types cleanly.",
-   "body": "Pydantic v2 is split in two. The Python package `pydantic` inspects your annotations and builds a **core schema**: a nested dict describing validation (for example `{'type': 'model', 'schema': {'type': 'model-fields', ...}}`). The Rust package `pydantic-core` compiles that schema into a `SchemaValidator` and a `SchemaSerializer`, which do all the work at runtime. That is why validation is fast and why building a model or adapter has an upfront cost.\n\nYou can look at the result: `Model.__pydantic_core_schema__` is the schema, and `Model.__pydantic_validator__` is the compiled validator.\n\nTo make your own class usable as a field type, implement the classmethod `__get_pydantic_core_schema__(cls, source_type, handler)` and return a schema built with helpers from `pydantic_core.core_schema`. A common recipe is \"validate as some known type, then convert\":\n\n- `core_schema.no_info_after_validator_function(fn, core_schema.str_schema())` validates a string and passes it to `fn`\n- `serialization=core_schema.plain_serializer_function_ser_schema(str)` controls output\n- `core_schema.json_or_python_schema(...)` can accept an instance of your class in Python while expecting a string in JSON\n\nImplement `__get_pydantic_json_schema__` too if the class should appear correctly in JSON Schema.\n\nReach for this only for genuinely new types; for constrained versions of existing types, `Annotated` validators are simpler and do the same thing under the hood.",
+   "body": "Pydantic v2 is split in two. The Python package `pydantic` inspects your annotations and builds a **core schema**: a nested dict describing validation (for example `{'type': 'model', 'schema': {'type': 'model-fields', ...}}`). The Rust package `pydantic-core` then **compiles** that schema: it translates it, once, into ready-to-run Rust objects, a `SchemaValidator` and a `SchemaSerializer`, which do all the work at runtime. That is why validation is fast and why building a model or adapter has an upfront cost.\n\nYou can look at the result: `Model.__pydantic_core_schema__` is the schema, and `Model.__pydantic_validator__` is the compiled validator.\n\nTo make your own class usable as a field type, implement the classmethod `__get_pydantic_core_schema__(cls, source_type, handler)` and return a schema built with helpers from `pydantic_core.core_schema`. A common recipe is \"validate as some known type, then convert\":\n\n- `core_schema.no_info_after_validator_function(fn, core_schema.str_schema())` validates a string and passes it to `fn`\n- `serialization=core_schema.plain_serializer_function_ser_schema(str)` controls output\n- `core_schema.json_or_python_schema(...)` can accept an instance of your class in Python while expecting a string in JSON\n\nImplement `__get_pydantic_json_schema__` too if the class should appear correctly in JSON Schema.\n\nReach for this only for genuinely new types; for constrained versions of existing types, `Annotated` validators are simpler and do the same thing under the hood.",
    "code": "from pydantic import BaseModel\nfrom pydantic_core import core_schema\n\nclass Color:\n    def __init__(self, hex_: str):\n        self.hex = hex_.lower()\n\n    @classmethod\n    def __get_pydantic_core_schema__(cls, source, handler):\n        from_str = core_schema.no_info_after_validator_function(\n            cls, core_schema.str_schema(pattern=r\"^#[0-9a-fA-F]{6}$\"))\n        return core_schema.json_or_python_schema(\n            json_schema=from_str,\n            python_schema=core_schema.union_schema([core_schema.is_instance_schema(cls), from_str]),\n            serialization=core_schema.plain_serializer_function_ser_schema(lambda c: c.hex),\n        )\n\nclass Theme(BaseModel):\n    primary: Color\n\nt = Theme.model_validate_json('{\"primary\": \"#FF8800\"}')\nprint(t.primary.hex, t.model_dump_json())      # #ff8800 {\"primary\":\"#ff8800\"}\nprint(Theme(primary=Color(\"#000000\")).primary.hex)   # #000000\nprint(Theme.__pydantic_core_schema__[\"type\"])  # model",
    "code_lang": "python",
    "takeaways": [
@@ -597,6 +782,11 @@
    "requires": [
     "pydantic.annotated-validators",
     "pydantic.type-adapter"
+   ],
+   "defines": [
+    "core schema",
+    "pydantic-core",
+    "compile"
    ]
   },
   {
@@ -606,8 +796,8 @@
    "level": 4,
    "minutes": 12,
    "summary": "Speed up Pydantic with model_validate_json, reusable adapters, precise types, discriminators and deferred schema builds.",
-   "why": "At scale, validation can dominate request time, and small modeling choices change its cost severalfold.",
-   "body": "Pydantic v2 is fast by default, but the way you use it still matters:\n\n- **Validate JSON directly.** `Model.model_validate_json(raw)` parses and validates in one Rust pass. `model_validate(json.loads(raw))` builds Python objects twice.\n- **Build once.** Models, `TypeAdapter`s and parametrized generics compile a validator when created. Define them at import time, never per request.\n- **Be specific.** `list[int]` is cheaper than `Sequence[int]`, and `dict` cheaper than `Mapping`, because abstract types need extra checks and conversions. Avoid `Any`-heavy models when you need guarantees.\n- **Use discriminated unions.** A tagged union jumps to one member; a plain union of many models may try them all.\n- **Prefer TypedDict for large, internal nested data** when you don't need model methods; it validates faster than nested models.\n- **Skip work you don't need.** `model_construct(**data)` creates an instance without validation for data you already trust, such as rows you just wrote; it does not apply validators or conversions.\n- **Wrap validators cost Python round-trips.** Every Python-level validator crosses the Rust/Python boundary; built-in constraints like `Field(gt=0)` stay in Rust.\n\nStartup time is the other axis: thousands of models can slow imports. `ConfigDict(defer_build=True)` postpones schema building until first use, which helps CLIs and serverless cold starts.\n\nMeasure before optimizing: `timeit` on a realistic payload usually shows whether JSON parsing, a slow custom validator or model count is the real cost.",
+   "why": "In a busy service, validation can take a large share of the time spent on each request, and small modeling choices change its cost severalfold.",
+   "body": "Pydantic v2 is fast by default, but the way you use it still matters:\n\n- **Validate JSON directly.** `Model.model_validate_json(raw)` parses and validates in one Rust pass. `model_validate(json.loads(raw))` builds Python objects twice.\n- **Build once.** Models, `TypeAdapter`s and parametrized generics compile a validator when created. Define them at import time, never per request.\n- **Be specific.** `list[int]` is cheaper than `Sequence[int]`, and `dict` cheaper than `Mapping`, because abstract types need extra checks and conversions. Avoid `Any`-heavy models when you need guarantees.\n- **Use discriminated unions.** A tagged union jumps to one member; a plain union of many models may try them all.\n- **Prefer TypedDict for large, internal nested data** when you don't need model methods; it validates faster than nested models.\n- **Skip work you don't need.** `model_construct(**data)` creates an instance without validation for data you already trust, such as records your own program just saved; it does not apply validators or conversions.\n- **Python validators cost extra hops.** For every validator written in Python, the fast Rust core has to stop and call back into slower Python code; built-in limits like `Field(gt=0)` stay in Rust.\n\nStartup time is the other axis: thousands of models can slow imports. `ConfigDict(defer_build=True)` postpones schema building until first use, which helps programs that start often and use only a few models, such as command-line tools.\n\nMeasure before optimizing: `timeit` on realistic data usually shows whether JSON parsing, a slow custom validator or model count is the real cost.",
    "code": "import json, timeit\nfrom pydantic import BaseModel, ConfigDict\n\nclass Item(BaseModel):\n    id: int\n    name: str\n    price: float\n\nclass Batch(BaseModel):\n    model_config = ConfigDict(defer_build=True)   # compile on first use\n    items: list[Item]\n\nraw = json.dumps({\"items\": [{\"id\": i, \"name\": f\"n{i}\", \"price\": i / 3} for i in range(2000)]})\n\none_pass = timeit.timeit(lambda: Batch.model_validate_json(raw), number=50)\ntwo_pass = timeit.timeit(lambda: Batch.model_validate(json.loads(raw)), number=50)\nprint(one_pass < two_pass)     # True on typical machines\n\ntrusted = Item.model_construct(id=1, name=\"x\", price=2.0)   # no validation at all\nprint(trusted)                 # id=1 name='x' price=2.0",
    "code_lang": "python",
    "takeaways": [
@@ -617,7 +807,7 @@
     "model_construct skips validation for already-trusted data"
    ],
    "pitfalls": [
-    "Using model_construct on untrusted input, which bypasses every check."
+    "Using model_construct on data from outside your program, which bypasses every check."
    ],
    "quiz": [
     {

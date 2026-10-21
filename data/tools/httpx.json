@@ -47,6 +47,111 @@
    "name": "Transports and internals"
   }
  ],
+ "glossary": [
+  {
+   "term": "HTTPX",
+   "case": true,
+   "def": "A Python library for sending HTTP requests. It can work the ordinary one-at-a-time way or the async way, and supports HTTP/2."
+  },
+  {
+   "term": "Requests",
+   "case": true,
+   "def": "An older, very popular Python library for sending HTTP requests; HTTPX's simple functions were designed to look like it."
+  },
+  {
+   "term": "Response object",
+   "aliases": [
+    "Response objects"
+   ],
+   "def": "What HTTPX hands back after a request: one Python object holding the status code, headers and body of the server's answer."
+  },
+  {
+   "term": "AsyncClient",
+   "case": true,
+   "def": "The async version of HTTPX's Client: same methods, but you call them with await so many requests can wait on the network at the same time."
+  },
+  {
+   "term": "base URL",
+   "aliases": [
+    "base_url"
+   ],
+   "def": "The common start of every URL a client calls, like https://api.example.com/v2, so requests only name the rest, like /users."
+  },
+  {
+   "term": "transport",
+   "aliases": [
+    "transports"
+   ],
+   "def": "In HTTPX, the bottom layer of a client that takes one request and produces one response: normally over the network, but it can be a test function or a Python web app."
+  },
+  {
+   "term": "MockTransport",
+   "case": true,
+   "def": "An HTTPX transport that calls a Python function you write instead of the network, so tests can decide exactly what each request gets back."
+  },
+  {
+   "term": "semaphore",
+   "aliases": [
+    "semaphores"
+   ],
+   "def": "A counter that lets only a fixed number of tasks through at once; the others wait until one finishes."
+  },
+  {
+   "term": "event hook",
+   "aliases": [
+    "event hooks"
+   ],
+   "def": "A function you give a client to run automatically on every request or every response, for example to log it."
+  },
+  {
+   "term": "auth flow",
+   "aliases": [
+    "auth flows",
+    "auth_flow"
+   ],
+   "def": "In HTTPX, the method of an Auth class that adds credentials to each request and may look at the response to try again, written as a generator."
+  },
+  {
+   "term": "ASGI",
+   "case": true,
+   "def": "The standard way async Python web apps (FastAPI, Starlette) receive requests from a server: the app is an async function the server calls for each request."
+  },
+  {
+   "term": "WSGI",
+   "case": true,
+   "def": "The older standard way Python web apps (Flask, Django) receive requests from a server: the app is a plain function called once per request."
+  },
+  {
+   "term": "lifespan",
+   "aliases": [
+    "lifespan events"
+   ],
+   "def": "In ASGI apps, the start-up and shut-down steps the server runs once, such as opening and closing a database connection."
+  },
+  {
+   "term": "httpcore",
+   "case": true,
+   "def": "The lower-level library underneath HTTPX that manages the actual connections, connection pools and the HTTP/1.1 and HTTP/2 protocols."
+  },
+  {
+   "term": "AnyIO",
+   "case": true,
+   "def": "A Python library that lets async code run on either of the two main async systems, asyncio and Trio."
+  },
+  {
+   "term": "Trio",
+   "case": true,
+   "def": "An alternative to Python's built-in asyncio for writing async programs."
+  },
+  {
+   "term": "monkeypatching",
+   "aliases": [
+    "monkeypatch",
+    "monkeypatched"
+   ],
+   "def": "Replacing a function or attribute inside a module while a program (usually a test) is running, so code that uses it gets a fake."
+  }
+ ],
  "concepts": [
   {
    "id": "httpx.first-request",
@@ -55,12 +160,12 @@
    "level": 1,
    "minutes": 7,
    "summary": "Install HTTPX and send GET and POST requests with the top-level functions, reading status and JSON from the response.",
-   "why": "HTTPX is a drop-in modern client; the basics look like Requests, so you are productive immediately.",
-   "body": "Install with `pip install httpx` and import it as `import httpx`. The top-level functions mirror HTTP methods: `httpx.get`, `post`, `put`, `patch`, `delete`, `head`, `options`, plus the generic `httpx.request(method, url)`. Each returns an `httpx.Response`.\n\nThe API was deliberately designed to feel like Requests, so most simple code translates directly:\n\n```python\nr = httpx.get(\"https://httpbin.org/get\", params={\"q\": \"httpx\"})\nr.status_code, r.json()\n```\n\nUnder the hood every top-level call creates a temporary `Client`, sends one request and closes the connection. That is fine for scripts and one-off calls. For repeated calls you will use a `Client` (next module) to get connection pooling.\n\nWhat HTTPX adds over Requests, as a preview:\n\n- an **async** API (`httpx.AsyncClient`) with the same methods,\n- **timeouts by default** (5 seconds),\n- optional **HTTP/2**,\n- **transports** that can route requests straight to a Python web app or a mock function, which makes testing easy,\n- full type annotations.\n\nLike Requests, an error status such as 404 does not raise automatically; you get a normal response and decide what to do.\n\nThe current release line is 0.28. HTTPX is still pre-1.0, so a few APIs changed between minor versions (for example `proxies=` became `proxy=` and `app=` was removed in 0.28); check the changelog when upgrading.",
+   "why": "HTTPX's basic calls are one line each, so you can fetch data from a web service right away and grow into its advanced features later.",
+   "body": "Many services offer data to programs, not just to people: weather, exchange rates, a list of products. A service that programs talk to over HTTP is a web API, often just called an **API**. **HTTPX** is a Python library for talking to them.\n\nInstall it with `pip install httpx` and import it as `import httpx`. The top-level functions mirror HTTP methods: `httpx.get`, `post`, `put`, `patch`, `delete`, `head`, `options`, plus the general `httpx.request(method, url)`. Each gives back a **Response object**: one Python object holding the status, headers and body the server sent.\n\n```python\nr = httpx.get(\"https://httpbin.org/get\", params={\"q\": \"httpx\"})\nr.status_code, r.json()\n```\n\nIf you have used Requests, another popular library, this will look familiar: HTTPX was designed so most simple Requests code works with small changes.\n\nOpening a connection to a server takes time. Behind each top-level call, HTTPX creates a temporary `Client`, sends one request and closes the connection again. That is fine for scripts and one-off calls. For repeated calls you will use a `Client` of your own (next module), which keeps connections open for reuse.\n\nWhat HTTPX offers beyond the basics, as a preview:\n\n- **timeouts by default**: it gives up on a silent server after 5 seconds,\n- an **async** client (`httpx.AsyncClient`). Async code can start a slow task, like a request, and work on others while it waits, so hundreds of requests can be in progress at once,\n- optional **HTTP/2**, a newer version of HTTP,\n- **transports** that can send requests straight to a fake function in your tests instead of the network,\n- type annotations throughout.\n\nAn error status such as 404 does not raise an exception automatically; you get a normal response and decide what to do.\n\nThe current release line is 0.28. HTTPX hasn't reached version 1.0 yet, so a few features still change between releases (for example `proxies=` became `proxy=` in 0.28); check the list of changes when upgrading.",
    "code": "import httpx\n\nr = httpx.get(\"https://httpbin.org/get\", params={\"q\": \"httpx\"})\nprint(r.status_code)              # 200\nprint(r.json()[\"args\"])           # {'q': 'httpx'}\nprint(r.http_version)             # HTTP/1.1\n\nr = httpx.post(\"https://httpbin.org/post\", json={\"lang\": \"python\"})\nprint(r.json()[\"json\"])           # {'lang': 'python'}\n\nr = httpx.get(\"https://httpbin.org/status/404\")\nprint(r.status_code, r.is_success)  # 404 False  (no exception)",
    "code_lang": "python",
    "takeaways": [
-    "httpx.get/post/... mirror Requests and return a Response",
+    "httpx.get/post/... send a request and return a Response",
     "Top-level calls open and close a client each time",
     "Error statuses don't raise automatically"
    ],
@@ -70,17 +175,23 @@
      "q": "What does httpx.get(url) do with connections?",
      "options": [
       "Creates a temporary client and closes it after the request",
-      "Keeps one global connection pool for all calls",
-      "Uses HTTP/2 multiplexing by default",
+      "Keeps one global set of open connections for all calls",
+      "Uses HTTP/2 by default",
       "Requires an AsyncClient"
      ],
      "answer": 0,
-     "explain": "Top-level functions are convenience wrappers around a short-lived Client."
+     "explain": "The top-level functions are shortcuts that create a short-lived Client for each call."
     }
    ],
    "docs": "https://www.python-httpx.org/quickstart/",
    "requires": [
     "python.modules-imports"
+   ],
+   "defines": [
+    "API",
+    "HTTPX",
+    "Response object",
+    "asynchronous"
    ]
   },
   {
@@ -91,7 +202,7 @@
    "minutes": 9,
    "summary": "Read text, bytes and JSON from an httpx.Response, use status helpers, and turn error statuses into exceptions.",
    "why": "Correctly checking status and decoding bodies is the core of every client call.",
-   "body": "An `httpx.Response` exposes the body as:\n\n- `r.content`: raw bytes,\n- `r.text`: decoded string, using the charset from `Content-Type` and otherwise UTF-8 (configurable with `default_encoding` on the client),\n- `r.json()`: parsed JSON, raising `json.JSONDecodeError` on invalid content.\n\nStatus helpers make intent clear: `r.is_success` (2xx), `r.is_redirect`, `r.is_client_error` (4xx), `r.is_server_error` (5xx), `r.is_error`. `httpx.codes` holds named constants, so `r.status_code == httpx.codes.NOT_FOUND` reads better than a bare 404. `r.reason_phrase` gives the text, like `\"Not Found\"`.\n\n`r.raise_for_status()` raises `httpx.HTTPStatusError` for 4xx and 5xx responses and **returns the response** otherwise, so you can chain it:\n\n```python\ndata = client.get(url).raise_for_status().json()\n```\n\nThe exception has `.request` and `.response` attributes for logging and branching.\n\nOther useful attributes: `r.headers` (case-insensitive, multi-value aware), `r.url` (an `httpx.URL` object with `.host`, `.path`, `.params`), `r.request` (what was sent), `r.elapsed`, `r.http_version` and `r.history` for redirects that were followed.\n\nNote that `raise_for_status` only raises for 4xx and 5xx. A 3xx redirect that was not followed comes back as a normal response with `r.is_redirect` true and the next hop prepared in `r.next_request`.",
+   "body": "An `httpx.Response` gives you the body in three forms:\n\n- `r.content`: raw bytes,\n- `r.text`: the body as a string, decoded with the `charset` named in the `Content-Type` header, or UTF-8 if there is none (a client can change that fallback with `default_encoding`),\n- `r.json()`: the JSON body turned into Python dicts and lists. Reading text and working out its structure like this is called **parsing**. Invalid JSON raises `json.JSONDecodeError`.\n\nStatus helpers make your intent clear: `r.is_success` (2xx), `r.is_redirect`, `r.is_client_error` (4xx), `r.is_server_error` (5xx), `r.is_error`. `httpx.codes` holds named constants, so `r.status_code == httpx.codes.NOT_FOUND` reads better than a bare 404. `r.reason_phrase` gives the text, like `\"Not Found\"`.\n\n`r.raise_for_status()` raises `httpx.HTTPStatusError` for 4xx and 5xx responses, and **returns the response** otherwise. So you can call the next method straight after it, in one line:\n\n```python\ndata = client.get(url).raise_for_status().json()\n```\n\nThe exception has `.request` and `.response` attributes, so your error handling can see what was sent and what came back.\n\nOther useful attributes: `r.headers` (case-insensitive, and able to hold a header that appears more than once), `r.url` (an `httpx.URL` object with `.host`, `.path`, `.params`), `r.request` (what was sent), `r.elapsed`, `r.http_version`, and `r.history` for redirects that were followed.\n\nNote that `raise_for_status` only raises for 4xx and 5xx. A 3xx redirect that wasn't followed comes back as a normal response with `r.is_redirect` true, and the request to the next address ready in `r.next_request`.",
    "code": "import httpx\n\nr = httpx.get(\"https://httpbin.org/json\")\nprint(r.is_success, r.status_code == httpx.codes.OK)   # True True\nprint(type(r.content).__name__, type(r.text).__name__)  # bytes str\nprint(r.json()[\"slideshow\"][\"title\"])    # Sample Slide Show\nprint(r.url.host, r.headers[\"content-type\"])  # httpbin.org application/json\n\ntitle = httpx.get(\"https://httpbin.org/json\").raise_for_status().json()[\"slideshow\"][\"author\"]\nprint(title)                             # Yours Truly\n\ntry:\n    httpx.get(\"https://httpbin.org/status/418\").raise_for_status()\nexcept httpx.HTTPStatusError as e:\n    print(e.response.status_code, e.response.is_client_error)  # 418 True",
    "code_lang": "python",
    "takeaways": [
@@ -118,6 +229,9 @@
    "docs": "https://www.python-httpx.org/quickstart/#response-status-codes",
    "requires": [
     "httpx.first-request"
+   ],
+   "defines": [
+    "parse"
    ]
   },
   {
@@ -127,17 +241,17 @@
    "level": 1,
    "minutes": 10,
    "summary": "Send query parameters, headers, JSON, form data, files and raw bytes using params=, headers=, json=, data=, files= and content=.",
-   "why": "Every API expects data in a specific format, and HTTPX separates the options more strictly than Requests.",
-   "body": "Request options in HTTPX:\n\n- `params=`: query parameters as a dict (list values repeat the key) or list of tuples. They are encoded and merged into the URL.\n- `headers=`: a dict of headers.\n- `json=`: any JSON-serialisable object, sent with `Content-Type: application/json`.\n- `data=`: a dict sent as an HTML form (`application/x-www-form-urlencoded`), or, together with `files=`, as multipart.\n- `files=`: uploads, as `{\"field\": file_obj}` or `{\"field\": (filename, file_obj, content_type)}`.\n- `content=`: raw `bytes` or `str` (or an iterator for streaming) sent as is. Set your own `Content-Type`.\n- `cookies=`: cookies for this request (setting them per request is deprecated in favour of client cookies).\n\nA difference from Requests: raw bytes and strings go in `content=`, not `data=`. Passing bytes to `data=` is deprecated and warns.\n\nAlso, `httpx.get` and `httpx.delete` do not accept a body argument, because bodies on GET and DELETE are unusual. If an API really requires a DELETE with JSON, use the generic form: `httpx.request(\"DELETE\", url, json={...})` or `client.request(...)`.\n\nYou can build requests explicitly too: `client.build_request(\"POST\", url, json=...)` returns an `httpx.Request` you can inspect, modify and send with `client.send(request)`.\n\nTo check what was sent, look at `r.request.headers`, `r.request.url` and `r.request.content`.",
+   "why": "Every web API expects data in a specific format, and HTTPX keeps the options clearly apart.",
+   "body": "The keyword arguments for what a request carries:\n\n- `params=`: query parameters as a dict (list values repeat the key) or a list of tuples. They are encoded and added to the URL.\n- `headers=`: a dict of headers.\n- `json=`: any value that can be written as JSON (dicts, lists, strings, numbers), sent with `Content-Type: application/json`.\n- `data=`: a dict sent the way a browser submits an HTML form (`application/x-www-form-urlencoded`).\n- `files=`: file uploads, as `{\"field\": file_obj}` or `{\"field\": (filename, file_obj, content_type)}`. Combined with `data=`, the form values and files travel together in one upload body.\n- `content=`: raw `bytes` or `str` sent exactly as given; set your own `Content-Type`. It also accepts an iterator, to send the body piece by piece.\n- `cookies=`: cookies for this one request.\n\nSetting cookies per request is **deprecated**: it still works but is being phased out, and will be removed in a later version. Put cookies on a client instead.\n\nIf you know Requests: raw bytes and strings go in `content=`, not `data=`. Passing bytes to `data=` is deprecated and prints a warning.\n\nAlso, `httpx.get` and `httpx.delete` don't accept a body, because bodies on GET and DELETE are unusual. If an API really requires a DELETE with JSON, use the general form: `httpx.request(\"DELETE\", url, json={...})` or `client.request(...)`.\n\nYou can also build a request first and send it later: `client.build_request(\"POST\", url, json=...)` returns an `httpx.Request` you can inspect, change and send with `client.send(request)`.\n\nTo check what was sent, look at `r.request.headers`, `r.request.url` and `r.request.content`.",
    "code": "import httpx\n\nbase = \"https://httpbin.org\"\nr = httpx.get(f\"{base}/get\", params={\"tag\": [\"a\", \"b\"], \"n\": 3},\n              headers={\"X-Client\": \"demo\"})\nprint(r.request.url.query)            # b'tag=a&tag=b&n=3'\nprint(r.json()[\"headers\"][\"X-Client\"])  # demo\n\nr = httpx.post(f\"{base}/post\", data={\"name\": \"Ada\"},\n               files={\"doc\": (\"a.txt\", b\"hello\", \"text/plain\")})\nprint(r.json()[\"form\"], r.json()[\"files\"])  # {'name': 'Ada'} {'doc': 'hello'}\n\nr = httpx.post(f\"{base}/post\", content=b\"<x/>\", headers={\"Content-Type\": \"application/xml\"})\nprint(r.json()[\"data\"])               # <x/>\n\nr = httpx.request(\"DELETE\", f\"{base}/delete\", json={\"id\": 7})\nprint(r.json()[\"json\"])               # {'id': 7}",
    "code_lang": "python",
    "takeaways": [
-    "params, headers, json, data, files: same ideas as Requests",
+    "params, headers, json, data, files cover query strings, headers, JSON, forms and uploads",
     "Raw bytes or text go in content=, not data=",
     "Use request('DELETE', ..., json=...) for bodies on DELETE"
    ],
    "pitfalls": [
-    "Passing bytes to data= as in Requests; HTTPX expects content=."
+    "Passing bytes to data= as you would in Requests; HTTPX expects content=."
    ],
    "quiz": [
     {
@@ -155,6 +269,9 @@
    "docs": "https://www.python-httpx.org/quickstart/#sending-form-encoded-data",
    "requires": [
     "httpx.first-request"
+   ],
+   "defines": [
+    "deprecated"
    ]
   },
   {
@@ -164,8 +281,8 @@
    "level": 1,
    "minutes": 8,
    "summary": "Know HTTPX's safer defaults: a 5-second timeout on everything and redirects that are not followed unless you ask.",
-   "why": "These defaults are the most common surprise when porting code from Requests.",
-   "body": "Two defaults differ from Requests and change behaviour:\n\n**Timeouts are on.** Every request has a 5-second timeout for connecting, reading, writing and acquiring a pooled connection. Slow endpoints raise `httpx.ReadTimeout` (or `ConnectTimeout`, `WriteTimeout`, `PoolTimeout`), all subclasses of `httpx.TimeoutException`. Change it per request or per client:\n\n- `timeout=30.0` sets all four to 30 seconds,\n- `timeout=httpx.Timeout(10.0, connect=3.0)` sets a default and overrides one part,\n- `timeout=None` disables timeouts entirely (rarely a good idea).\n\n**Redirects are not followed.** A `301`, `302`, `307` or `308` comes back as is, with `r.is_redirect` true, the target in `r.headers[\"location\"]`, and a ready-made `r.next_request`. Pass `follow_redirects=True` per request or when creating a client to follow them like Requests does. Followed redirects are listed in `r.history`.\n\nNot following by default avoids silently sending requests (and credentials) somewhere else, and makes redirects visible. But it means a URL like `http://example.com` that redirects to HTTPS returns a 301 rather than the page, which looks like a bug until you know.\n\nOther defaults worth knowing: `trust_env=True` (proxy and SSL environment variables are honoured), certificate verification is on, and HTTP/2 is off until you enable it.",
+   "why": "These defaults protect you from hanging programs and surprise redirects, and they are the most common surprise for people coming from Requests.",
+   "body": "Two of HTTPX's defaults change how your code behaves, and both differ from the older Requests library.\n\n**Timeouts are on.** Every request gets a 5-second limit for connecting, reading, writing, and waiting for a free connection. A server slower than that raises `httpx.ReadTimeout` (or `ConnectTimeout`, `WriteTimeout`, `PoolTimeout`), all subclasses of `httpx.TimeoutException`. Change it per request or per client:\n\n- `timeout=30.0` sets all four to 30 seconds,\n- `timeout=httpx.Timeout(10.0, connect=3.0)` sets a default and changes one part,\n- `timeout=None` turns timeouts off entirely (rarely a good idea).\n\n**Redirects are not followed.** A `301`, `302`, `307` or `308` comes back as it is, with `r.is_redirect` true, the target address in `r.headers[\"location\"]`, and a ready-made `r.next_request`. Pass `follow_redirects=True` per request, or when creating a client, to follow them automatically. Followed redirects are listed in `r.history`.\n\nNot following by default avoids silently sending your requests (and passwords) somewhere else, and makes redirects visible. But it means a URL like `http://example.com` that redirects to HTTPS returns a 301 instead of the page, which looks like a bug until you know.\n\nOther defaults worth knowing. HTTPX always checks the server's HTTPS **certificate**, its proof that it really is the site it claims to be. HTTP/2 is off until you turn it on. And `trust_env=True` lets HTTPX pick up network settings your computer passes to programs, such as a company **proxy**: a middle server that forwards all web traffic.",
    "code": "import httpx\n\nr = httpx.get(\"https://httpbin.org/redirect/1\")\nprint(r.status_code, r.is_redirect)          # 302 True\nprint(r.headers[\"location\"])                 # /get\nprint(r.next_request.url)                    # https://httpbin.org/get\n\nr = httpx.get(\"https://httpbin.org/redirect/2\", follow_redirects=True)\nprint(r.status_code, len(r.history))         # 200 2\n\ntry:\n    httpx.get(\"https://httpbin.org/delay/7\")  # default timeout is 5 s\nexcept httpx.ReadTimeout:\n    print(\"timed out after 5 s\")             # timed out after 5 s\n\nr = httpx.get(\"https://httpbin.org/delay/6\", timeout=10.0)\nprint(r.status_code)                         # 200",
    "code_lang": "python",
    "takeaways": [
@@ -192,6 +309,10 @@
    "docs": "https://www.python-httpx.org/compatibility/",
    "requires": [
     "httpx.response"
+   ],
+   "defines": [
+    "certificate",
+    "proxy"
    ]
   },
   {
@@ -201,12 +322,12 @@
    "level": 2,
    "minutes": 10,
    "summary": "Create a Client to reuse connections and share base_url, headers, auth, timeouts and redirect settings across requests.",
-   "why": "Any program that makes more than a few requests should use a client for speed and consistent configuration.",
-   "body": "`httpx.Client` is the equivalent of `requests.Session`, but it is the primary interface in HTTPX rather than an optional extra. A client:\n\n- keeps a **connection pool**, so repeated requests to a host reuse TCP and TLS connections,\n- holds shared configuration: `base_url`, `headers`, `params`, `cookies`, `auth`, `timeout`, `follow_redirects`, `event_hooks`, `limits`, `verify`, `proxy`, `transport`,\n- persists cookies across requests.\n\n`base_url` is a big convenience for API clients: `client.get(\"/users/1\")` resolves against it. Relative paths are merged onto the base URL's path, so with `base_url=\"https://api.example.com/v2\"` a request to `/users` goes to `/v2/users`.\n\nConfiguration is merged: per-request headers and params are added to the client's, with request values winning. Unlike Requests, a client-level `timeout` is a real setting.\n\nAlways close clients. The idiom is a `with` block:\n\n```python\nwith httpx.Client(base_url=..., timeout=10) as client:\n    ...\n```\n\nor call `client.close()` explicitly. In long-running applications, create **one client** at start-up and share it (for example, in a FastAPI lifespan handler or as an attribute of your service class), rather than creating one per request, which defeats pooling.\n\nClient headers and other settings can also be modified after creation, e.g. `client.headers[\"Authorization\"] = ...` after logging in.",
+   "why": "Any program that makes more than a few requests should use a client, for speed and for settings kept in one place.",
+   "body": "`httpx.Client` is the main way to use HTTPX in real programs (the equivalent of a Session in Requests). A client does three things.\n\nIt keeps connections open. Setting one up costs a TCP handshake and, for HTTPS, a TLS handshake. A client keeps finished connections and reuses them for the next request to the same host (the same server name and port). This store of ready connections is a **connection pool**.\n\nIt holds shared settings: `base_url`, `headers`, `params`, `cookies`, `auth`, `timeout`, `follow_redirects`, `event_hooks`, `limits`, `verify`, `proxy`, `transport`.\n\nAnd it keeps cookies from one response to the next, so signing in works like in a browser.\n\n`base_url` is a big convenience when you call one API: `client.get(\"/users/1\")` is resolved against it. A path without scheme and host, like `/users`, is added onto the base URL's path, so with `base_url=\"https://api.example.com/v2\"` a request to `/users` goes to `/v2/users`.\n\nSettings are merged: per-request headers and params are added to the client's, and the request's values win. A client-level `timeout` is a real setting that applies to every request.\n\nAlways close clients. The usual way is a `with` block:\n\n```python\nwith httpx.Client(base_url=..., timeout=10) as client:\n    ...\n```\n\nor call `client.close()` yourself. In a program that runs for a long time, create **one client** at start-up and share it (for example as an attribute of your service class), rather than creating one per request, which throws the pool away each time.\n\nClient headers and other settings can also be changed after creation, e.g. `client.headers[\"Authorization\"] = ...` once the user has signed in.",
    "code": "import httpx\n\nwith httpx.Client(\n    base_url=\"https://httpbin.org\",\n    headers={\"User-Agent\": \"inventory-client/2.0\"},\n    params={\"api_key\": \"k1\"},\n    timeout=10.0,\n    follow_redirects=True,\n) as client:\n    r = client.get(\"/get\", params={\"page\": 2})\n    print(r.url)        # https://httpbin.org/get?api_key=k1&page=2\n    print(r.json()[\"headers\"][\"User-Agent\"])   # inventory-client/2.0\n\n    client.get(\"/cookies/set\", params={\"session\": \"abc\"})\n    print(client.cookies[\"session\"])           # abc\n\n    r = client.get(\"/redirect/1\")\n    print(r.status_code, r.url.path)           # 200 /get\n\nprint(client.is_closed)                        # True",
    "code_lang": "python",
    "takeaways": [
-    "Client = connection pool + shared configuration",
+    "Client = connection pool + shared settings",
     "base_url lets you write client.get('/path')",
     "Create one long-lived client and close it with a with block"
    ],
@@ -230,7 +351,13 @@
    "requires": [
     "httpx.request-data",
     "httpx.defaults",
-    "python.context-managers"
+    "python.context-managers",
+    "http.tcp-tls"
+   ],
+   "defines": [
+    "connection pool",
+    "host",
+    "base URL"
    ]
   },
   {
@@ -239,9 +366,9 @@
    "module": "clients",
    "level": 2,
    "minutes": 9,
-   "summary": "Handle HTTPX's exceptions: RequestError for transport problems, HTTPStatusError for error responses, and their subclasses.",
+   "summary": "Handle HTTPX's exceptions: RequestError when no proper response arrived, HTTPStatusError for error responses, and their subclasses.",
    "why": "Correct error handling separates 'the server said no' from 'we never got an answer', which need different reactions.",
-   "body": "All HTTPX request errors derive from `httpx.HTTPError`, which has two main branches:\n\n- `httpx.RequestError`: something went wrong while sending or receiving, so there is no complete response. Subclasses include `TransportError` with `TimeoutException` (`ConnectTimeout`, `ReadTimeout`, `WriteTimeout`, `PoolTimeout`), `NetworkError` (`ConnectError`, `ReadError`, `WriteError`, `CloseError`), `ProtocolError` (malformed HTTP), `ProxyError` and `UnsupportedProtocol` (for example a missing `https://`). Also `DecodingError` and `TooManyRedirects`.\n- `httpx.HTTPStatusError`: raised only by `raise_for_status()` for 4xx and 5xx responses.\n\nEvery `RequestError` carries `.request`, so you can log which URL failed. `HTTPStatusError` carries both `.request` and `.response`.\n\nA typical pattern:\n\n```python\ntry:\n    r = client.get(url)\n    r.raise_for_status()\nexcept httpx.HTTPStatusError as e: ...  # server answered with an error\nexcept httpx.RequestError as e: ...     # network-level failure\n```\n\nSome exceptions live outside this hierarchy because they are programming errors rather than request failures: `httpx.InvalidURL`, `httpx.CookieConflict`, and `StreamError` subclasses such as `ResponseNotRead` (accessing `.content` of a streamed response that was not read) or `StreamConsumed`.\n\nUnlike Requests, HTTPX exceptions do not inherit from `OSError`, and the names are httpx-specific, so update `except` clauses when migrating.",
+   "body": "All HTTPX request errors come from `httpx.HTTPError`, which has two main branches:\n\n- `httpx.RequestError`: something went wrong while sending or receiving, so there is no complete response. Subclasses include `TransportError` with `TimeoutException` (`ConnectTimeout`, `ReadTimeout`, `WriteTimeout`, `PoolTimeout`), `NetworkError` (`ConnectError`, `ReadError`, `WriteError`, `CloseError`), `ProtocolError` (the server sent broken HTTP), `ProxyError` and `UnsupportedProtocol` (for example a missing `https://`). Also `DecodingError` and `TooManyRedirects`.\n- `httpx.HTTPStatusError`: raised only by `raise_for_status()` for 4xx and 5xx responses.\n\nEvery `RequestError` carries `.request`, so you can report which URL failed. `HTTPStatusError` carries both `.request` and `.response`.\n\nA typical pattern:\n\n```python\ntry:\n    r = client.get(url)\n    r.raise_for_status()\nexcept httpx.HTTPStatusError as e: ...  # server answered with an error\nexcept httpx.RequestError as e: ...     # no proper answer at all\n```\n\nSome exceptions sit outside this tree because they mean a mistake in your code rather than a failed request: `httpx.InvalidURL`, `httpx.CookieConflict`, and `StreamError` subclasses. For example, `ResponseNotRead` means you used `.content` of a response you chose to read piece by piece (see the streaming lesson) without reading it, and `StreamConsumed` means you tried to read such a body twice.\n\nIf you're moving code from Requests: HTTPX exceptions don't inherit from `OSError`, and the names are different, so update your `except` clauses.",
    "code": "import httpx\n\ndef check(url):\n    try:\n        httpx.get(url, timeout=2.0).raise_for_status()\n        return \"ok\"\n    except httpx.HTTPStatusError as e:\n        return f\"status {e.response.status_code} from {e.request.url.path}\"\n    except httpx.TimeoutException as e:\n        return f\"timeout: {type(e).__name__}\"\n    except httpx.RequestError as e:\n        return f\"request failed: {type(e).__name__}\"\n\nprint(check(\"https://httpbin.org/get\"))         # ok\nprint(check(\"https://httpbin.org/status/500\"))  # status 500 from /status/500\nprint(check(\"https://httpbin.org/delay/5\"))     # timeout: ReadTimeout\nprint(check(\"ftp://example.com\"))               # request failed: UnsupportedProtocol\nprint(issubclass(httpx.ConnectError, httpx.RequestError))  # True",
    "code_lang": "python",
    "takeaways": [
@@ -277,15 +404,15 @@
    "module": "async",
    "level": 2,
    "minutes": 12,
-   "summary": "Use httpx.AsyncClient with async/await to run many requests concurrently with asyncio.gather and a semaphore.",
-   "why": "Concurrency is the main reason to choose HTTPX: hundreds of requests overlap instead of running one by one.",
-   "body": "`httpx.AsyncClient` has the same API as `Client`, but its methods are coroutines: `await client.get(url)`. Use it inside async code with `async with`:\n\n```python\nasync with httpx.AsyncClient(base_url=...) as client:\n    r = await client.get(\"/items\")\n```\n\nThe payoff is **concurrency**. While one request waits for the network, the event loop runs others. To fetch many URLs, create the coroutines and run them together with `asyncio.gather` (or a `TaskGroup` on Python 3.11+). Total time is roughly the slowest request rather than the sum.\n\nUnbounded concurrency hurts both you and the server, so limit it:\n\n- an `asyncio.Semaphore(n)` around each request caps in-flight requests,\n- the client's `limits=httpx.Limits(max_connections=...)` caps connections; extra requests wait for a free one (and may hit the pool timeout).\n\nRules for async code:\n\n- Share **one** `AsyncClient` across tasks; do not create one per request.\n- Never call the sync `httpx.get` inside async code: it blocks the event loop.\n- Async event hooks and auth must be async too.\n- `AsyncClient` works with asyncio and Trio (through AnyIO).\n\nIn FastAPI or other async frameworks, create the client at start-up (lifespan) and close it at shutdown with `await client.aclose()`.",
+   "summary": "Use httpx.AsyncClient with async/await to run many requests at the same time with asyncio.gather and a semaphore.",
+   "why": "Running requests at the same time is the main reason to choose HTTPX: hundreds of requests overlap instead of running one by one.",
+   "body": "The ordinary client is **synchronous**: each call waits until its response has arrived before your program moves on. `httpx.AsyncClient` has the same methods as `Client`, but they are coroutines, so you `await` them: `await client.get(url)`. Use it inside async code with `async with`:\n\n```python\nasync with httpx.AsyncClient(base_url=...) as client:\n    r = await client.get(\"/items\")\n```\n\nThe payoff is **concurrency**. While one request waits for the network, the event loop runs others. To fetch many URLs, create the coroutines and run them together with `asyncio.gather` (or a `TaskGroup` on Python 3.11+). The total time is roughly that of the slowest request, not the sum.\n\nUnlimited concurrency hurts both you and the server, so cap it:\n\n- an `asyncio.Semaphore(n)`, a counter that lets only n tasks past at once, around each request limits how many are in progress,\n- the client's `limits=httpx.Limits(max_connections=...)` caps connections; extra requests wait for a free one (and may hit the pool timeout).\n\nRules for async code:\n\n- Share **one** `AsyncClient` across tasks; don't create one per request.\n- Never call the synchronous `httpx.get` inside async code: it blocks the event loop, so nothing else runs while it waits.\n- Event hooks and auth used with an `AsyncClient` must be async too.\n- `AsyncClient` works with asyncio and with Trio, another async library, through a compatibility layer called AnyIO.\n\nA web **framework** is a library that runs your web app and calls your code for each incoming request. In FastAPI or another async framework, create the client once at start-up and close it at shutdown with `await client.aclose()`.",
    "code": "import asyncio\nimport time\nimport httpx\n\nasync def fetch(client, sem, n):\n    async with sem:                          # at most 5 requests in flight\n        r = await client.get(f\"/delay/1\", params={\"n\": n})\n        return r.json()[\"args\"][\"n\"]\n\nasync def main():\n    sem = asyncio.Semaphore(5)\n    async with httpx.AsyncClient(base_url=\"https://httpbin.org\", timeout=10) as client:\n        t = time.perf_counter()\n        results = await asyncio.gather(*(fetch(client, sem, i) for i in range(10)))\n        print(results)       # ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']\n        print(f\"{time.perf_counter() - t:.0f}s\")  # 2s, not 10s\n\nasyncio.run(main())",
    "code_lang": "python",
    "takeaways": [
     "AsyncClient mirrors Client with awaitable methods",
-    "asyncio.gather or TaskGroup runs requests concurrently",
-    "Bound concurrency with a semaphore and share one client"
+    "asyncio.gather or TaskGroup runs requests at the same time",
+    "Cap concurrency with a semaphore and share one client"
    ],
    "pitfalls": [
     "Calling httpx.get (sync) inside an async function, which blocks the event loop."
@@ -307,6 +434,13 @@
    "requires": [
     "httpx.client",
     "python.async-await"
+   ],
+   "defines": [
+    "synchronous",
+    "semaphore",
+    "framework",
+    "Trio",
+    "AnyIO"
    ]
   },
   {
@@ -316,8 +450,8 @@
    "level": 2,
    "minutes": 11,
    "summary": "Replace the network with httpx.MockTransport so tests call a Python handler function instead of a real server.",
-   "why": "Built-in transports make HTTP code testable without patching or extra libraries.",
-   "body": "Every HTTPX client sends requests through a **transport**. Normally that is `HTTPTransport`, which opens sockets. `httpx.MockTransport(handler)` replaces it with a plain function: the handler receives an `httpx.Request` and returns an `httpx.Response`. No network is touched.\n\n```python\ndef handler(request):\n    return httpx.Response(200, json={\"ok\": True})\n\nclient = httpx.Client(transport=httpx.MockTransport(handler))\n```\n\nBecause the handler is ordinary Python, it can route on `request.method` and `request.url.path`, inspect headers and bodies (`request.content`, `json.loads(request.content)`), simulate errors by returning 500s, or raise `httpx.ConnectError` / `httpx.ReadTimeout` to test failure handling. It can also record calls in a list so the test can assert what was sent.\n\nThe same transport works with `AsyncClient` (the handler may be sync or async).\n\nTo make code testable, let it accept a client (dependency injection) rather than creating one internally. Production code passes a real client; tests pass one with a `MockTransport`. This is cleaner than monkeypatching.\n\nThird-party helpers build on this: `respx` (route-based mocking for HTTPX) and `pytest-httpx` (a fixture). They are convenient for large test suites, but MockTransport alone covers most needs.",
+   "why": "Built-in transports make code that calls web APIs testable without patching or extra libraries.",
+   "body": "Every HTTPX client sends its requests through a **transport**, the bottom layer that turns one request into one response. Normally that is `HTTPTransport`, which opens real network connections. `httpx.MockTransport(handler)` replaces it with a plain function: the handler receives an `httpx.Request` and returns an `httpx.Response`. No network is touched.\n\n```python\ndef handler(request):\n    return httpx.Response(200, json={\"ok\": True})\n\nclient = httpx.Client(transport=httpx.MockTransport(handler))\n```\n\nBecause the handler is ordinary Python, it can choose a reply by `request.method` and `request.url.path`, look at headers and bodies (`request.content`, `json.loads(request.content)`), fake errors by returning 500s, or raise `httpx.ConnectError` / `httpx.ReadTimeout` to test failure handling. It can also record calls in a list, so the test can check what was sent.\n\nThe same transport works with `AsyncClient` (the handler may be a normal function or an `async def` one).\n\nTo make code testable, let it be handed a client rather than creating one inside. Giving code what it needs from outside like this is called **dependency injection**. Your real program passes a real client; tests pass one with a `MockTransport`. This is cleaner than **monkeypatching**, temporarily replacing functions inside a module while the test runs.\n\nAdd-on helpers build on this: `respx` (match requests by URL and method) and `pytest-httpx` (a pytest fixture). They are convenient when you have many tests, but MockTransport alone covers most needs.",
    "code": "import httpx\n\ncalls = []\n\ndef handler(request: httpx.Request) -> httpx.Response:\n    calls.append((request.method, request.url.path))\n    if request.url.path == \"/users/1\":\n        return httpx.Response(200, json={\"id\": 1, \"name\": \"Ada\"})\n    if request.url.path == \"/flaky\":\n        raise httpx.ConnectError(\"boom\", request=request)\n    return httpx.Response(404, json={\"error\": \"not found\"})\n\ndef get_name(client, user_id):\n    r = client.get(f\"/users/{user_id}\")\n    return r.json()[\"name\"] if r.is_success else None\n\nclient = httpx.Client(base_url=\"https://api.test\", transport=httpx.MockTransport(handler))\nprint(get_name(client, 1), get_name(client, 2))   # Ada None\ntry:\n    client.get(\"/flaky\")\nexcept httpx.ConnectError as e:\n    print(\"ConnectError:\", e)                     # ConnectError: boom\nprint(calls)  # [('GET', '/users/1'), ('GET', '/users/2'), ('GET', '/flaky')]",
    "code_lang": "python",
    "takeaways": [
@@ -346,6 +480,12 @@
     "httpx.client",
     "httpx.errors",
     "python.testing"
+   ],
+   "defines": [
+    "transport",
+    "MockTransport",
+    "dependency injection",
+    "monkeypatching"
    ]
   },
   {
@@ -354,9 +494,9 @@
    "module": "config",
    "level": 3,
    "minutes": 11,
-   "summary": "Stream large or long-lived responses with client.stream and iter_bytes, and stream request bodies from generators.",
-   "why": "Downloads larger than memory, progress bars and server-sent events all need streaming.",
-   "body": "Normally HTTPX reads the whole response body into memory. For large downloads or long-lived streams, use `client.stream(method, url)` as a context manager:\n\n```python\nwith client.stream(\"GET\", url) as r:\n    for chunk in r.iter_bytes():\n        ...\n```\n\nInside the block the headers are available immediately, and you choose how to consume the body:\n\n- `iter_bytes()` decoded bytes (gzip and other content encodings removed),\n- `iter_text()` decoded text, `iter_lines()` line by line (great for NDJSON and server-sent events),\n- `iter_raw()` the raw bytes exactly as sent over the wire, still compressed.\n\nFor async clients use `async with client.stream(...)` and the `aiter_bytes()`, `aiter_text()`, `aiter_lines()`, `aiter_raw()` versions.\n\nThe connection is released when the block exits, even if you stop reading early. Outside the block the body is gone: accessing `r.content` on a streamed response that you did not read raises `httpx.ResponseNotRead`. If you decide mid-way that you want the whole body, call `r.read()` (or `await r.aread()`).\n\n`r.num_bytes_downloaded` tracks progress through the raw stream, which, combined with `Content-Length`, drives a progress bar.\n\nRequest bodies can be streamed too: pass a generator of bytes (or an async generator for `AsyncClient`) as `content=`. HTTPX sends it with chunked transfer encoding, so the data never has to be in memory at once. Some servers reject chunked uploads; if you know the size in advance, set a `Content-Length` header and HTTPX sends the stream without chunking.",
+   "summary": "Read large or long-running responses piece by piece with client.stream and iter_bytes, and send request bodies from generators.",
+   "why": "Downloads larger than memory, progress bars and live event feeds all need you to handle the body as it arrives.",
+   "body": "Normally HTTPX reads the whole response body into memory before giving it to you. For large downloads, or responses that keep sending for a long time, you can instead handle the body piece by piece as it arrives. This is called **streaming**. Use `client.stream(method, url)` in a `with` block:\n\n```python\nwith client.stream(\"GET\", url) as r:\n    for chunk in r.iter_bytes():\n        ...\n```\n\nInside the block the headers are available at once, and you choose how to read the body:\n\n- `iter_bytes()`: bytes, with gzip and other compression already undone,\n- `iter_text()`: text; `iter_lines()`: one line at a time, ideal for formats like JSON Lines (one JSON value per line),\n- `iter_raw()`: the bytes exactly as they came over the network, still compressed.\n\nFor async clients use `async with client.stream(...)` and the `aiter_bytes()`, `aiter_text()`, `aiter_lines()`, `aiter_raw()` versions.\n\nThe connection is released when the block ends, even if you stop reading early. After the block the body is gone: using `r.content` on a streamed response you didn't read raises `httpx.ResponseNotRead`. If you decide half-way that you want the whole body, call `r.read()` (or `await r.aread()`).\n\n`r.num_bytes_downloaded` counts the raw bytes received so far; together with `Content-Length` it can drive a progress bar.\n\nRequest bodies can be streamed too: pass a generator of bytes (or an async generator for `AsyncClient`) as `content=`. HTTPX then sends the body in pieces without announcing its total size first, which HTTP calls chunked transfer encoding, so the data never has to be in memory all at once. Some servers reject such uploads; if you know the size in advance, set a `Content-Length` header and HTTPX sends the stream in the ordinary way.",
    "code": "import httpx\n\nwith httpx.Client(base_url=\"https://httpbin.org\") as client:\n    with client.stream(\"GET\", \"/bytes/50000\") as r:\n        total = int(r.headers[\"Content-Length\"])\n        received = 0\n        for chunk in r.iter_bytes(chunk_size=8192):\n            received += len(chunk)\n        print(received == total, r.num_bytes_downloaded)  # True 50000\n\n    with client.stream(\"GET\", \"/stream/3\") as r:      # newline-delimited JSON\n        print(sum(1 for line in r.iter_lines() if line))  # 3\n\n    def body():\n        for part in (b\"chunk1,\", b\"chunk2\"):\n            yield part\n    r = client.post(\"/post\", content=body(), headers={\"Content-Length\": \"13\"})\n    print(r.json()[\"data\"])                           # chunk1,chunk2",
    "code_lang": "python",
    "takeaways": [
@@ -385,6 +525,11 @@
     "httpx.client",
     "httpx.async-client",
     "python.iterators-generators"
+   ],
+   "defines": [
+    "stream",
+    "JSON Lines",
+    "chunked transfer encoding"
    ]
   },
   {
@@ -394,7 +539,7 @@
    "level": 3,
    "minutes": 11,
    "summary": "Tune connect/read/write/pool timeouts, connection pool Limits and transport-level connect retries.",
-   "why": "Under load, the pool and timeout settings decide whether a service degrades gracefully or stalls.",
+   "why": "Under heavy load, the pool and timeout settings decide whether a service slows down gracefully or freezes.",
    "body": "`httpx.Timeout` has four parts:\n\n- **connect**: establishing the connection,\n- **read**: waiting for a chunk of data from the server,\n- **write**: sending a chunk of the request body,\n- **pool**: waiting to acquire a connection from the pool.\n\n`httpx.Timeout(10.0, connect=2.0)` sets 10 seconds everywhere except connect. You can pass a `Timeout` to a client and override it per request. As with most clients, read is per chunk, not a total deadline; for a total limit wrap the call with `asyncio.timeout()` in async code.\n\n`httpx.Limits` controls the pool:\n\n- `max_connections` (default 100): total concurrent connections,\n- `max_keepalive_connections` (default 20): idle connections kept for reuse,\n- `keepalive_expiry` (default 5 seconds): how long idle connections are kept.\n\nWhen all connections are busy, requests wait for one and raise `httpx.PoolTimeout` if the pool timeout expires. A `PoolTimeout` under load means your concurrency exceeds `max_connections`; either raise the limit or reduce concurrency.\n\nHTTPX has no built-in retry for HTTP statuses. `httpx.HTTPTransport(retries=3)` (and `AsyncHTTPTransport`) only retries **connection failures** (`ConnectError`, `ConnectTimeout`), which are always safe. For retrying 503s or 429s, write a small loop, a custom transport, or use a library such as `tenacity` or `stamina`.",
    "code": "import httpx\n\ntimeout = httpx.Timeout(10.0, connect=2.0, pool=1.0)\nprint(timeout)   # Timeout(connect=2.0, read=10.0, write=10.0, pool=1.0)\n\nlimits = httpx.Limits(max_connections=1, max_keepalive_connections=1)\ntransport = httpx.HTTPTransport(retries=2, limits=limits)  # connect retries only\n\nwith httpx.Client(transport=transport, timeout=timeout,\n                  base_url=\"https://httpbin.org\") as client:\n    with client.stream(\"GET\", \"/bytes/10\"):           # holds the only connection\n        try:\n            client.get(\"/get\")                         # must wait for the pool\n        except httpx.PoolTimeout:\n            print(\"pool exhausted\")                    # pool exhausted\n    print(client.get(\"/get\").status_code)              # 200 (connection free again)",
    "code_lang": "python",
@@ -433,7 +578,7 @@
    "minutes": 12,
    "summary": "Write httpx.Auth classes with generator-based auth_flow for token refresh or signing, and use event hooks for logging.",
    "why": "Real APIs need token refresh and request signing, and services need consistent logging of every call.",
-   "body": "Simple auth works like Requests: `auth=(\"user\", \"pass\")` for Basic, `httpx.DigestAuth(...)` for Digest. For anything more, subclass `httpx.Auth` and implement `auth_flow(self, request)` as a **generator**:\n\n- modify the request (add a header) and `yield` it,\n- the yield expression returns the response,\n- optionally inspect it and yield another request (for example after refreshing a token on a 401).\n\nBecause the flow is a generator, the same class works for both `Client` and `AsyncClient`, as long as it does no I/O of its own. If the flow must make its own HTTP calls (fetching a token), implement `sync_auth_flow` and `async_auth_flow` separately. Set `requires_response_body = True` if the flow reads the response body, or `requires_request_body = True` for signing schemes that hash the body.\n\n**Event hooks** run on every request or response of a client:\n\n```python\nhttpx.Client(event_hooks={\"request\": [log_request], \"response\": [log_response]})\n```\n\nRequest hooks receive the `Request` just before sending; response hooks receive the `Response` after headers arrive, before the body is read, so call `response.read()` inside the hook if you need the body. A response hook calling `response.raise_for_status()` makes every error status raise for that client. With `AsyncClient`, hooks must be async functions.",
+   "body": "Simple schemes take one argument: `auth=(\"user\", \"pass\")` for Basic auth, `httpx.DigestAuth(...)` for Digest (an older password scheme). For anything more, subclass `httpx.Auth` and write its `auth_flow(self, request)` method, the **auth flow**, as a generator:\n\n- modify the request (add a header) and `yield` it,\n- HTTPX sends it and passes the response back in, as the value of the `yield` expression,\n- optionally inspect it and yield another request (for example after refreshing a token on a 401).\n\nBecause the flow is a generator, the same class works for both `Client` and `AsyncClient`, as long as it does no I/O of its own. If the flow must make its own HTTP calls (fetching a token), implement `sync_auth_flow` and `async_auth_flow` separately. Set `requires_response_body = True` if the flow reads the response body, or `requires_request_body = True` for signing schemes that hash the body.\n\n**Event hooks** are functions a client runs automatically on every request or every response:\n\n```python\nhttpx.Client(event_hooks={\"request\": [log_request], \"response\": [log_response]})\n```\n\nRequest hooks receive the `Request` just before sending; response hooks receive the `Response` after headers arrive, before the body is read, so call `response.read()` inside the hook if you need the body. A response hook calling `response.raise_for_status()` makes every error status raise for that client. With `AsyncClient`, hooks must be async functions.",
    "code": "import httpx\n\nclass RefreshingToken(httpx.Auth):\n    def __init__(self):\n        self.token = \"expired\"\n    def auth_flow(self, request):\n        request.headers[\"Authorization\"] = f\"Bearer {self.token}\"\n        response = yield request             # send and get the response back\n        if response.status_code == 401:\n            self.token = \"fresh\"             # pretend we refreshed it\n            request.headers[\"Authorization\"] = f\"Bearer {self.token}\"\n            yield request                    # retry once\n\ndef handler(request):\n    ok = request.headers[\"Authorization\"] == \"Bearer fresh\"\n    return httpx.Response(200 if ok else 401, json={\"ok\": ok})\n\nlog = []\nclient = httpx.Client(\n    transport=httpx.MockTransport(handler), auth=RefreshingToken(),\n    event_hooks={\"response\": [lambda r: log.append(r.status_code)]})\nprint(client.get(\"https://api.test/me\").json())   # {'ok': True}\nprint(log)                                       # [401, 200]",
    "code_lang": "python",
    "takeaways": [
@@ -461,7 +606,12 @@
    "requires": [
     "httpx.mock-transport",
     "httpx.async-client",
-    "python.generators-advanced"
+    "python.generators-advanced",
+    "http.auth"
+   ],
+   "defines": [
+    "auth flow",
+    "event hook"
    ]
   },
   {
@@ -470,15 +620,15 @@
    "module": "config",
    "level": 3,
    "minutes": 11,
-   "summary": "Enable HTTP/2, route traffic through proxies with proxy= and mounts=, and configure certificate verification with SSL contexts.",
-   "why": "These connection-level options matter for performance against modern APIs and for corporate networks.",
-   "body": "**HTTP/2** needs an extra dependency: `pip install \"httpx[http2]\"` (it pulls in `h2`). Then create a client with `http2=True`. HTTPX negotiates the protocol during the TLS handshake (ALPN) and falls back to HTTP/1.1 if the server does not support it; check `r.http_version`. The benefit is **multiplexing**: many concurrent requests share one connection, which mostly matters with `AsyncClient` and many parallel requests to one host. For sequential requests the gain is small.\n\n**Proxies**: since 0.28 use `proxy=\"http://user:pass@proxy:8080\"` for all traffic. For per-scheme or per-host routing, pass `mounts=` mapping URL patterns to transports:\n\n```python\nmounts={\"https://\": httpx.HTTPTransport(proxy=\"http://corp:3128\"),\n        \"https://internal.example.com\": httpx.HTTPTransport()}\n```\n\nThe most specific pattern wins. SOCKS proxies need `httpx[socks]`. Environment variables `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` are honoured while `trust_env=True`.\n\n**TLS**: verification is on and uses `certifi` by default. The recommended way to customise it is an `ssl.SSLContext`, e.g. `ssl.create_default_context(cafile=\"corp-ca.pem\")` or one built with `truststore` to use the operating system's store, passed as `verify=ctx`. Client certificates are loaded into the context with `ctx.load_cert_chain(...)`. Older `verify=\"path\"` and `cert=` arguments are deprecated. `SSL_CERT_FILE` and `SSL_CERT_DIR` are respected with `trust_env`.",
+   "summary": "Turn on HTTP/2, send traffic through proxies with proxy= and mounts=, and configure certificate checks with SSL contexts.",
+   "why": "These connection-level options matter for speed against modern APIs and for company networks.",
+   "body": "**HTTP/2** needs an extra dependency: `pip install \"httpx[http2]\"` (it pulls in `h2`). Then create a client with `http2=True`. HTTPX agrees on the protocol with the server during the TLS handshake (using ALPN) and falls back to HTTP/1.1 if the server doesn't support it; check `r.http_version`. The benefit is **multiplexing**: many requests in progress at once share one connection. That mostly matters with `AsyncClient` sending many requests to one host; for requests sent one after another the gain is small.\n\n**Proxies**: since 0.28, use `proxy=\"http://user:pass@proxy:8080\"` for all traffic. To choose a different transport (and so a different proxy, or none) by scheme or host, pass `mounts=`, which maps URL patterns to transports:\n\n```python\nmounts={\"https://\": httpx.HTTPTransport(proxy=\"http://corp:3128\"),\n        \"https://internal.example.com\": httpx.HTTPTransport()}\n```\n\nThe most specific pattern wins. SOCKS proxies, a more general kind, need `httpx[socks]`.\n\nWhile `trust_env=True`, HTTPX also reads **environment variables**: named settings the operating system hands to a program when it starts. The ones used here are `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY`.\n\n**TLS**: certificate checks are on and use the `certifi` package's list of trusted certificate authorities by default. The recommended way to change that is an `ssl.SSLContext`, Python's object for TLS settings. For example `ssl.create_default_context(cafile=\"corp-ca.pem\")` trusts your company's own certificate authority, or one built with `truststore` uses the operating system's list. Pass it as `verify=ctx`. Client certificates are loaded into the context with `ctx.load_cert_chain(...)`. The older `verify=\"path\"` and `cert=` arguments are deprecated. `SSL_CERT_FILE` and `SSL_CERT_DIR` are respected with `trust_env`.",
    "code": "import ssl\nimport httpx\n\n# HTTP/2 (requires: pip install \"httpx[http2]\")\n# with httpx.Client(http2=True) as c:\n#     print(c.get(\"https://www.python-httpx.org\").http_version)  # HTTP/2\n\nctx = ssl.create_default_context()        # e.g. cafile=\"corp-ca.pem\"\n# ctx.load_cert_chain(\"client.crt\", \"client.key\")   # mutual TLS\n\nclient = httpx.Client(\n    verify=ctx,\n    mounts={\n        \"https://\": httpx.HTTPTransport(verify=ctx, proxy=\"http://proxy.corp:3128\"),\n        \"https://internal.example.com\": httpx.HTTPTransport(verify=ctx),  # no proxy\n    },\n)\npick = client._transport_for_url          # private helper, for illustration only\nprint(pick(httpx.URL(\"https://internal.example.com/x\")) is pick(httpx.URL(\"https://example.org\")))\n# False: the internal host gets its own (unproxied) transport\nprint(ctx.verify_mode == ssl.CERT_REQUIRED)   # True\nclient.close()",
    "code_lang": "python",
    "takeaways": [
     "http2=True plus the http2 extra; check r.http_version",
-    "proxy= for one proxy, mounts= for per-scheme or per-host routing",
-    "Pass an ssl.SSLContext as verify= to customise CAs and client certs"
+    "proxy= for one proxy, mounts= to pick transports per scheme or host",
+    "Pass an ssl.SSLContext as verify= to change trusted certificate authorities and client certificates"
    ],
    "pitfalls": [
     "Using the removed proxies= argument from older HTTPX versions."
@@ -493,13 +643,19 @@
       "Requests to many different hosts"
      ],
      "answer": 2,
-     "explain": "Multiplexing lets many in-flight requests share one connection to a host."
+     "explain": "Multiplexing lets many requests in progress share one connection to a host."
     }
    ],
    "docs": "https://www.python-httpx.org/http2/",
    "requires": [
     "httpx.client",
-    "httpx.defaults"
+    "httpx.defaults",
+    "http.tcp-tls",
+    "http.http2-http3",
+    "httpx.mock-transport"
+   ],
+   "defines": [
+    "environment variable"
    ]
   },
   {
@@ -508,9 +664,9 @@
    "module": "transports",
    "level": 4,
    "minutes": 12,
-   "summary": "Use ASGITransport and WSGITransport to send real HTTP requests into a Python web app in-process, without a server.",
+   "summary": "Use ASGITransport and WSGITransport to send real HTTP requests straight into a Python web app inside your test, without a server.",
    "why": "This is how FastAPI and Starlette test clients work, and it makes end-to-end tests fast and network-free.",
-   "body": "A transport decides where requests go. Besides the network and mock transports, HTTPX ships two that call a Python web application **in the same process**:\n\n- `httpx.ASGITransport(app=asgi_app)` for async frameworks (FastAPI, Starlette, Quart, Django ASGI). Use it with `AsyncClient`.\n- `httpx.WSGITransport(app=wsgi_app)` for sync frameworks (Flask, Django WSGI). Use it with `Client`.\n\nThe request is converted to an ASGI scope and receive/send messages (or a WSGI environ), the app runs, and its output is turned into an `httpx.Response`. Everything above the transport, including redirects, cookies, auth and event hooks, works exactly as against a real server, which makes these tests faithful while staying fast.\n\nSince 0.28 you must pass the transport explicitly; the old `app=` shortcut on clients is gone:\n\n```python\nasync with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=\"http://test\") as c:\n```\n\nA `base_url` is still needed because requests need a host.\n\nThings to know:\n\n- `ASGITransport` does not run the app's **lifespan** events (startup/shutdown). Use a lifespan manager (e.g. `asgi-lifespan`) or the framework's test client if your app needs them.\n- `raise_app_exceptions=True` (the default) re-raises exceptions from the app instead of converting them to 500 responses, which gives better test failures.\n- Starlette's `TestClient` is itself built on HTTPX with a sync wrapper around the ASGI app.",
+   "body": "A transport decides where requests go. Besides the network and mock transports, HTTPX ships two that call a Python web application **inside your own program**, with no server and no network in between. Python web apps follow one of two standard shapes, so there is one transport for each:\n\n- `httpx.ASGITransport(app=asgi_app)` for **ASGI** apps, the async standard used by FastAPI, Starlette, Quart and Django in async mode. Use it with `AsyncClient`.\n- `httpx.WSGITransport(app=wsgi_app)` for **WSGI** apps, the older synchronous standard used by Flask and classic Django. Use it with `Client`.\n\nThe transport converts the request into the form the standard expects (for ASGI a `scope` dict plus messages, for WSGI an `environ` dict), runs the app, and turns its output into an `httpx.Response`. Everything above the transport, including redirects, cookies, auth and event hooks, works exactly as against a real server. So these tests are faithful while staying fast.\n\nSince 0.28 you must pass the transport explicitly; the old `app=` shortcut on clients is gone:\n\n```python\nasync with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=\"http://test\") as c:\n```\n\nA `base_url` is still needed, because every request needs a host, even a made-up one.\n\nThings to know:\n\n- `ASGITransport` does not run the app's **lifespan** steps (what it does once at start-up and shut-down, such as connecting to a database). Use a helper such as `asgi-lifespan`, or the framework's own test client, if your app needs them.\n- `raise_app_exceptions=True` (the default) re-raises exceptions from the app instead of turning them into 500 responses, which gives clearer test failures.\n- Starlette's `TestClient` is itself built on HTTPX, with a synchronous wrapper around the ASGI app.",
    "code": "import asyncio\nimport json\nimport httpx\n\nasync def asgi_app(scope, receive, send):          # a minimal ASGI app\n    body = json.dumps({\"path\": scope[\"path\"], \"method\": scope[\"method\"]}).encode()\n    await send({\"type\": \"http.response.start\", \"status\": 200,\n                \"headers\": [(b\"content-type\", b\"application/json\")]})\n    await send({\"type\": \"http.response.body\", \"body\": body})\n\ndef wsgi_app(environ, start_response):             # a minimal WSGI app\n    start_response(\"200 OK\", [(\"Content-Type\", \"text/plain\")])\n    return [f\"hello from {environ['PATH_INFO']}\".encode()]\n\nasync def main():\n    transport = httpx.ASGITransport(app=asgi_app)\n    async with httpx.AsyncClient(transport=transport, base_url=\"http://test\") as c:\n        print((await c.post(\"/items\")).json())     # {'path': '/items', 'method': 'POST'}\n\nasyncio.run(main())\nwith httpx.Client(transport=httpx.WSGITransport(app=wsgi_app), base_url=\"http://test\") as c:\n    print(c.get(\"/ping\").text)                     # hello from /ping",
    "code_lang": "python",
    "takeaways": [
@@ -519,7 +675,7 @@
     "ASGITransport doesn't run lifespan events"
    ],
    "pitfalls": [
-    "Expecting startup handlers (database connections) to run when testing through ASGITransport."
+    "Expecting start-up steps (like opening database connections) to run when testing through ASGITransport."
    ],
    "quiz": [
     {
@@ -538,6 +694,11 @@
    "requires": [
     "httpx.mock-transport",
     "httpx.async-client"
+   ],
+   "defines": [
+    "ASGI",
+    "WSGI",
+    "lifespan"
    ]
   },
   {
@@ -546,14 +707,14 @@
    "module": "transports",
    "level": 4,
    "minutes": 13,
-   "summary": "Implement BaseTransport.handle_request to add retries, caching or routing beneath the client, wrapping the default transport.",
-   "why": "Transports are the cleanest extension point in HTTPX for cross-cutting behaviour like status retries.",
-   "body": "A transport is any object implementing `handle_request(self, request) -> Response` (sync, `httpx.BaseTransport`) or `async handle_async_request(self, request)` (async, `httpx.AsyncBaseTransport`), plus optional `close()` / `aclose()`. Everything the client does, such as auth, redirects, cookies and hooks, happens above the transport, which only moves a single request to a single response.\n\nThe usual pattern is a **wrapping transport** that delegates to the real one:\n\n```python\nclass RetryTransport(httpx.BaseTransport):\n    def __init__(self, inner): self.inner = inner\n    def handle_request(self, request):\n        ...  # call self.inner.handle_request(request) in a loop\n```\n\nUses include retrying 429 and 503 responses with backoff, caching (`hishel` is built this way), request signing at the lowest level, metrics, and fault injection.\n\nDetails that matter:\n\n- The response from the inner transport has an **unread stream**. If you discard it (to retry), call `response.close()` first so the connection returns to the pool. If you need the body, call `response.read()`.\n- Request bodies that are generators can only be sent once; retrying requires a re-readable body (bytes).\n- Transports see each hop of a redirect separately, because redirects are handled by the client.\n- Mount different transports per URL pattern with `mounts=` to apply behaviour only to some hosts.\n\nTransports keep these concerns out of business code and out of auth or hook logic.",
+   "summary": "Implement BaseTransport.handle_request to add retries, caching or per-URL behaviour beneath the client, wrapping the default transport.",
+   "why": "Transports are the cleanest place in HTTPX for behaviour every request needs, like retrying error statuses.",
+   "body": "A transport is any object with a `handle_request(self, request) -> Response` method (sync, `httpx.BaseTransport`) or `async handle_async_request(self, request)` (async, `httpx.AsyncBaseTransport`), plus optional `close()` / `aclose()`. Everything else the client does, such as auth, redirects, cookies and hooks, happens above the transport, which only turns a single request into a single response.\n\nThe usual pattern is a **wrapping transport** that hands the work to the real one:\n\n```python\nclass RetryTransport(httpx.BaseTransport):\n    def __init__(self, inner): self.inner = inner\n    def handle_request(self, request):\n        ...  # call self.inner.handle_request(request) in a loop\n```\n\nUses include retrying 429 and 503 responses while waiting longer after each failure (exponential backoff), caching (`hishel` is built this way), signing requests at the lowest level, collecting measurements, and simulating failures in tests.\n\nDetails that matter:\n\n- The response from the inner transport comes with its body **not yet read**. If you throw it away (to retry), call `response.close()` first so the connection goes back to the pool. If you need the body, call `response.read()`.\n- Request bodies that are generators can be sent only once; retrying needs a body that can be read again (bytes).\n- Transports see each step of a redirect separately, because the client handles redirects.\n- Use different transports for different URL patterns with `mounts=`, to apply behaviour only to some hosts.\n\nTransports keep these concerns out of your application code and out of auth or hook logic.",
    "code": "import time\nimport httpx\n\nclass RetryTransport(httpx.BaseTransport):\n    def __init__(self, inner, retries=3, statuses=(429, 503)):\n        self.inner, self.retries, self.statuses = inner, retries, statuses\n    def handle_request(self, request):\n        for attempt in range(self.retries + 1):\n            response = self.inner.handle_request(request)\n            if response.status_code not in self.statuses or attempt == self.retries:\n                return response\n            response.close()                    # release the connection\n            time.sleep(0.05 * 2 ** attempt)     # exponential backoff\n    def close(self):\n        self.inner.close()\n\nattempts = []\ndef flaky(request):\n    attempts.append(1)\n    return httpx.Response(503 if len(attempts) < 3 else 200, text=\"done\")\n\nwith httpx.Client(transport=RetryTransport(httpx.MockTransport(flaky))) as c:\n    r = c.get(\"https://api.test/job\")\nprint(r.status_code, r.text, len(attempts))     # 200 done 3",
    "code_lang": "python",
    "takeaways": [
     "A transport turns one Request into one Response; client features sit above it",
-    "Wrap the default transport to add retries, caching or metrics",
+    "Wrap the default transport to add retries, caching or measurements",
     "Close discarded responses so connections return to the pool"
    ],
    "pitfalls": [
@@ -576,6 +737,9 @@
    "requires": [
     "httpx.asgi-wsgi",
     "httpx.timeouts-limits"
+   ],
+   "defines": [
+    "exponential backoff"
    ]
   },
   {
@@ -584,9 +748,9 @@
    "module": "transports",
    "level": 4,
    "minutes": 12,
-   "summary": "Understand how HTTPX layers over httpcore's connection pools, how async backends are chosen, and where performance goes.",
-   "why": "Diagnosing pool stalls, backend issues or overhead requires knowing what sits below the client API.",
-   "body": "HTTPX is a layered design:\n\n- **httpx** (the client layer): URL and header models, cookies, auth flows, redirects, event hooks, decoding, the sync and async client classes.\n- **httpcore** (the transport layer): connection pools, HTTP/1.1 via `h11` and HTTP/2 via `h2`, proxy tunnelling, socket and TLS handling. `HTTPTransport` and `AsyncHTTPTransport` are thin adapters that convert httpx requests into httpcore requests.\n\nhttpcore has parallel sync and async implementations of the pool and connections. The async code runs on **AnyIO**, so it works on asyncio and Trio; the backend is detected from the running event loop. The sync code uses blocking sockets and threads' own locks, so a sync `Client` can be shared between threads.\n\nConnection pooling works per origin: a request takes an idle connection or opens one (respecting `max_connections`), sends with h11 or h2, and returns the connection when the response body is fully read or closed. Unclosed streamed responses therefore leak pool capacity. With HTTP/2, one connection carries many concurrent streams up to the server's limit.\n\nPerformance notes: HTTPX does more per request than raw sockets (models, header validation, hooks), which matters only at thousands of requests per second; then reuse one client, avoid per-request client creation, and consider HTTP/2 or aiohttp for extreme throughput. Enable logging with `logging.getLogger(\"httpx\")` and `\"httpcore\"` at DEBUG level to see connection lifecycle events like `connect_tcp`, `start_tls` and `send_request_headers`.",
+   "summary": "Understand how HTTPX sits on httpcore's connection pools, how it picks an async library, and where time goes per request.",
+   "why": "Finding the cause of frozen pools, async-library problems or slow request handling requires knowing what sits below the client.",
+   "body": "HTTPX is built in two layers:\n\n- **httpx** (the client layer): URL and header objects, cookies, auth flows, redirects, event hooks, decompression, the sync and async client classes.\n- **httpcore** (the transport layer): connection pools, HTTP/1.1 via `h11` and HTTP/2 via `h2`, connecting through proxies, and the sockets and TLS underneath. `HTTPTransport` and `AsyncHTTPTransport` are thin adapters that convert httpx requests into httpcore requests.\n\nhttpcore has parallel sync and async versions of the pool and connections. The async code runs on **AnyIO**, so it works on asyncio and Trio; which one is used is detected from the running event loop. The sync code uses ordinary blocking sockets and locks that threads respect, so a sync `Client` can be shared between threads.\n\nPooling works per origin: a request takes an idle connection or opens one (respecting `max_connections`), sends with h11 or h2, and gives the connection back when the response body is fully read or closed. Streamed responses you never close therefore leak pool capacity. With HTTP/2, one connection carries many streams at once, up to the server's limit.\n\nPerformance: HTTPX does more work per request than raw sockets (building objects, checking headers, running hooks). That matters only at thousands of requests per second. Then reuse one client, never create a client per request, and consider HTTP/2, or aiohttp for extreme throughput.\n\nTo watch what happens, turn on Python's `logging` for the `\"httpx\"` and `\"httpcore\"` loggers at DEBUG level. You'll see each connection's life: `connect_tcp`, `start_tls`, `send_request_headers` and so on.",
    "code": "import logging\nimport httpx\n\nlogging.basicConfig(format=\"%(name)s %(message)s\")\nlogging.getLogger(\"httpcore\").setLevel(logging.DEBUG)   # connection-level events\nlogging.getLogger(\"httpx\").setLevel(logging.INFO)       # one line per request\n\nwith httpx.Client(base_url=\"https://httpbin.org\") as client:\n    client.get(\"/get\")      # httpcore.connection connect_tcp.started ...\n    client.get(\"/get\")      # no connect_tcp: the pooled connection is reused\n    pool = client._transport._pool                      # the httpcore pool\n    print(type(pool).__module__.split(\".\")[0], len(pool.connections))  # httpcore 1",
    "code_lang": "python",
    "takeaways": [
@@ -595,7 +759,7 @@
     "DEBUG logging on httpcore shows connection reuse and TLS setup"
    ],
    "pitfalls": [
-    "Relying on private attributes like client._transport in production code (fine for debugging only)."
+    "Relying on private attributes like client._transport in real application code (fine for investigating only)."
    ],
    "quiz": [
     {

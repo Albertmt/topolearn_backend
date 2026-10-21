@@ -43,6 +43,88 @@
    "name": "Low-level interfaces"
   }
  ],
+ "glossary": [
+  {
+   "term": "child process",
+   "aliases": [
+    "child processes",
+    "parent process",
+    "parent processes"
+   ],
+   "def": "A program started by another running program (its parent). It receives a copy of the parent's environment variables when it starts."
+  },
+  {
+   "term": "signal",
+   "aliases": [
+    "signals",
+    "signal handler",
+    "signal handlers"
+   ],
+   "def": "A short message the operating system sends to a running program, such as 'please stop' or 'the user pressed Ctrl+C'. The program can react to some signals; others end it at once."
+  },
+  {
+   "term": "command injection",
+   "aliases": [
+    "shell injection"
+   ],
+   "def": "An attack where outside text (a file name, a form field) is pasted into a shell command and the shell runs part of it as an extra command of the attacker's choosing."
+  },
+  {
+   "term": "DirEntry",
+   "case": true,
+   "aliases": [
+    "DirEntries"
+   ],
+   "def": "The object os.scandir gives for each item in a folder: its name, full path, whether it's a file or folder, and its size and dates on request."
+  },
+  {
+   "term": "octal",
+   "def": "Writing numbers in base 8 (digits 0 to 7). Python writes them with the prefix 0o, as in 0o644; file permissions are usually given this way."
+  },
+  {
+   "term": "umask",
+   "def": "A per-process setting listing permissions that newly created files and folders should NOT get; typically 0o022, which removes write permission for everyone but the owner."
+  },
+  {
+   "term": "fsync",
+   "def": "Asking the operating system to write a file's data all the way to the disk now, instead of keeping it in memory to write later."
+  },
+  {
+   "term": "fork",
+   "aliases": [
+    "forks",
+    "forking",
+    "forked"
+   ],
+   "def": "On Linux and macOS, making a new process by copying the running one: the copy (the child) starts with everything the original had in memory."
+  },
+  {
+   "term": "exec",
+   "def": "On Linux and macOS, the step that replaces the program running in a process with a different program, keeping the same process ID."
+  },
+  {
+   "term": "zombie process",
+   "aliases": [
+    "zombie processes",
+    "zombie",
+    "zombies"
+   ],
+   "def": "A finished child process whose parent hasn't yet waited for it; the operating system keeps an empty entry for it only so the parent can read its exit code."
+  },
+  {
+   "term": "surrogateescape",
+   "def": "Python's way of handling file names that aren't valid text: each bad byte becomes a special placeholder character, so the exact original bytes can be recovered later."
+  },
+  {
+   "term": "filesystem encoding",
+   "def": "The encoding Python uses to turn file names into bytes and back (UTF-8 on modern Linux and macOS); see sys.getfilesystemencoding()."
+  },
+  {
+   "term": "PathLike",
+   "case": true,
+   "def": "Any Python object with an __fspath__() method that returns a path as str or bytes; open() and the os functions accept such objects, pathlib.Path among them."
+  }
+ ],
  "concepts": [
   {
    "id": "py-os.overview",
@@ -50,15 +132,15 @@
    "module": "basics",
    "level": 1,
    "minutes": 7,
-   "summary": "What the os module is for, how it stays portable, and how the current working directory affects relative paths.",
-   "why": "Every relative path your program opens is resolved against the working directory, which is a common source of 'file not found' bugs.",
-   "body": "The **os** module is the standard library's thin layer over the operating system. It wraps system calls such as `getcwd`, `mkdir` and `stat` in Python functions, so the same code runs on Linux, macOS and Windows. Functions that only exist on some systems are documented with an \"Availability\" note, for example `os.fork` (Unix only).\n\nA few portable facts tell you where you are:\n\n- `os.name` is `'posix'` on Linux and macOS, `'nt'` on Windows.\n- `os.sep` is the path separator (`/` or `\\`), `os.linesep` the line ending.\n- `os.getcwd()` returns the **current working directory** (cwd).\n\nThe cwd is process-wide state. Any relative path you pass to `open()`, `os.listdir()` and friends is resolved against it, and it is whatever directory the user launched the program from, not the directory your script lives in. `os.chdir(path)` changes it for the whole process, including every thread.\n\nThat is why robust scripts build paths from a known base instead of relying on the cwd: for files shipped next to your code, start from `os.path.dirname(os.path.abspath(__file__))`, or `pathlib.Path(__file__).parent`.\n\nImport it with a plain `import os`. Avoid `from os import *`: it would shadow the built-in `open` with the low-level `os.open`, which behaves completely differently.",
-   "code": "import os\n\nprint(os.name in (\"posix\", \"nt\"))   # True\nstart = os.getcwd()\nprint(os.path.isabs(start))          # True\n\nos.mkdir(\"sub\")\nos.chdir(\"sub\")                      # changes cwd for the whole process\nprint(os.path.basename(os.getcwd())) # sub\nopen(\"note.txt\", \"w\").close()        # relative: created inside sub/\nos.chdir(start)\nprint(os.path.exists(\"sub/note.txt\"))  # True",
+   "summary": "What the os module is for, and how the current working directory decides where relative file paths point.",
+   "why": "Every relative path your program opens is looked up from the working directory, a common source of 'file not found' bugs.",
+   "body": "Every program runs on top of an **operating system** (OS): Windows, macOS or Linux, the software that manages files, folders and running programs. The **os** module is the standard library's thin layer over it.\n\nEach OS offers its own low-level functions; `os` wraps them in Python functions, so the same code runs on Linux, macOS and Windows. Functions that only exist on some systems carry an \"Availability\" note in the docs, for example `os.fork` (Linux and macOS only).\n\nA few facts tell you where you are:\n\n- `os.name` is `'posix'` on Linux and macOS, `'nt'` on Windows.\n- `os.sep` is the character between folder names in a path (`/` or `\\`), `os.linesep` the line ending.\n- `os.getcwd()` returns the **current working directory** (cwd): the folder your program is \"in\". (A **directory** is another word for a folder.)\n\nA path like `notes.txt` or `data/notes.txt`, which doesn't start from the top of the disk, is a **relative path**: Python looks it up starting from the cwd. A path that starts from the top, like `/home/ann/notes.txt` or `C:\\Users\\ann\\notes.txt`, is an **absolute path** and means the same file wherever you are.\n\nThe running program is called a **process**, and it has one cwd, shared by all its code. `open()`, `os.listdir()` and friends look up relative paths from it. It's whichever folder the user started the program from, not the folder your script lives in. `os.chdir(path)` changes it for the whole process.\n\nThat's why sturdy scripts build paths from a known starting point instead of relying on the cwd. For files shipped next to your code, start from `os.path.dirname(os.path.abspath(__file__))`: `__file__` is your script's own path, and the rest turns it into the absolute path of its folder.\n\nImport the module with a plain `import os`. Avoid `from os import *`: it would hide the built-in `open` behind `os.open`, a low-level function that behaves completely differently.",
+   "code": "import os\n\nprint(os.name in (\"posix\", \"nt\"))   # True\nstart = os.getcwd()\nprint(os.path.isabs(start))          # True: the cwd is an absolute path\n\nos.mkdir(\"sub\")                      # make a folder called sub\nos.chdir(\"sub\")                      # changes cwd for the whole process\nprint(os.path.basename(os.getcwd())) # sub  (last part of the path)\nopen(\"note.txt\", \"w\").close()        # relative: created inside sub/\nos.chdir(start)\nprint(os.path.exists(\"sub/note.txt\"))  # True",
    "code_lang": "python",
    "takeaways": [
-    "`os` wraps operating-system calls in portable Python functions",
-    "Relative paths resolve against the current working directory, not the script's folder",
-    "`os.chdir` affects the whole process, so prefer absolute paths built from a known base"
+    "`os` wraps operating-system functions in Python functions that work everywhere",
+    "Relative paths are looked up from the current working directory, not the script's folder",
+    "`os.chdir` affects the whole process, so prefer absolute paths built from a known starting point"
    ],
    "pitfalls": [
     "Assuming a data file next to the script can be opened by its bare name; it depends on where the program was started."
@@ -73,12 +155,20 @@
       "It raises an error because the path is relative"
      ],
      "answer": 2,
-     "explain": "Relative paths are resolved against the current working directory, which is where the program was launched."
+     "explain": "Relative paths are looked up from the current working directory, which is where the program was started."
     }
    ],
    "docs": "https://docs.python.org/3/library/os.html#os.getcwd",
    "requires": [
     "python.modules-imports"
+   ],
+   "defines": [
+    "operating system",
+    "directory",
+    "working directory",
+    "relative path",
+    "absolute path",
+    "process"
    ]
   },
   {
@@ -87,18 +177,18 @@
    "module": "basics",
    "level": 1,
    "minutes": 8,
-   "summary": "Read, set and remove environment variables with os.environ and os.getenv, and understand what child processes see.",
-   "why": "Configuration such as API keys, ports and feature flags is usually passed to programs through environment variables.",
-   "body": "`os.environ` is a dict-like mapping of the process's **environment variables**, captured when Python starts. Keys and values are always strings.\n\n- `os.environ[\"HOME\"]` raises `KeyError` if the variable is missing.\n- `os.environ.get(\"PORT\", \"8000\")` or `os.getenv(\"PORT\", \"8000\")` return a default instead.\n- Assigning `os.environ[\"MODE\"] = \"test\"` updates the mapping and the real process environment, so **child processes** started afterwards (with `subprocess`) inherit it.\n- `del os.environ[\"MODE\"]` or `os.environ.pop(\"MODE\", None)` removes it.\n\nBecause values are strings, convert explicitly: `int(os.environ.get(\"WORKERS\", \"4\"))`. Booleans need care: `bool(\"0\")` is `True`, so compare against accepted spellings like `{\"1\", \"true\", \"yes\"}`.\n\nChanges only affect the current process and its future children. A Python program can never change the environment of the shell that started it.\n\nOn Windows, keys are case-insensitive (`PATH` and `Path` are the same variable). On POSIX they are case-sensitive.\n\nPrefer `os.environ` over the low-level `os.putenv`/`os.unsetenv`: those change the real environment but do not update `os.environ`, so later reads disagree.",
-   "code": "import os\nimport subprocess\nimport sys\n\nprint(os.environ.get(\"APP_MODE\", \"dev\"))   # dev\nos.environ[\"APP_MODE\"] = \"test\"\nprint(os.getenv(\"APP_MODE\"))               # test\n\n# children inherit the modified environment\ncode = \"import os; print(os.environ['APP_MODE'])\"\nout = subprocess.run([sys.executable, \"-c\", code], capture_output=True, text=True)\nprint(out.stdout.strip())                  # test\n\nworkers = int(os.environ.get(\"WORKERS\", \"4\"))\ndebug = os.environ.get(\"DEBUG\", \"0\").lower() in {\"1\", \"true\", \"yes\"}\nprint(workers, debug)                      # 4 False\ndel os.environ[\"APP_MODE\"]\nprint(\"APP_MODE\" in os.environ)            # False",
+   "summary": "Read, set and remove environment variables with os.environ and os.getenv, and see what the programs you start receive.",
+   "why": "Settings such as passwords for online services, which address to use and on/off switches are usually passed to programs through environment variables.",
+   "body": "When a program starts, the operating system hands it a set of named text settings called **environment variables**, such as `HOME` (your **home directory**, your personal folder) or `PATH` (the folders where programs are looked for). They let you configure a program without changing its code.\n\n`os.environ` is a dict-like object holding your process's environment variables, read when Python starts. Keys and values are always strings.\n\n- `os.environ[\"HOME\"]` raises `KeyError` if the variable is missing.\n- `os.environ.get(\"PORT\", \"8000\")` or `os.getenv(\"PORT\", \"8000\")` return a default instead.\n- Assigning `os.environ[\"MODE\"] = \"test\"` updates the real environment too, so programs your script starts afterwards (its **child processes**, for example started with the `subprocess` module) receive it.\n- `del os.environ[\"MODE\"]` or `os.environ.pop(\"MODE\", None)` removes it.\n\nBecause values are strings, convert them yourself: `int(os.environ.get(\"WORKERS\", \"4\"))`. True/False settings need care: `bool(\"0\")` is `True`, so compare against accepted spellings like `{\"1\", \"true\", \"yes\"}`.\n\nChanges only affect the current process and the programs it starts later. A Python program can never change the environment of the **shell** that started it (the program in your terminal that reads the commands you type).\n\nOn Windows, names are case-insensitive (`PATH` and `Path` are the same variable). On Linux and macOS they are case-sensitive.\n\nPrefer `os.environ` over the low-level `os.putenv` / `os.unsetenv`: those change the real environment but do not update `os.environ`, so later reads disagree.",
+   "code": "import os\nimport subprocess\nimport sys\n\nprint(os.environ.get(\"APP_MODE\", \"dev\"))   # dev\nos.environ[\"APP_MODE\"] = \"test\"\nprint(os.getenv(\"APP_MODE\"))               # test\n\n# a child process (here: another Python) receives the changed environment\ncode = \"import os; print(os.environ['APP_MODE'])\"\nout = subprocess.run([sys.executable, \"-c\", code], capture_output=True, text=True)\nprint(out.stdout.strip())                  # test\n\nworkers = int(os.environ.get(\"WORKERS\", \"4\"))\ndebug = os.environ.get(\"DEBUG\", \"0\").lower() in {\"1\", \"true\", \"yes\"}\nprint(workers, debug)                      # 4 False\ndel os.environ[\"APP_MODE\"]\nprint(\"APP_MODE\" in os.environ)            # False",
    "code_lang": "python",
    "takeaways": [
-    "`os.environ` is a str-to-str mapping; use `.get` with a default for optional settings",
-    "Assigning to `os.environ` affects this process and children started later",
+    "`os.environ` maps strings to strings; use `.get` with a default for optional settings",
+    "Assigning to `os.environ` affects this process and programs it starts later",
     "Convert values yourself; `bool('0')` is True"
    ],
    "pitfalls": [
-    "Expecting a script to change the parent shell's environment; that is impossible from a child process."
+    "Expecting a script to change the environment of the shell that started it; a child process can't do that."
    ],
    "quiz": [
     {
@@ -115,7 +205,14 @@
    ],
    "docs": "https://docs.python.org/3/library/os.html#os.environ",
    "requires": [
+    "py-os.overview",
     "python.dicts"
+   ],
+   "defines": [
+    "environment variable",
+    "home directory",
+    "child process",
+    "shell"
    ]
   },
   {
@@ -124,19 +221,19 @@
    "module": "paths-dirs",
    "level": 1,
    "minutes": 10,
-   "summary": "Join, split and normalise path strings portably with os.path, and test whether paths exist.",
-   "why": "Gluing paths together with string concatenation breaks across platforms and on edge cases os.path already handles.",
-   "body": "`os.path` is a submodule of string functions for paths. It works with plain `str` (or `bytes`) values and uses the right rules for the current platform.\n\n- `os.path.join(\"data\", \"2024\", \"a.csv\")` inserts the separator. If a later part is absolute, earlier parts are discarded: `join(\"data\", \"/etc\")` is `\"/etc\"`.\n- `os.path.split(p)` returns `(head, tail)`; `dirname` and `basename` give each half.\n- `os.path.splitext(\"a.tar.gz\")` gives `(\"a.tar\", \".gz\")`: only the last extension.\n- `os.path.abspath(p)` makes a path absolute against the cwd; `normpath` collapses `a/./b/../c` to `a/c`; `realpath` also resolves symbolic links.\n- `os.path.expanduser(\"~/x\")` expands the home directory.\n\nQueries touch the file system:\n\n- `exists(p)`, `isfile(p)`, `isdir(p)`, `islink(p)`\n- `getsize(p)` and `getmtime(p)` (size in bytes, modification time as a timestamp)\n\n`exists` returns `False` for broken symlinks and for paths you lack permission to inspect, and the answer can change right after you ask. For files you are about to open, it is often cleaner to just try and catch `FileNotFoundError`.\n\nIn new code, `pathlib.Path` offers the same operations as methods on path objects. `os.path` remains everywhere in existing code, and every `os` function accepts both strings and `Path` objects.",
+   "summary": "Join, split and tidy up file paths with os.path, in a way that works on every system, and check whether paths exist.",
+   "why": "Gluing paths together with + breaks on other systems and in awkward cases that os.path already handles.",
+   "body": "`os.path` is the part of `os` with functions for paths stored as strings. It uses the right rules for the system you're on (`/` or `\\` between folders, and so on).\n\n- `os.path.join(\"data\", \"2024\", \"a.csv\")` puts the separator between parts. If a later part is absolute, the earlier parts are thrown away: `join(\"data\", \"/etc\")` is `\"/etc\"`.\n- `os.path.split(p)` returns `(folder, last part)`; `dirname` and `basename` give each half.\n- `os.path.splitext(\"a.tar.gz\")` gives `(\"a.tar\", \".gz\")`: only the last extension.\n- `os.path.abspath(p)` turns a path into an absolute one using the cwd; `normpath` tidies `a/./b/../c` into `a/c`; `realpath` also follows **symbolic links** (special files that point to another file or folder, like shortcuts).\n- `os.path.expanduser(\"~/x\")` replaces `~` with your **home directory**, your personal folder.\n\nThese functions actually look at the disk:\n\n- `exists(p)`, `isfile(p)`, `isdir(p)`, `islink(p)`\n- `getsize(p)` and `getmtime(p)` (size in bytes, and the time of the last change as a number of seconds)\n\n`exists` returns `False` for symbolic links whose target is gone and for paths you aren't allowed to look at, and the answer can change right after you ask. For files you are about to open, it's often cleaner to just try and catch `FileNotFoundError`.\n\nIn newer code, `pathlib.Path` offers the same operations as methods on path objects. `os.path` is still everywhere in existing code, and every `os` function accepts both strings and `Path` objects.",
    "code": "import os.path as p\n\npath = p.join(\"data\", \"2024\", \"sales.tar.gz\")\nprint(path)                       # data/2024/sales.tar.gz\nprint(p.split(path))              # ('data/2024', 'sales.tar.gz')\nprint(p.splitext(path)[1])        # .gz\nprint(p.join(\"data\", \"/etc\"))     # /etc\nprint(p.normpath(\"a/./b/../c\"))   # a/c\nprint(p.isabs(p.abspath(\"x\")))    # True\nprint(p.exists(\"no/such/file\"))   # False\nprint(p.expanduser(\"~\") != \"~\")   # True",
    "code_lang": "python",
    "takeaways": [
-    "`os.path.join` adds separators and restarts at any absolute component",
+    "`os.path.join` adds separators and starts over at any absolute part",
     "`splitext` splits off only the last extension",
-    "`exists`/`isfile`/`isdir` hit the file system; the string functions do not"
+    "`exists`/`isfile`/`isdir` look at the disk; the string functions do not"
    ],
    "pitfalls": [
-    "Writing `base + '/' + name`; use `os.path.join` so separators and edge cases are handled.",
-    "Passing user input as a later `join` argument; an absolute value silently replaces your base directory."
+    "Writing `base + '/' + name`; use `os.path.join` so separators and awkward cases are handled.",
+    "Passing text a user typed as a later `join` argument; an absolute value silently replaces your starting folder."
    ],
    "quiz": [
     {
@@ -148,13 +245,17 @@
       "'/etc/passwd'"
      ],
      "answer": 3,
-     "explain": "An absolute component makes join discard everything before it, a classic path-traversal trap."
+     "explain": "An absolute part makes join throw away everything before it, a classic trap when part of a path comes from a user."
     }
    ],
    "docs": "https://docs.python.org/3/library/os.path.html",
    "requires": [
     "py-os.overview",
     "python.strings"
+   ],
+   "defines": [
+    "symbolic link",
+    "home directory"
    ]
   },
   {
@@ -165,16 +266,16 @@
    "minutes": 7,
    "summary": "List what a directory contains with os.listdir and filter the entries into files and subdirectories.",
    "why": "Processing 'every file in a folder' is one of the most common scripting tasks.",
-   "body": "`os.listdir(path=\".\")` returns a list of the **names** (not full paths) of the entries in a directory, in arbitrary order. It includes hidden files such as `.env` but not the special entries `.` and `..`.\n\nBecause you get bare names, join them with the directory before using them:\n\n```python\nfor name in os.listdir(folder):\n    full = os.path.join(folder, name)\n```\n\nTo keep only files, test each one with `os.path.isfile(full)`; for directories, `os.path.isdir(full)`. Sort the list if you need a stable order, since the operating system makes no promise.\n\nTo match a pattern such as `*.csv`, either filter names with `name.endswith(\".csv\")`, use `fnmatch.fnmatch(name, \"*.csv\")`, or use the `glob` module: `glob.glob(\"data/*.csv\")` returns matching paths (already joined), and `glob.glob(\"**/*.py\", recursive=True)` searches subfolders.\n\n`os.listdir` raises `FileNotFoundError` for a missing directory, `NotADirectoryError` for a file, and `PermissionError` when you cannot read it.\n\nFor large directories, or when you also need each entry's type or size, `os.scandir` is faster because it avoids an extra system call per entry. For whole trees, use `os.walk`.",
+   "body": "`os.listdir(path=\".\")` returns a list of the **names** (not full paths) of everything in a directory, in no particular order. It includes **hidden files**, whose names start with a dot (such as `.env`), but not the special names `.` (this folder) and `..` (the folder above).\n\nBecause you get bare names, join each one with the folder before using it:\n\n```python\nfor name in os.listdir(folder):\n    full = os.path.join(folder, name)\n```\n\nTo keep only files, test each one with `os.path.isfile(full)`; for folders, `os.path.isdir(full)`. Sort the list if you need the same order every time, since the operating system makes no promise.\n\nTo match a pattern such as `*.csv` (every name ending in .csv), filter names with `name.endswith(\".csv\")`, use `fnmatch.fnmatch(name, \"*.csv\")`, or use the `glob` module: `glob.glob(\"data/*.csv\")` returns matching paths (already joined), and `glob.glob(\"**/*.py\", recursive=True)` also searches subfolders.\n\n`os.listdir` raises `FileNotFoundError` for a missing folder, `NotADirectoryError` for a file, and `PermissionError` when you aren't allowed to read it.\n\nFor large folders, or when you also need each entry's type or size, `os.scandir` is faster, because it doesn't have to ask the operating system again about every entry. For whole trees of folders, use `os.walk`. Both have their own lessons.",
    "code": "import glob\nimport os\n\nos.makedirs(\"data/old\")\nfor name in [\"b.csv\", \"a.csv\", \"notes.txt\"]:\n    open(os.path.join(\"data\", name), \"w\").close()\n\nprint(sorted(os.listdir(\"data\")))   # ['a.csv', 'b.csv', 'notes.txt', 'old']\nfiles = sorted(n for n in os.listdir(\"data\")\n               if os.path.isfile(os.path.join(\"data\", n)))\nprint(files)                        # ['a.csv', 'b.csv', 'notes.txt']\nprint(sorted(glob.glob(\"data/*.csv\")))  # ['data/a.csv', 'data/b.csv']\ntry:\n    os.listdir(\"missing\")\nexcept FileNotFoundError as e:\n    print(type(e).__name__)         # FileNotFoundError",
    "code_lang": "python",
    "takeaways": [
-    "`os.listdir` returns bare names in arbitrary order; join and sort as needed",
-    "Filter with `os.path.isfile`/`isdir`, or match patterns with `glob`",
-    "Use `scandir` or `walk` for speed or recursion"
+    "`os.listdir` returns bare names in no fixed order; join and sort as needed",
+    "Filter with `os.path.isfile`/`isdir`, or find names like `*.csv` with `glob`",
+    "Use `scandir` for speed and `walk` for whole trees"
    ],
    "pitfalls": [
-    "Calling `os.path.isfile(name)` on the bare name; it is checked against the cwd, not the listed folder."
+    "Calling `os.path.isfile(name)` on the bare name; it is looked up from the cwd, not the listed folder."
    ],
    "quiz": [
     {
@@ -192,6 +293,9 @@
    "docs": "https://docs.python.org/3/library/os.html#os.listdir",
    "requires": [
     "py-os.os-path"
+   ],
+   "defines": [
+    "hidden file"
    ]
   },
   {
@@ -201,17 +305,17 @@
    "level": 2,
    "minutes": 9,
    "summary": "Create directory trees, rename or move entries, and delete files and folders safely.",
-   "why": "Setup and cleanup code (output folders, temp files, rotations) depends on getting these calls and their errors right.",
-   "body": "Directories:\n\n- `os.mkdir(p)` creates one directory and fails if the parent is missing or `p` exists.\n- `os.makedirs(p, exist_ok=True)` creates all missing parents and does nothing if `p` already exists. This is the idiom for \"ensure the output folder exists\".\n- `os.rmdir(p)` removes an **empty** directory; `os.removedirs` also removes empty parents.\n- For a non-empty tree, use `shutil.rmtree(p)`. It deletes without asking, so double-check the path.\n\nFiles:\n\n- `os.remove(p)` (alias `os.unlink`) deletes a file. It raises `IsADirectoryError` or `PermissionError` for a directory, depending on the platform.\n- `os.rename(src, dst)` renames or moves within one file system. On Windows it fails if `dst` exists.\n- `os.replace(src, dst)` does the same but overwrites `dst` on every platform, and on POSIX the swap is **atomic**.\n- To move across file systems or copy, use `shutil.move` and `shutil.copy2`.\n\nErrors are specific `OSError` subclasses: `FileExistsError`, `FileNotFoundError`, `PermissionError`, `IsADirectoryError`, `NotADirectoryError`. Catch the one you expect rather than a bare `OSError`, and prefer \"try it and handle the error\" over checking `exists` first, which races with other processes.",
+   "why": "Setup and clean-up code (output folders, temporary files, old logs) depends on getting these calls and their errors right.",
+   "body": "Directories:\n\n- `os.mkdir(p)` creates one directory and fails if its parent is missing or `p` already exists.\n- `os.makedirs(p, exist_ok=True)` creates all missing parent folders and does nothing if `p` already exists. This is the idiom for \"make sure the output folder exists\".\n- `os.rmdir(p)` removes an **empty** directory; `os.removedirs` also removes parents that become empty.\n- For a folder with contents, use `shutil.rmtree(p)`. It deletes everything without asking, so double-check the path.\n\nFiles:\n\n- `os.remove(p)` (also called `os.unlink`) deletes a file. For a directory it raises `IsADirectoryError` or `PermissionError`, depending on the system.\n- `os.rename(src, dst)` renames or moves within one **file system** (roughly, one disk or drive). On Windows it fails if `dst` exists.\n- `os.replace(src, dst)` does the same but overwrites `dst` on every system, and on Linux and macOS the swap is **atomic**: anyone looking sees either the old file or the new one, never something in between.\n- To move between drives, or to copy, use `shutil.move` and `shutil.copy2`.\n\nErrors are specific kinds of `OSError`: `FileExistsError`, `FileNotFoundError`, `PermissionError`, `IsADirectoryError`, `NotADirectoryError`. Catch the one you expect rather than all of `OSError`. And prefer \"try it and handle the error\" over checking `exists` first: another program can create or delete the file between your check and your action.",
    "code": "import os\nimport shutil\n\nos.makedirs(\"out/2024/q1\", exist_ok=True)\nos.makedirs(\"out/2024/q1\", exist_ok=True)   # no error the second time\nwith open(\"out/draft.txt\", \"w\") as f:\n    f.write(\"v1\")\n\nos.replace(\"out/draft.txt\", \"out/final.txt\")  # overwrite-safe rename\nprint(sorted(os.listdir(\"out\")))  # ['2024', 'final.txt']\n\ntry:\n    os.rmdir(\"out\")               # not empty\nexcept OSError as e:\n    print(type(e).__name__)       # OSError\n\nos.remove(\"out/final.txt\")\nshutil.rmtree(\"out\")              # whole tree\nprint(os.path.exists(\"out\"))      # False",
    "code_lang": "python",
    "takeaways": [
-    "`os.makedirs(p, exist_ok=True)` is the safe way to ensure a folder",
-    "`os.replace` overwrites and is atomic on POSIX; `os.rename` may fail on Windows",
-    "Use `shutil.rmtree`/`shutil.move` for whole trees and cross-device moves"
+    "`os.makedirs(p, exist_ok=True)` is the safe way to make sure a folder exists",
+    "`os.replace` overwrites and is atomic on Linux and macOS; `os.rename` may fail on Windows",
+    "Use `shutil.rmtree`/`shutil.move` for whole trees and moves between drives"
    ],
    "pitfalls": [
-    "Checking `os.path.exists` and then creating; another process can win the race, so use `exist_ok=True` or catch `FileExistsError`."
+    "Checking `os.path.exists` and then creating; another program can get there first, so use `exist_ok=True` or catch `FileExistsError`."
    ],
    "quiz": [
     {
@@ -229,6 +333,10 @@
    "docs": "https://docs.python.org/3/library/os.html#os.makedirs",
    "requires": [
     "py-os.listing"
+   ],
+   "defines": [
+    "file system",
+    "atomic operation"
    ]
   },
   {
@@ -237,18 +345,18 @@
    "module": "paths-dirs",
    "level": 2,
    "minutes": 10,
-   "summary": "Traverse a whole tree with os.walk, prune subdirectories in place, and choose top-down or bottom-up order.",
+   "summary": "Go through a whole folder tree with os.walk, skip subfolders you don't want, and choose top-down or bottom-up order.",
    "why": "Searching, indexing, cleaning or summing over every file below a folder is a job for os.walk.",
-   "body": "`os.walk(top)` is a generator that yields one tuple per directory in the tree:\n\n```python\nfor dirpath, dirnames, filenames in os.walk(top):\n    ...\n```\n\n`dirpath` is the directory's path (starting with `top`), `dirnames` the names of its subdirectories and `filenames` the names of its other entries. Join `dirpath` with a name to get a usable path.\n\nBy default the walk is **top-down**: a directory is yielded before its children. That allows pruning: modify `dirnames` **in place** and `os.walk` will only descend into what remains:\n\n```python\ndirnames[:] = [d for d in dirnames if not d.startswith(\".\")]\n```\n\nRebinding (`dirnames = [...]`) does nothing, because `os.walk` keeps its own reference to the list.\n\nWith `topdown=False` the walk is bottom-up: children come before parents. That is the order you need when deleting or renaming directories as you go.\n\nOther details:\n\n- Symbolic links to directories appear in `dirnames` but are not followed unless `followlinks=True` (which risks loops).\n- Errors from listing a directory are ignored by default; pass `onerror=print` (or a handler) to see them.\n- Order within a directory is arbitrary; sort `dirnames` in place for a deterministic walk.\n\nPython 3.12 added `pathlib.Path.walk()`, which yields the same triples with `Path` objects.",
+   "body": "`os.walk(top)` is a generator that yields one tuple per directory in the tree below `top`:\n\n```python\nfor dirpath, dirnames, filenames in os.walk(top):\n    ...\n```\n\n`dirpath` is the directory's path (starting with `top`), `dirnames` the names of its subfolders and `filenames` the names of its other entries. Join `dirpath` with a name to get a usable path.\n\nBy default the walk is **top-down**: a folder comes before the folders inside it. That lets you skip parts of the tree: change `dirnames` **in place**, and `os.walk` only goes into the folders that remain:\n\n```python\ndirnames[:] = [d for d in dirnames if not d.startswith(\".\")]\n```\n\nAssigning a new list to the name (`dirnames = [...]`) does nothing, because `os.walk` keeps its own reference to the original list.\n\nWith `topdown=False` the walk is bottom-up: inner folders come before the folders containing them. That's the order you need when deleting or renaming folders as you go.\n\nOther details:\n\n- Symbolic links to folders appear in `dirnames` but aren't followed unless `followlinks=True` (which can loop forever if a link points back up).\n- Errors from listing a folder are silently skipped by default; pass `onerror=print` (or your own function) to see them.\n- The order within a folder is arbitrary; sort `dirnames` in place to get the same order every time.\n\nPython 3.12 added `pathlib.Path.walk()`, which yields the same triples with `Path` objects.",
    "code": "import os\n\nfor d in [\"proj/src/pkg\", \"proj/.git/objects\", \"proj/docs\"]:\n    os.makedirs(d)\nfor f in [\"proj/src/pkg/a.py\", \"proj/src/b.py\", \"proj/docs/x.md\", \"proj/.git/HEAD\"]:\n    open(f, \"w\").close()\n\npy_files = []\nfor dirpath, dirnames, filenames in os.walk(\"proj\"):\n    dirnames[:] = sorted(d for d in dirnames if not d.startswith(\".\"))\n    for name in filenames:\n        if name.endswith(\".py\"):\n            py_files.append(os.path.join(dirpath, name))\nprint(sorted(py_files))  # ['proj/src/b.py', 'proj/src/pkg/a.py']\n\n# bottom-up: children first, so empty dirs can be removed safely\norder = [p for p, _, _ in os.walk(\"proj/src\", topdown=False)]\nprint(order)             # ['proj/src/pkg', 'proj/src']",
    "code_lang": "python",
    "takeaways": [
-    "`os.walk` yields `(dirpath, dirnames, filenames)` for every directory",
-    "Prune by editing `dirnames` in place (`dirnames[:] = ...`) in top-down mode",
-    "Use `topdown=False` when deleting or renaming directories during the walk"
+    "`os.walk` yields `(dirpath, dirnames, filenames)` for every folder",
+    "Skip folders by editing `dirnames` in place (`dirnames[:] = ...`) in top-down mode",
+    "Use `topdown=False` when deleting or renaming folders during the walk"
    ],
    "pitfalls": [
-    "Reassigning `dirnames` instead of mutating it, so the pruning silently has no effect."
+    "Assigning a new list to `dirnames` instead of changing it in place, so the skipping silently has no effect."
    ],
    "quiz": [
     {
@@ -260,7 +368,7 @@
       "node_modules is still walked, because os.walk's list was not changed"
      ],
      "answer": 3,
-     "explain": "Rebinding the name creates a new list; os.walk only sees in-place changes such as dirnames[:] = ..."
+     "explain": "Assigning makes a new list; os.walk only sees in-place changes such as dirnames[:] = ..."
     }
    ],
    "docs": "https://docs.python.org/3/library/os.html#os.walk",
@@ -275,22 +383,22 @@
    "module": "files",
    "level": 2,
    "minutes": 9,
-   "summary": "Iterate directory entries as DirEntry objects that cache type and stat information.",
-   "why": "On large directories scandir is several times faster than listdir plus a stat per file.",
-   "body": "`os.scandir(path)` returns an iterator of **DirEntry** objects instead of plain names. Each entry carries:\n\n- `entry.name` and `entry.path` (the name joined with the directory you passed)\n- `entry.is_file()`, `entry.is_dir()`, `entry.is_symlink()`\n- `entry.stat()` for size, timestamps and permissions\n\nThe speed comes from the operating system: when it lists a directory it usually also reports each entry's type, so `is_file()` and `is_dir()` often need **no extra system call**. On Windows even `stat()` is free. With `listdir` you pay one `stat` per name. `os.walk` uses `scandir` internally for exactly this reason.\n\nUse it as a context manager so the directory handle is closed even if you stop early:\n\n```python\nwith os.scandir(folder) as it:\n    for entry in it:\n        ...\n```\n\nEntries are a snapshot: if a file is deleted after the listing, `entry.stat()` raises `FileNotFoundError`. The type methods follow symlinks by default; pass `follow_symlinks=False` to look at the link itself.\n\nA typical use is a recursive generator that yields file entries, giving you sizes without a separate `os.stat` call per file.",
+   "summary": "Loop over a folder's entries as DirEntry objects that already know each entry's type, and give size and dates on request.",
+   "why": "On large folders scandir is several times faster than listdir plus a separate lookup for every file.",
+   "body": "`os.scandir(path)` returns an iterator of **DirEntry** objects instead of plain names. Each entry carries:\n\n- `entry.name` and `entry.path` (the name joined with the folder you passed)\n- `entry.is_file()`, `entry.is_dir()`, `entry.is_symlink()`\n- `entry.stat()` for size, dates and permissions (the file's \"stat\" information)\n\nThe speed comes from the operating system. Each request a program makes to the OS is a **system call**, and each one takes time. When the OS lists a folder, it usually also reports each entry's type, so `is_file()` and `is_dir()` often need no extra system call. On Windows even `stat()` comes free. With `listdir` you pay one extra call per name. `os.walk` uses `scandir` internally for exactly this reason.\n\nUse it in a `with` block, so the open folder is released even if you stop early:\n\n```python\nwith os.scandir(folder) as it:\n    for entry in it:\n        ...\n```\n\nEntries are a snapshot: if a file is deleted after the listing, `entry.stat()` raises `FileNotFoundError`. The type methods follow symbolic links by default; pass `follow_symlinks=False` to look at the link itself.\n\nA typical use is a recursive generator (one that calls itself for each subfolder) that yields file entries, giving you sizes without a separate `os.stat` call per file.",
    "code": "import os\n\nos.makedirs(\"logs/archive\")\nfor name, size in [(\"app.log\", 120), (\"err.log\", 30)]:\n    with open(os.path.join(\"logs\", name), \"w\") as f:\n        f.write(\"x\" * size)\n\ndef files_under(path):\n    with os.scandir(path) as it:\n        for entry in it:\n            if entry.is_dir(follow_symlinks=False):\n                yield from files_under(entry.path)\n            elif entry.is_file():\n                yield entry\n\ntotal = sum(e.stat().st_size for e in files_under(\"logs\"))\nprint(total)                                     # 150\nprint(sorted(e.name for e in files_under(\"logs\")))  # ['app.log', 'err.log']",
    "code_lang": "python",
    "takeaways": [
     "`scandir` yields DirEntry objects with `name`, `path`, type checks and `stat()`",
-    "Type checks usually avoid extra system calls, so it is much faster than listdir + stat",
-    "Use it in a `with` block to release the directory handle"
+    "Type checks usually need no extra system calls, so it is much faster than listdir + stat",
+    "Use it in a `with` block to release the open folder"
    ],
    "pitfalls": [],
    "quiz": [
     {
      "q": "Why is os.scandir usually faster than os.listdir followed by os.path.isdir on each name?",
      "options": [
-      "It reuses type information the OS returns with the listing, avoiding a stat call per entry",
+      "It reuses type information the operating system returns with the listing, avoiding an extra call per entry",
       "It runs in a background thread",
       "It caches results across program runs",
       "It skips hidden files"
@@ -303,6 +411,10 @@
    "requires": [
     "py-os.listing",
     "python.context-managers"
+   ],
+   "defines": [
+    "system call",
+    "DirEntry"
    ]
   },
   {
@@ -311,13 +423,13 @@
    "module": "files",
    "level": 3,
    "minutes": 12,
-   "summary": "Read sizes, timestamps and mode bits with os.stat, and change permissions with os.chmod.",
-   "why": "Build tools, backups and security checks all decide what to do based on file metadata.",
-   "body": "`os.stat(path)` returns a `stat_result` with the file's metadata:\n\n- `st_size` size in bytes\n- `st_mtime` last modification, `st_atime` last access, as float seconds since the epoch (`st_mtime_ns` gives exact integer nanoseconds)\n- `st_mode` file type and permission bits; `st_uid`, `st_gid` owner on Unix\n- `st_ino` and `st_dev` identify the file; two paths with equal pairs are the same file\n\n`os.lstat` (or `follow_symlinks=False`) describes a symlink itself rather than its target.\n\nThe `stat` module decodes `st_mode`: `stat.S_ISDIR(mode)`, `stat.S_ISREG(mode)`, and `stat.filemode(mode)` which renders it like `ls -l`, e.g. `-rw-r--r--`. The permission bits are `mode & 0o777`.\n\n`os.chmod(path, 0o600)` sets permissions; write them in octal: owner, group, others, each a sum of read 4, write 2, execute 1. Add a bit with `mode | stat.S_IXUSR`. On Windows, chmod can only toggle the read-only flag.\n\nNew files get `0o666` (or `0o777` for directories) minus the process **umask**, typically `0o022`, which is why files usually come out `rw-r--r--`.\n\n`os.access(path, os.W_OK)` asks whether the real user could write, but like any check-then-act it can race; prefer attempting the operation and handling `PermissionError`.",
+   "summary": "Read sizes, dates and permissions with os.stat, and change permissions with os.chmod.",
+   "why": "Build tools, backups and security checks all decide what to do based on a file's size, dates and permissions.",
+   "body": "`os.stat(path)` returns a `stat_result` holding the file's details:\n\n- `st_size`: size in bytes\n- `st_mtime` last change, `st_atime` last access, as seconds since 1 January 1970 (the Unix epoch) with a fraction (`st_mtime_ns` gives exact whole nanoseconds)\n- `st_mode`: the file's type and **permissions** (who may read, change or run it); `st_uid`, `st_gid`: the owning user and group on Linux and macOS\n- `st_ino` and `st_dev` identify the file; two paths with equal pairs are the same file\n\n`os.lstat` (or `follow_symlinks=False`) describes a symbolic link itself rather than what it points to.\n\nThe `stat` module decodes `st_mode`: `stat.S_ISDIR(mode)`, `stat.S_ISREG(mode)` (a regular file), and `stat.filemode(mode)`, which writes it the way `ls -l` shows it, e.g. `-rw-r--r--`. The permission part is `mode & 0o777`.\n\n`os.chmod(path, 0o600)` sets permissions. Write them in **octal** (base 8, with the `0o` prefix): one digit each for the owner, the group and everyone else, each a sum of read 4, write 2, run 1. Add one permission with `mode | stat.S_IXUSR`. On Windows, chmod can only switch the read-only flag.\n\nNew files get `0o666` (or `0o777` for folders) minus the process's **umask**, a setting listing permissions new files should *not* get, typically `0o022`. That's why files usually come out `rw-r--r--`.\n\n`os.access(path, os.W_OK)` asks whether you could write the file, but like any check-then-act, the answer can change before you act; prefer trying the operation and handling `PermissionError`.",
    "code": "import os\nimport stat\nimport time\n\nwith open(\"secret.txt\", \"w\") as f:\n    f.write(\"token=abc\")\n\nst = os.stat(\"secret.txt\")\nprint(st.st_size)                     # 9\nprint(stat.S_ISREG(st.st_mode))       # True\nprint(abs(st.st_mtime - time.time()) < 5)  # True\n\nos.chmod(\"secret.txt\", 0o600)          # owner read/write only\nmode = os.stat(\"secret.txt\").st_mode\nprint(stat.filemode(mode))            # -rw-------\nprint(oct(mode & 0o777))              # 0o600\n\nos.chmod(\"secret.txt\", mode | stat.S_IXUSR)\nprint(stat.filemode(os.stat(\"secret.txt\").st_mode))  # -rwx------",
    "code_lang": "python",
    "takeaways": [
-    "`os.stat` gives size, timestamps, mode, owner and identity of a file",
+    "`os.stat` gives a file's size, dates, mode, owner and identity",
     "Decode modes with the `stat` module; permissions are `st_mode & 0o777`",
     "Write chmod modes in octal; new files are 0o666 minus the umask"
    ],
@@ -340,6 +452,12 @@
    "docs": "https://docs.python.org/3/library/os.html#os.stat",
    "requires": [
     "py-os.scandir"
+   ],
+   "defines": [
+    "file permissions",
+    "octal",
+    "umask",
+    "epoch"
    ]
   },
   {
@@ -348,14 +466,14 @@
    "module": "processes",
    "level": 3,
    "minutes": 9,
-   "summary": "Inspect the running process with os.getpid, os.cpu_count, os.process_cpu_count and friends, and know when to use subprocess instead of os.system.",
-   "why": "Sizing worker pools, writing PID files and spawning commands correctly all rely on these calls.",
-   "body": "Every process has an ID and a parent: `os.getpid()` and `os.getppid()`. Daemons write the PID to a file so other tools can signal them, and log lines often include it to tell workers apart.\n\n**CPU counts** are subtle:\n\n- `os.cpu_count()` reports the CPUs in the machine.\n- `os.process_cpu_count()` (new in 3.13) reports the CPUs this process may actually use, which is smaller when the process is pinned with CPU affinity or containers restrict it. Prefer it when sizing a worker pool. Both may return `None`.\n- Python 3.13 also adds the `-X cpu_count=N` option and `PYTHON_CPU_COUNT` variable to override both values.\n\nOn Unix, `os.getuid()` returns the user ID (0 for root), `os.getloadavg()` the load averages, and `os.nice(n)` lowers the process priority.\n\nTo run another program, **don't use `os.system`**: it passes a string to the shell, which invites injection bugs when arguments contain user input, and returns an encoded wait status rather than a plain exit code. `os.popen` has the same shell problem. Use `subprocess.run([...])` with a list of arguments instead; it gives you the exit code, output capture and timeouts.\n\n`os.kill(pid, signal.SIGTERM)` sends a signal to another process; `os.kill(pid, 0)` merely checks the process exists and you may signal it.",
-   "code": "import os\nimport subprocess\nimport sys\n\nprint(os.getpid() > 0)                     # True\nn = os.process_cpu_count() or 1            # new in 3.13\nprint(n <= (os.cpu_count() or n))          # True\nworkers = max(1, n - 1)\n\n# os.system: shell string, returns a wait status\nstatus = os.system(\"exit 3\")\nprint(os.waitstatus_to_exitcode(status))   # 3\n\n# subprocess: argument list, real return code, no shell parsing\nr = subprocess.run([sys.executable, \"-c\", \"print('hi')\"],\n                   capture_output=True, text=True)\nprint(r.returncode, r.stdout.strip())      # 0 hi",
+   "summary": "Inspect the running process with os.getpid, os.cpu_count, os.process_cpu_count and friends, and use subprocess instead of os.system.",
+   "why": "Deciding how many workers to start, finding running programs, and starting commands correctly all rely on these calls.",
+   "body": "Every process has a number, its **process ID** (PID), and a parent: `os.getpid()` and `os.getppid()`. Background services often save their PID in a file, so other tools can find them and send them a **signal** (a short message from the operating system, such as \"please stop\"). Log lines often include the PID to tell processes apart.\n\n**CPU counts** are subtle:\n\n- `os.cpu_count()` reports the CPU cores in the machine.\n- `os.process_cpu_count()` (new in 3.13) reports the cores this process may actually use. It's smaller when the operating system has tied the process to certain cores, or a container limits it. Prefer it when deciding how many workers to start. Both may return `None`.\n- Python 3.13 also adds the `-X cpu_count=N` option and the `PYTHON_CPU_COUNT` environment variable to override both values.\n\nOn Linux and macOS, `os.getuid()` returns the user ID (0 for root, the administrator), `os.getloadavg()` how busy the machine has been lately, and `os.nice(n)` lowers the process's priority.\n\nTo run another program, **don't use `os.system`**. It passes a string to the shell, which invites command injection when the string contains text from users, and it returns a packed status number instead of a plain exit code. `os.popen` has the same shell problem. Use `subprocess.run([...])` with a list of arguments instead; it gives you the exit code, captured output and timeouts.\n\n`os.kill(pid, signal.SIGTERM)` sends a signal to another process; `os.kill(pid, 0)` merely checks that the process exists and that you may signal it.",
+   "code": "import os\nimport subprocess\nimport sys\n\nprint(os.getpid() > 0)                     # True\nn = os.process_cpu_count() or 1            # new in 3.13\nprint(n <= (os.cpu_count() or n))          # True\nworkers = max(1, n - 1)\n\n# os.system: shell string, returns a packed status\nstatus = os.system(\"exit 3\")\nprint(os.waitstatus_to_exitcode(status))   # 3\n\n# subprocess: argument list, real exit code, no shell\nr = subprocess.run([sys.executable, \"-c\", \"print('hi')\"],\n                   capture_output=True, text=True)\nprint(r.returncode, r.stdout.strip())      # 0 hi",
    "code_lang": "python",
    "takeaways": [
     "`os.getpid`/`os.getppid` identify the process and its parent",
-    "Size pools with `os.process_cpu_count()` (3.13), which respects affinity limits",
+    "Choose worker counts with `os.process_cpu_count()` (3.13), which counts only usable cores",
     "Prefer `subprocess.run([...])` over `os.system` and `os.popen`"
    ],
    "pitfalls": [
@@ -363,7 +481,7 @@
    ],
    "quiz": [
     {
-     "q": "A container limits a process to 2 of the host's 32 CPUs via affinity. Which call reports 2?",
+     "q": "A process may only use 2 of the machine's 32 CPU cores. Which call reports 2?",
      "options": [
       "os.cpu_count()",
       "os.getloadavg()",
@@ -371,12 +489,17 @@
       "multiprocessing.active_children()"
      ],
      "answer": 2,
-     "explain": "process_cpu_count, added in Python 3.13, counts the CPUs usable by the current process."
+     "explain": "process_cpu_count, added in Python 3.13, counts the cores the current process may use."
     }
    ],
    "docs": "https://docs.python.org/3/library/os.html#os.process_cpu_count",
    "requires": [
     "py-os.environ"
+   ],
+   "defines": [
+    "process ID",
+    "signal",
+    "command injection"
    ]
   },
   {
@@ -385,18 +508,18 @@
    "module": "files",
    "level": 3,
    "minutes": 11,
-   "summary": "Replace a file safely with a temporary file, flush and fsync, then os.replace.",
+   "summary": "Replace a file safely: write a temporary file, flush and fsync it, then os.replace.",
    "why": "Writing a config or data file in place leaves a half-written file behind if the program crashes mid-write.",
-   "body": "`open(path, \"w\")` truncates the file immediately. If the program crashes, the disk fills up, or the power fails before the write finishes, readers find an empty or partial file. The fix is the **write-then-rename** pattern:\n\n1. Write the new contents to a temporary file in the **same directory** (rename only works atomically within one file system).\n2. Flush Python's buffer with `f.flush()`, then `os.fsync(f.fileno())` so the operating system pushes the data to disk.\n3. `os.replace(tmp, path)` swaps the new file into place.\n\nOn POSIX, `rename` is atomic: any reader sees either the complete old file or the complete new one, never a mix. On Windows, `os.replace` is the right call too, though the guarantee is weaker.\n\nFor full durability after a crash, also fsync the directory on Linux so the rename itself is recorded: open it with `os.open(dirname, os.O_RDONLY)`, call `os.fsync` on that descriptor, and close it.\n\n`tempfile.NamedTemporaryFile(dir=..., delete=False)` or `tempfile.mkstemp(dir=...)` create a uniquely named temp file safely. If anything fails before the replace, delete the temp file so it doesn't accumulate.\n\nNote that the new file gets fresh permissions and ownership; copy them with `shutil.copymode` if they matter.",
+   "body": "`open(path, \"w\")` empties the file immediately. If the program crashes, the disk fills up, or the power fails before the write finishes, readers find an empty or half-written file. The fix is the **write-then-rename** pattern:\n\n1. Write the new contents to a temporary file in the **same folder** (an atomic rename only works within one file system).\n2. Flush Python's buffer with `f.flush()`, then call `os.fsync(f.fileno())` so the operating system really writes the data to disk (**fsync**) instead of keeping it in memory for later.\n3. `os.replace(tmp, path)` swaps the new file into place.\n\nOn Linux and macOS, the rename is atomic: any reader sees either the complete old file or the complete new one, never a mix. On Windows, `os.replace` is the right call too, though the guarantee is weaker.\n\nTo be sure the rename itself survives a crash on Linux, also fsync the folder: open it with `os.open(dirname, os.O_RDONLY)`, call `os.fsync` on the file descriptor it returns (the number the OS uses for an open file), and close it.\n\n`tempfile.NamedTemporaryFile(dir=..., delete=False)` or `tempfile.mkstemp(dir=...)` create a temporary file with a unique name safely. If anything fails before the replace, delete the temporary file so they don't pile up.\n\nThe new file gets fresh permissions and owner; copy the old ones with `shutil.copymode` if they matter.",
    "code": "import json\nimport os\nimport tempfile\n\ndef write_atomic(path, text):\n    folder = os.path.dirname(os.path.abspath(path))\n    fd, tmp = tempfile.mkstemp(dir=folder, prefix=\".tmp-\")\n    try:\n        with os.fdopen(fd, \"w\") as f:\n            f.write(text)\n            f.flush()\n            os.fsync(f.fileno())\n        os.replace(tmp, path)          # atomic swap on POSIX\n    except BaseException:\n        os.remove(tmp)\n        raise\n\nwrite_atomic(\"settings.json\", json.dumps({\"theme\": \"dark\"}))\nwrite_atomic(\"settings.json\", json.dumps({\"theme\": \"light\"}))\nprint(open(\"settings.json\").read())    # {\"theme\": \"light\"}\nprint(os.listdir(\".\"))                 # ['settings.json']",
    "code_lang": "python",
    "takeaways": [
-    "Write to a temp file in the same directory, fsync, then `os.replace`",
-    "`flush` empties Python's buffer; `os.fsync` asks the OS to persist to disk",
-    "Clean up the temp file on failure"
+    "Write to a temporary file in the same folder, fsync, then `os.replace`",
+    "`flush` empties Python's buffer; `os.fsync` makes the OS write to disk",
+    "Delete the temporary file on failure"
    ],
    "pitfalls": [
-    "Creating the temp file in /tmp; renaming across file systems is not atomic and may fail with EXDEV."
+    "Creating the temporary file in /tmp; renaming across file systems is not atomic and may fail with an EXDEV error."
    ],
    "quiz": [
     {
@@ -415,6 +538,11 @@
    "requires": [
     "py-os.create-remove",
     "python.files"
+   ],
+   "defines": [
+    "fsync",
+    "buffer",
+    "file descriptor"
    ]
   },
   {
@@ -423,15 +551,15 @@
    "module": "low-level",
    "level": 4,
    "minutes": 14,
-   "summary": "Work below the file object level with integer file descriptors, open flags, os.read/os.write and pipes.",
-   "why": "Locking files, exclusive creation, pipes and inheritance between processes are all expressed in terms of descriptors.",
-   "body": "Underneath every Python file object is a **file descriptor**: a small integer indexing the process's table of open files. `f.fileno()` returns it; 0, 1 and 2 are stdin, stdout and stderr.\n\n`os.open(path, flags, mode=0o777)` is the raw system call. Flags are OR-ed together:\n\n- `os.O_RDONLY`, `os.O_WRONLY`, `os.O_RDWR`\n- `os.O_CREAT` create if missing, `os.O_EXCL` fail if it exists (an atomic \"create only if new\", ideal for lock files), `os.O_TRUNC`, `os.O_APPEND`\n\n`os.read(fd, n)` and `os.write(fd, data)` move **bytes** with no buffering; `os.write` may write fewer bytes than given and returns the count. `os.close(fd)` releases it. Wrap a descriptor in a normal file object with `os.fdopen(fd, \"w\")` or `open(fd, closefd=True)`.\n\nOther descriptor tools:\n\n- `os.pipe()` returns `(read_fd, write_fd)` of a unidirectional channel.\n- `os.dup2(fd, 1)` redirects stdout at the OS level, which also affects C extensions and child processes.\n- Since Python 3.4 new descriptors are **non-inheritable** by default (`O_CLOEXEC`); `os.set_inheritable` changes that.\n- The `opener=` argument of the built-in `open` lets you supply custom flags while still getting a buffered file.\n\nLeaking descriptors eventually triggers `OSError: [Errno 24] Too many open files`.",
+   "summary": "Work below file objects with numeric file descriptors, open flags, os.read/os.write and pipes.",
+   "why": "Lock files, create-only-if-new files, pipes and passing files to child processes are all done with descriptors.",
+   "body": "Underneath every Python file object is a **file descriptor**: a small number that indexes the process's table of open files. `f.fileno()` returns it; 0, 1 and 2 are standard input, standard output and standard error.\n\n`os.open(path, flags, mode=0o777)` is the raw system call. Flags are combined with `|`:\n\n- `os.O_RDONLY`, `os.O_WRONLY`, `os.O_RDWR` (read, write, both)\n- `os.O_CREAT` create if missing, `os.O_EXCL` fail if it exists (an atomic \"create only if new\", ideal for lock files), `os.O_TRUNC` empty it, `os.O_APPEND` always write at the end\n\n`os.read(fd, n)` and `os.write(fd, data)` move **bytes** with no buffering; `os.write` may write fewer bytes than given and returns the count. `os.close(fd)` releases it. Wrap a descriptor in a normal file object with `os.fdopen(fd, \"w\")` or `open(fd, closefd=True)`.\n\nOther descriptor tools:\n\n- `os.pipe()` returns `(read_fd, write_fd)`, the two ends of a one-way channel.\n- `os.dup2(fd, 1)` redirects standard output at the operating-system level, which also affects C code and child processes.\n- Since Python 3.4, new descriptors are **non-inheritable** by default (`O_CLOEXEC`): child processes don't get them. `os.set_inheritable` changes that.\n- The `opener=` argument of the built-in `open` lets you supply your own flags while still getting a normal buffered file.\n\nForgetting to close descriptors eventually triggers `OSError: [Errno 24] Too many open files`.",
    "code": "import os\n\nfd = os.open(\"app.lock\", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)\nos.write(fd, str(os.getpid()).encode())\nos.close(fd)\n\ntry:   # a second exclusive create fails atomically\n    os.open(\"app.lock\", os.O_WRONLY | os.O_CREAT | os.O_EXCL)\nexcept FileExistsError:\n    print(\"already locked\")       # already locked\n\nr, w = os.pipe()\nos.write(w, b\"ping\")\nos.close(w)\nprint(os.read(r, 100))            # b'ping'\nos.close(r)\n\ndef append_only(path, flags):\n    return os.open(path, flags | os.O_APPEND, 0o600)\nwith open(\"audit.log\", \"a\", opener=append_only) as f:\n    print(f.fileno() > 2)         # True",
    "code_lang": "python",
    "takeaways": [
-    "File objects wrap integer descriptors; `os.open/read/write/close` work on them directly",
-    "`O_CREAT | O_EXCL` gives an atomic create-if-absent, the basis of lock files",
-    "Descriptors are non-inheritable by default; close every one you open"
+    "File objects wrap numeric descriptors; `os.open/read/write/close` work on them directly",
+    "`O_CREAT | O_EXCL` gives an atomic create-if-new, the basis of lock files",
+    "Descriptors aren't inherited by default; close every one you open"
    ],
    "pitfalls": [
     "Ignoring the return value of `os.write`; it can write fewer bytes than requested on pipes and sockets."
@@ -453,6 +581,12 @@
    "requires": [
     "py-os.stat-permissions",
     "py-os.atomic-writes"
+   ],
+   "defines": [
+    "pipe",
+    "standard input",
+    "standard output",
+    "standard error"
    ]
   },
   {
@@ -461,18 +595,18 @@
    "module": "processes",
    "level": 4,
    "minutes": 14,
-   "summary": "Understand the Unix process model behind subprocess and multiprocessing: os.fork, the exec family and os.waitpid.",
-   "why": "Debugging hangs and crashes in multiprocessing, daemons or servers requires knowing what fork actually copies.",
-   "body": "On Unix, new processes are created in two steps:\n\n- `os.fork()` duplicates the current process. It returns `0` in the child and the child's PID in the parent. The child gets a copy-on-write copy of memory and duplicates of all open descriptors.\n- An `os.exec*` call (`os.execv`, `os.execvp`, `os.execve`...) replaces the current program image with another program. It never returns on success; the process keeps its PID and open inheritable descriptors.\n\nThe parent must **reap** children with `os.waitpid(pid, 0)`, which returns `(pid, status)`; decode with `os.waitstatus_to_exitcode(status)`. Unreaped children linger as zombies. A child should finish with `os._exit(code)`, not `sys.exit`, so it doesn't run the parent's cleanup handlers or flush its copied buffers twice.\n\nThe big trap: **fork copies only the calling thread**. If another thread held a lock (logging, malloc, an I/O buffer) at fork time, the child inherits it locked forever. Since 3.12, `os.fork()` emits a `DeprecationWarning` when the process has other threads, and in 3.14 multiprocessing on Linux defaults to the `forkserver` start method rather than `fork`. Use `os.register_at_fork` to reset state in children.\n\n`subprocess` uses `posix_spawn` or fork+exec carefully for you; `os.posix_spawn` exposes the fast path directly. Windows has no fork.",
+   "summary": "Understand how Linux and macOS create processes, behind subprocess and multiprocessing: os.fork, the exec family and os.waitpid.",
+   "why": "Debugging hangs and crashes in multiprocessing, background services or servers requires knowing what fork actually copies.",
+   "body": "On Linux and macOS, new processes are created in two steps:\n\n- `os.fork()` duplicates the current process. It returns `0` in the child and the child's PID in the parent. The child gets a copy of all memory (shared with the parent until either side changes it, called **copy-on-write**) and duplicates of all open descriptors.\n- An `os.exec*` call (`os.execv`, `os.execvp`, `os.execve`...) replaces the program running in the current process with another program. It never returns on success; the process keeps its PID and its inheritable descriptors.\n\nThe parent must wait for, or **reap**, each child with `os.waitpid(pid, 0)`, which returns `(pid, status)`; decode the status with `os.waitstatus_to_exitcode(status)`. Children never waited for linger as zombies. A child should finish with `os._exit(code)`, not `sys.exit`, so it doesn't run the parent's clean-up code or write out its copied buffers a second time.\n\nThe big trap: **fork copies only the calling thread**. If another thread held a lock at that moment (for logging, memory allocation in C code, or an I/O buffer), the child inherits it locked, forever. Since 3.12, `os.fork()` shows a `DeprecationWarning` when the process has other threads, and in 3.14 multiprocessing on Linux defaults to the `forkserver` start method rather than `fork`. Use `os.register_at_fork` to reset state in children.\n\n`subprocess` uses `posix_spawn` or fork+exec carefully for you; `os.posix_spawn` exposes that fast path directly. Windows has no fork.",
    "code": "import os\nimport sys\n\nif not hasattr(os, \"fork\"):\n    sys.exit(\"Unix only\")\n\nsys.stdout.flush()                   # don't let the child re-flush our buffer\npid = os.fork()\nif pid == 0:                         # child\n    os.write(1, b\"child running\\n\")\n    os._exit(7)                      # skip parent's cleanup handlers\n_, status = os.waitpid(pid, 0)       # parent reaps the child\nprint(\"exit code\", os.waitstatus_to_exitcode(status))   # exit code 7\n\npid = os.fork()\nif pid == 0:\n    os.execvp(\"echo\", [\"echo\", \"replaced by echo\"])  # never returns\nos.waitpid(pid, 0)\nprint(\"done\")                        # done",
    "code_lang": "python",
    "takeaways": [
     "`fork` returns 0 in the child and the child's PID in the parent",
     "`exec*` replaces the program in the same process; always `waitpid` your children",
-    "Fork copies only the calling thread, so forking a multithreaded process is unsafe"
+    "Fork copies only the calling thread, so forking a process with threads is unsafe"
    ],
    "pitfalls": [
-    "Calling `sys.exit` in a forked child; use `os._exit` to avoid running the parent's atexit handlers and flushing buffers twice."
+    "Calling `sys.exit` in a forked child; use `os._exit` to avoid running the parent's clean-up code and writing buffers twice."
    ],
    "quiz": [
     {
@@ -492,6 +626,12 @@
     "py-os.process-info",
     "py-os.file-descriptors",
     "python.threads-processes"
+   ],
+   "defines": [
+    "fork",
+    "exec",
+    "copy-on-write",
+    "zombie process"
    ]
   },
   {
@@ -500,15 +640,15 @@
    "module": "low-level",
    "level": 4,
    "minutes": 12,
-   "summary": "How Python maps file names to bytes, why surrogateescape exists, and how os.fspath and os.PathLike tie paths together.",
-   "why": "Real file systems contain names that are not valid UTF-8; tools that crash on them are fragile.",
-   "body": "Operating systems store file names differently. Linux file names are arbitrary **bytes** (anything except `/` and NUL); Windows uses UTF-16. Python presents them as `str`, so it needs a translation.\n\nOn POSIX, Python decodes names with the **filesystem encoding** (`sys.getfilesystemencoding()`, UTF-8 on modern systems) and the **surrogateescape** error handler: each byte that isn't valid UTF-8 becomes a lone surrogate character such as `'\\udcff'`. That way any name round-trips: `os.fsencode` turns the `str` back into exactly the original bytes, and `os.fsdecode` goes the other way.\n\nThe catch: such a string cannot be encoded to UTF-8 for printing or JSON; it raises `UnicodeEncodeError`. Encode with `errors=\"surrogateescape\"` or `\"replace\"` when displaying.\n\nMost `os` functions also accept `bytes` paths and then return `bytes`: `os.listdir(b\".\")` gives raw names with no decoding at all.\n\n**os.PathLike** is the protocol that lets `open`, `os` and `shutil` accept path objects: any class with `__fspath__()` returning `str` or `bytes` qualifies. `os.fspath(p)` returns a str/bytes unchanged and calls `__fspath__` otherwise; library code should call it on every path argument it receives. `pathlib.Path` implements this protocol.",
+   "summary": "How Python turns file names into bytes and back, why surrogateescape exists, and how os.fspath and os.PathLike tie paths together.",
+   "why": "Real disks contain file names that are not valid UTF-8; tools that crash on them are fragile.",
+   "body": "Operating systems store file names differently. Linux file names are arbitrary **bytes** (anything except `/` and the zero byte); Windows uses UTF-16 text. Python shows them to you as `str`, so it needs a translation.\n\nOn Linux and macOS, Python decodes names with the **filesystem encoding** (`sys.getfilesystemencoding()`, UTF-8 on modern systems) and the **surrogateescape** error handler. Each byte that isn't valid UTF-8 becomes a special placeholder character, a \"lone surrogate\" such as `'\\udcff'`, from a range Unicode reserves and never uses on its own. That way any name survives the round trip: `os.fsencode` turns the `str` back into exactly the original bytes, and `os.fsdecode` goes the other way.\n\nThe catch: such a string cannot be encoded to UTF-8 for printing or JSON; it raises `UnicodeEncodeError`. Encode with `errors=\"surrogateescape\"` or `\"replace\"` when displaying.\n\nMost `os` functions also accept `bytes` paths and then return `bytes`: `os.listdir(b\".\")` gives the raw names with no decoding at all.\n\n**os.PathLike** is the protocol that lets `open`, `os` and `shutil` accept path objects: any class with an `__fspath__()` method returning `str` or `bytes` qualifies. `os.fspath(p)` returns a str or bytes unchanged and calls `__fspath__` otherwise; library code should call it on every path argument it receives. `pathlib.Path` follows this protocol.",
    "code": "import os\n\nraw = b\"report-\\xff.txt\"             # not valid UTF-8\nopen(raw, \"w\").close()\nname = os.listdir(\".\")[0]\nprint(repr(name))                    # 'report-\\udcff.txt'\nprint(os.fsencode(name) == raw)      # True: exact round trip\nprint(os.listdir(b\".\")[0] == raw)    # True: bytes in, bytes out\nprint(name.encode(\"utf-8\", \"replace\"))  # b'report-?.txt'\n\nclass Asset:\n    def __init__(self, key):\n        self.key = key\n    def __fspath__(self):\n        return f\"asset-{self.key}.bin\"\n\nwith open(Asset(7), \"wb\") as f:      # open accepts any PathLike\n    f.write(b\"\\x00\")\nprint(os.fspath(Asset(7)))           # asset-7.bin\nprint(os.path.exists(Asset(7)))      # True",
    "code_lang": "python",
    "takeaways": [
-    "POSIX names are bytes; Python decodes them with surrogateescape so they always round-trip",
-    "`os.fsencode`/`os.fsdecode` convert names; bytes arguments return bytes",
-    "Implement `__fspath__` (os.PathLike) and call `os.fspath` in your own path-taking APIs"
+    "Linux file names are bytes; Python decodes them with surrogateescape so they always survive the round trip",
+    "`os.fsencode`/`os.fsdecode` convert names; bytes arguments give bytes results",
+    "Implement `__fspath__` (os.PathLike) and call `os.fspath` in your own functions that take paths"
    ],
    "pitfalls": [
     "Printing or JSON-encoding file names without an error handler; undecodable names raise UnicodeEncodeError."
@@ -523,7 +663,7 @@
       "It raises UnicodeDecodeError"
      ],
      "answer": 1,
-     "explain": "The invalid UTF-8 byte 0xE9 is mapped to the lone surrogate U+DCE9 by surrogateescape."
+     "explain": "surrogateescape maps the byte 0xE9, which isn't valid UTF-8 here, to the placeholder character U+DCE9."
     }
    ],
    "docs": "https://docs.python.org/3/library/os.html#os.fspath",
@@ -531,6 +671,11 @@
     "py-os.os-path",
     "py-os.file-descriptors",
     "python.dunder-methods"
+   ],
+   "defines": [
+    "surrogateescape",
+    "filesystem encoding",
+    "PathLike"
    ]
   }
  ]

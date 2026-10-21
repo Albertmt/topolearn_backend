@@ -43,6 +43,161 @@
    "name": "Memory and interop"
   }
  ],
+ "glossary": [
+  {
+   "term": "Apache Arrow",
+   "aliases": [
+    "Arrow"
+   ],
+   "def": "A standard way of laying out tables of data in memory, column by column, used by many data tools so they can share data without converting or copying it.",
+   "case": true
+  },
+  {
+   "term": "PyArrow",
+   "def": "The Python library for Apache Arrow, imported as pa: typed arrays and tables, Parquet/CSV/JSON readers and writers, and compute functions.",
+   "case": true
+  },
+  {
+   "term": "validity bitmap",
+   "aliases": [
+    "validity bitmaps",
+    "null bitmap"
+   ],
+   "def": "A row of bits stored next to an Arrow array, one per value: 1 means the value is present, 0 means it is null."
+  },
+  {
+   "term": "ChunkedArray",
+   "aliases": [
+    "ChunkedArrays",
+    "chunked array",
+    "chunked arrays"
+   ],
+   "def": "One logical Arrow column made of several arrays (chunks) of the same type, so data read in pieces can be combined without copying.",
+   "case": true
+  },
+  {
+   "term": "RecordBatch",
+   "aliases": [
+    "RecordBatches",
+    "record batch",
+    "record batches"
+   ],
+   "def": "A small Arrow table whose columns are single arrays; big data is often processed as a sequence of record batches.",
+   "case": true
+  },
+  {
+   "term": "row group",
+   "aliases": [
+    "row groups"
+   ],
+   "def": "A horizontal slice of a Parquet file, typically up to about a million rows, with min/max statistics per column that let readers skip it."
+  },
+  {
+   "term": "column chunk",
+   "aliases": [
+    "column chunks"
+   ],
+   "def": "The part of one Parquet row group that holds one column's values, split further into pages."
+  },
+  {
+   "term": "pruning",
+   "aliases": [
+    "prune",
+    "pruned"
+   ],
+   "def": "Skipping data you can prove you don't need, such as unrequested columns or row groups whose min/max values can't match a filter."
+  },
+  {
+   "term": "dictionary encoding",
+   "aliases": [
+    "dictionary-encoded",
+    "dictionary encoded"
+   ],
+   "def": "Storing each distinct value of a column once, in a small dictionary, and the column itself as small integer positions into it. Saves space when values repeat."
+  },
+  {
+   "term": "run-length encoding",
+   "aliases": [
+    "run-length",
+    "RLE"
+   ],
+   "def": "Compressing repeated values by storing each run as the value plus how many times it repeats, such as '7 times 0'."
+  },
+  {
+   "term": "IPC",
+   "def": "Inter-process communication: passing data between separate running programs. Arrow's IPC format writes tables as bytes in the same layout they have in memory.",
+   "case": true
+  },
+  {
+   "term": "Feather",
+   "def": "A file format for Arrow tables: the Arrow IPC file format with optional compression, fast to read and write.",
+   "case": true
+  },
+  {
+   "term": "cardinality",
+   "def": "How many distinct values a column has. Country has low cardinality; user ID has high cardinality."
+  },
+  {
+   "term": "pandas",
+   "def": "The most popular Python library for working with tables of data; its table type is called a DataFrame.",
+   "case": true
+  },
+  {
+   "term": "DataFrame",
+   "aliases": [
+    "DataFrames"
+   ],
+   "def": "A table of data with named columns, as used by pandas, Polars and similar libraries.",
+   "case": true
+  },
+  {
+   "term": "offsets buffer",
+   "aliases": [
+    "offsets buffers"
+   ],
+   "def": "In an Arrow string or list array, a buffer of positions marking where each value starts and ends inside a shared data buffer."
+  },
+  {
+   "term": "alignment",
+   "aliases": [
+    "aligned"
+   ],
+   "def": "Starting a block of memory at an address that is a multiple of a fixed size, such as 64 bytes, so the processor can read it most efficiently."
+  },
+  {
+   "term": "memory pool",
+   "aliases": [
+    "memory pools",
+    "MemoryPool"
+   ],
+   "def": "The part of Arrow that hands out memory for buffers and keeps track of how much is in use."
+  },
+  {
+   "term": "C Data Interface",
+   "aliases": [
+    "Arrow C Data Interface",
+    "C Stream Interface"
+   ],
+   "def": "A small, stable agreement about how Arrow data is described in C memory, so different libraries and languages can share it without copying.",
+   "case": true
+  },
+  {
+   "term": "ABI",
+   "aliases": [
+    "ABIs",
+    "application binary interface"
+   ],
+   "def": "Application binary interface: the rules compiled code follows to pass data and call functions, so separately built programs and libraries can work together."
+  },
+  {
+   "term": "PyCapsule",
+   "aliases": [
+    "PyCapsules"
+   ],
+   "def": "A small Python object that wraps a raw C pointer, used to hand Arrow C Data Interface structures from one Python library to another.",
+   "case": true
+  }
+ ],
  "concepts": [
   {
    "id": "pyarrow.arrays-types",
@@ -50,15 +205,15 @@
    "module": "basics",
    "level": 1,
    "minutes": 12,
-   "summary": "Create typed Arrow arrays with pa.array, read their type and null count, and meet ChunkedArray.",
+   "summary": "Create typed Arrow arrays with pa.array, check their type and how many values are missing, and meet ChunkedArray.",
    "why": "Arrays are Arrow's basic building block; every table, file and exchange between libraries is made of them.",
-   "body": "An Arrow **array** is an immutable, typed, one-dimensional column of values stored contiguously in memory, with a separate bitmap that marks which slots are null. Every value in it has the same **data type**.\n\n`pa.array([1, 2, None])` infers `int64` and records one null. You can force a type with `type=pa.int32()` or `pa.float32()`. Common types are `pa.int8()` through `pa.int64()`, unsigned `pa.uint32()`, `pa.float64()`, `pa.bool_()`, `pa.string()` (UTF-8), `pa.large_string()`, `pa.binary()`, `pa.date32()`, `pa.timestamp(\"ms\", tz=\"UTC\")` and `pa.decimal128(10, 2)`.\n\nNulls are first-class in every type, so an integer column with a gap stays integer. That is a key difference from classic NumPy, which has no null concept.\n\nUseful attributes: `arr.type`, `len(arr)`, `arr.null_count`, `arr.nbytes`. `arr[0]` returns an Arrow **scalar** (call `.as_py()` for the Python value), and `arr.to_pylist()` converts the whole thing. `arr.slice(1, 2)` is zero-copy.\n\nArrays never grow or change. To combine data you build new arrays, or use a **ChunkedArray**: a logical column made of several arrays of the same type, created with `pa.chunked_array([a, b])`. Table columns are ChunkedArrays, which is how data read in pieces stays copy-free.",
+   "body": "**Apache Arrow** is a standard way of laying out tables of data in memory. Many data tools use it, so they can hand data to each other without converting it. **PyArrow** is its Python library, imported as `pa`.\n\nIts basic building block is the Arrow **array**: one column of values, all of the same data type, stored side by side in one block of memory, much like a NumPy array. Unlike a Python list, it cannot change once it is made: it is immutable.\n\nReal data has gaps. Arrow marks a missing value as **null** (Python's `None`) and keeps track of which slots are null in a separate row of on/off flags, one bit per value, called the **validity bitmap**. So `pa.array([1, 2, None])` is an `int64` array with one null, and the integers stay integers. Classic NumPy has no such idea: it would have to turn the column into floats and use NaN.\n\nPyArrow works out the type from the values, or you can choose one with `type=pa.int32()` or `pa.float32()`. Common types are `pa.int8()` through `pa.int64()`, unsigned (never negative) `pa.uint32()`, `pa.float64()`, `pa.bool_()`, `pa.string()` (text, stored as UTF-8), `pa.large_string()`, `pa.binary()` (raw bytes), `pa.date32()`, and `pa.decimal128(10, 2)` (exact decimal numbers, good for money).\n\nFor moments in time there is `pa.timestamp(\"ms\", tz=\"UTC\")`: a **timestamp** stores a date and time as a count of units (here milliseconds) since 1 January 1970. **UTC** is the world's reference clock, with no local time shift.\n\nUseful attributes: `arr.type`, `len(arr)`, `arr.null_count`, `arr.nbytes` (memory used). `arr[0]` returns a single Arrow value, a **scalar**; call `.as_py()` on it to get the plain Python value. `arr.to_pylist()` converts the whole array to a list. `arr.slice(1, 2)` gives part of the array without copying any data, which is called **zero-copy**: the slice just points into the same memory.\n\nSince arrays never grow or change, to add data you build new arrays, or use a **ChunkedArray**: one column made of several arrays (chunks) of the same type, created with `pa.chunked_array([a, b])`. The columns of a table are ChunkedArrays, which is how data read in pieces can be put together without copying.",
    "code": "import pyarrow as pa\n\na = pa.array([1, 2, None, 4])\nprint(a.type, len(a), a.null_count)        # int64 4 1\n\nb = pa.array([1.5, 2.25], type=pa.float32())\nprint(b.type)                              # float\nprint(a[1], a[1].as_py())                  # 2 2\n\nts = pa.array([0, 86_400_000], type=pa.timestamp(\"ms\", tz=\"UTC\"))\nprint(ts.to_pylist()[1])                   # 1970-01-02 00:00:00+00:00\n\nchunked = pa.chunked_array([a, pa.array([5, 6])])\nprint(chunked.num_chunks, len(chunked))    # 2 6\nprint(a.slice(1, 2).to_pylist())           # [2, None]  (zero-copy view)",
    "code_lang": "python",
    "takeaways": [
-    "Arrays are immutable, typed and carry a null bitmap",
-    "Pass `type=` to control the type instead of relying on inference",
-    "ChunkedArray = one logical column made of several arrays"
+    "Arrays are immutable and typed, and mark missing values as nulls in a validity bitmap",
+    "Pass `type=` to choose the type instead of letting PyArrow guess",
+    "A ChunkedArray is one column made of several arrays"
    ],
    "pitfalls": [
     "Trying to append to or assign into an Arrow array: they are immutable; build a new one."
@@ -80,6 +235,17 @@
    "requires": [
     "python.lists",
     "python.modules-imports"
+   ],
+   "defines": [
+    "Apache Arrow",
+    "PyArrow",
+    "null",
+    "validity bitmap",
+    "timestamp",
+    "UTC",
+    "scalar",
+    "zero-copy",
+    "ChunkedArray"
    ]
   },
   {
@@ -88,36 +254,44 @@
    "module": "basics",
    "level": 1,
    "minutes": 12,
-   "summary": "Build pa.Table objects from dicts or rows, inspect and enforce a schema, and select, rename and add columns.",
-   "why": "Tables are what you read from files and hand to other libraries, and the schema is the contract between them.",
-   "body": "A **Table** is a set of named columns of equal length; each column is a ChunkedArray. A **Schema** lists the column names and types, as `pa.field` objects that can also say whether nulls are allowed and carry metadata.\n\nBuild a table with `pa.table({\"id\": [1, 2], \"name\": [\"a\", \"b\"]})`, `pa.Table.from_pydict(...)`, or row-wise with `pa.Table.from_pylist([{\"id\": 1, ...}, ...])`. Pass `schema=` to enforce types instead of inferring them. Convert back with `to_pydict()` or `to_pylist()`.\n\nInspect with `t.schema`, `t.num_rows`, `t.num_columns`, `t.column_names`, `t.nbytes`. Access a column with `t[\"name\"]` or `t.column(0)`.\n\nTables are immutable; every operation returns a new table that shares the unchanged column buffers, so it's cheap:\n\n- `t.select([\"id\"])`, `t.drop_columns([\"x\"])`, `t.rename_columns([...])`\n- `t.append_column(\"score\", pa.array([...]))`, `t.set_column(i, name, arr)`\n- `t.slice(offset, length)`, `t.cast(new_schema)`\n- `pa.concat_tables([t1, t2])` stacks tables with the same schema\n\nA **RecordBatch** is like a table but each column is a single contiguous array. Batches are the unit of streaming: readers produce them, IPC streams carry them, and `t.to_batches()` or `pa.Table.from_batches(...)` move between the two forms.",
+   "summary": "Build pa.Table objects from dicts or rows, check and enforce a schema, and select, rename and add columns.",
+   "why": "Tables are what you read from files and hand to other libraries, and the schema is the agreement about what they contain.",
+   "body": "A **Table** is a set of named columns of equal length, like a spreadsheet; each column is a ChunkedArray. Its **schema** is the list of column names and types.\n\nEach entry in a schema is a **field**, made with `pa.field`. Besides a name and a type, a field can say whether the column is **nullable** (allowed to contain nulls) and can carry **metadata**: extra notes about the data, stored alongside it.\n\nBuild a table with `pa.table({\"id\": [1, 2], \"name\": [\"a\", \"b\"]})`, `pa.Table.from_pydict(...)`, or row by row with `pa.Table.from_pylist([{\"id\": 1, ...}, ...])`. Pass `schema=` to set the types yourself instead of letting PyArrow guess them. Convert back with `to_pydict()` or `to_pylist()`.\n\nInspect with `t.schema`, `t.num_rows`, `t.num_columns`, `t.column_names`, `t.nbytes`. Get a column with `t[\"name\"]` or `t.column(0)`.\n\nTables are immutable; every operation returns a new table. Columns you didn't change are shared with the old table rather than copied, so this is cheap:\n\n- `t.select([\"id\"])`, `t.drop_columns([\"x\"])`, `t.rename_columns([...])`\n- `t.append_column(\"score\", pa.array([...]))`, `t.set_column(i, name, arr)`\n- `t.slice(offset, length)`, `t.cast(new_schema)` (convert columns to new types)\n- `pa.concat_tables([t1, t2])` stacks tables that have the same schema\n\nA **RecordBatch** is like a small table in which each column is one single array rather than a ChunkedArray. Big data is often handled as a sequence of these batches, one after another, so it never has to fit in memory all at once. Readers produce batches, and `t.to_batches()` or `pa.Table.from_batches(...)` convert between the two forms.",
    "code": "import pyarrow as pa\n\nschema = pa.schema([\n    pa.field(\"id\", pa.int32(), nullable=False),\n    pa.field(\"city\", pa.string()),\n    pa.field(\"temp\", pa.float32()),\n])\nt = pa.Table.from_pylist(\n    [{\"id\": 1, \"city\": \"Oslo\", \"temp\": 4.5},\n     {\"id\": 2, \"city\": \"Lima\", \"temp\": None}],\n    schema=schema,\n)\nprint(t.num_rows, t.column_names)       # 2 ['id', 'city', 'temp']\nprint(t.schema.field(\"id\"))             # pyarrow.Field<id: int32 not null>\n\nt2 = t.append_column(\"hot\", pa.array([False, None]))\nprint(t2.select([\"city\", \"hot\"]).to_pylist())\n# [{'city': 'Oslo', 'hot': False}, {'city': 'Lima', 'hot': None}]\n\nboth = pa.concat_tables([t, t])\nprint(both.num_rows, both[\"id\"].num_chunks)   # 4 2",
    "code_lang": "python",
    "takeaways": [
-    "Table = named ChunkedArrays; Schema = names, types, nullability",
+    "Table = named ChunkedArrays; schema = names, types and nullability",
     "Pass an explicit `schema=` when types matter",
-    "Operations return new tables that share buffers"
+    "Operations return new tables that share the unchanged columns"
    ],
    "pitfalls": [
-    "Concatenating tables whose schemas differ slightly (int32 vs int64): cast first or it fails."
+    "Concatenating tables whose schemas differ slightly (int32 vs int64): convert one with `cast` first or it fails."
    ],
    "quiz": [
     {
      "q": "What is the main structural difference between a pa.Table and a pa.RecordBatch?",
      "options": [
       "Tables can't hold strings",
-      "A RecordBatch's columns are single contiguous arrays; a Table's columns may be chunked",
+      "Each RecordBatch column is a single array; a Table's columns may be made of several chunks",
       "RecordBatches have no schema",
       "Tables are mutable"
      ],
      "answer": 1,
-     "explain": "Tables hold ChunkedArrays, so they can be assembled from many batches without copying."
+     "explain": "Tables hold ChunkedArrays, so they can be put together from many batches without copying."
     }
    ],
    "docs": "https://arrow.apache.org/docs/python/data.html#tables",
    "requires": [
     "pyarrow.arrays-types",
     "python.dicts"
+   ],
+   "defines": [
+    "schema",
+    "field",
+    "nullable",
+    "metadata",
+    "RecordBatch",
+    "batch"
    ]
   },
   {
@@ -127,8 +301,8 @@
    "level": 1,
    "minutes": 12,
    "summary": "Write tables with pq.write_table and read them back with pq.read_table, choosing columns, filters and compression.",
-   "why": "Parquet is the standard file format for analytics, and PyArrow is the engine most Python tools use to read and write it.",
-   "body": "**Parquet** is a compressed, columnar file format that stores the schema. The `pyarrow.parquet` module, imported as `pq`, reads and writes it.\n\nWriting: `pq.write_table(table, \"data.parquet\", compression=\"zstd\")`. The default codec is Snappy; Zstd usually gives smaller files at similar speed. `row_group_size=` controls how many rows go into each row group, the unit readers can skip.\n\nReading: `pq.read_table(\"data.parquet\")` returns a Table. Two arguments make reads much cheaper:\n\n- `columns=[\"a\", \"b\"]` reads only those columns from disk, since each column is stored separately.\n- `filters=[(\"year\", \"=\", 2026), (\"amount\", \">\", 0)]` (a list means AND; a list of lists means OR of ANDs) skips row groups whose statistics can't match and filters rows. You can also pass an expression such as `pc.field(\"amount\") > 0`.\n\n`pq.read_metadata(path)` and `pq.read_schema(path)` inspect a file without reading data, and `pq.ParquetFile(path)` gives finer control such as `iter_batches()` for streaming through large files.\n\nParquet preserves Arrow types including timestamps with time zones, decimals, lists and structs, and stores pandas metadata so `to_pandas()` can restore the index. Prefer it over CSV for anything you read more than once.",
+   "why": "Parquet is the standard file format for data analysis, and PyArrow is the engine most Python tools use to read and write it.",
+   "body": "**Parquet** is a file format for tables. It stores data column by column (**columnar storage**) instead of row by row, **compresses** each column (packs it into fewer bytes), and saves the schema inside the file so the types come back exactly. The `pyarrow.parquet` module, imported as `pq`, reads and writes it.\n\nWriting: `pq.write_table(table, \"data.parquet\", compression=\"zstd\")`. The default compression method is Snappy; Zstd usually gives smaller files at similar speed. Inside the file, rows are grouped into **row groups** of up to `row_group_size=` rows. Each group records the smallest and largest value of every column, which lets readers skip groups that cannot match.\n\nReading: `pq.read_table(\"data.parquet\")` returns a Table. Two arguments make reads much cheaper:\n\n- `columns=[\"a\", \"b\"]` reads only those columns from disk, since each column is stored separately.\n- `filters=[(\"year\", \"=\", 2026), (\"amount\", \">\", 0)]` (a list means AND; a list of lists means OR of ANDs) skips row groups that can't match and then filters the rows. You can also write the condition as `pc.field(\"amount\") > 0` with `pyarrow.compute`, covered in a later lesson.\n\n`pq.read_metadata(path)` and `pq.read_schema(path)` look at a file's description without reading the data, and `pq.ParquetFile(path)` gives finer control, such as `iter_batches()` to go through a big file one record batch at a time.\n\nParquet keeps Arrow types exactly, including timestamps with their time zone (the region whose clock they follow), exact decimals and nested values such as lists. When a table came from pandas, it also keeps pandas' row labels. Prefer it over CSV for anything you read more than once.",
    "code": "import pyarrow as pa\nimport pyarrow.parquet as pq\n\nt = pa.table({\n    \"year\": [2025, 2026, 2026, 2026],\n    \"shop\": [\"A\", \"A\", \"B\", \"B\"],\n    \"amount\": [10.0, -2.0, 7.5, 3.0],\n})\npq.write_table(t, \"sales.parquet\", compression=\"zstd\")\n\nmeta = pq.read_metadata(\"sales.parquet\")\nprint(meta.num_rows, meta.num_columns)      # 4 3\n\npart = pq.read_table(\n    \"sales.parquet\",\n    columns=[\"shop\", \"amount\"],\n    filters=[(\"year\", \"=\", 2026), (\"amount\", \">\", 0)],\n)\nprint(part.to_pydict())\n# {'shop': ['B', 'B'], 'amount': [7.5, 3.0]}",
    "code_lang": "python",
    "takeaways": [
@@ -155,6 +329,12 @@
    "docs": "https://arrow.apache.org/docs/python/parquet.html",
    "requires": [
     "pyarrow.tables-schemas"
+   ],
+   "defines": [
+    "Parquet",
+    "columnar storage",
+    "compression",
+    "row group"
    ]
   },
   {
@@ -163,15 +343,15 @@
    "module": "io",
    "level": 1,
    "minutes": 10,
-   "summary": "Read CSV and line-delimited JSON with pyarrow.csv and pyarrow.json, setting column types, null markers and parse options.",
-   "why": "PyArrow's multi-threaded CSV reader is one of the fastest in Python and backs pandas' engine='pyarrow'.",
-   "body": "`pyarrow.csv.read_csv(path)` parses CSV with multiple threads straight into a Table. It reads compressed files like `.csv.gz` automatically. Behaviour is controlled by three option objects:\n\n- `ReadOptions(skip_rows=..., column_names=[...], block_size=...)` for the raw input.\n- `ParseOptions(delimiter=\";\", quote_char='\"', newlines_in_values=True)` for the CSV dialect.\n- `ConvertOptions(column_types={\"zip\": pa.string()}, null_values=[\"\", \"NA\"], include_columns=[...], timestamp_parsers=[\"%d/%m/%Y\"])` for turning text into typed columns.\n\nType inference looks at the data, so give explicit `column_types` for IDs and codes with leading zeros, and for columns that might look numeric in the first block but contain text later.\n\nFor files too large for memory, `pyarrow.csv.open_csv(path)` returns a streaming reader that yields RecordBatches. To write, use `pyarrow.csv.write_csv(table, path)`.\n\n`pyarrow.json.read_json(path)` reads **newline-delimited JSON** (one object per line), inferring nested objects as structs and arrays as lists. Pass `ParseOptions(explicit_schema=...)` to fix the types. A single big JSON array isn't supported by this reader; convert it to one object per line first.",
+   "summary": "Read CSV and one-object-per-line JSON files with pyarrow.csv and pyarrow.json, setting column types, missing-value markers and parsing.",
+   "why": "PyArrow's CSV reader uses several processor cores at once, making it one of the fastest in Python; pandas uses it when you pass engine='pyarrow'.",
+   "body": "`pyarrow.csv.read_csv(path)` reads a CSV file straight into a Table. It cuts the file into blocks and works on several of them at the same time, on different processor cores, and it opens zipped files such as `.csv.gz` automatically. Three option objects control it:\n\n- `ReadOptions(skip_rows=..., column_names=[...], block_size=...)` for the raw input.\n- `ParseOptions(delimiter=\";\", quote_char='\"', newlines_in_values=True)` for **parsing**, the step that splits the text into rows and values: which separator, which quote character, whether values may contain line breaks.\n- `ConvertOptions(column_types={\"zip\": pa.string()}, null_values=[\"\", \"NA\"], include_columns=[...], timestamp_parsers=[\"%d/%m/%Y\"])` for turning text into typed columns: types per column, which strings mean null, which columns to keep, how dates are written.\n\nPyArrow guesses each column's type from the first block of data, so give explicit `column_types` for IDs and codes with leading zeros (a zip code like 02134 would otherwise become the number 2134), and for columns that look numeric at first but contain text later.\n\nFor files too large for memory, `pyarrow.csv.open_csv(path)` returns a reader that hands you one RecordBatch at a time. To write, use `pyarrow.csv.write_csv(table, path)`.\n\n`pyarrow.json.read_json(path)` reads **JSON Lines** files: one JSON object per line. Nested objects become **struct** columns (a set of named sub-fields in every row, like a small dict with fixed keys) and JSON arrays become list columns. Pass `ParseOptions(explicit_schema=...)` to fix the types. A file holding one big JSON array isn't supported by this reader; convert it to one object per line first.",
    "code": "import pyarrow as pa\nfrom pyarrow import csv, json\n\nwith open(\"people.csv\", \"w\") as f:\n    f.write(\"id;zip;joined;score\\n1;02134;2026-01-05;9.5\\n2;10001;2026-02-11;NA\\n\")\n\nt = csv.read_csv(\n    \"people.csv\",\n    parse_options=csv.ParseOptions(delimiter=\";\"),\n    convert_options=csv.ConvertOptions(\n        column_types={\"zip\": pa.string()},\n        null_values=[\"NA\"],\n    ),\n)\nprint(t.schema.types)\n# [DataType(int64), DataType(string), DataType(date32[day]), DataType(double)]\nprint(t[\"zip\"].to_pylist())          # ['02134', '10001']\n\nwith open(\"events.jsonl\", \"w\") as f:\n    f.write('{\"user\": \"ana\", \"tags\": [\"a\", \"b\"]}\\n{\"user\": \"ben\", \"tags\": []}\\n')\nprint(json.read_json(\"events.jsonl\").schema)\n# user: string\n# tags: list<item: string>\n#   child 0, item: string",
    "code_lang": "python",
    "takeaways": [
     "Three option objects: ReadOptions, ParseOptions, ConvertOptions",
     "Set `column_types` for IDs and codes to keep leading zeros",
-    "`read_json` expects newline-delimited JSON"
+    "`read_json` expects JSON Lines: one object per line"
    ],
    "pitfalls": [
     "Passing a JSON file containing one big array to `read_json`; it expects one object per line."
@@ -193,6 +373,11 @@
    "requires": [
     "pyarrow.tables-schemas",
     "python.files"
+   ],
+   "defines": [
+    "parse",
+    "JSON Lines",
+    "struct"
    ]
   },
   {
@@ -201,9 +386,9 @@
    "module": "basics",
    "level": 1,
    "minutes": 12,
-   "summary": "Move data between Arrow, pandas and NumPy with from_pandas, to_pandas and to_numpy, and know when it is zero-copy.",
+   "summary": "Move data between Arrow, pandas and NumPy with from_pandas, to_pandas and to_numpy, and know when nothing gets copied.",
    "why": "Most PyArrow work starts or ends in pandas or NumPy, and copying large data by accident is a common cause of slow code.",
-   "body": "`pa.Table.from_pandas(df)` converts a pandas DataFrame into a Table; `table.to_pandas()` goes back. A non-default pandas index is stored as a column plus schema metadata, so it round-trips. Pass `preserve_index=False` to drop it.\n\nType mapping is mostly natural, with a few rules:\n\n- Arrow integer columns with nulls become `float64` in pandas by default (NaN for null), because NumPy ints have no null. Use `types_mapper=pd.ArrowDtype` to get Arrow-backed pandas columns that keep exact types and nulls with no conversion.\n- Arrow strings become Python object or pandas string columns.\n- Timestamps keep their unit and time zone.\n\nFor NumPy, `pa.array(np_array)` and `arr.to_numpy()` are **zero-copy** for numeric data without nulls. With nulls, or for strings, a copy is needed, so pass `zero_copy_only=False`. A zero-copy result is read-only, because Arrow memory is immutable.\n\n`pa.Table.from_pandas` uses multiple threads, and conversions of large numeric columns are fast. Converting in a loop, row by row, is the slow path; always convert whole columns or tables. In pandas 2 and 3, `pd.read_parquet(..., dtype_backend=\"pyarrow\")` and `engine=\"pyarrow\"` use PyArrow underneath.",
+   "body": "**pandas** is the most popular Python library for working with tables; its table type is the **DataFrame**. `pa.Table.from_pandas(df)` converts a DataFrame into an Arrow Table, and `table.to_pandas()` converts back.\n\npandas gives every row a label, its index. If yours isn't the default 0, 1, 2..., it is saved as an extra column plus a note in the schema metadata, so it survives the trip to Arrow and back. Pass `preserve_index=False` to drop it.\n\nTypes mostly map naturally, with a few rules:\n\n- Arrow integer columns with nulls become `float64` in pandas by default, with NaN for each null, because NumPy integers can't be missing. Use `types_mapper=pd.ArrowDtype` to get pandas columns that keep Arrow's exact types and nulls, with no conversion.\n- Arrow strings become pandas text columns.\n- Timestamps keep their unit (seconds, milliseconds...) and their **time zone**, the region whose local clock they are shown in.\n\nFor NumPy, `pa.array(np_array)` and `arr.to_numpy()` are zero-copy for numbers without nulls: the new array points at the same memory instead of copying it. With nulls, or for strings, a copy is needed, so pass `zero_copy_only=False`. A zero-copy result is read-only, because Arrow memory never changes.\n\n`pa.Table.from_pandas` uses several processor cores at once, so converting large numeric columns is fast. Converting row by row in a loop is the slow path; always convert whole columns or tables. Recent pandas versions also use PyArrow underneath, for example in `pd.read_parquet(..., dtype_backend=\"pyarrow\")`.",
    "code": "import numpy as np\nimport pandas as pd\nimport pyarrow as pa\n\ndf = pd.DataFrame({\"n\": [1, 2, 3], \"s\": [\"x\", \"y\", None]})\nt = pa.Table.from_pandas(df, preserve_index=False)\nprint(t.schema.types)   # [DataType(int64), DataType(large_string)]  (pandas 3 str)\n\nwith_null = pa.table({\"n\": pa.array([1, None, 3])})\nprint(with_null.to_pandas()[\"n\"].dtype)                          # float64\nprint(with_null.to_pandas(types_mapper=pd.ArrowDtype)[\"n\"].dtype)  # int64[pyarrow]\n\nx = np.arange(5, dtype=np.int64)\narr = pa.array(x)                         # zero-copy from NumPy\nback = arr.to_numpy()                     # zero-copy, read-only view\nprint(back.flags.writeable)               # False\nnulls = pa.array([1, None, 3])\ntry:\n    nulls.to_numpy()                      # zero_copy_only=True by default\nexcept pa.ArrowInvalid:\n    print(\"nulls need a copy\")\nprint(nulls.to_numpy(zero_copy_only=False))   # [ 1. nan  3.]",
    "code_lang": "python",
    "takeaways": [
@@ -231,6 +416,11 @@
    "requires": [
     "pyarrow.tables-schemas",
     "numpy.dtypes"
+   ],
+   "defines": [
+    "pandas",
+    "DataFrame",
+    "time zone"
    ]
   },
   {
@@ -241,16 +431,16 @@
    "minutes": 15,
    "summary": "Use pyarrow.compute for vectorized arithmetic, comparisons, string functions, aggregations and filtering.",
    "why": "Compute functions let you transform Arrow data directly, without converting to pandas or NumPy first.",
-   "body": "`import pyarrow.compute as pc` exposes hundreds of vectorized kernels written in C++. They take arrays, chunked arrays or scalars and return new arrays.\n\n- Arithmetic: `pc.add(a, b)`, `pc.multiply`, `pc.divide`, `pc.round(x, 2)`. The `*_checked` variants such as `pc.add_checked` raise on overflow instead of wrapping.\n- Comparisons and logic: `pc.greater(a, 3)`, `pc.equal`, `pc.and_`, `pc.invert`, `pc.is_null`, `pc.is_in(a, value_set=pa.array([...]))`.\n- Strings: `pc.utf8_upper`, `pc.utf8_length`, `pc.match_substring(a, \"abc\")`, `pc.match_substring_regex`, `pc.replace_substring`, `pc.split_pattern`.\n- Temporal: `pc.year`, `pc.day_of_week`, `pc.strftime`, `pc.strptime`.\n- Aggregations return scalars: `pc.sum`, `pc.mean`, `pc.min_max`, `pc.count`, `pc.count_distinct`, `pc.value_counts`.\n- Selection: `pc.filter(values, mask)`, `pc.take(values, indices)`, `pc.if_else(cond, a, b)`, `pc.fill_null`.\n\nNulls propagate: `null + 1` is null, and aggregations skip nulls by default (`skip_nulls=True`), with `min_count` deciding when the result itself becomes null.\n\nMany functions have an options object for extra settings, e.g. `pc.round(x, ndigits=1)` or `pc.sort_indices(t, sort_keys=[(\"x\", \"descending\")])`. `pc.list_functions()` lists everything available.",
+   "body": "`import pyarrow.compute as pc` gives you hundreds of compute functions, written in C++, that work on whole arrays at once (vectorized, like NumPy's). They take arrays, ChunkedArrays or single scalars and return new arrays.\n\n- Arithmetic: `pc.add(a, b)`, `pc.multiply`, `pc.divide`, `pc.round(x, 2)`. The `*_checked` versions such as `pc.add_checked` raise an error on integer overflow instead of silently wrapping around.\n- Comparisons and logic: `pc.greater(a, 3)`, `pc.equal`, `pc.and_`, `pc.invert`, `pc.is_null`, `pc.is_in(a, value_set=pa.array([...]))`.\n- Strings: `pc.utf8_upper`, `pc.utf8_length`, `pc.match_substring(a, \"abc\")`, `pc.match_substring_regex` (pattern search), `pc.replace_substring`, `pc.split_pattern`.\n- Dates and times: `pc.year`, `pc.day_of_week`, `pc.strftime` (format as text), `pc.strptime` (read from text).\n- Aggregations return scalars: `pc.sum`, `pc.mean`, `pc.min_max`, `pc.count`, `pc.count_distinct`, `pc.value_counts`.\n- Selection: `pc.filter(values, mask)`, `pc.take(values, indices)`, `pc.if_else(cond, a, b)`, `pc.fill_null`.\n\nNulls spread: `null + 1` is null. Aggregations skip nulls by default (`skip_nulls=True`), and `min_count` decides how many real values are needed before the result is not null.\n\nMany functions have an options object for extra settings, e.g. `pc.round(x, ndigits=1)` or `pc.sort_indices(t, sort_keys=[(\"x\", \"descending\")])`. `pc.list_functions()` lists everything available.",
    "code": "import pyarrow as pa\nimport pyarrow.compute as pc\n\nprice = pa.array([10.0, 25.5, None, 8.0])\nqty = pa.array([2, 1, 4, 5])\nnames = pa.array([\"Tea\", \"cake\", \"jam\", \"Tea\"])\n\nrevenue = pc.multiply(price, qty)\nprint(revenue.to_pylist())                     # [20.0, 25.5, None, 40.0]\nprint(pc.sum(revenue).as_py())                 # 85.5  (null skipped)\n\nmask = pc.and_(pc.greater(qty, 1), pc.is_valid(price))\nprint(pc.filter(names, mask).to_pylist())      # ['Tea', 'Tea']\n\nprint(pc.utf8_lower(names).to_pylist())        # ['tea', 'cake', 'jam', 'tea']\nprint(pc.value_counts(pc.utf8_lower(names)).to_pylist()[0])\n# {'values': 'tea', 'counts': 2}\nprint(pc.if_else(pc.greater(qty, 3), \"bulk\", \"single\").to_pylist())\n# ['single', 'single', 'bulk', 'bulk']",
    "code_lang": "python",
    "takeaways": [
-    "`pyarrow.compute` = vectorized C++ kernels on Arrow data",
-    "Nulls propagate in arithmetic and are skipped in aggregations",
+    "`pyarrow.compute` = vectorized C++ functions on Arrow data",
+    "Nulls spread through arithmetic and are skipped in aggregations",
     "Use `*_checked` arithmetic when overflow must not wrap silently"
    ],
    "pitfalls": [
-    "Looping over `arr.to_pylist()` in Python for something a compute kernel does directly."
+    "Looping over `arr.to_pylist()` in Python for something a compute function does directly."
    ],
    "quiz": [
     {
@@ -278,8 +468,8 @@
    "level": 2,
    "minutes": 15,
    "summary": "Run table-level operations in PyArrow: filter with expressions, sort_by, group_by().aggregate() and join.",
-   "why": "For simple pipelines you can stay in Arrow from file to file, skipping pandas entirely.",
-   "body": "Tables have relational methods built on the compute kernels and the Acero engine:\n\n- `t.filter(pc.field(\"amount\") > 0)` keeps rows matching an **expression**. `pc.field(\"x\")` refers to a column; combine with `&`, `|`, `~` and methods like `.isin([...])` or `.is_null()`.\n- `t.sort_by([(\"shop\", \"ascending\"), (\"amount\", \"descending\")])`.\n- `t.group_by(\"shop\").aggregate([(\"amount\", \"sum\"), (\"amount\", \"count\"), (\"id\", \"count_distinct\")])` returns one row per group, with columns named like `amount_sum`. Group by several keys with a list.\n- `left.join(right, keys=\"uid\", join_type=\"left outer\")`. Join types are `\"inner\"`, `\"left outer\"`, `\"right outer\"`, `\"full outer\"`, `\"left semi\"`, `\"left anti\"` and their right-side versions. Use `right_keys=` when names differ.\n\nAggregation names follow the compute functions: `sum`, `mean`, `min`, `max`, `count`, `count_distinct`, `list` (collect values), `first`, `last`, `stddev`.\n\nThe output order of `group_by` and `join` isn't guaranteed (pass `use_threads=False` to `group_by` for stable order), so sort the result if order matters.\n\nThis API is intentionally small. For complex analytics you would hand the Table to Polars, DuckDB or pandas, which is zero-copy or cheap, but for filtering, light aggregation and joining it saves a conversion.",
+   "why": "For simple jobs you can stay in Arrow from input file to output file, skipping pandas entirely.",
+   "body": "Tables have database-style methods, built on the compute functions and on Acero, Arrow's built-in query engine:\n\n- `t.filter(pc.field(\"amount\") > 0)` keeps the rows matching an **expression**: a description of a condition that PyArrow evaluates for every row. `pc.field(\"x\")` means 'column x'; combine conditions with `&` (and), `|` (or), `~` (not) and methods like `.isin([...])` or `.is_null()`.\n- `t.sort_by([(\"shop\", \"ascending\"), (\"amount\", \"descending\")])`.\n- `t.group_by(\"shop\").aggregate([(\"amount\", \"sum\"), (\"amount\", \"count\"), (\"id\", \"count_distinct\")])` returns one row per group, with columns named like `amount_sum`. Group by several keys with a list.\n\n`left.join(right, keys=\"uid\", join_type=\"left outer\")` is a **join**: it combines two tables by matching rows that share a key value, like looking up each order's customer. `\"inner\"` keeps only matched rows; `\"left outer\"` keeps every left row (with nulls where nothing matched); `\"right outer\"` and `\"full outer\"` do the same for the right or both sides; `\"left semi\"` keeps left rows that have a match and `\"left anti\"` those that don't (plus right-side versions). Use `right_keys=` when the key columns have different names.\n\nAggregation names follow the compute functions: `sum`, `mean`, `min`, `max`, `count`, `count_distinct`, `list` (collect values), `first`, `last`, `stddev`.\n\nThe output order of `group_by` and `join` isn't guaranteed, because the work is spread over several threads (pass `use_threads=False` to `group_by` for a stable order), so sort the result if order matters.\n\nThis set of methods is intentionally small. For complex analysis you would hand the Table to Polars, DuckDB or pandas, other table libraries that read Arrow data directly, which is zero-copy or cheap; but for filtering, light aggregation and joining it saves a conversion.",
    "code": "import pyarrow as pa\nimport pyarrow.compute as pc\n\norders = pa.table({\"uid\": [1, 1, 2, 3, 3], \"amount\": [10, -3, 7, 4, 6]})\nusers = pa.table({\"uid\": [1, 2, 4], \"name\": [\"Ana\", \"Ben\", \"Di\"]})\n\npositive = orders.filter(pc.field(\"amount\") > 0)\nper_user = (\n    positive.group_by(\"uid\")\n    .aggregate([(\"amount\", \"sum\"), (\"amount\", \"count\")])\n    .sort_by(\"uid\")\n)\nprint(per_user.to_pylist())\n# [{'uid': 1, 'amount_sum': 10, 'amount_count': 1},\n#  {'uid': 2, 'amount_sum': 7, 'amount_count': 1},\n#  {'uid': 3, 'amount_sum': 10, 'amount_count': 2}]\n\njoined = users.join(per_user, keys=\"uid\", join_type=\"left outer\").sort_by(\"uid\")\nprint(joined.select([\"name\", \"amount_sum\"]).to_pydict())\n# {'name': ['Ana', 'Ben', 'Di'], 'amount_sum': [10, 7, None]}",
    "code_lang": "python",
    "takeaways": [
@@ -288,7 +478,7 @@
     "Sort after group_by or join if order matters"
    ],
    "pitfalls": [
-    "Expecting `group_by` output in first-seen order with multithreading on."
+    "Expecting `group_by` output in first-seen order while it runs on several threads."
    ],
    "quiz": [
     {
@@ -306,6 +496,10 @@
    "docs": "https://arrow.apache.org/docs/python/compute.html#grouped-aggregations",
    "requires": [
     "pyarrow.compute-functions"
+   ],
+   "defines": [
+    "expression",
+    "SQL join"
    ]
   },
   {
@@ -314,22 +508,22 @@
    "module": "compute",
    "level": 2,
    "minutes": 15,
-   "summary": "Treat many files as one dataset with pyarrow.dataset, use hive partitioning, filter and project lazily, and write partitioned output.",
-   "why": "Data lakes are folders of many Parquet files; datasets let you query them as one table while reading only what you need.",
-   "body": "`import pyarrow.dataset as ds`. `ds.dataset(\"data/\", format=\"parquet\", partitioning=\"hive\")` discovers all files under a directory (local or cloud) and presents them as one logical table, without reading any data yet.\n\n**Partitioning** encodes column values in the directory path. Hive style looks like `year=2026/country=NO/part-0.parquet`; the `year` and `country` columns come from the path. Filters on partition columns skip whole directories, and filters on other columns use Parquet statistics to skip row groups.\n\nReading is lazy and selective:\n\n- `dataset.to_table(columns=[...], filter=ds.field(\"year\") == 2026)` reads only matching data.\n- `dataset.scanner(...).to_batches()` or `dataset.to_batches()` streams RecordBatches for data larger than memory.\n- `dataset.count_rows(filter=...)` and `dataset.head(5)` are cheap checks.\n\nWriting: `ds.write_dataset(table, \"out/\", format=\"parquet\", partitioning=[\"year\"], partitioning_flavor=\"hive\")` splits data into partition folders. `existing_data_behavior=\"overwrite_or_ignore\"` controls what happens if the folder exists, and `max_rows_per_file` caps file size.\n\nChoose partition columns with low cardinality that you usually filter on, like date or region. Partitioning by a high-cardinality column such as user ID creates millions of tiny files and slows everything down.",
+   "summary": "Treat a folder of many files as one table with pyarrow.dataset, split data into folders by column value, and read only what you need.",
+   "why": "Big data collections are often folders full of Parquet files; datasets let you query them as one table while reading only the parts you need.",
+   "body": "`import pyarrow.dataset as ds`. `ds.dataset(\"data/\", format=\"parquet\", partitioning=\"hive\")` finds all the files under a folder, on your disk or in the **cloud** (storage rented over the internet), and presents them as one **dataset**: a single table you can query, without reading any data yet. A folder like that, full of raw data files waiting to be analysed, is often called a **data lake**.\n\n**Partitioning** splits data into sub-folders by the value of a column and writes that value into the folder name. Hive style (named after the Hadoop tool that made it popular) looks like `year=2026/country=NO/part-0.parquet`; the `year` and `country` columns come from the path. Filters on partition columns skip whole folders, and filters on other columns use the Parquet row groups' min/max values to skip row groups.\n\nReading is **lazy** (nothing is read until you ask for results) and selective:\n\n- `dataset.to_table(columns=[...], filter=ds.field(\"year\") == 2026)` reads only matching data.\n- `dataset.to_batches()` (or `dataset.scanner(...).to_batches()`) hands you RecordBatches one at a time, for data larger than memory.\n- `dataset.count_rows(filter=...)` and `dataset.head(5)` are cheap checks.\n\nWriting: `ds.write_dataset(table, \"out/\", format=\"parquet\", partitioning=[\"year\"], partitioning_flavor=\"hive\")` splits data into partition folders. `existing_data_behavior=\"overwrite_or_ignore\"` controls what happens if the folder already exists, and `max_rows_per_file` caps file size.\n\nChoose partition columns that have few distinct values (low **cardinality**) and that you usually filter on, like date or region. Partitioning by a column with very many distinct values, such as user ID, creates millions of tiny files and slows everything down.",
    "code": "import pyarrow as pa\nimport pyarrow.dataset as ds\n\nt = pa.table({\n    \"year\": [2025, 2025, 2026, 2026],\n    \"country\": [\"NO\", \"SE\", \"NO\", \"SE\"],\n    \"amount\": [5, 3, 8, 2],\n})\nds.write_dataset(t, \"lake\", format=\"parquet\", partitioning=[\"year\"],\n                 partitioning_flavor=\"hive\",\n                 existing_data_behavior=\"overwrite_or_ignore\")\n\ndataset = ds.dataset(\"lake\", format=\"parquet\", partitioning=\"hive\")\nprint(sorted(f.split(\"lake/\")[1] for f in dataset.files))\n# ['year=2025/part-0.parquet', 'year=2026/part-0.parquet']\n\nrecent = dataset.to_table(columns=[\"country\", \"amount\"],\n                          filter=ds.field(\"year\") == 2026)\nprint(recent.sort_by(\"country\").to_pydict())\n# {'country': ['NO', 'SE'], 'amount': [8, 2]}\nprint(dataset.count_rows(filter=ds.field(\"amount\") > 2))   # 3",
    "code_lang": "python",
    "takeaways": [
-    "A dataset is many files presented as one lazy table",
-    "Hive partitions turn path segments into columns and enable directory skipping",
-    "Partition on low-cardinality columns you often filter by"
+    "A dataset is many files presented as one lazily read table",
+    "Hive partitions turn folder names into columns so whole folders can be skipped",
+    "Partition on columns with few distinct values that you often filter by"
    ],
    "pitfalls": [
-    "Partitioning by a high-cardinality column and creating thousands of tiny files."
+    "Partitioning by a column with very many distinct values and creating thousands of tiny files."
    ],
    "quiz": [
     {
-     "q": "A dataset is partitioned by year. Which read benefits most from partition pruning?",
+     "q": "A dataset is partitioned by year. Which read benefits most from skipping whole partition folders?",
      "options": [
       "to_table(filter=ds.field('amount') > 0)",
       "head(10)",
@@ -337,13 +531,22 @@
       "to_table(filter=ds.field('year') == 2026)"
      ],
      "answer": 3,
-     "explain": "Filtering on the partition column lets the scanner skip entire directories."
+     "explain": "Filtering on the partition column lets the reader skip every folder for other years."
     }
    ],
    "docs": "https://arrow.apache.org/docs/python/dataset.html",
    "requires": [
     "pyarrow.parquet-basics",
     "pyarrow.compute-functions"
+   ],
+   "defines": [
+    "cloud",
+    "dataset",
+    "data lake",
+    "partition",
+    "lazy evaluation",
+    "cardinality",
+    "query"
    ]
   },
   {
@@ -353,8 +556,8 @@
    "level": 2,
    "minutes": 12,
    "summary": "Use list, struct and map types, dictionary encoding for repeated values, and timestamps with units and time zones.",
-   "why": "Real data includes JSON-like nesting, repeated labels and timestamps, and Arrow's types for them are shared by every Arrow-based tool.",
-   "body": "Arrow has rich types beyond plain numbers and strings.\n\n**Nested types**:\n\n- `pa.list_(pa.int32())`: a variable-length list per row. `pa.list_(pa.float32(), 3)` is fixed-size, good for vectors.\n- `pa.struct([(\"lat\", pa.float64()), (\"lon\", pa.float64())])`: named fields per row. Access fields with `pc.struct_field(arr, \"lat\")` or `arr.field(\"lat\")`; `table.flatten()` turns struct columns into `parent.child` columns.\n- `pa.map_(pa.string(), pa.int64())`: key/value pairs per row.\n\n`pc.list_value_length`, `pc.list_flatten` and `pc.list_parent_indices` work on lists.\n\n**Dictionary encoding** stores each distinct value once and the column as small integer indices: `arr.dictionary_encode()` or the type `pa.dictionary(pa.int8(), pa.string())`. It is how pandas Categorical and Polars Categorical map to Arrow, and it shrinks columns with repeated labels.\n\n**Temporal types**: `pa.date32()` (days), `pa.timestamp(unit, tz=None)` with unit `\"s\"`, `\"ms\"`, `\"us\"` or `\"ns\"`, `pa.duration(unit)` and `pa.time64(\"us\")`. A timestamp with a `tz` stores UTC instants and displays in that zone; without one it is a naive wall-clock time. Casting between units can overflow or truncate; nanoseconds cover only about the years 1677 to 2262.",
+   "why": "Real data includes JSON-like nesting, repeated labels and timestamps, and every Arrow-based tool shares Arrow's types for them.",
+   "body": "Arrow has rich types beyond plain numbers and strings.\n\n**Nested types**:\n\n- `pa.list_(pa.int32())`: a list of any length in each row. `pa.list_(pa.float32(), 3)` has a fixed size, good for **vectors**: fixed-length lists of numbers such as 3-D coordinates.\n- `pa.struct([(\"lat\", pa.float64()), (\"lon\", pa.float64())])`: a **struct**, a set of named sub-fields in each row. Read a field with `pc.struct_field(arr, \"lat\")` or `arr.field(\"lat\")`; `table.flatten()` turns struct columns into `parent.child` columns.\n- `pa.map_(pa.string(), pa.int64())`: key/value pairs in each row, like a dict whose keys can differ from row to row.\n\n`pc.list_value_length`, `pc.list_flatten` and `pc.list_parent_indices` work on lists.\n\n**Dictionary encoding** stores each distinct value once, in a small table called the dictionary, and the column itself as small integer positions into it: `arr.dictionary_encode()`, or the type `pa.dictionary(pa.int8(), pa.string())`. It is how pandas' and Polars' categorical (repeated-label) columns map to Arrow, and it shrinks columns with repeated labels.\n\n**Date and time types**: `pa.date32()` (days), `pa.timestamp(unit, tz=None)` with unit `\"s\"`, `\"ms\"`, `\"us\"` or `\"ns\"`, `pa.duration(unit)` (a length of time) and `pa.time64(\"us\")` (a time of day).\n\nA timestamp with a `tz` stores the moment in UTC and displays it in that **time zone**; without one it is a 'naive' clock time with no zone attached. Converting (casting) between units can overflow or cut off digits; nanosecond timestamps only reach from about 1677 to 2262.",
    "code": "import pyarrow as pa\nimport pyarrow.compute as pc\n\ntags = pa.array([[\"a\", \"b\"], [], None])\nprint(tags.type, pc.list_value_length(tags).to_pylist())\n# list<item: string> [2, 0, None]\n\ngeo = pa.array([{\"lat\": 59.9, \"lon\": 10.7}, {\"lat\": -12.0, \"lon\": -77.0}])\nt = pa.table({\"geo\": geo})\nprint(t.flatten().column_names)              # ['geo.lat', 'geo.lon']\n\ncities = pa.array([\"Oslo\", \"Lima\", \"Oslo\", \"Oslo\"])\nenc = cities.dictionary_encode()\nprint(enc.dictionary.to_pylist(), enc.indices.to_pylist())\n# ['Oslo', 'Lima'] [0, 1, 0, 0]\n\nts = pa.array([1_767_225_600], type=pa.timestamp(\"s\", tz=\"Europe/Oslo\"))\nprint(ts[0].as_py())                         # 2026-01-01 01:00:00+01:00",
    "code_lang": "python",
    "takeaways": [
@@ -382,6 +585,12 @@
    "requires": [
     "pyarrow.arrays-types",
     "pyarrow.tables-schemas"
+   ],
+   "defines": [
+    "vector",
+    "struct",
+    "dictionary encoding",
+    "time zone"
    ]
   },
   {
@@ -392,12 +601,12 @@
    "minutes": 15,
    "summary": "Understand Parquet's row groups, column chunks, pages, statistics and encodings, and tune writes for fast reads.",
    "why": "Knowing the file layout explains why some queries skip 99% of a file and others read it all.",
-   "body": "A Parquet file is split horizontally into **row groups**. Inside each, every column is stored as a **column chunk**, which is split into **pages**. The footer holds the schema and, per column chunk, **statistics** (min, max, null count), plus offsets so readers can jump straight to the chunks they need.\n\nThis layout enables two kinds of skipping:\n\n- Column pruning: only the requested columns' chunks are read.\n- Row-group pruning: a filter like `amount > 100` skips any row group whose max is 100 or less. It only helps if data is clustered; sorting by a commonly filtered column before writing makes statistics selective.\n\nEncodings shrink data before compression: **dictionary encoding** for repeated values (on by default; it falls back to plain encoding if the dictionary grows too large), run-length and bit-packing for small integers and levels, and delta encodings for sorted numbers. Compression (Snappy, Zstd, LZ4, Gzip) is then applied per page.\n\nTuning on write with `pq.write_table`:\n\n- `row_group_size`: too small adds overhead and footer size; too large hurts parallelism and skipping. A common target is 64 to 512 MB of uncompressed data, or around a million rows.\n- `compression=\"zstd\"`, `compression_level=...`\n- `use_dictionary=[...]`, `write_statistics=True`, `sorting_columns=`\n\n`pq.ParquetFile(path).metadata.row_group(i).column(j).statistics` lets you inspect all of this.",
+   "body": "A Parquet file is split horizontally into **row groups**. Inside each, every column is stored as a **column chunk**, which is split further into **pages**, the smallest unit that is compressed and read. The **footer**, a section at the end of the file, holds the schema and, for every column chunk, **statistics** (min, max, null count), plus the positions of the chunks so readers can jump straight to the ones they need.\n\nThis layout allows two kinds of skipping, called **pruning**:\n\n- Column pruning: only the requested columns' chunks are read.\n- Row-group pruning: a filter like `amount > 100` skips any row group whose max is 100 or less. It only helps if similar values are stored together; sorting by a commonly filtered column before writing makes the statistics useful.\n\nEncodings shrink data before compression. **Dictionary encoding** handles repeated values (on by default; it falls back to plain encoding if the dictionary grows too large). **Run-length encoding** (storing '7 times 0' instead of seven zeros) and bit-packing (using only as many bits as small numbers need) handle small integers and the internal numbers that record nulls and nesting. Delta encodings (storing the differences between neighbours) handle sorted numbers. Compression (Snappy, Zstd, LZ4, Gzip) is then applied per page.\n\nTuning on write with `pq.write_table`:\n\n- `row_group_size`: too small adds a fixed cost per group (overhead) and a bigger footer; too large leaves fewer groups to skip and fewer to read in parallel. A common target is 64 to 512 MB of uncompressed data, or around a million rows.\n- `compression=\"zstd\"`, `compression_level=...`\n- `use_dictionary=[...]`, `write_statistics=True`, `sorting_columns=`\n\n`pq.ParquetFile(path).metadata.row_group(i).column(j).statistics` lets you inspect all of this.",
    "code": "import pyarrow as pa\nimport pyarrow.parquet as pq\n\nt = pa.table({\"amount\": list(range(1000)), \"shop\": [\"A\", \"B\"] * 500})\npq.write_table(t, \"sorted.parquet\", row_group_size=250)   # 4 row groups\n\npf = pq.ParquetFile(\"sorted.parquet\")\nmd = pf.metadata\nprint(md.num_row_groups)                         # 4\nfor i in range(md.num_row_groups):\n    st = md.row_group(i).column(0).statistics\n    print(i, st.min, st.max, end=\" | \")\n# 0 0 249 | 1 250 499 | 2 500 749 | 3 750 999 |\nprint()\ncol = md.row_group(0).column(1)\nprint(col.compression, \"RLE_DICTIONARY\" in col.encodings)    # SNAPPY True\n\n# amount > 900 can only match the last row group, so readers skip the other 3\nprint(pq.read_table(\"sorted.parquet\", filters=[(\"amount\", \">\", 900)]).num_rows)   # 99",
    "code_lang": "python",
    "takeaways": [
     "File = row groups; row group = column chunks; chunk = pages",
-    "Min/max statistics let readers skip row groups, if data is clustered",
+    "Min/max statistics let readers skip row groups, if similar values are stored together",
     "Sort by common filter columns and choose sensible row-group sizes"
    ],
    "pitfalls": [
@@ -413,13 +622,20 @@
       "It removes duplicates"
      ],
      "answer": 1,
-     "explain": "Clustered values make row-group statistics selective, enabling row-group pruning."
+     "explain": "When similar dates sit together, each row group's min/max range is narrow, so most groups can be skipped."
     }
    ],
    "docs": "https://arrow.apache.org/docs/python/parquet.html",
    "requires": [
     "pyarrow.datasets",
     "pyarrow.nested-dictionary-types"
+   ],
+   "defines": [
+    "column chunk",
+    "pruning",
+    "dictionary encoding",
+    "run-length encoding",
+    "overhead"
    ]
   },
   {
@@ -428,18 +644,18 @@
    "module": "io",
    "level": 3,
    "minutes": 12,
-   "summary": "Serialize Arrow data with the IPC stream and file formats, use Feather v2, and read files zero-copy through memory maps.",
-   "why": "Arrow IPC is the fastest way to move tables between processes or save them for quick reload, because no parsing or conversion happens.",
-   "body": "Arrow **IPC** writes the in-memory columnar layout to bytes almost unchanged, so reading it back needs no parsing: just pointers into a buffer.\n\nThere are two flavours:\n\n- The **stream** format (`pa.ipc.new_stream(sink, schema)` and `pa.ipc.open_stream(source)`) is a sequence of record batches of unknown length, ideal for sockets, pipes and HTTP bodies.\n- The **file** format (`pa.ipc.new_file` and `pa.ipc.open_file`) adds a footer, so readers can jump to any batch. Its files usually use the `.arrow` extension.\n\n**Feather v2** is the IPC file format with optional LZ4 or Zstd compression, via `pyarrow.feather.write_feather(table, path)` and `read_feather(path)` or `read_table(path)`.\n\n**Memory mapping** makes reads nearly free. `pa.memory_map(path)` maps the file into virtual memory, and `pa.ipc.open_file(mm).read_all()` builds a Table whose buffers point straight into the mapped file: nothing is copied, and the OS loads only pages you touch. This only works for uncompressed IPC files; compressed data must be decompressed into new memory.\n\nCompared with Parquet: IPC and Feather are faster to read and write but larger, and aimed at short-term storage and interchange. Parquet is smaller and better for long-term storage and analytics engines.",
+   "summary": "Save and send Arrow data with the IPC stream and file formats, use Feather, and read files without copying through memory mapping.",
+   "why": "Arrow IPC is the fastest way to move tables between running programs or save them for quick reloading, because nothing has to be converted.",
+   "body": "Arrow **IPC** (inter-process communication: passing data between separate running programs, called **processes**) writes a table's in-memory layout out as bytes almost unchanged. Turning data into bytes like this is **serialization**. Reading it back needs no conversion: the reader just points into the bytes it received.\n\nThere are two flavours:\n\n- The **stream** format (`pa.ipc.new_stream(sink, schema)` and `pa.ipc.open_stream(source)`) is a sequence of record batches with no known end, ideal when data flows through a connection: a network socket, a pipe between programs, or an HTTP response.\n- The **file** format (`pa.ipc.new_file` and `pa.ipc.open_file`) adds a footer, so readers can jump to any batch. Its files usually end in `.arrow`.\n\n**Feather** (version 2) is the IPC file format with optional LZ4 or Zstd compression, via `pyarrow.feather.write_feather(table, path)` and `read_feather(path)` or `read_table(path)`.\n\n**Memory mapping** makes reads nearly free. `pa.memory_map(path)` asks the operating system to make the file's bytes look as if they were already in memory; parts of the file are actually loaded only when they are touched. `pa.ipc.open_file(mm).read_all()` then builds a Table whose data points straight into the mapped file, so nothing is copied. This only works for uncompressed IPC files; compressed data must be unpacked into new memory.\n\nCompared with Parquet: IPC and Feather are faster to read and write but larger, and meant for short-term storage and handing data between programs. Parquet is smaller and better for long-term storage and analysis engines.",
    "code": "import pyarrow as pa\n\nt = pa.table({\"id\": list(range(100_000)), \"x\": [1.5] * 100_000})\n\nwith pa.OSFile(\"data.arrow\", \"wb\") as sink:\n    with pa.ipc.new_file(sink, t.schema) as writer:\n        for batch in t.to_batches(max_chunksize=25_000):\n            writer.write_batch(batch)\n\nbefore = pa.total_allocated_bytes()\nwith pa.memory_map(\"data.arrow\", \"r\") as source:\n    reader = pa.ipc.open_file(source)\n    print(reader.num_record_batches)            # 4\n    loaded = reader.read_all()\n    print(loaded.num_rows)                      # 100000\n    print(pa.total_allocated_bytes() - before)  # 0  (buffers point into the map)\n\nsink = pa.BufferOutputStream()\nwith pa.ipc.new_stream(sink, t.schema) as w:\n    w.write_table(t.slice(0, 3))\nprint(pa.ipc.open_stream(sink.getvalue()).read_all()[\"id\"].to_pylist())   # [0, 1, 2]",
    "code_lang": "python",
    "takeaways": [
-    "IPC = Arrow's memory layout on the wire or disk, no parsing needed",
-    "Stream format for pipes and sockets; file format for random access",
-    "Memory-mapped uncompressed IPC files load with zero copies"
+    "IPC = Arrow's memory layout written to bytes, no conversion needed",
+    "Stream format for pipes and sockets; file format to jump to any batch",
+    "Memory-mapped, uncompressed IPC files load with zero copies"
    ],
    "pitfalls": [
-    "Expecting zero-copy reads from a compressed Feather file; decompression allocates memory."
+    "Expecting zero-copy reads from a compressed Feather file; unpacking it needs new memory."
    ],
    "quiz": [
     {
@@ -458,6 +674,14 @@
    "requires": [
     "pyarrow.tables-schemas",
     "pyarrow.parquet-basics"
+   ],
+   "defines": [
+    "IPC",
+    "process",
+    "serialization",
+    "stream",
+    "Feather",
+    "memory-mapped file"
    ]
   },
   {
@@ -467,14 +691,14 @@
    "level": 3,
    "minutes": 12,
    "summary": "Read and write data on S3, GCS, Azure, HDFS or local disk through pyarrow.fs, and pass filesystems to datasets and Parquet.",
-   "why": "Production data lives in object storage, and PyArrow's filesystem layer is what many Python tools use to reach it.",
-   "body": "`pyarrow.fs` gives one interface over many storage systems: `LocalFileSystem`, `S3FileSystem`, `GcsFileSystem`, `AzureFileSystem`, `HadoopFileSystem`, plus `SubTreeFileSystem` to root paths under a prefix. fsspec filesystems can be wrapped with `PyFileSystem(FSSpecHandler(fs))`.\n\n`fs.FileSystem.from_uri(\"s3://bucket/path\")` returns a filesystem and the path inside it. Credentials come from the usual environment and config files (AWS profile, `GOOGLE_APPLICATION_CREDENTIALS` and so on) or from constructor arguments such as `region=` and `access_key=`.\n\nMain operations:\n\n- `filesystem.get_file_info(path)` or `get_file_info(fs.FileSelector(dir, recursive=True))` lists files with sizes and types.\n- `open_input_file` (random access, needed by Parquet), `open_input_stream`, `open_output_stream`.\n- `create_dir`, `delete_dir_contents`, `move`, `copy_file`.\n\nReaders accept a `filesystem=` argument, and URIs work directly: `pq.read_table(\"s3://bucket/sales/\", filesystem=s3)` or `ds.dataset(\"gs://bucket/lake/\", format=\"parquet\")`.\n\nObject stores are not real filesystems. Listing a huge prefix is slow, renames are copies, and each request has high latency. Reading fewer, larger files (hundreds of MB) and using column and row-group pruning matters even more remotely than locally.",
+   "why": "Real-world data usually lives in cloud object storage, and PyArrow's filesystem layer is what many Python tools use to reach it.",
+   "body": "Big data rarely sits on your own disk. It usually lives in **object storage**: cloud services such as Amazon S3, Google Cloud Storage (GCS) and Azure Blob Storage, which keep files ('objects') in named buckets. `pyarrow.fs` gives you one set of functions for all of them: `LocalFileSystem`, `S3FileSystem`, `GcsFileSystem`, `AzureFileSystem`, `HadoopFileSystem`, plus `SubTreeFileSystem` to treat one folder as the root. Filesystems from the fsspec library can be wrapped with `PyFileSystem(FSSpecHandler(fs))`.\n\n`fs.FileSystem.from_uri(\"s3://bucket/path\")` reads a **URI** (an address, written like a web URL, that names the storage system and the path) and returns the filesystem and the path inside it. **Credentials**, the secret keys proving you may access the storage, come from the usual environment variables and settings files (an AWS profile, `GOOGLE_APPLICATION_CREDENTIALS` and so on) or from arguments such as `region=` and `access_key=` when you create the filesystem.\n\nMain operations:\n\n- `filesystem.get_file_info(path)` or `get_file_info(fs.FileSelector(dir, recursive=True))` lists files with sizes and types.\n- `open_input_file` (lets the reader jump to any position, which Parquet needs), `open_input_stream`, `open_output_stream`.\n- `create_dir`, `delete_dir_contents`, `move`, `copy_file`.\n\nReaders accept a `filesystem=` argument, and URIs work directly: `pq.read_table(\"s3://bucket/sales/\", filesystem=s3)` or `ds.dataset(\"gs://bucket/lake/\", format=\"parquet\")`.\n\nObject stores are not real filesystems. Listing a huge folder is slow, a rename is really a copy, and every request waits a noticeable time for the network (high **latency**). Reading fewer, larger files (hundreds of MB) and skipping columns and row groups matters even more remotely than locally.",
    "code": "import pyarrow as pa\nimport pyarrow.parquet as pq\nfrom pyarrow import fs\n\nlocal, path = fs.FileSystem.from_uri(\"file:///tmp/arrow_demo\")\nprint(type(local).__name__, path)        # LocalFileSystem /tmp/arrow_demo\nlocal.create_dir(path)\n\nroot = fs.SubTreeFileSystem(path, local)  # every path is now relative to the demo dir\npq.write_table(pa.table({\"x\": [1, 2, 3]}), \"x.parquet\", filesystem=root)\n\nfor info in root.get_file_info(fs.FileSelector(\"\", recursive=True)):\n    print(info.path, info.type == fs.FileType.File, info.size > 0)   # x.parquet True True\n\nprint(pq.read_table(\"x.parquet\", filesystem=root)[\"x\"].to_pylist())   # [1, 2, 3]\n\n# Same code against S3 (needs credentials):\n# s3 = fs.S3FileSystem(region=\"eu-north-1\")\n# pq.read_table(\"my-bucket/lake/x.parquet\", filesystem=s3)",
    "code_lang": "python",
    "takeaways": [
-    "`pyarrow.fs` = one API over local, S3, GCS, Azure and HDFS",
+    "`pyarrow.fs` = one set of functions over local disk, S3, GCS, Azure and HDFS",
     "`FileSystem.from_uri` turns a URI into (filesystem, path)",
-    "Remote storage rewards few large files and aggressive pruning"
+    "Remote storage rewards few large files and reading only what you need"
    ],
    "pitfalls": [
     "Treating object-store renames and listings as cheap like a local disk."
@@ -495,6 +719,12 @@
    "docs": "https://arrow.apache.org/docs/python/filesystems.html",
    "requires": [
     "pyarrow.datasets"
+   ],
+   "defines": [
+    "object storage",
+    "URI",
+    "credentials",
+    "latency"
    ]
   },
   {
@@ -504,8 +734,8 @@
    "level": 4,
    "minutes": 15,
    "summary": "Look inside arrays: validity bitmaps, value buffers, offsets for strings and lists, alignment and slicing offsets.",
-   "why": "The physical layout is what makes Arrow zero-copy across languages, and understanding it explains memory use and interop behaviour.",
-   "body": "Every Arrow array is a few flat **buffers** plus metadata (type, length, null count, offset), defined by a language-independent specification.\n\n- **Validity bitmap**: one bit per slot, 1 = valid, 0 = null. It may be omitted entirely when there are no nulls.\n- **Fixed-width types** (ints, floats, timestamps): one values buffer, `length * width` bytes. Null slots still occupy space with unspecified contents.\n- **Variable-size binary and strings**: an **offsets** buffer of `length + 1` int32 values plus a data buffer of concatenated bytes; value `i` is `data[offsets[i]:offsets[i+1]]`. `large_string` uses int64 offsets for more than 2 GB of data. Newer **string view** types store 16-byte views with short strings inline.\n- **Lists**: offsets into a child array. **Structs**: one child array per field. **Dictionary** arrays: indices plus a dictionary array.\n- **Booleans** are bit-packed values.\n\nBuffers are aligned (64-byte alignment is recommended) for SIMD. A slice doesn't copy; it records an **offset** and length into the same buffers, which is why `arr.offset` can be non-zero and why serialising a small slice of a huge array can still carry the big buffers unless you compact it.\n\n`arr.buffers()` returns the raw buffers so you can see this layout directly. Same bytes, same meaning in C++, Rust, Java, Go and JavaScript: that's what lets a Polars, DuckDB or Spark process hand data to Python without conversion.",
+   "why": "The exact memory layout is what lets Arrow data be shared without copying across languages, and it explains memory use and how tools exchange data.",
+   "body": "Every Arrow array is a few flat **buffers** (plain blocks of bytes in memory) plus a little metadata (type, length, null count, offset), laid out exactly as a language-independent specification says.\n\n- **Validity bitmap**: one bit per slot, 1 = valid, 0 = null. It may be left out entirely when there are no nulls.\n- **Fixed-width types** (ints, floats, timestamps): one values buffer of `length * width` bytes. Null slots still take up space, with unspecified contents.\n- **Variable-size binary and strings**: an **offsets buffer** of `length + 1` int32 values plus a data buffer of all the bytes joined together; value `i` is `data[offsets[i]:offsets[i+1]]`. `large_string` uses int64 offsets for more than 2 GB of data. Newer **string view** types store 16-byte entries that hold short strings directly and point into a data buffer for long ones.\n- **Lists**: offsets into a child array. **Structs**: one child array per field. **Dictionary** arrays: indices plus a dictionary array.\n- **Booleans** are packed as single bits.\n\nBuffers are **aligned**: they start at memory addresses that are multiples of 64 bytes (recommended), so SIMD instructions, which process several values in one processor step, can load them efficiently. A slice doesn't copy; it records an **offset** and length into the same buffers, which is why `arr.offset` can be non-zero, and why serialising a small slice of a huge array can still carry the big buffers unless you make a compact copy.\n\n`arr.buffers()` returns the raw buffers so you can see this layout directly. Same bytes, same meaning in C++, Rust, Java, Go and JavaScript: that is what lets Polars, DuckDB or Spark hand data to Python inside the same process without conversion.",
    "code": "import pyarrow as pa\n\ns = pa.array([\"hi\", None, \"arrow\"])\nvalidity, offsets, data = s.buffers()\nprint(bin(validity.to_pybytes()[0]))                  # 0b101  (slot 1 is null)\nprint(pa.Array.from_buffers(pa.int32(), 4, [None, offsets]).to_pylist())\n# [0, 2, 2, 7]   value i = data[offsets[i]:offsets[i+1]]\nprint(data.to_pybytes()[:7])                          # b'hiarrow'\n\nints = pa.array([1, 2, 3], type=pa.int32())\nprint(ints.buffers()[0], ints.buffers()[1].size)      # None 12  (no nulls: no bitmap)\n\nsl = ints.slice(1, 2)\nprint(sl.offset, sl.buffers()[1].address == ints.buffers()[1].address)   # 1 True",
    "code_lang": "python",
    "takeaways": [
@@ -533,6 +763,12 @@
    "requires": [
     "pyarrow.ipc-feather",
     "pyarrow.nested-dictionary-types"
+   ],
+   "defines": [
+    "buffer",
+    "offsets buffer",
+    "alignment",
+    "SIMD"
    ]
   },
   {
@@ -542,8 +778,8 @@
    "level": 4,
    "minutes": 12,
    "summary": "Track Arrow allocations with memory pools, choose an allocator, and reason about when operations copy or share buffers.",
-   "why": "At scale, memory, not CPU, is usually the limit, and knowing who owns which buffer prevents leaks and surprise copies.",
-   "body": "Arrow allocates buffers from a **MemoryPool**. `pa.default_memory_pool()` is usually **mimalloc** or **jemalloc**, depending on the platform; the `ARROW_DEFAULT_MEMORY_POOL` environment variable chooses one (`system`, `jemalloc`, `mimalloc`). `pa.total_allocated_bytes()` and `pool.max_memory()` report usage, and many functions accept `memory_pool=` so you can track one operation in isolation.\n\nMemory is reference-counted. A buffer is freed when the last array, table or slice referencing it is gone. Two consequences:\n\n- Keeping a tiny slice of a big table alive keeps the whole big buffer alive.\n- Allocators often keep freed memory for reuse, so the process's RSS may not drop right away. `pool.release_unused()` asks the allocator to return memory to the OS.\n\nWhat copies and what doesn't:\n\n- Zero-copy: slicing, selecting columns, `Table.from_batches`, `concat_tables` (chunks are reused), IPC reads from memory maps, `pa.py_buffer(bytes_obj)`, NumPy numeric conversion without nulls.\n- Copies: `combine_chunks()`, casts that change representation, compute results, filtering, pandas conversion of strings or nulls, decompression.\n\n`pa.foreign_buffer(address, size, base)` wraps memory owned by another library while keeping `base` alive. That is the low-level mechanism behind zero-copy interop.",
+   "why": "At scale, memory rather than processor speed is usually the limit, and knowing who owns which buffer prevents leaks and surprise copies.",
+   "body": "Whenever Arrow needs memory for a buffer it asks a **memory pool**, which hands out memory (**memory allocation**) and tracks how much is in use. `pa.default_memory_pool()` is usually backed by **mimalloc** or **jemalloc**, two fast general-purpose allocators, depending on the platform; the `ARROW_DEFAULT_MEMORY_POOL` environment variable chooses one (`system`, `jemalloc`, `mimalloc`). `pa.total_allocated_bytes()` and `pool.max_memory()` report usage, and many functions accept `memory_pool=` so you can track a single operation.\n\nMemory is managed by **reference counting**: each buffer counts how many arrays, tables or slices use it and is freed when that count drops to zero. Two consequences:\n\n- Keeping a tiny slice of a big table alive keeps the whole big buffer alive.\n- Allocators often keep freed memory for reuse, so the memory the operating system reports for your process (its resident set size, RSS) may not drop right away. `pool.release_unused()` asks the allocator to give memory back.\n\nWhat copies and what doesn't:\n\n- Zero-copy: slicing, selecting columns, `Table.from_batches`, `concat_tables` (chunks are reused), IPC reads from memory maps, `pa.py_buffer(bytes_obj)`, NumPy numeric conversion without nulls.\n- Copies: `combine_chunks()`, casts that change how values are stored, compute results, filtering, pandas conversion of strings or nulls, decompression.\n\n`pa.foreign_buffer(address, size, base)` wraps memory owned by another library while keeping `base` alive. That is the low-level mechanism behind zero-copy exchange between libraries.",
    "code": "import pyarrow as pa\n\npool = pa.default_memory_pool()\nprint(pool.backend_name in {\"mimalloc\", \"jemalloc\", \"system\"})   # True\n\nbefore = pool.bytes_allocated()\nbig = pa.array(range(1_000_000), type=pa.int64())\nprint(pool.bytes_allocated() - before >= 8_000_000)   # True (8 bytes x 1M)\n\nsmall = big.slice(0, 10)            # zero-copy view\ndel big\nprint(pool.bytes_allocated() - before >= 8_000_000)   # True: the slice pins the buffer\n\ncompact = pa.concat_arrays([small])  # copies just the 10 values\ndel small\nprint(pool.bytes_allocated() - before < 1_000)         # True: big buffer freed\n\nraw = b\"\\x01\\x00\\x00\\x00\\x02\\x00\\x00\\x00\"\nview = pa.Array.from_buffers(pa.int32(), 2, [None, pa.py_buffer(raw)])\nprint(view.to_pylist())             # [1, 2]  (wraps the bytes, no copy)",
    "code_lang": "python",
    "takeaways": [
@@ -571,6 +807,11 @@
    "requires": [
     "pyarrow.columnar-format",
     "pyarrow.pandas-numpy"
+   ],
+   "defines": [
+    "memory pool",
+    "memory allocation",
+    "reference counting"
    ]
   },
   {
@@ -581,11 +822,11 @@
    "minutes": 12,
    "summary": "Exchange Arrow data between libraries and languages with the C Data and Stream interfaces and the __arrow_c_stream__ PyCapsule protocol.",
    "why": "It is the reason pandas, Polars, DuckDB and PyArrow can hand each other tables instantly, and how you make your own library join that ecosystem.",
-   "body": "The **Arrow C Data Interface** is a tiny, stable C ABI: two structs, `ArrowSchema` and `ArrowArray`, that describe a type and point to buffers, plus a `release` callback so the producer frees memory when the consumer is done. The **C Stream Interface** (`ArrowArrayStream`) adds a pull-based stream of batches. Any library can implement them without depending on Arrow's C++ code, which is how Rust, Go, R, DuckDB and others share data in-process with zero copies.\n\nIn Python these structs travel inside **PyCapsules** through dunder methods:\n\n- `__arrow_c_schema__()` for types and schemas\n- `__arrow_c_array__()` for an array or record batch\n- `__arrow_c_stream__()` for a table or stream of batches\n\nPyArrow both produces and consumes them. `pa.table(obj)`, `pa.array(obj)` and `pa.RecordBatchReader.from_stream(obj)` accept any object exposing these methods: a Polars DataFrame, a DuckDB relation, a pandas DataFrame with Arrow-backed columns, or your own class. Polars and others in turn accept PyArrow objects the same way. This protocol replaces older routes such as the DataFrame interchange protocol, which Polars 2 dropped.\n\nTo make your own object interoperable, implement `__arrow_c_stream__(self, requested_schema=None)` and return a capsule from a PyArrow reader you build internally.",
+   "body": "The **Arrow C Data Interface** is a tiny, fixed agreement about how Arrow data looks in memory to code written in C. It is an **ABI**: a contract at the level of compiled machine code, so programs built with different languages and compilers can rely on it. It defines two C structs, `ArrowSchema` and `ArrowArray`, that describe a type and point to the buffers, plus a `release` function. The consumer calls `release` when it is done (a **callback**), so the producer knows it may free the memory.\n\nThe **C Stream Interface** (`ArrowArrayStream`) adds a stream of batches that the consumer pulls one at a time. Any library can implement these without depending on Arrow's own C++ code, which is how Rust, Go, R, DuckDB and others share data inside one process with zero copies.\n\nIn Python these structs travel inside **PyCapsules** (small Python objects that wrap a raw C pointer), returned by specially named methods with double underscores (dunder methods):\n\n- `__arrow_c_schema__()` for types and schemas\n- `__arrow_c_array__()` for an array or record batch\n- `__arrow_c_stream__()` for a table or stream of batches\n\nPyArrow both produces and consumes them. `pa.table(obj)`, `pa.array(obj)` and `pa.RecordBatchReader.from_stream(obj)` accept any object that has these methods: a Polars DataFrame, a DuckDB result, a pandas DataFrame with Arrow-backed columns, or an object of your own class. Polars and others in turn accept PyArrow objects the same way. This agreed set of methods (a protocol) replaces older routes such as the DataFrame interchange protocol, which Polars 2 dropped.\n\nTo make your own object readable by every Arrow tool, give its class a `__arrow_c_stream__(self, requested_schema=None)` method that returns a capsule from a PyArrow table or reader you build internally.",
    "code": "import pyarrow as pa\n\nclass Sensor:\n    def __init__(self):\n        self.t = pa.table({\"ts\": [1, 2, 3], \"v\": [0.5, 0.7, 0.2]})\n\n    def __arrow_c_stream__(self, requested_schema=None):\n        # Export our data through the C Stream Interface\n        return self.t.__arrow_c_stream__(requested_schema)\n\nimported = pa.table(Sensor())            # any consumer can read it\nprint(imported.num_rows, imported.column_names)   # 3 ['ts', 'v']\n\nreader = pa.RecordBatchReader.from_stream(Sensor())\nprint(reader.schema.names, reader.read_all().num_rows)   # ['ts', 'v'] 3\n\ncapsule = pa.int64().__arrow_c_schema__()\nprint(type(capsule).__name__)            # PyCapsule\nprint(pa.DataType._import_from_c_capsule(capsule))   # int64",
    "code_lang": "python",
    "takeaways": [
-    "C Data Interface = stable ABI for schemas and arrays with a release callback",
+    "C Data Interface = a stable ABI for schemas and arrays with a release callback",
     "Python exchanges it via `__arrow_c_schema__/array__/stream__` capsules",
     "Implement `__arrow_c_stream__` to make your objects readable by every Arrow tool"
    ],
@@ -609,6 +850,13 @@
    "requires": [
     "pyarrow.columnar-format",
     "pyarrow.pandas-numpy"
+   ],
+   "defines": [
+    "C Data Interface",
+    "ABI",
+    "callback",
+    "PyCapsule",
+    "dunder method"
    ]
   }
  ]

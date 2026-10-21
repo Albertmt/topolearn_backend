@@ -52,6 +52,128 @@
    "name": "Production and internals"
   }
  ],
+ "glossary": [
+  {
+   "term": "session",
+   "aliases": [
+    "ClientSession"
+   ],
+   "def": "In aiohttp, a ClientSession object: it keeps network connections open for reuse, remembers cookies and default settings, and every request goes through it. Create one and reuse it."
+  },
+  {
+   "term": "multidict",
+   "aliases": [
+    "CIMultiDict"
+   ],
+   "def": "A dictionary-like object that can hold the same key more than once, as HTTP headers and query strings can. aiohttp uses it for headers and query parameters."
+  },
+  {
+   "term": "yarl",
+   "def": "The library aiohttp uses for URLs: resp.url and request.url are yarl URL objects, which can't be changed in place and can be built up piece by piece.",
+   "case": true
+  },
+  {
+   "term": "handler",
+   "aliases": [
+    "web handler"
+   ],
+   "def": "In aiohttp, a coroutine that receives a web.Request and returns a web.Response; the server calls it when a matching request arrives."
+  },
+  {
+   "term": "route",
+   "aliases": [
+    "routes"
+   ],
+   "def": "A rule linking an HTTP method and URL path, such as GET /users/{id}, to the handler that answers it."
+  },
+  {
+   "term": "path variable",
+   "aliases": [
+    "match_info"
+   ],
+   "def": "A part of a route's path written in braces, like {id} in /users/{id}, that matches whatever is there; the handler reads it from request.match_info."
+  },
+  {
+   "term": "connector",
+   "aliases": [
+    "TCPConnector"
+   ],
+   "def": "The part of an aiohttp session that opens, reuses and limits network connections; by default a TCPConnector."
+  },
+  {
+   "term": "keep-alive",
+   "aliases": [
+    "keepalive",
+    "persistent connection",
+    "persistent connections"
+   ],
+   "def": "Keeping a network connection open after a request finishes, so the next request to the same server can reuse it instead of opening a new one."
+  },
+  {
+   "term": "app factory",
+   "aliases": [
+    "application factory",
+    "app factories"
+   ],
+   "def": "A function such as create_app() that builds and returns a fresh web application, so each test or server process gets its own."
+  },
+  {
+   "term": "signal",
+   "aliases": [
+    "signals"
+   ],
+   "def": "In aiohttp, a list of callback functions the framework calls at a set moment, such as app.on_startup and app.on_shutdown, or at each step of a client request."
+  },
+  {
+   "term": "AppKey",
+   "def": "A typed key for storing shared objects in an aiohttp Application, so type checkers know what kind of value each key holds.",
+   "case": true
+  },
+  {
+   "term": "frozen app",
+   "aliases": [
+    "frozen"
+   ],
+   "def": "An aiohttp Application after it has started: its routes, middlewares and signals can no longer be changed."
+  },
+  {
+   "term": "sub-application",
+   "aliases": [
+    "sub-applications",
+    "sub-app",
+    "sub-apps",
+    "subapp"
+   ],
+   "def": "An aiohttp Application mounted under a URL prefix of another one, with its own routes and middlewares; used to split large apps."
+  },
+  {
+   "term": "heartbeat",
+   "aliases": [
+    "heartbeats"
+   ],
+   "def": "Small ping messages sent regularly over a WebSocket so a connection that has silently died is noticed and closed."
+  },
+  {
+   "term": "TraceConfig",
+   "def": "An aiohttp object holding callbacks that run at each step of a client request (DNS lookup, connecting, sending, receiving), used to measure where time goes.",
+   "case": true
+  },
+  {
+   "term": "Gunicorn",
+   "def": "A popular program that runs a Python web app as several processes, called workers, and restarts any that crash.",
+   "case": true
+  },
+  {
+   "term": "llhttp",
+   "def": "The fast HTTP parser, written in C, that aiohttp uses to read requests and responses.",
+   "case": true
+  },
+  {
+   "term": "X-Forwarded-For",
+   "def": "An HTTP header a proxy adds to tell the app the real client's IP address, since the app itself only sees the proxy's.",
+   "case": true
+  }
+ ],
  "concepts": [
   {
    "id": "aiohttp.client-session",
@@ -60,8 +182,8 @@
    "level": 1,
    "minutes": 9,
    "summary": "Create an aiohttp.ClientSession inside async code and make GET and POST requests with async with.",
-   "why": "Every aiohttp client program is built around one long-lived session, so the pattern has to be right from the start.",
-   "body": "aiohttp is async-only: every request is awaited inside a coroutine run by asyncio. Install it with `pip install aiohttp`.\n\nThe central object is `aiohttp.ClientSession`. It owns a **connection pool**, cookies and default settings, and it must be created inside a running event loop (inside an `async def`) and closed when you are done. The idiom is nested `async with` blocks:\n\n```python\nasync with aiohttp.ClientSession() as session:\n    async with session.get(url) as resp:\n        data = await resp.json()\n```\n\nThe outer block closes the session and its connections. The inner block makes the request: `session.get(...)` sends it and returns once the status line and headers have arrived; the body is read separately with `await resp.text()`, `await resp.json()` or `await resp.read()`. Leaving the inner block releases the connection back to the pool.\n\nMethods mirror HTTP verbs: `session.get`, `post`, `put`, `patch`, `delete`, `head`, `options`, plus `session.request(method, url)`. Data options include `params=`, `headers=`, `json=` and `data=`.\n\nRules from the official docs: create **one session per application** (or per group of related requests) and reuse it; do not create a session per request, which throws away connection pooling and is slow. Also, there is no top-level `aiohttp.get` function for good reason: always go through a session.\n\nTo start the program, call `asyncio.run(main())`.",
+   "why": "Every aiohttp client program sends its requests through one long-lived session object, so it pays to get this pattern right from the start.",
+   "body": "aiohttp is a library for sending HTTP requests (and, later, answering them) with asyncio. Every request is a coroutine you `await`, so your code lives inside `async def` functions started with `asyncio.run(...)`. Install it with `pip install aiohttp`.\n\nSending a request starts with opening a network connection to the server: the open line your request and its response travel over. Opening one takes several back-and-forth messages, so it is slow compared with reusing one that is already open. A **connection pool** is a set of open connections kept ready for reuse, like taxis waiting at a rank.\n\nIn aiohttp you send requests through a **session**, an `aiohttp.ClientSession` object. It owns a connection pool, remembers cookies between requests, and holds default settings such as headers. Create it inside an `async def` and close it when you are done. The usual pattern is two nested `async with` blocks:\n\n```python\nasync with aiohttp.ClientSession() as session:\n    async with session.get(url) as resp:\n        data = await resp.json()\n```\n\nThe outer block closes the session and its connections at the end. The inner block makes one request: `session.get(...)` sends it and returns as soon as the status code and headers have arrived. The body comes separately, because it may still be downloading: `await resp.text()` gives a string, `await resp.json()` turns JSON into Python dicts and lists, `await resp.read()` gives raw bytes. Leaving the inner block hands the connection back to the pool.\n\nMethods match HTTP methods: `session.get`, `post`, `put`, `patch`, `delete`, `head`, plus `session.request(method, url)` for any other. Useful keyword arguments:\n- `params={...}` adds a query string,\n- `headers={...}` adds request headers,\n- `json=obj` sends `obj` as a JSON body,\n- `data=...` sends form fields or raw bytes.\n\nThe official rule: create **one session per application** (or per group of related requests) and reuse it. A new session per request throws away the pool and opens a fresh connection every time, which is slow. That's also why aiohttp has no shortcut like `aiohttp.get(url)`: everything goes through a session.",
    "code": "import asyncio\nimport aiohttp\n\nasync def main():\n    async with aiohttp.ClientSession() as session:\n        async with session.get(\"https://httpbin.org/get\", params={\"q\": \"aio\"}) as resp:\n            print(resp.status)                  # 200\n            data = await resp.json()\n            print(data[\"args\"])                 # {'q': 'aio'}\n\n        async with session.post(\"https://httpbin.org/post\", json={\"x\": 1}) as resp:\n            print((await resp.json())[\"json\"])  # {'x': 1}\n\nasyncio.run(main())",
    "code_lang": "python",
    "takeaways": [
@@ -77,17 +199,21 @@
      "q": "Why does `data = resp.json()` (without await) not give you the data?",
      "options": [
       "Reading the body is a coroutine that must be awaited",
-      "resp.json is a property",
-      "aiohttp returns XML by default",
-      "json() needs a content type argument"
+      "json() only works on POST responses",
+      "The response must be closed before reading it",
+      "json() needs the URL passed again"
      ],
      "answer": 0,
-     "explain": "The body is read from the network asynchronously, so json() returns a coroutine."
+     "explain": "The body may still be arriving over the network, so json() returns a coroutine; await it to get the data."
     }
    ],
    "docs": "https://docs.aiohttp.org/en/stable/client_quickstart.html",
    "requires": [
     "python.async-await"
+   ],
+   "defines": [
+    "connection pool",
+    "session"
    ]
   },
   {
@@ -98,7 +224,7 @@
    "minutes": 9,
    "summary": "Read status, headers and bodies from ClientResponse, and raise on error statuses with raise_for_status.",
    "why": "Handling the response correctly, including error statuses and content types, is where most client bugs live.",
-   "body": "A `ClientResponse` gives you:\n\n- `resp.status` (an int) and `resp.reason` (text), `resp.ok` (status below 400),\n- `resp.headers`, a case-insensitive **multidict** (a header may appear several times; use `getall()`),\n- `resp.url` (a `yarl.URL`), `resp.history` for followed redirects (aiohttp follows them by default),\n- body methods, all coroutines: `await resp.read()` for bytes, `await resp.text()` for decoded text, `await resp.json()` for JSON.\n\n`resp.json()` checks the `Content-Type` and raises `aiohttp.ContentTypeError` if it isn't JSON, a common surprise with APIs that send `text/plain`. Pass `content_type=None` to skip the check.\n\nError statuses do not raise by default. Either call `resp.raise_for_status()`, which raises `aiohttp.ClientResponseError` (with `.status`, `.message` and `.request_info`) for 4xx/5xx, or create the session with `ClientSession(raise_for_status=True)` to make every request raise automatically.\n\nRead the body **inside** the `async with` block. After the block exits the connection is released, and reading afterwards fails or returns what was already buffered. Once read, the body is cached, so calling `text()` and then `json()` is fine.\n\nFor a base URL, `ClientSession(base_url=\"https://api.example.com\")` lets you call `session.get(\"/users\")`.",
+   "body": "A response object (`ClientResponse`) gives you:\n- `resp.status` (an int such as 200), `resp.reason` (its text, such as \"OK\") and `resp.ok` (true when the status is below 400),\n- `resp.headers`, the response headers,\n- `resp.url`, the final URL, and `resp.history`, the redirect responses aiohttp followed on the way (it follows redirects by default),\n- body methods, all coroutines: `await resp.read()` for bytes, `await resp.text()` for decoded text, `await resp.json()` for JSON.\n\n`resp.headers` is a **multidict**: like a dictionary, but the same key may appear more than once, as HTTP headers can. `resp.headers[\"Content-Type\"]` gives the first value and ignores upper/lower case; `resp.headers.getall(\"Set-Cookie\")` gives all of them. `resp.url` is a URL object from **yarl**, the URL library aiohttp uses; `str(resp.url)` turns it into text.\n\n`resp.json()` first checks the `Content-Type` header and raises `aiohttp.ContentTypeError` if it doesn't say JSON. This surprises people when a web API sends JSON labelled `text/plain`. Pass `content_type=None` to skip the check.\n\nError statuses do not raise by default: a 404 is a normal response. Either call `resp.raise_for_status()`, which raises `aiohttp.ClientResponseError` (with `.status` and `.message`) for 4xx and 5xx codes, or create the session with `ClientSession(raise_for_status=True)` so every request does that automatically.\n\nRead the body **inside** the `async with` block. When the block ends the connection goes back to the pool, so reading afterwards fails or gives only what had already arrived. Once read, the body is kept, so calling `text()` and then `json()` is fine.\n\nIf all your requests go to one server, `ClientSession(base_url=\"https://api.example.com\")` lets you write just the path: `session.get(\"/users\")`.",
    "code": "import asyncio\nimport aiohttp\n\nasync def main():\n    async with aiohttp.ClientSession(base_url=\"https://httpbin.org\") as session:\n        async with session.get(\"/response-headers\", params={\"X-Tag\": \"a\"}) as resp:\n            print(resp.status, resp.ok, resp.headers[\"Content-Type\"])  # 200 True application/json\n            print(type(await resp.read()).__name__)                    # bytes\n\n        async with session.get(\"/html\") as resp:\n            try:\n                await resp.json()\n            except aiohttp.ContentTypeError:\n                print(\"not JSON:\", resp.content_type)                 # not JSON: text/html\n\n        async with session.get(\"/status/404\") as resp:\n            try:\n                resp.raise_for_status()\n            except aiohttp.ClientResponseError as e:\n                print(e.status, e.message)                            # 404 NOT FOUND\n\nasyncio.run(main())",
    "code_lang": "python",
    "takeaways": [
@@ -119,12 +245,16 @@
       "Returns the raw string"
      ],
      "answer": 1,
-     "explain": "aiohttp validates the content type before decoding JSON by default."
+     "explain": "By default aiohttp checks the Content-Type header before decoding JSON, and text/plain fails that check."
     }
    ],
    "docs": "https://docs.aiohttp.org/en/stable/client_quickstart.html#json-response-content",
    "requires": [
     "aiohttp.client-session"
+   ],
+   "defines": [
+    "multidict",
+    "yarl"
    ]
   },
   {
@@ -133,14 +263,14 @@
    "module": "client",
    "level": 1,
    "minutes": 11,
-   "summary": "Fetch many URLs concurrently with asyncio.gather or TaskGroup over one session, bounding concurrency with a semaphore.",
-   "why": "Concurrency is aiohttp's reason to exist: hundreds of requests in the time of a few.",
-   "body": "One request at a time gains nothing from async. The power comes from running many requests **concurrently** on one session: while one waits on the network, others make progress.\n\nWrite a coroutine that fetches one URL, then run many of them together:\n\n- `await asyncio.gather(*(fetch(session, u) for u in urls))` returns results in input order. With `return_exceptions=True`, failures come back as exception objects instead of cancelling the whole batch.\n- `async with asyncio.TaskGroup() as tg:` (Python 3.11+) creates tasks with `tg.create_task(...)` and cancels the rest if one fails, which is cleaner for all-or-nothing work.\n- `asyncio.as_completed(...)` processes results as they finish.\n\nAlways **bound concurrency**. Ten thousand simultaneous requests overload the server, hit rate limits and exhaust file descriptors. Two tools:\n\n- an `asyncio.Semaphore(n)` around each request,\n- the connector limits (`TCPConnector(limit=..., limit_per_host=...)`), covered later. The default `limit` is 100 connections in total, so extra requests already queue for a free connection.\n\nThe semaphore is still useful because it also bounds the work around the request (parsing, retries) and keeps tasks from waiting on the pool with timeouts running.\n\nAll tasks should share **one session**; pass it as an argument. Never use blocking calls such as `requests.get` or `time.sleep` inside these coroutines: they freeze the whole event loop.",
+   "summary": "Fetch many URLs at once over one session with asyncio.gather or a TaskGroup, and cap how many run at the same time.",
+   "why": "Running many requests at once is aiohttp's reason to exist: hundreds of requests in the time a few would take one by one.",
+   "body": "One request at a time gains nothing from async. The win comes from running many requests **concurrently** on one session: while one waits for the network, the others make progress.\n\nWrite a coroutine that fetches one URL, then run many of them together:\n- `await asyncio.gather(*(fetch(session, u) for u in urls))` returns the results in the same order as `urls`. With `return_exceptions=True`, a failed request comes back as an exception object in the results list instead of being raised.\n- A **TaskGroup** (Python 3.11+) is an `async with asyncio.TaskGroup() as tg:` block. Start each request with `tg.create_task(...)`; the block waits for all of them, and if one fails it cancels the rest. Good for all-or-nothing work.\n- `asyncio.as_completed(...)` hands you results in the order they finish.\n\nAlways **cap how many run at once**. Ten thousand requests in one go can swamp the server, get you blocked by its **rate limit** (a cap on how many requests a client may send per minute), and run your own computer out of the network connections it may open.\n\nThe tool for this is a **semaphore**: a counter of free slots, like a car park that lets a car in only when a space is free. `asyncio.Semaphore(10)` hands out 10 slots; `async with sem:` takes one (waiting if none is free) and gives it back at the end of the block.\n\nThe session has a cap of its own too: by default it opens at most 100 connections, and extra requests queue for a free one (a later lesson shows how to change that). A semaphore is still worth having. It also limits the work around each request, such as reading the reply or retrying. And a request queued inside the session already has its timeout clock running, so a long queue can make it time out; behind a semaphore it doesn't start until there's room.\n\nAll tasks should share **one session**: create it once and pass it as an argument. And never call blocking code such as `time.sleep` or the popular `requests` library inside these coroutines: it freezes the whole event loop.",
    "code": "import asyncio\nimport time\nimport aiohttp\n\nasync def fetch(session, sem, n):\n    async with sem:\n        async with session.get(\"https://httpbin.org/delay/1\", params={\"n\": n}) as resp:\n            return (await resp.json())[\"args\"][\"n\"]\n\nasync def main():\n    sem = asyncio.Semaphore(10)\n    async with aiohttp.ClientSession() as session:\n        t = time.perf_counter()\n        results = await asyncio.gather(*(fetch(session, sem, i) for i in range(20)))\n        print(results[:5], len(results))            # ['0', '1', '2', '3', '4'] 20\n        print(f\"{time.perf_counter() - t:.0f}s\")    # 2s (20 x 1s requests, 10 at a time)\n\nasyncio.run(main())",
    "code_lang": "python",
    "takeaways": [
-    "gather or TaskGroup runs many request coroutines concurrently",
-    "Share one session; bound concurrency with a Semaphore",
+    "gather or a TaskGroup runs many request coroutines concurrently",
+    "Share one session; cap concurrency with asyncio.Semaphore",
     "Blocking calls inside coroutines stall everything"
    ],
    "pitfalls": [
@@ -156,12 +286,17 @@
       "The session is closed"
      ],
      "answer": 2,
-     "explain": "gather propagates the first exception to the awaiting code; the remaining awaitables are not cancelled automatically."
+     "explain": "gather raises the first exception to the code awaiting it; the other requests are not cancelled and keep running."
     }
    ],
    "docs": "https://docs.aiohttp.org/en/stable/client_quickstart.html",
    "requires": [
     "aiohttp.client-session"
+   ],
+   "defines": [
+    "TaskGroup",
+    "semaphore",
+    "rate limit"
    ]
   },
   {
@@ -171,8 +306,8 @@
    "level": 1,
    "minutes": 11,
    "summary": "Build a web.Application with routes and handlers that return web.Response or web.json_response, and run it.",
-   "why": "aiohttp's server side is a compact async web framework suitable for APIs, proxies and WebSocket services.",
-   "body": "The server lives in `aiohttp.web`. A **handler** is a coroutine that takes a `web.Request` and returns a `web.Response`:\n\n```python\nasync def hello(request):\n    return web.Response(text=\"Hello\")\n```\n\nRegister handlers on a `web.Application`, either with `app.add_routes([web.get(\"/\", hello), web.post(\"/items\", create)])` or with a `web.RouteTableDef`, which provides Flask-like decorators: `@routes.get(\"/\")`. Then start the server with `web.run_app(app, host=\"127.0.0.1\", port=8080)`, which runs the event loop until interrupted.\n\nResponses:\n\n- `web.Response(text=..., status=..., headers=...)` for text, or `body=` for bytes,\n- `web.json_response(obj, status=...)` for JSON,\n- `raise web.HTTPNotFound()` and the other `web.HTTPException` subclasses (`HTTPBadRequest`, `HTTPFound(location=...)` for redirects) to end a request with an error or redirect.\n\nPath variables are written in braces, `/users/{id}`, and read with `request.match_info[\"id\"]` (always a string). A regex can constrain them: `/users/{id:\\d+}`.\n\nBecause handlers are coroutines, everything inside must be non-blocking: use async database drivers and `await` I/O. Calling blocking code (a synchronous DB driver, `time.sleep`, heavy CPU work) stalls every other request; push such work to `loop.run_in_executor` or `asyncio.to_thread`.",
+   "why": "aiohttp can also be the server: a program that answers HTTP requests, such as the web API behind an app or a site.",
+   "body": "So far you've sent requests. The server side lives in `aiohttp.web`. A **handler** is a coroutine that receives one request (a `web.Request`) and returns the answer (a `web.Response`):\n\n```python\nasync def hello(request):\n    return web.Response(text=\"Hello\")\n```\n\nA **route** links a method and a URL path to a handler: \"GET `/` goes to `hello`\". Register routes on a `web.Application`, either as a list, `app.add_routes([web.get(\"/\", hello), web.post(\"/items\", create)])`, or with a `web.RouteTableDef`, which lets you write a decorator above each handler: `@routes.get(\"/\")`.\n\nStart the server with `web.run_app(app, host=\"127.0.0.1\", port=8080)`. The address `127.0.0.1` means \"this computer only\", so open `http://127.0.0.1:8080/` in your browser to try it. `run_app` keeps the event loop running until you press Ctrl+C.\n\nWays to answer:\n- `web.Response(text=..., status=..., headers=...)` for text, or `body=` for bytes,\n- `web.json_response(obj, status=...)` for JSON,\n- `raise web.HTTPNotFound()` to stop and answer with a 404. Other subclasses of `web.HTTPException` work the same way: `HTTPBadRequest` for 400, `HTTPFound(location=...)` for a redirect.\n\nA **path variable** is written in braces, `/users/{id}`, and matches whatever is in that part of the path; read it with `request.match_info[\"id\"]` (always a string). You can restrict it with a **regular expression**, a small pattern language for text: in `/users/{id:\\d+}`, the pattern `\\d+` means \"one or more digits\".\n\nHandlers are coroutines, so the blocking rule from asyncio applies here too. A handler that calls `time.sleep` or runs a long calculation freezes every other visitor's request. For anything that waits, such as a **database** (a program that stores your app's data and answers questions about it), use an async library, and hand unavoidable blocking work to `await asyncio.to_thread(...)`.\n\nThe example runs the app inside the script with `TestClient` and `TestServer`, aiohttp's testing helpers, so you can see the answers without opening a browser; the testing lesson covers them.",
    "code": "import asyncio\nfrom aiohttp import web\nfrom aiohttp.test_utils import TestClient, TestServer\n\nroutes = web.RouteTableDef()\n@routes.get(\"/\")\nasync def index(request):\n    return web.Response(text=\"Hello, aiohttp\")\n\n@routes.get(r\"/users/{id:\\d+}\")\nasync def get_user(request):\n    if request.match_info[\"id\"] != \"1\":\n        raise web.HTTPNotFound(text=\"no such user\")\n    return web.json_response({\"id\": 1, \"name\": \"Ada\"})\n\napp = web.Application()\napp.add_routes(routes)\n# web.run_app(app, port=8080)   # serve for real at http://localhost:8080/\n\nasync def demo():                # or exercise it in-process:\n    async with TestClient(TestServer(app)) as client:\n        print(await (await client.get(\"/\")).text())         # Hello, aiohttp\n        print(await (await client.get(\"/users/1\")).json())  # {'id': 1, 'name': 'Ada'}\n        print((await client.get(\"/users/2\")).status)        # 404\nasyncio.run(demo())",
    "code_lang": "python",
    "takeaways": [
@@ -193,13 +328,20 @@
       "request.match_info['id']"
      ],
      "answer": 3,
-     "explain": "Path variables are in match_info; query is for ?key=value parameters."
+     "explain": "Path variables are in match_info; request.query holds the ?key=value parameters of the query string."
     }
    ],
    "docs": "https://docs.aiohttp.org/en/stable/web_quickstart.html",
    "requires": [
     "python.async-await",
     "python.decorators"
+   ],
+   "defines": [
+    "handler",
+    "route",
+    "path variable",
+    "regular expression",
+    "database"
    ]
   },
   {
@@ -209,17 +351,17 @@
    "level": 2,
    "minutes": 11,
    "summary": "Configure ClientTimeout (total, connect, sock_read) and handle the ClientError hierarchy and asyncio timeouts.",
-   "why": "The default 5-minute total timeout is too long for most services, and errors need distinct handling.",
-   "body": "aiohttp's timeouts are set with `aiohttp.ClientTimeout`, on the session or per request (`timeout=`). The fields:\n\n- `total`: the whole operation including connection, sending and reading the body. Default **300 seconds**.\n- `connect`: acquiring a connection, including waiting for a free one in the pool.\n- `sock_connect`: establishing a new TCP connection (default 30 seconds).\n- `sock_read`: maximum gap between pieces of data read from the socket.\n\nA `total` timeout raises `asyncio.TimeoutError` (the built-in `TimeoutError` on Python 3.11+). Socket-level timeouts raise `aiohttp.ConnectionTimeoutError` or `aiohttp.SocketTimeoutError`, which are also subclasses of `TimeoutError`, so `except TimeoutError` catches all of them.\n\nThe exception hierarchy under `aiohttp.ClientError`:\n\n- `ClientResponseError` (from `raise_for_status`, with `.status`), plus `ContentTypeError`,\n- `ClientConnectionError` with `ClientConnectorError` (DNS failure, connection refused), `ServerDisconnectedError`, `ClientOSError` and SSL errors such as `ClientConnectorCertificateError`,\n- `InvalidURL`, `ClientPayloadError` (body was truncated or malformed).\n\nA robust fetch catches `TimeoutError` and `aiohttp.ClientError`, logs, and retries only when safe. Retries are not built in; write a small loop with backoff or use a package such as `aiohttp-retry` or `tenacity`.\n\nSet a sensible session-wide timeout, e.g. `ClientTimeout(total=30, sock_connect=5)`, and override it for known slow endpoints.",
+   "why": "The default total timeout is 5 minutes, far too long for most programs, and different failures need different handling.",
+   "body": "A timeout is how long you're willing to wait. aiohttp's timeouts live in `aiohttp.ClientTimeout`, set on the session or per request (`timeout=`). Each request travels over a **TCP** connection (the internet's standard way to deliver data complete and in order), and your program's end of that connection is called a **socket**. The fields:\n- `total`: the whole operation, from getting a connection to reading the last byte of the body. Default **300 seconds**.\n- `connect`: getting a connection, including waiting for a free one in the pool.\n- `sock_connect`: opening a brand-new TCP connection to the server (default 30 seconds).\n- `sock_read`: the longest allowed gap between two pieces of data arriving on the socket.\n\nA `total` timeout raises `asyncio.TimeoutError`, which is the built-in `TimeoutError` on Python 3.11+. The socket timeouts raise `aiohttp.ConnectionTimeoutError` or `aiohttp.SocketTimeoutError`, both subclasses of `TimeoutError`, so `except TimeoutError` catches them all.\n\nEvery other failure is a subclass of `aiohttp.ClientError`:\n- `ClientResponseError` (from `raise_for_status`, with `.status`), plus `ContentTypeError`,\n- `ClientConnectionError`, with `ClientConnectorError` (the name didn't resolve in DNS, or the server refused the connection), `ServerDisconnectedError`, `ClientOSError`, and **TLS** errors such as `ClientConnectorCertificateError` (TLS is the encryption that puts the S in HTTPS; its old name is SSL),\n- `InvalidURL`, and `ClientPayloadError` (the body was cut off or garbled).\n\nA robust fetch catches `TimeoutError` and `aiohttp.ClientError` and writes the problem to a log. (**Logging** means having the program record what happened, so you can look later.) Then it retries only when that's safe, such as for idempotent requests.\n\nRetries aren't built in. Write a small loop that waits longer before each attempt, 1 s, then 2 s, then 4 s (**exponential backoff**), or use a package such as `aiohttp-retry` or `tenacity`.\n\nSet a sensible session-wide timeout, such as `ClientTimeout(total=30, sock_connect=5)`, and override it per request for an **endpoint** (one specific URL of a web API) that you know is slow.",
    "code": "import asyncio\nimport aiohttp\n\nasync def fetch(session, path):\n    try:\n        async with session.get(path) as resp:\n            resp.raise_for_status()\n            return f\"ok {resp.status}\"\n    except TimeoutError:\n        return \"timed out\"\n    except aiohttp.ClientResponseError as e:\n        return f\"HTTP {e.status}\"\n    except aiohttp.ClientConnectionError as e:\n        return f\"connection problem: {type(e).__name__}\"\n\nasync def main():\n    timeout = aiohttp.ClientTimeout(total=2, sock_connect=1)\n    async with aiohttp.ClientSession(\"https://httpbin.org\", timeout=timeout) as s:\n        print(await fetch(s, \"/get\"))          # ok 200\n        print(await fetch(s, \"/delay/5\"))      # timed out\n        print(await fetch(s, \"/status/503\"))   # HTTP 503\n    async with aiohttp.ClientSession(timeout=timeout) as s:\n        print(await fetch(s, \"http://localhost:1/\"))  # connection problem: ClientConnectorError\n\nasyncio.run(main())",
    "code_lang": "python",
    "takeaways": [
     "ClientTimeout(total, connect, sock_connect, sock_read); default total is 300 s",
     "Timeouts raise TimeoutError subclasses; other failures are aiohttp.ClientError",
-    "Retries are not built in"
+    "Retries are not built in: add your own loop with backoff"
    ],
    "pitfalls": [
-    "Relying on the 5-minute default total timeout in a latency-sensitive service."
+    "Relying on the 5-minute default total timeout in a service that must answer quickly."
    ],
    "quiz": [
     {
@@ -239,6 +381,14 @@
     "aiohttp.client-responses",
     "aiohttp.concurrent-requests",
     "python.exceptions"
+   ],
+   "defines": [
+    "TCP",
+    "socket",
+    "TLS",
+    "logging",
+    "exponential backoff",
+    "endpoint"
    ]
   },
   {
@@ -247,18 +397,18 @@
    "module": "server",
    "level": 2,
    "minutes": 11,
-   "summary": "Read query parameters, JSON, forms and headers from web.Request, validate them, and return proper error responses.",
-   "why": "Real endpoints take input; reading and validating it correctly prevents both bugs and security holes.",
-   "body": "`web.Request` gives access to everything the client sent:\n\n- `request.match_info`: path variables from the route.\n- `request.query`: query parameters as a read-only multidict of strings; `request.query.get(\"page\", \"1\")`, `getall(\"tag\")` for repeated keys.\n- `request.headers`, `request.cookies`, `request.method`, `request.path`, `request.url`, `request.remote`.\n- The body, read with coroutines: `await request.json()`, `await request.post()` (form fields and uploaded files), `await request.text()`, `await request.read()`, or `request.content` as a stream for large uploads.\n- `request.can_read_body` / `request.body_exists` to check whether there is a body.\n\nAll input is untrusted. Convert and validate explicitly: `int(request.query[\"page\"])` can raise `ValueError`, and `await request.json()` raises `json.JSONDecodeError` on bad JSON. Translate such errors into `web.HTTPBadRequest` rather than letting them become 500s. Many projects use Pydantic models for validation.\n\naiohttp enforces a maximum body size, `client_max_size` on the `Application` (default 1 MiB), and answers `413 Payload Too Large` above it. Raise it for upload endpoints, or stream `request.content`.\n\nFor responses, `web.json_response(data, status=201)` sets the status, and you can add headers via `headers=`. `raise web.HTTPBadRequest(text=\"...\")` (or `reason=`) ends the request with a 400. For JSON error bodies, pass `text=json.dumps(...)` with `content_type=\"application/json\"`.",
+   "summary": "Read query parameters, JSON, forms and headers from web.Request, check them, and return proper error responses.",
+   "why": "Real handlers take input from strangers; reading and checking it carefully prevents both bugs and attacks.",
+   "body": "`web.Request` gives access to everything the client sent:\n- `request.match_info`: path variables from the route.\n- `request.query`: the query-string parameters, as strings. `request.query.get(\"page\", \"1\")` reads one; `getall(\"tag\")` reads a key that appears several times. It's a read-only **multidict**, a dictionary that may hold the same key more than once.\n- `request.headers`, `request.cookies`, `request.method`, `request.path`, `request.url`, and `request.remote` (the client's IP address).\n- The body, read with coroutines: `await request.json()`, `await request.post()` (HTML form fields and uploaded files), `await request.text()`, `await request.read()`.\n- `request.content`, the body as a **stream**: you read it piece by piece as it arrives, so a huge upload never has to fit in memory at once.\n- `request.can_read_body` tells you whether there is a body at all.\n\nAll input is untrusted: anyone can send anything. Convert and check it yourself; this checking is called **validation**. `int(request.query[\"page\"])` can raise `ValueError`, and `await request.json()` raises `json.JSONDecodeError` on broken JSON. Catch these and raise `web.HTTPBadRequest` (400), rather than letting them crash the handler, which the client sees as a `500 Internal Server Error`. Many projects describe the expected data as a class with the Pydantic library, which does the checking for them.\n\naiohttp also limits the body size with `client_max_size` on the `Application`: 1 MiB by default (1,048,576 bytes, about a million). Bigger bodies get `413 Payload Too Large`. Raise the limit for handlers that accept uploads, or read `request.content` as a stream instead.\n\nFor responses, `web.json_response(data, status=201)` sets the status, and `headers=` adds headers. `raise web.HTTPBadRequest(text=\"...\")` ends the request with a 400 and your message. For a JSON error body, pass `text=json.dumps(...)` with `content_type=\"application/json\"`.",
    "code": "import asyncio\nimport json\nfrom aiohttp import web\nfrom aiohttp.test_utils import TestClient, TestServer\n\nasync def create_item(request):\n    try:\n        payload = await request.json()\n        qty = int(payload[\"qty\"])\n    except (json.JSONDecodeError, KeyError, ValueError, TypeError):\n        raise web.HTTPBadRequest(text=\"expected JSON with integer qty\")\n    dry_run = request.query.get(\"dry_run\") == \"1\"\n    return web.json_response({\"qty\": qty, \"dry_run\": dry_run}, status=201)\n\napp = web.Application(client_max_size=2 * 1024**2)    # allow 2 MiB bodies\napp.router.add_post(\"/items\", create_item)\n\nasync def demo():\n    async with TestClient(TestServer(app)) as c:\n        r = await c.post(\"/items?dry_run=1\", json={\"qty\": \"3\"})\n        print(r.status, await r.json())                # 201 {'qty': 3, 'dry_run': True}\n        r = await c.post(\"/items\", data=\"not json\")\n        print(r.status, await r.text())                # 400 expected JSON with integer qty\n\nasyncio.run(demo())",
    "code_lang": "python",
    "takeaways": [
-    "match_info for path, query for ?params, await json()/post()/read() for bodies",
-    "Validate input and raise web.HTTPBadRequest instead of failing with 500",
+    "`match_info` for path variables, `query` for ?key=value parameters, `await json()`/`post()`/`read()` for bodies",
+    "Check input and raise web.HTTPBadRequest instead of failing with a 500",
     "client_max_size limits body size (default 1 MiB)"
    ],
    "pitfalls": [
-    "Letting int(request.query['x']) raise ValueError, which becomes a 500 error."
+    "Letting `int(request.query['x'])` raise ValueError, which the client sees as a 500 error."
    ],
    "quiz": [
     {
@@ -276,6 +426,11 @@
    "docs": "https://docs.aiohttp.org/en/stable/web_quickstart.html",
    "requires": [
     "aiohttp.web-basics"
+   ],
+   "defines": [
+    "multidict",
+    "stream",
+    "validation"
    ]
   },
   {
@@ -284,13 +439,13 @@
    "module": "server-advanced",
    "level": 2,
    "minutes": 10,
-   "summary": "Wrap every request with middleware coroutines for logging, error handling, auth and timing.",
-   "why": "Cross-cutting concerns belong in one place instead of being repeated in every handler.",
-   "body": "A **middleware** is a coroutine that wraps the handler chain. It receives the request and the next `handler`, and can act before and after calling it:\n\n```python\n@web.middleware\nasync def timing(request, handler):\n    start = time.perf_counter()\n    response = await handler(request)\n    response.headers[\"X-Time\"] = f\"{time.perf_counter() - start:.4f}\"\n    return response\n```\n\nRegister middlewares when creating the app: `web.Application(middlewares=[error_mw, auth_mw, timing])`. They run **in list order** on the way in, and in reverse order on the way out, like layers of an onion. The first middleware sees everything, including errors from the ones after it.\n\nCommon uses:\n\n- **Error handling**: catch `web.HTTPException` or unexpected exceptions and render consistent JSON errors. Note that `HTTPException` is raised, so a middleware must catch it (or let it propagate to aiohttp's default handling).\n- **Authentication**: check a token, attach the user to the request (`request[\"user\"] = ...`) and either continue or raise `web.HTTPUnauthorized`.\n- **Logging, metrics, CORS, request IDs**.\n\nA middleware can short-circuit by returning a response without calling `handler`. The request object supports item assignment (`request[\"key\"]`), which is the standard way to pass data from middlewares to handlers.\n\nFor per-response modifications that do not need to wrap the call, the `on_response_prepare` signal is an alternative.",
+   "summary": "Wrap every request in middleware coroutines for error handling, login checks and timing.",
+   "why": "Jobs that apply to every request, like checking logins or timing, belong in one place instead of being copied into every handler.",
+   "body": "Some jobs apply to every request: timing it, checking the user is logged in, turning errors into tidy replies. A **middleware** is a coroutine that wraps your handlers to do such a job once for all of them. It receives the request and `handler`, the next step in the chain (another middleware, or finally your handler), and can act before and after calling it:\n\n```python\n@web.middleware\nasync def timing(request, handler):\n    start = time.perf_counter()\n    response = await handler(request)\n    response.headers[\"X-Time\"] = f\"{time.perf_counter() - start:.4f}\"\n    return response\n```\n\nRegister middlewares when creating the app: `web.Application(middlewares=[error_mw, auth_mw, timing])`. They run **in list order** on the way in and in reverse order on the way out, like layers of an onion. So the first one sees everything, including errors raised by the ones after it.\n\nCommon uses:\n- **Error handling**: catch `web.HTTPException` or unexpected exceptions and turn them into consistent JSON error replies. `HTTPException` is raised, not returned, so the middleware must catch it (or let it through to aiohttp's default handling).\n- **Authentication**: check a **token** (a secret string the client sends in a header to prove who it is), attach the user with `request[\"user\"] = ...`, then either continue or raise `web.HTTPUnauthorized`.\n- **Logging**, writing a note about each request to a log to look at later, and adding a request ID to every response.\n\nA middleware can stop early by returning a response without calling `handler`. The request object also works like a dictionary (`request[\"key\"]`), which is the standard way to pass data from a middleware to the handler.\n\nFor changes to every response that don't need to wrap the call, such as adding a header, aiohttp also offers the `on_response_prepare` **signal**: a list of functions aiohttp calls just before each response is sent.",
    "code": "import asyncio\nfrom aiohttp import web\nfrom aiohttp.test_utils import TestClient, TestServer\n\n@web.middleware\nasync def errors_as_json(request, handler):\n    try:\n        return await handler(request)\n    except web.HTTPException as e:\n        return web.json_response({\"error\": e.reason}, status=e.status)\n@web.middleware\nasync def auth(request, handler):\n    if request.headers.get(\"Authorization\") != \"Bearer secret\":\n        raise web.HTTPUnauthorized()\n    request[\"user\"] = \"ada\"                   # pass data to handlers\n    return await handler(request)\nasync def me(request):\n    return web.json_response({\"user\": request[\"user\"]})\nasync def demo():\n    app = web.Application(middlewares=[errors_as_json, auth])\n    app.router.add_get(\"/me\", me)\n    async with TestClient(TestServer(app)) as c:\n        for h in ({}, {\"Authorization\": \"Bearer secret\"}):\n            print(await (await c.get(\"/me\", headers=h)).json())  # {'error': 'Unauthorized'}, then {'user': 'ada'}\nasyncio.run(demo())",
    "code_lang": "python",
    "takeaways": [
-    "A middleware is async (request, handler) -> response wrapping the chain",
+    "A middleware is a coroutine (request, handler) -> response that wraps the handler",
     "They run in list order going in, reverse order coming out",
     "Use request['key'] to pass data from middleware to handlers"
    ],
@@ -314,6 +469,12 @@
    "requires": [
     "aiohttp.request-handling",
     "python.decorators"
+   ],
+   "defines": [
+    "middleware",
+    "token",
+    "logging",
+    "signal"
    ]
   },
   {
@@ -324,13 +485,13 @@
    "minutes": 11,
    "summary": "Test aiohttp apps in-process with TestClient and TestServer or the pytest-aiohttp fixtures, and fake servers for client code.",
    "why": "Async network code is easy to get subtly wrong; fast in-process tests catch it without real servers.",
-   "body": "aiohttp ships its own testing tools in `aiohttp.test_utils`:\n\n- `TestServer(app)` starts your `web.Application` on a random local port inside the current event loop.\n- `TestClient(server)` is a `ClientSession` bound to that server, so you call `await client.get(\"/path\")` with relative URLs.\n- `AioHTTPTestCase` integrates them with `unittest.IsolatedAsyncioTestCase`.\n\nWith pytest, install `pytest-aiohttp` (which uses `pytest-asyncio`) and use the `aiohttp_client` fixture:\n\n```python\nasync def test_hello(aiohttp_client):\n    client = await aiohttp_client(create_app())\n    resp = await client.get(\"/\")\n    assert resp.status == 200\n```\n\nFixtures also exist for raw servers (`aiohttp_server`, `aiohttp_raw_server`). Write an app **factory** function (`create_app()`) so each test gets a fresh app with its own state.\n\nFor testing **client code**, the same tools help: start a small fake `web.Application` with `TestServer` that mimics the external API (including errors and slow responses with `asyncio.sleep`), and point your client at `server.make_url(\"/\")`. This tests real HTTP behaviour, including timeouts and headers. Libraries like `aioresponses` instead patch `ClientSession` to return canned responses without any server.\n\nRemember that startup and cleanup signals run with `TestServer`, so app resources such as database pools are created and closed per test.",
+   "body": "aiohttp ships its own testing tools in `aiohttp.test_utils`. They run your app inside the test's own program, so there's no separate server to start and tests stay fast:\n- `TestServer(app)` starts your `web.Application` on a free port of your own computer, inside the current event loop.\n- `TestClient(server)` is a session tied to that server, so you can write `await client.get(\"/path\")` with just the path.\n- `AioHTTPTestCase` plugs them into unittest's `IsolatedAsyncioTestCase`.\n\nWith pytest, install `pytest-aiohttp` (which uses `pytest-asyncio`) and use the `aiohttp_client` fixture:\n\n```python\nasync def test_hello(aiohttp_client):\n    client = await aiohttp_client(create_app())\n    resp = await client.get(\"/\")\n    assert resp.status == 200\n```\n\nFixtures also exist for bare servers (`aiohttp_server`, `aiohttp_raw_server`). Write an **app factory**, a function such as `create_app()` that builds and returns a new app, so each test gets a fresh app with its own state.\n\nThe same tools help you test **client code**, the code that calls someone else's web API. Start a small fake `web.Application` with `TestServer` that imitates it, including errors and slow answers (`asyncio.sleep`), and point your client at `server.make_url(\"/\")`. This tests real HTTP behaviour, timeouts and headers included.\n\nLibraries such as `aioresponses` take a different approach: they temporarily replace `ClientSession`'s methods with a mock that returns canned responses, with no server at all.\n\n`TestServer` also runs the app's startup and cleanup code (see the app lifecycle lesson), so resources the app opens, such as a database connection pool, are created and closed for each test.",
    "code": "import asyncio\nfrom aiohttp import ClientSession, ClientTimeout, web\nfrom aiohttp.test_utils import TestServer\n\nasync def get_price(session, base_url, sku):          # client code under test\n    async with session.get(f\"{base_url}/price/{sku}\") as resp:\n        resp.raise_for_status()\n        return (await resp.json())[\"price\"]\n\nasync def fake_price(request):                        # fake external API\n    if request.match_info[\"sku\"] == \"slow\":\n        await asyncio.sleep(2)\n    return web.json_response({\"price\": 9.5})\nasync def test():\n    app = web.Application()\n    app.router.add_get(\"/price/{sku}\", fake_price)\n    async with TestServer(app) as server:\n        base = str(server.make_url(\"\")).rstrip(\"/\")\n        async with ClientSession(timeout=ClientTimeout(total=0.5)) as s:\n            assert await get_price(s, base, \"abc\") == 9.5\n            try:\n                await get_price(s, base, \"slow\")\n            except TimeoutError:\n                print(\"timeout handled\")                 # timeout handled\nasyncio.run(test())",
    "code_lang": "python",
    "takeaways": [
     "TestServer + TestClient run apps in-process; pytest-aiohttp provides aiohttp_client",
     "Use an app factory so each test gets fresh state",
-    "Fake external APIs with a small TestServer app to test client code"
+    "Fake external web APIs with a small TestServer app to test client code"
    ],
    "pitfalls": [
     "Sharing one module-level app with mutable state across tests."
@@ -345,7 +506,7 @@
       "TestClient only accepts callables"
      ],
      "answer": 0,
-     "explain": "A fresh app per test avoids shared mutable state and frozen-app errors."
+     "explain": "A fresh app per test means state left over from one test can't affect the next."
     }
    ],
    "docs": "https://docs.aiohttp.org/en/stable/testing.html",
@@ -353,6 +514,9 @@
     "aiohttp.middlewares",
     "aiohttp.timeouts-errors",
     "python.testing"
+   ],
+   "defines": [
+    "app factory"
    ]
   },
   {
@@ -361,18 +525,18 @@
    "module": "client-advanced",
    "level": 3,
    "minutes": 11,
-   "summary": "Tune TCPConnector limits, per-host limits, DNS caching, keep-alive and SSL to control how the client uses connections.",
-   "why": "At scale, the connector decides throughput, fairness across hosts and whether you get banned for hammering a server.",
-   "body": "Every `ClientSession` uses a **connector** that manages the connection pool. The default is `aiohttp.TCPConnector()`; pass your own with `ClientSession(connector=...)`.\n\nKey `TCPConnector` options:\n\n- `limit` (default **100**): maximum simultaneous connections in total. `limit=0` means unlimited, which is rarely wise.\n- `limit_per_host` (default **0**, unlimited): caps connections to one host, port and scheme. Set it when crawling many hosts so one host is not overwhelmed and others are not starved.\n- `ttl_dns_cache` (default 10 seconds) and `use_dns_cache`: DNS results are cached per connector. `aiodns` (installed with `aiohttp[speedups]`) makes resolution truly async.\n- `keepalive_timeout`: how long idle connections stay open for reuse; `force_close=True` disables keep-alive.\n- `ssl=`: `False` to skip verification (avoid), or an `ssl.SSLContext` for custom CAs and client certificates. Can also be passed per request.\n- `family`, `local_addr`, and `happy_eyeballs_delay` for IPv4/IPv6 control.\n\nWhen all connections are in use, requests wait for one; that wait counts against the `connect` timeout.\n\nA connector belongs to its session and is closed with it. To share one pool between several sessions (with different headers or cookies), pass `connector_owner=False` and close the connector yourself. For Unix sockets, use `aiohttp.UnixConnector(path=...)`.\n\nProxies are given per request with `proxy=\"http://proxy:3128\"`, or read from environment variables with `ClientSession(trust_env=True)`.",
+   "summary": "Tune TCPConnector limits, per-host limits, DNS caching, keep-alive and TLS settings to control how the client uses connections.",
+   "why": "At scale, the connector decides how many requests per second you get through, how fairly you share them across servers, and whether a server bans you for flooding it.",
+   "body": "Every `ClientSession` hands the work of opening and reusing connections to a **connector**, which owns the connection pool. The default is `aiohttp.TCPConnector()`; pass your own with `ClientSession(connector=...)`.\n\nKey `TCPConnector` options:\n- `limit` (default **100**): the most connections open at once, in total. `limit=0` means unlimited, which is rarely wise.\n- `limit_per_host` (default **0**, unlimited): the most connections to one server, counted per name, port and scheme (`http` or `https`). Set it when crawling many sites, so no single site is flooded and the others don't wait behind it.\n- `ttl_dns_cache` (default 10 seconds) and `use_dns_cache`: each connector caches DNS answers. Installing `aiohttp[speedups]` adds `aiodns`, which looks names up without blocking the event loop.\n- `keepalive_timeout`: how long a finished connection stays open waiting to be reused (**keep-alive**); `force_close=True` turns keep-alive off.\n- `ssl=`: TLS settings, see below.\n- `family` and `local_addr`: force the older (IPv4) or newer (IPv6) kind of IP address, or choose which local address to send from.\n\n`ssl=False` skips checking the server's **certificate**, the signed digital ID that proves a server is who it claims to be. Avoid that outside quick experiments. Pass an `ssl.SSLContext` instead to trust your company's own certificates or to present a client certificate. `ssl=` can also be given per request.\n\nWhen every allowed connection is busy, a request waits for one, and that wait counts against the `connect` timeout.\n\nA connector belongs to its session and closes with it. To share one pool between several sessions (say, with different headers or cookies), pass `connector_owner=False` and close the connector yourself. To talk to a program on the same machine through a Unix socket, a special file that works like a network address, use `aiohttp.UnixConnector(path=...)`.\n\nSome networks require a **proxy**, a middleman server your requests pass through. Give it per request with `proxy=\"http://proxy:3128\"`, or let `ClientSession(trust_env=True)` read it from **environment variables** such as `HTTPS_PROXY`: named settings your operating system passes to every program it starts.",
    "code": "import asyncio\nimport ssl\nimport aiohttp\n\nasync def main():\n    connector = aiohttp.TCPConnector(\n        limit=50,             # at most 50 connections overall\n        limit_per_host=4,     # and 4 per host\n        ttl_dns_cache=300,    # cache DNS answers for 5 minutes\n        ssl=ssl.create_default_context(),   # or cafile=\"corp-ca.pem\"\n    )\n    async with aiohttp.ClientSession(connector=connector) as session:\n        async def one(i):\n            async with session.get(\"https://httpbin.org/delay/1\") as r:\n                return r.status\n        t = asyncio.get_running_loop().time()\n        statuses = await asyncio.gather(*(one(i) for i in range(8)))\n        print(statuses.count(200))                                 # 8\n        print(round(asyncio.get_running_loop().time() - t))        # 2 (4 per host at a time)\n    print(connector.closed)                                        # True\n\nasyncio.run(main())",
    "code_lang": "python",
    "takeaways": [
     "TCPConnector(limit=100 by default, limit_per_host=0 by default)",
-    "limit_per_host keeps crawlers polite and fair",
-    "Connectors also handle DNS caching, keep-alive and SSL contexts"
+    "`limit_per_host` keeps crawlers polite and fair",
+    "Connectors also handle DNS caching, keep-alive and TLS settings"
    ],
    "pitfalls": [
-    "Setting limit=0 (unlimited) and exhausting file descriptors or the remote server."
+    "Setting limit=0 (unlimited), then running out of the connections your operating system allows or flooding the remote server."
    ],
    "quiz": [
     {
@@ -391,6 +555,13 @@
    "requires": [
     "aiohttp.timeouts-errors",
     "aiohttp.concurrent-requests"
+   ],
+   "defines": [
+    "connector",
+    "keep-alive",
+    "certificate",
+    "proxy",
+    "environment variable"
    ]
   },
   {
@@ -400,17 +571,17 @@
    "level": 3,
    "minutes": 13,
    "summary": "Serve WebSockets with web.WebSocketResponse and connect to them with session.ws_connect, handling messages and closes.",
-   "why": "Real-time features such as chat, live dashboards and streaming updates need persistent two-way connections.",
-   "body": "aiohttp has first-class WebSocket support on both sides.\n\n**Server**: inside a normal GET handler, create a `web.WebSocketResponse()`, call `await ws.prepare(request)` to perform the upgrade handshake, then iterate over incoming messages:\n\n```python\nasync for msg in ws:\n    if msg.type == aiohttp.WSMsgType.TEXT: ...\n```\n\nSend with `await ws.send_str(...)`, `send_bytes`, or `send_json`. The loop ends when the client closes; return `ws` from the handler.\n\n**Client**: `async with session.ws_connect(url) as ws:` opens a connection; then the same `send_*` methods and `async for msg in ws` (or `await ws.receive()`) work.\n\nMessage types to handle: `TEXT`, `BINARY`, `CLOSE`/`CLOSED`/`CLOSING`, and `ERROR` (check `ws.exception()`). Ping/pong is automatic; `heartbeat=30` on either side sends pings and closes dead connections, which is important behind load balancers that drop idle connections.\n\nTo **broadcast** (chat rooms, live updates), keep a set of open `WebSocketResponse` objects in app state, add on connect, remove in a `finally` block, and send to each. One slow client should not block others, so consider per-client queues for heavy traffic.\n\nGraceful shutdown matters: open WebSockets keep the server from stopping. Close them in an `on_shutdown` handler with `await ws.close(code=WSCloseCode.GOING_AWAY)`.",
+   "why": "Chat, live dashboards and other real-time features need a connection that stays open so either side can send at any moment.",
+   "body": "A normal HTTP exchange is one request, one response, then done. A **WebSocket** starts as an HTTP request and then becomes a connection that stays open, so the client and the server can each send messages whenever they like. aiohttp supports it on both sides.\n\n**Server**: inside a normal GET handler, create a `web.WebSocketResponse()` and call `await ws.prepare(request)`. That performs the **handshake**, the short opening exchange where both sides agree to switch from HTTP to WebSocket. Then loop over incoming messages:\n\n```python\nasync for msg in ws:\n    if msg.type == aiohttp.WSMsgType.TEXT: ...\n```\n\nSend with `await ws.send_str(...)`, `send_bytes` or `send_json`. The loop ends when the client closes the connection; then return `ws` from the handler.\n\n**Client**: `async with session.ws_connect(url) as ws:` opens a connection; the same `send_*` methods and `async for msg in ws` (or `await ws.receive()`) work.\n\nMessage types to handle: `TEXT`, `BINARY`, `CLOSE`/`CLOSED`/`CLOSING`, and `ERROR` (check `ws.exception()`). The two sides can exchange small \"are you still there?\" messages, pings and pongs, and aiohttp answers them automatically. With `heartbeat=30` it also sends a ping every 30 seconds and closes connections that stop answering. That matters behind a **load balancer** (a server that spreads traffic across copies of your app), because many drop connections that stay quiet too long.\n\nTo **broadcast**, sending one message to every connected client (a chat room, live scores), keep a set of open `WebSocketResponse` objects somewhere shared, such as the app itself, which works like a dictionary (`app[key] = ...`, covered in the app lifecycle lesson). Add each one when it connects, remove it in a `finally` block, and send to each. One slow client shouldn't hold up the rest, so with heavy traffic give each client its own queue.\n\nPlan for a **graceful shutdown**: stopping the server cleanly instead of cutting everything off. Open WebSockets keep the server from stopping, so close them from `app.on_shutdown`, a list of coroutines aiohttp calls when the server begins to stop: `await ws.close(code=WSCloseCode.GOING_AWAY)`.",
    "code": "import asyncio\nimport aiohttp\nfrom aiohttp import web\nfrom aiohttp.test_utils import TestServer\n\nasync def echo(request):\n    ws = web.WebSocketResponse(heartbeat=30)\n    await ws.prepare(request)                       # upgrade the connection\n    async for msg in ws:\n        if msg.type == aiohttp.WSMsgType.TEXT:\n            if msg.data == \"bye\":\n                await ws.close()\n            else:\n                await ws.send_json({\"echo\": msg.data.upper()})\n    return ws\nasync def main():\n    app = web.Application()\n    app.router.add_get(\"/ws\", echo)\n    async with TestServer(app) as server, aiohttp.ClientSession() as session:\n        async with session.ws_connect(server.make_url(\"/ws\")) as ws:\n            await ws.send_str(\"hello\")\n            print(await ws.receive_json())          # {'echo': 'HELLO'}\n            await ws.send_str(\"bye\")\n            print((await ws.receive()).type == aiohttp.WSMsgType.CLOSE)  # True\nasyncio.run(main())",
    "code_lang": "python",
    "takeaways": [
     "Server: WebSocketResponse, await ws.prepare(request), async for msg in ws",
     "Client: async with session.ws_connect(url) as ws",
-    "Use heartbeat= to detect dead connections; close sockets on shutdown"
+    "Use heartbeat= to detect dead connections; close open WebSockets on shutdown"
    ],
    "pitfalls": [
-    "Forgetting to remove closed connections from a broadcast set, leaking memory and erroring on send."
+    "Forgetting to remove closed connections from a broadcast set, so memory use keeps growing and sends fail."
    ],
    "quiz": [
     {
@@ -429,6 +600,13 @@
    "requires": [
     "aiohttp.middlewares",
     "aiohttp.client-responses"
+   ],
+   "defines": [
+    "WebSocket",
+    "handshake",
+    "heartbeat",
+    "load balancer",
+    "graceful shutdown"
    ]
   },
   {
@@ -437,9 +615,9 @@
    "module": "server-advanced",
    "level": 3,
    "minutes": 11,
-   "summary": "Manage shared resources with typed AppKey state and cleanup_ctx, on_startup and on_shutdown signals.",
-   "why": "Database pools and HTTP clients must be created once at startup and closed at shutdown, not per request.",
-   "body": "An `Application` is a mapping you can store shared objects in, such as database pools, a `ClientSession` for outgoing calls, or caches. Since aiohttp 3.9 the recommended keys are **typed** `web.AppKey` objects:\n\n```python\ndb_key = web.AppKey(\"db\", asyncpg.Pool)\napp[db_key] = pool\npool = request.app[db_key]    # type checkers know this is a Pool\n```\n\nString keys still work but emit a warning and lose type information.\n\nResources are created and destroyed via lifecycle **signals**:\n\n- `app.cleanup_ctx`: async generators that run setup code before `yield` at startup and teardown after `yield` at cleanup. This is the preferred style because setup and teardown live together and teardown only runs if setup succeeded.\n- `app.on_startup`, `app.on_shutdown`, `app.on_cleanup`: lists of coroutines called at each phase. `on_shutdown` runs first when stopping, a good time to close WebSockets; then `on_cleanup`.\n\nAfter the app starts it is **frozen**: adding routes, middlewares or signals then raises an error. Modifying state values (`app[key]`) stays allowed.\n\nLarge apps can be split into **sub-applications** with `app.add_subapp(\"/admin/\", admin_app)`, each with its own middlewares and state, and nested apps reach the parent's state through `request.config_dict`, which looks keys up through the chain.\n\nPer-request data goes on the request (`request[\"user\"]`), never on the app, because the app is shared by all concurrent requests.",
+   "summary": "Manage shared resources with typed AppKey state and the cleanup_ctx, on_startup and on_shutdown signals.",
+   "why": "Shared resources such as a database connection pool, or a ClientSession for calling other services, must be created once at startup and closed at shutdown, not per request.",
+   "body": "An `Application` works like a dictionary you can store shared objects in, such as a database connection pool, a `ClientSession` for outgoing calls, or a cache. Since aiohttp 3.9 the recommended keys are **typed** `web.AppKey` objects, which tell a type checker what each stored value is:\n\n```python\ndb_key = web.AppKey(\"db\", asyncpg.Pool)   # asyncpg: an async database library\napp[db_key] = pool\npool = request.app[db_key]    # type checkers know this is a Pool\n```\n\nString keys still work but emit a warning and lose type information.\n\nResources are created and destroyed through lifecycle **signals**, lists of functions aiohttp calls at fixed moments:\n- `app.cleanup_ctx`: a list of **async generators**, `async def` functions containing one `yield`. The code before `yield` runs at startup; the code after it runs at cleanup. This is the preferred style: setup and teardown sit together, and teardown only runs if setup succeeded.\n- `app.on_startup`, `app.on_shutdown`, `app.on_cleanup`: lists of coroutines called at each phase. When stopping, `on_shutdown` runs first (a good time to close long-lived WebSocket connections), then `on_cleanup`.\n\nOnce the app starts it is **frozen**: adding routes, middlewares or signals then raises an error. Changing stored values (`app[key] = ...`) is still allowed.\n\nLarge apps can be split into **sub-applications** with `app.add_subapp(\"/admin/\", admin_app)`; each has its own routes, middlewares and stored objects. A sub-app's handlers reach the parent's objects through `request.config_dict`, which looks a key up in the sub-app first, then in its parents.\n\nPer-request data goes on the request (`request[\"user\"]`), never on the app, because one app is shared by all the requests being handled at the same time.",
    "code": "import asyncio\nimport aiohttp\nfrom aiohttp import web\nfrom aiohttp.test_utils import TestClient, TestServer\n\nhttp_key = web.AppKey(\"http\", aiohttp.ClientSession)\nevents = []\n\nasync def http_client(app):\n    app[http_key] = aiohttp.ClientSession()      # setup at startup\n    events.append(\"started\")\n    yield\n    await app[http_key].close()                  # teardown at cleanup\n    events.append(\"closed\")\n\nasync def status(request):\n    return web.json_response({\"open\": not request.app[http_key].closed})\nasync def demo():\n    app = web.Application()\n    app.cleanup_ctx.append(http_client)\n    app.router.add_get(\"/status\", status)\n    async with TestClient(TestServer(app)) as c:\n        print(await (await c.get(\"/status\")).json())  # {'open': True}\n    print(events)                                     # ['started', 'closed']\nasyncio.run(demo())",
    "code_lang": "python",
    "takeaways": [
@@ -460,13 +638,19 @@
       "It replaces all routes"
      ],
      "answer": 1,
-     "explain": "Applications freeze on startup; routes, middlewares and signals can no longer be changed."
+     "explain": "An application freezes when it starts; its routes, middlewares and signals can no longer be changed."
     }
    ],
    "docs": "https://docs.aiohttp.org/en/stable/web_advanced.html#aiohttp-web-signals",
    "requires": [
     "aiohttp.testing",
     "python.generators-advanced"
+   ],
+   "defines": [
+    "AppKey",
+    "async generator",
+    "frozen app",
+    "sub-application"
    ]
   },
   {
@@ -476,8 +660,8 @@
    "level": 4,
    "minutes": 11,
    "summary": "Hook into each phase of client requests with TraceConfig to measure DNS, connection and request timing.",
-   "why": "When latency goes wrong in production you need to see whether DNS, connecting, the pool or the server is slow.",
-   "body": "`aiohttp.TraceConfig` lets you attach coroutines to events in the client's request lifecycle, without wrapping every call. Create one, append callbacks to its signals, and pass it to the session with `ClientSession(trace_configs=[trace_config])`.\n\nAvailable signals include:\n\n- `on_request_start`, `on_request_end`, `on_request_exception`, `on_request_redirect`,\n- `on_connection_queued_start` / `_end` (waiting for a free pooled connection),\n- `on_connection_create_start` / `_end` (opening a new connection) and `on_connection_reuseconn`,\n- `on_dns_resolvehost_start` / `_end`, `on_dns_cache_hit` / `on_dns_cache_miss`,\n- `on_request_chunk_sent`, `on_response_chunk_received`, `on_request_headers_sent`.\n\nEach callback receives `(session, trace_config_ctx, params)`. `params` holds event data (method, URL, response, exception). `trace_config_ctx` is a fresh namespace per request, so you can store a start time in `on_request_start` and read it in `on_request_end`. Pass request-specific data with `session.get(url, trace_request_ctx={...})`, available as `trace_config_ctx.trace_request_ctx`.\n\nThis is how metrics exporters and OpenTelemetry's aiohttp client instrumentation work: they record durations per phase and propagate trace headers. The connection-queued signals are particularly valuable, because time spent waiting for the pool looks exactly like a slow server from the outside.\n\nOn the server side, the equivalent tools are middlewares, access logs (configurable `access_log_format`) and signals such as `on_response_prepare`.",
+   "why": "When requests get slow in production (the live system real users rely on), you need to see whether DNS, connecting, waiting for the pool or the server itself is to blame.",
+   "body": "`aiohttp.TraceConfig` lets you attach coroutines to the steps of every client request, without wrapping each call. Create one, append callbacks to its **signals** (lists of callbacks aiohttp calls at each step), and pass it to the session: `ClientSession(trace_configs=[trace_config])`.\n\nAvailable signals include:\n- `on_request_start`, `on_request_end`, `on_request_exception`, `on_request_redirect`,\n- `on_connection_queued_start` / `_end` (waiting for a free connection from the pool),\n- `on_connection_create_start` / `_end` (opening a new connection) and `on_connection_reuseconn`,\n- `on_dns_resolvehost_start` / `_end`, `on_dns_cache_hit` / `on_dns_cache_miss`,\n- `on_request_chunk_sent`, `on_response_chunk_received` (each piece, or chunk, of a body), `on_request_headers_sent`.\n\nEach callback receives `(session, trace_config_ctx, params)`. `params` holds the event's data (method, URL, response, exception). `trace_config_ctx` is a fresh, empty object for each request, so you can store a start time on it in `on_request_start` and read it back in `on_request_end`. To pass your own data in, use `session.get(url, trace_request_ctx={...})`; it shows up as `trace_config_ctx.trace_request_ctx`.\n\nThis is how monitoring tools work: they time each step and report the numbers (**metrics**) to dashboards. OpenTelemetry's aiohttp support, for example, also adds headers that let one request be followed across several services. The connection-queued signals are especially useful, because time spent waiting for the pool looks exactly like a slow server from the outside.\n\nOn the server side, the matching tools are middlewares (see the Middlewares lesson), aiohttp's access log of every request (its format set with `access_log_format`), and the `on_response_prepare` signal.",
    "code": "import asyncio\nimport aiohttp\n\nasync def on_start(session, ctx, params):\n    ctx.start = asyncio.get_running_loop().time()\n\nasync def on_end(session, ctx, params):\n    ms = (asyncio.get_running_loop().time() - ctx.start) * 1000\n    tag = ctx.trace_request_ctx[\"tag\"]\n    print(f\"{tag} {params.method} {params.url.path} {params.response.status} {ms:.0f}ms\")\n\nasync def on_new_conn(session, ctx, params):\n    print(\"  new connection\")\n\ntrace = aiohttp.TraceConfig()\ntrace.on_request_start.append(on_start)\ntrace.on_request_end.append(on_end)\ntrace.on_connection_create_end.append(on_new_conn)\nasync def main():\n    async with aiohttp.ClientSession(trace_configs=[trace]) as s:\n        for i in range(2):\n            async with s.get(\"https://httpbin.org/get\", trace_request_ctx={\"tag\": f\"req{i}\"}) as r:\n                await r.read()\nasyncio.run(main())\n# \"  new connection\", \"req0 GET /get 200 120ms\", then \"req1 GET /get 200 40ms\" (connection reused)",
    "code_lang": "python",
    "takeaways": [
@@ -486,7 +670,7 @@
     "Queued-connection signals reveal pool contention"
    ],
    "pitfalls": [
-    "Doing slow work inside trace callbacks, which adds latency to every request."
+    "Doing slow work inside trace callbacks, which adds delay to every request."
    ],
    "quiz": [
     {
@@ -504,6 +688,12 @@
    "docs": "https://docs.aiohttp.org/en/stable/tracing_reference.html",
    "requires": [
     "aiohttp.connectors"
+   ],
+   "defines": [
+    "production",
+    "signal",
+    "metric",
+    "TraceConfig"
    ]
   },
   {
@@ -512,9 +702,9 @@
    "module": "production",
    "level": 4,
    "minutes": 12,
-   "summary": "Run aiohttp in production with AppRunner and sites, Gunicorn workers, a reverse proxy, and graceful shutdown.",
-   "why": "run_app is fine for development, but production needs multiple processes, proxies and clean shutdowns.",
-   "body": "`web.run_app` is a convenience wrapper. In production you choose among:\n\n- **run_app** behind a reverse proxy (nginx, a cloud load balancer), with one process per CPU managed by systemd, supervisord or a container orchestrator. Each process can listen on its own port or a shared Unix socket (`path=`).\n- **Gunicorn** with aiohttp's worker class: `gunicorn myapp:create_app --worker-class aiohttp.GunicornWebWorker --workers 4 --bind 0.0.0.0:8080`. Gunicorn manages processes; each worker runs its own event loop. (The worker is also importable from `aiohttp.worker`.)\n- **AppRunner and sites** for embedding the server inside a larger asyncio program, for example alongside a background consumer:\n\n```python\nrunner = web.AppRunner(app); await runner.setup()\nsite = web.TCPSite(runner, \"0.0.0.0\", 8080); await site.start()\n...\nawait runner.cleanup()\n```\n\nBehind a proxy, the client IP and scheme come from headers like `X-Forwarded-For`. Use `aiohttp-remotes` (or your own middleware) to trust them only from the proxy.\n\n**Graceful shutdown**: on SIGTERM, aiohttp stops accepting connections, runs `on_shutdown`, waits up to `shutdown_timeout` (default 60 seconds, configurable in `run_app` and `AppRunner`) for in-flight requests, cancels the rest, and runs `on_cleanup`. Close WebSockets in `on_shutdown` or they hold the process up.\n\nPerformance: install `aiohttp[speedups]` (aiodns, Brotli) and consider `uvloop` as the event loop.",
+   "summary": "Run aiohttp for real users: several processes, a reverse proxy in front, Gunicorn or AppRunner, and a graceful shutdown.",
+   "why": "run_app is fine on your own machine, but live servers need several processes, a proxy in front and clean shutdowns.",
+   "body": "`web.run_app` is a convenience wrapper; a live server needs a few more pieces. Each **process** is one running copy of your program, and one asyncio event loop keeps only one **CPU core** (one of the processor's independent workers) busy. So you usually run one process per core.\n\nClients don't talk to those processes directly. A **reverse proxy** such as nginx, or a hosting provider's load balancer, sits in front, receives every request and passes it on to one of your processes.\n\nThree common setups:\n- **run_app behind a reverse proxy**, with a process manager such as systemd or supervisord (programs that start your processes and restart them if they crash), or a container platform such as Kubernetes. Each process listens on its own port, or on a shared Unix socket (`path=`), a file-like address on the same machine.\n- **Gunicorn**, a Python program that starts and supervises several copies of your app, called **workers**, using aiohttp's worker class: `gunicorn myapp:create_app --worker-class aiohttp.GunicornWebWorker --workers 4 --bind 0.0.0.0:8080`. Each worker runs its own event loop; `0.0.0.0` means \"accept connections from other machines too\".\n- **AppRunner and sites**, to run the server inside a larger asyncio program, for example next to a task that works through a queue:\n\n```python\nrunner = web.AppRunner(app); await runner.setup()\nsite = web.TCPSite(runner, \"0.0.0.0\", 8080); await site.start()\n...\nawait runner.cleanup()\n```\n\nBehind a proxy, your app sees the proxy's IP address, not the client's. The proxy reports the real one in headers such as `X-Forwarded-For`. Anyone can send that header, so trust it only when it comes from your proxy; `aiohttp-remotes` (or your own middleware) does this.\n\n**Graceful shutdown**: when the operating system asks the server to stop with **SIGTERM** (its polite \"please stop\" message), aiohttp stops accepting connections, runs `on_shutdown`, waits up to `shutdown_timeout` (default 60 seconds, set in `run_app` or `AppRunner`) for requests still in progress, cancels the rest, and runs `on_cleanup`. Close WebSockets in `on_shutdown` or they hold the process up.\n\nPerformance: install `aiohttp[speedups]` (faster DNS with aiodns, plus Brotli compression) and consider **uvloop**, a faster drop-in replacement for asyncio's event loop.",
    "code": "import asyncio\nfrom aiohttp import web, ClientSession\n\nasync def hello(request):\n    return web.Response(text=\"ok\")\n\ndef create_app():                       # gunicorn myapp:create_app --worker-class aiohttp.GunicornWebWorker\n    app = web.Application()\n    app.router.add_get(\"/health\", hello)\n    return app\n\nasync def main():\n    runner = web.AppRunner(create_app(), shutdown_timeout=10)\n    await runner.setup()\n    site = web.TCPSite(runner, \"127.0.0.1\", 8089)\n    await site.start()                  # server runs inside this asyncio program\n    try:\n        async with ClientSession() as s, s.get(\"http://127.0.0.1:8089/health\") as r:\n            print(r.status, await r.text())   # 200 ok\n        # ... other tasks (queue consumers, schedulers) could run here ...\n    finally:\n        await runner.cleanup()          # graceful shutdown: on_shutdown, wait, on_cleanup\n    print(\"stopped\")                    # stopped\n\nasyncio.run(main())",
    "code_lang": "python",
    "takeaways": [
@@ -535,13 +725,23 @@
       "run_app is deprecated"
      ],
      "answer": 2,
-     "explain": "run_app owns the event loop; AppRunner/TCPSite start the server as part of your own async code."
+     "explain": "run_app takes over the event loop; AppRunner and TCPSite start the server as one part of your own async program."
     }
    ],
    "docs": "https://docs.aiohttp.org/en/stable/deployment.html",
    "requires": [
     "aiohttp.app-lifecycle",
     "aiohttp.websockets"
+   ],
+   "defines": [
+    "process",
+    "CPU core",
+    "reverse proxy",
+    "worker",
+    "Gunicorn",
+    "SIGTERM",
+    "uvloop",
+    "X-Forwarded-For"
    ]
   },
   {
@@ -550,9 +750,9 @@
    "module": "production",
    "level": 4,
    "minutes": 12,
-   "summary": "Understand aiohttp's C-accelerated parser, multidict and yarl, how blocking code hurts, and how to profile async services.",
+   "summary": "Understand aiohttp's fast C parts (HTTP parser, multidict, yarl), why blocking code hurts, and how to profile async services.",
    "why": "Expert-level performance work means knowing which layer costs what and how the event loop behaves under load.",
-   "body": "aiohttp's speed comes from a few components:\n\n- **HTTP parsing** uses a C extension built on **llhttp** (Node.js's parser), with a pure-Python fallback. Setting `AIOHTTP_NO_EXTENSIONS=1` forces the Python implementation, useful when debugging but much slower.\n- **multidict** provides the case-insensitive, multi-value header and query containers, also in C.\n- **yarl** implements the immutable `URL` type; building URLs with yarl (`URL(base) / \"path\" % {\"q\": 1}`) avoids string bugs.\n- **frozenlist**, **aiosignal** and **propcache** support signals and cached properties.\n\nEach process runs one event loop on one thread. Throughput depends on never blocking it:\n\n- Any synchronous call that takes milliseconds (a blocking database driver, `json.dumps` of a huge object, image processing, `time.sleep`) delays **every** connection. Offload with `await asyncio.to_thread(fn, ...)` or a process pool.\n- Run with `PYTHONASYNCIODEBUG=1` or `loop.set_debug(True)`: asyncio logs callbacks that take longer than `loop.slow_callback_duration` (100 ms by default).\n- Profile with `py-spy` against the live process, or `yappi` for coroutine-aware profiling.\n\nOther levers: `uvloop` as the event loop, `orjson` for JSON (`json_response(dumps=...)` and `resp.json(loads=...)` accept custom functions), connection reuse, and response streaming (`web.StreamResponse`) for large payloads instead of building them in memory. Scale across cores by running several processes, since one loop uses one core.",
+   "body": "aiohttp's speed comes from a few components:\n- **Parsing** HTTP, turning the raw bytes of a request or response into a method, headers and body, is done by **llhttp**, a fast parser written in C, loaded through a C extension (a Python module compiled from C). A pure-Python fallback exists: setting `AIOHTTP_NO_EXTENSIONS=1` forces it, which helps when debugging but is much slower.\n- **multidict** provides the header and query-string objects, also in C.\n- **yarl** implements the immutable `URL` type; building URLs with yarl (`URL(base) / \"path\" % {\"q\": 1}`) avoids string-gluing bugs.\n- **frozenlist**, **aiosignal** and **propcache** are small helper libraries for signals and cached attribute values.\n\nEach process runs one event loop on one thread, and throughput depends on never blocking it:\n- Any synchronous call that takes milliseconds (a blocking database library, `json.dumps` of a huge object, image processing, `time.sleep`) delays **every** connection. Offload it with `await asyncio.to_thread(fn, ...)` or a process pool.\n- Turn on asyncio's **debug mode** with `PYTHONASYNCIODEBUG=1` or `loop.set_debug(True)`: it logs every callback that holds the loop longer than `loop.slow_callback_duration` (100 ms by default).\n- Use a **profiler**, a tool that measures where the time goes: `py-spy` attaches to the live process, and `yappi` understands coroutines.\n\nOther levers: `uvloop` as the event loop, `orjson` for faster JSON (`json_response(dumps=...)` and `resp.json(loads=...)` accept your own functions), reusing connections, and sending large responses piece by piece with `web.StreamResponse` instead of building them whole in memory. To use several CPU cores, run several processes, since one loop uses one core.",
    "code": "import asyncio\nimport time\nfrom aiohttp import web\nfrom aiohttp.test_utils import TestClient, TestServer\n\ndef blocking_work():\n    time.sleep(0.2)              # stands in for a sync DB call or heavy CPU\n    return \"done\"\n\nasync def bad(request):\n    return web.Response(text=blocking_work())          # blocks the loop\n\nasync def good(request):\n    return web.Response(text=await asyncio.to_thread(blocking_work))\nasync def main():\n    app = web.Application()\n    app.add_routes([web.get(\"/bad\", bad), web.get(\"/good\", good)])\n    async with TestClient(TestServer(app)) as c:\n        for path in (\"/bad\", \"/good\"):\n            t = time.perf_counter()\n            await asyncio.gather(*(c.get(path) for _ in range(5)))\n            print(path, round(time.perf_counter() - t, 1))\n# /bad 1.0   (five requests run one after another)\n# /good 0.2  (threads overlap)\nasyncio.run(main())",
    "code_lang": "python",
    "takeaways": [
@@ -561,7 +761,7 @@
     "Use to_thread or process pools, asyncio debug mode and py-spy to find stalls"
    ],
    "pitfalls": [
-    "Using a synchronous database driver inside handlers."
+    "Using a blocking (non-async) database library inside handlers."
    ],
    "quiz": [
     {
@@ -581,6 +781,13 @@
     "aiohttp.deployment",
     "aiohttp.tracing",
     "python.threads-processes"
+   ],
+   "defines": [
+    "parse",
+    "C extension",
+    "llhttp",
+    "debug mode",
+    "profiler"
    ]
   }
  ]

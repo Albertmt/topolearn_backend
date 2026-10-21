@@ -37,6 +37,68 @@
    "name": "Robust and large-scale CSV"
   }
  ],
+ "glossary": [
+  {
+   "term": "dialect",
+   "aliases": [
+    "dialects"
+   ],
+   "def": "In Python's csv module: a named set of formatting rules for a CSV file, such as which character separates values, which one quotes them and how lines end."
+  },
+  {
+   "term": "TSV",
+   "case": true,
+   "def": "Tab-separated values: like CSV, but the values on each line are separated by tab characters instead of commas."
+  },
+  {
+   "term": "DictReader",
+   "aliases": [
+    "DictWriter"
+   ],
+   "case": true,
+   "def": "The csv module's reader that gives each row as a dict keyed by column name (DictWriter is its partner that writes such dicts)."
+  },
+  {
+   "term": "byte order mark",
+   "aliases": [
+    "byte order marks",
+    "BOM",
+    "BOMs"
+   ],
+   "def": "A few invisible bytes that some programs, notably Excel, put at the very start of a text file to mark which encoding it uses, such as UTF-8."
+  },
+  {
+   "term": "CSV injection",
+   "aliases": [
+    "formula injection"
+   ],
+   "def": "An attack where a value in an exported CSV file starts with =, +, - or @, so a spreadsheet treats it as a formula and runs it when the file is opened."
+  },
+  {
+   "term": "file-like object",
+   "aliases": [
+    "file-like objects",
+    "file-like"
+   ],
+   "def": "Any object with the same methods as an open file (reading, writing, looping over lines), such as io.StringIO, so code written for files accepts it too."
+  },
+  {
+   "term": "heuristic",
+   "aliases": [
+    "heuristics",
+    "heuristically"
+   ],
+   "def": "A rule of thumb: a quick way of guessing that is usually right but can be wrong."
+  },
+  {
+   "term": "RFC",
+   "aliases": [
+    "RFCs"
+   ],
+   "case": true,
+   "def": "Request for Comments: a numbered document published by the internet's standards bodies. Many formats and protocols are written down in one, like CSV in RFC 4180."
+  }
+ ],
  "concepts": [
   {
    "id": "py-csv.reader",
@@ -44,35 +106,41 @@
    "module": "basics",
    "level": 1,
    "minutes": 8,
-   "summary": "Open a file with newline='' and iterate csv.reader to get each row as a list of strings.",
-   "why": "CSV is the most common data exchange format, and splitting lines on commas breaks on real data.",
-   "body": "A CSV file looks simple, but fields can contain commas, quotes and even newlines when quoted: `\"Smith, Jane\",\"said \"\"hi\"\" twice\"`. `line.split(\",\")` gets that wrong. `csv.reader` parses it correctly.\n\n```python\nwith open(\"people.csv\", newline=\"\", encoding=\"utf-8\") as f:\n    for row in csv.reader(f):\n        print(row)\n```\n\nEach row is a **list of strings**. Note the details:\n\n- Open the file with `newline=\"\"`. The csv module handles line endings itself; without it, newlines inside quoted fields can be mangled and `\\r\\n` endings misread.\n- Pass an explicit `encoding`; the default depends on the operating system.\n- The reader is an iterator: it reads lazily, one row at a time, so files bigger than memory are fine. It can only be consumed once.\n- The header row is just the first row. Skip it with `header = next(reader)`.\n- `reader.line_num` tells you the current physical line number, useful in error messages.\n\nValues are never converted: `\"42\"` stays a string. A blank line comes back as an empty list `[]`, so guard with `if not row: continue` when files may contain them.",
-   "code": "import csv\n\nwith open(\"people.csv\", \"w\", newline=\"\", encoding=\"utf-8\") as f:\n    f.write('name,city,quote\\nAda,London,\"said \"\"hi\"\" twice\"\\n\"Smith, Jane\",Paris,\"two\\nlines\"\\n')\n\nwith open(\"people.csv\", newline=\"\", encoding=\"utf-8\") as f:\n    reader = csv.reader(f)\n    header = next(reader)\n    print(header)                       # ['name', 'city', 'quote']\n    for row in reader:\n        print(reader.line_num, row)\n# 2 ['Ada', 'London', 'said \"hi\" twice']\n# 4 ['Smith, Jane', 'Paris', 'two\\nlines']   (one record, two physical lines)",
+   "summary": "Open a CSV file with newline='' and loop over csv.reader to get each row as a list of strings.",
+   "why": "CSV is the most common way to move tables of data between programs, and splitting lines on commas breaks on real data.",
+   "body": "A CSV file is a table saved as text. Each line is one **row**, such as one person, and commas split the row into **fields**: one value for each **column**. `Ada,London,36` is a row with three fields.\n\nIt looks simple, but a field may itself contain a comma, a quote mark or even a line break. Such a field is wrapped in double quotes, and a quote mark inside it is doubled: `\"Smith, Jane\",\"said \"\"hi\"\" twice\"`. `line.split(\",\")` gets that wrong. `csv.reader` reads it correctly; working out the structure of text like this is called **parsing**.\n\n```python\nwith open(\"people.csv\", newline=\"\", encoding=\"utf-8\") as f:\n    for row in csv.reader(f):\n        print(row)\n```\n\nEach row comes back as a **list of strings**. Note the details:\n\n- Open the file with `newline=\"\"`. The csv module deals with line endings itself; without this, line breaks inside quoted fields can be changed and Windows-style `\\r\\n` line endings misread.\n- Pass `encoding=\"utf-8\"` (or whatever the file uses). Otherwise Python uses your computer's default, which differs between Windows and other systems.\n- The reader hands out one row at a time as you loop, so even files bigger than your computer's memory are fine. You can only loop over it once.\n- The header row (the column names) is just the first row. Take it out with `header = next(reader)`, which gets the next row.\n- `reader.line_num` tells you which line of the file the reader has reached, useful in error messages.\n\nValues are never converted: `\"42\"` stays a string. A blank line comes back as an empty list `[]`, so add `if not row: continue` when files may contain them.",
+   "code": "import csv\n\nwith open(\"people.csv\", \"w\", newline=\"\", encoding=\"utf-8\") as f:\n    f.write('name,city,quote\\nAda,London,\"said \"\"hi\"\" twice\"\\n\"Smith, Jane\",Paris,\"two\\nlines\"\\n')\n\nwith open(\"people.csv\", newline=\"\", encoding=\"utf-8\") as f:\n    reader = csv.reader(f)\n    header = next(reader)\n    print(header)                       # ['name', 'city', 'quote']\n    for row in reader:\n        print(reader.line_num, row)\n# 2 ['Ada', 'London', 'said \"hi\" twice']\n# 4 ['Smith, Jane', 'Paris', 'two\\nlines']   (one row spread over two lines of the file)",
    "code_lang": "python",
    "takeaways": [
     "Always open CSV files with newline='' and an explicit encoding",
-    "csv.reader yields each row as a list of strings",
-    "Quoted fields may contain commas, quotes and newlines"
+    "csv.reader gives each row as a list of strings",
+    "Quoted fields may contain commas, quote marks and line breaks"
    ],
    "pitfalls": [
-    "Parsing CSV with line.split(','), which breaks on quoted commas and newlines."
+    "Reading CSV with line.split(','), which breaks on quoted commas and line breaks."
    ],
    "quiz": [
     {
      "q": "Why does the csv documentation insist on open(..., newline='')?",
      "options": [
       "It makes reading faster",
-      "So newlines inside quoted fields and \\r\\n endings are handled by csv, not altered by Python",
+      "So line breaks inside quoted fields and \\r\\n endings are handled by csv, not changed by Python",
       "It is required for UTF-8",
-      "It strips the header row"
+      "It removes the header row"
      ],
      "answer": 1,
-     "explain": "csv does its own line-ending handling; universal newline translation would corrupt quoted newlines."
+     "explain": "csv handles line endings itself; if Python also changed them while reading, line breaks inside quoted fields would be altered."
     }
    ],
    "docs": "https://docs.python.org/3/library/csv.html#csv.reader",
    "requires": [
     "python.files"
+   ],
+   "defines": [
+    "row",
+    "field",
+    "column",
+    "parse"
    ]
   },
   {
@@ -83,12 +151,12 @@
    "minutes": 7,
    "summary": "Write lists of values to a CSV file with csv.writer, letting it handle quoting automatically.",
    "why": "Hand-built CSV strings break as soon as a value contains a comma or quote; the writer never does.",
-   "body": "`csv.writer(f)` wraps a file opened for writing (again with `newline=\"\"`). Then:\n\n- `writer.writerow([\"Ada\", 36, \"London, UK\"])` writes one record,\n- `writer.writerows(rows)` writes any iterable of rows, including a generator.\n\nThe writer converts non-string values with `str()`, writes `None` as an empty string, and quotes fields only when needed (`QUOTE_MINIMAL`): fields containing the delimiter, the quote character or a newline are wrapped in quotes, and embedded quotes are doubled.\n\nLines end with `\\r\\n` by default, which is what the CSV specification (RFC 4180) and Excel expect. That's why `newline=\"\"` matters when writing too: on Windows, without it, Python would translate the `\\n` into `\\r\\n` again, producing `\\r\\r\\n` and blank rows between records in Excel.\n\nFloats are written with `repr`, so `0.1 + 0.2` becomes `0.30000000000000004`. Round or format numbers yourself if the file is for humans: `f\"{price:.2f}\"`.\n\nUse `mode=\"a\"` to append rows to an existing file, but only write the header when the file is new.",
+   "body": "`csv.writer(f)` wraps a file opened for writing (again with `newline=\"\"`). Then:\n\n- `writer.writerow([\"Ada\", 36, \"London, UK\"])` writes one row,\n- `writer.writerows(rows)` writes many rows at once, for example a list of lists.\n\nThe writer turns non-string values into text with `str()`, writes `None` as an empty field, and adds quotes only when needed. That's when a field contains the **delimiter** (the character that separates fields, normally the comma), a quote mark or a line break. Quote marks inside a field are doubled.\n\nLines end with `\\r\\n` by default, which is what Excel and the common CSV standard expect. That's why `newline=\"\"` matters when writing too: on Windows, without it, Python would turn the `\\n` into `\\r\\n` again, giving `\\r\\r\\n` and blank rows between records in Excel.\n\nFloats are written in full, so `0.1 + 0.2` becomes `0.30000000000000004` (a float can't store most decimal fractions exactly). Round or format numbers yourself if people will read the file: `f\"{price:.2f}\"`.\n\nUse mode `\"a\"` to add rows to the end of an existing file, but only write the header row when the file is new.",
    "code": "import csv\n\nrows = [\n    [\"name\", \"age\", \"address\", \"note\"],\n    [\"Ada\", 36, \"London, UK\", 'says \"hi\" once'],\n    [\"Linus\", None, \"Helsinki\", 0.1 + 0.2],\n]\nwith open(\"out.csv\", \"w\", newline=\"\", encoding=\"utf-8\") as f:\n    writer = csv.writer(f)\n    writer.writerows(rows)\n\nprint(repr(open(\"out.csv\", newline=\"\").read()))\n# 'name,age,address,note\\r\\nAda,36,\"London, UK\",\"says \"\"hi\"\" once\"\\r\\n'\n# 'Linus,,Helsinki,0.30000000000000004\\r\\n'   (one string, shown split)",
    "code_lang": "python",
    "takeaways": [
     "csv.writer + writerow/writerows; open with newline=''",
-    "Quoting and escaping are automatic",
+    "Quoting and doubling of quote marks happen automatically",
     "None becomes an empty field; other values use str()"
    ],
    "pitfalls": [
@@ -109,7 +177,10 @@
    ],
    "docs": "https://docs.python.org/3/library/csv.html#csv.writer",
    "requires": [
-    "python.files"
+    "py-csv.reader"
+   ],
+   "defines": [
+    "delimiter"
    ]
   },
   {
@@ -120,11 +191,11 @@
    "minutes": 9,
    "summary": "Work with rows as dictionaries keyed by column name using DictReader and DictWriter.",
    "why": "Accessing row['email'] instead of row[3] keeps code correct when columns are added or reordered.",
-   "body": "**`csv.DictReader(f)`** uses the first row as field names and yields each following row as a `dict`: `row[\"email\"]`. Since Python 3.8 these are plain `dict`s, in column order.\n\n- `reader.fieldnames` gives the header.\n- Pass `fieldnames=[...]` if the file has no header row; then the first row is treated as data.\n- If a row has more fields than the header, extras go into a list under the `restkey` (default `None`); missing fields get `restval` (default `None`).\n\n**`csv.DictWriter(f, fieldnames=[...])`** writes dicts:\n\n- `writer.writeheader()` writes the field names row; call it once.\n- `writer.writerow(d)` / `writerows(dicts)`: keys are matched to columns; missing keys get `restval` (default empty).\n- A dict with a key not in `fieldnames` raises `ValueError`, unless you pass `extrasaction=\"ignore\"`.\n\n`fieldnames` also controls column order in the output, so you can reorder or select columns when transforming files. A typical pipeline reads with DictReader, transforms each dict, and writes with DictWriter, streaming row by row.",
+   "body": "**csv.DictReader(f)** uses the first row as the column names and gives each following row as a `dict`: `row[\"email\"]`. Since Python 3.8 these are plain dicts, in column order.\n\n- `reader.fieldnames` gives the column names.\n- Pass `fieldnames=[...]` if the file has no header row; then the first row is treated as data.\n- If a row has more fields than there are column names, the extras go into a list under the key `restkey` (default `None`); missing fields get the value `restval` (default `None`).\n\n**csv.DictWriter(f, fieldnames=[...])** writes dicts:\n\n- `writer.writeheader()` writes the row of column names; call it once.\n- `writer.writerow(d)` / `writerows(dicts)`: keys are matched to columns; missing keys get `restval` (default: an empty field).\n- A dict with a key that isn't in `fieldnames` raises `ValueError`, unless you pass `extrasaction=\"ignore\"`.\n\n`fieldnames` also sets the order of columns in the output, so you can reorder or pick columns while copying a file. A typical script reads with DictReader, changes each dict, and writes it with DictWriter, one row at a time, so even huge files never need to fit in memory.",
    "code": "import csv\n\nwith open(\"users.csv\", \"w\", newline=\"\", encoding=\"utf-8\") as f:\n    w = csv.DictWriter(f, fieldnames=[\"id\", \"email\", \"plan\"])\n    w.writeheader()\n    w.writerow({\"id\": 1, \"email\": \"ada@x.io\", \"plan\": \"pro\"})\n    w.writerow({\"id\": 2, \"email\": \"bob@x.io\"})              # plan -> ''\n\nwith open(\"users.csv\", newline=\"\", encoding=\"utf-8\") as f, \\\n     open(\"emails.csv\", \"w\", newline=\"\", encoding=\"utf-8\") as out:\n    reader = csv.DictReader(f)\n    print(reader.fieldnames)                  # ['id', 'email', 'plan']\n    writer = csv.DictWriter(out, fieldnames=[\"email\", \"id\"], extrasaction=\"ignore\")\n    writer.writeheader()\n    for row in reader:\n        print(row)                            # {'id': '1', 'email': 'ada@x.io', 'plan': 'pro'} ...\n        writer.writerow(row)                  # 'plan' ignored, columns reordered\n\nprint(open(\"emails.csv\").read().split())      # ['email,id', 'ada@x.io,1', 'bob@x.io,2']",
    "code_lang": "python",
    "takeaways": [
-    "DictReader yields one dict per row, keyed by the header",
+    "DictReader gives one dict per row, keyed by the column names",
     "DictWriter needs fieldnames and writeheader()",
     "extrasaction='ignore' drops keys that aren't columns"
    ],
@@ -149,6 +220,9 @@
     "py-csv.reader",
     "py-csv.writer",
     "python.dicts"
+   ],
+   "defines": [
+    "DictReader"
    ]
   },
   {
@@ -158,13 +232,13 @@
    "level": 2,
    "minutes": 9,
    "summary": "Turn CSV strings into ints, floats, dates and None, and know what QUOTE_NONNUMERIC does.",
-   "why": "Every value from CSV is text; analysis code needs real types and a policy for blanks.",
-   "body": "The csv module returns strings only. Conversion is your job, and doing it in one place keeps the rest of the code clean:\n\n```python\ndef parse(row):\n    return {\n        \"id\": int(row[\"id\"]),\n        \"price\": float(row[\"price\"]) if row[\"price\"] else None,\n        \"day\": date.fromisoformat(row[\"day\"]),\n    }\n```\n\nThings to decide explicitly:\n\n- **Empty strings**: is `\"\"` missing (`None`), zero, or an error?\n- **Number formats**: thousands separators (`\"1,234\"`), currency symbols and decimal commas (`\"3,5\"` in many European exports) need cleaning first. Use `decimal.Decimal` for money.\n- **Booleans**: map `\"yes\"/\"no\"`, `\"true\"/\"false\"`, `\"1\"/\"0\"` deliberately; `bool(\"false\")` is `True`.\n- **Dates**: `date.fromisoformat` for ISO dates, `datetime.strptime` for anything else.\n\n`quoting=csv.QUOTE_NONNUMERIC` changes behaviour in both directions: the writer quotes every non-number, and the reader converts every **unquoted** field to `float`, raising `ValueError` if it can't. It only works for files written that way.\n\nFor heavy typed analysis, pandas or polars infer types for you; the csv module is ideal when you want control and no dependencies.",
-   "code": "import csv, io\nfrom datetime import date\nfrom decimal import Decimal\n\ndata = \"sku,price,qty,day,active\\nA1,19.99,3,2026-10-01,yes\\nB2,,1,2026-10-02,no\\n\"\n\ndef parse(row: dict[str, str]) -> dict:\n    return {\n        \"sku\": row[\"sku\"],\n        \"price\": Decimal(row[\"price\"]) if row[\"price\"] else None,\n        \"qty\": int(row[\"qty\"]),\n        \"day\": date.fromisoformat(row[\"day\"]),\n        \"active\": row[\"active\"].lower() in {\"yes\", \"true\", \"1\"},\n    }\n\nitems = [parse(r) for r in csv.DictReader(io.StringIO(data))]\nprint(items[0][\"price\"] * items[0][\"qty\"], items[1][\"price\"], items[1][\"active\"])\n# 59.97 None False\n\nbuf = io.StringIO()\ncsv.writer(buf, quoting=csv.QUOTE_NONNUMERIC).writerow([\"A1\", 19.99, 3])\nprint(buf.getvalue().strip())                       # \"A1\",19.99,3\nprint(next(csv.reader(io.StringIO(buf.getvalue()), quoting=csv.QUOTE_NONNUMERIC)))\n# ['A1', 19.99, 3.0]",
+   "why": "Every value from CSV is text; code that calculates needs real numbers and dates, and a rule for blanks.",
+   "body": "The csv module gives you strings only. Converting them is your job, and doing it in one place keeps the rest of the code clean:\n\n```python\ndef parse(row):\n    return {\n        \"id\": int(row[\"id\"]),\n        \"price\": float(row[\"price\"]) if row[\"price\"] else None,\n        \"day\": date.fromisoformat(row[\"day\"]),\n    }\n```\n\nThings to decide on purpose:\n\n- **Empty strings**: does `\"\"` mean missing (`None`), zero, or an error?\n- **Number formats**: thousands separators (`\"1,234\"`), currency symbols and decimal commas (`\"3,5\"` in many European exports) need cleaning first. Use `decimal.Decimal` (exact decimal numbers) for money.\n- **Booleans**: map `\"yes\"/\"no\"`, `\"true\"/\"false\"`, `\"1\"/\"0\"` yourself; `bool(\"false\")` is `True`.\n- **Dates**: `date.fromisoformat` for dates written like `2026-10-01`, `datetime.strptime` for any other layout.\n\n`quoting=csv.QUOTE_NONNUMERIC` changes behaviour in both directions: the writer puts quotes around everything that isn't a number, and the reader turns every **unquoted** field into a `float`, raising `ValueError` if it can't. It only works for files written that way.\n\nFor heavy number crunching, the third-party libraries pandas and polars work out the types for you. The csv module is ideal when you want full control and nothing extra to install.",
+   "code": "import csv, io\nfrom datetime import date\nfrom decimal import Decimal\n\ndata = \"sku,price,qty,day,active\\nA1,19.99,3,2026-10-01,yes\\nB2,,1,2026-10-02,no\\n\"\n\ndef parse(row):\n    return {\n        \"sku\": row[\"sku\"],\n        \"price\": Decimal(row[\"price\"]) if row[\"price\"] else None,\n        \"qty\": int(row[\"qty\"]),\n        \"day\": date.fromisoformat(row[\"day\"]),\n        \"active\": row[\"active\"].lower() in {\"yes\", \"true\", \"1\"},\n    }\n\nitems = []\nfor r in csv.DictReader(io.StringIO(data)):   # StringIO: a string used like a file\n    items.append(parse(r))\nprint(items[0][\"price\"] * items[0][\"qty\"], items[1][\"price\"], items[1][\"active\"])\n# 59.97 None False\n\nbuf = io.StringIO()\ncsv.writer(buf, quoting=csv.QUOTE_NONNUMERIC).writerow([\"A1\", 19.99, 3])\nprint(buf.getvalue().strip())                       # \"A1\",19.99,3\nprint(next(csv.reader(io.StringIO(buf.getvalue()), quoting=csv.QUOTE_NONNUMERIC)))\n# ['A1', 19.99, 3.0]",
    "code_lang": "python",
    "takeaways": [
-    "All fields are strings; convert them in one parse function",
-    "Decide how empty strings map (None, 0, error)",
+    "All fields are strings; convert them in one function",
+    "Decide what empty strings mean (None, 0, error)",
     "QUOTE_NONNUMERIC makes the reader return floats for unquoted fields"
    ],
    "pitfalls": [
@@ -194,9 +268,9 @@
    "module": "formats",
    "level": 2,
    "minutes": 9,
-   "summary": "Read and write TSV and semicolon files by setting delimiter, quotechar and lineterminator, or a named dialect.",
-   "why": "Many exports aren't comma-separated at all: European Excel uses semicolons, and logs often use tabs.",
-   "body": "\"CSV\" is a family of formats. The csv module describes a format as a **dialect**: a set of formatting parameters.\n\n- `delimiter`: field separator, default `\",\"`. Use `\"\\t\"` for TSV, `\";\"` for many European spreadsheet exports, `\"|\"` for some database dumps.\n- `quotechar`: default `'\"'`.\n- `lineterminator`: used by the **writer** only, default `\"\\r\\n\"`; the reader accepts `\\r`, `\\n` or `\\r\\n` regardless.\n- `skipinitialspace=True`: ignore spaces after the delimiter, for files like `a, b, c`.\n- `doublequote`, `escapechar`, `quoting`, `strict`: covered in the quoting lesson.\n\nPass parameters directly, `csv.reader(f, delimiter=\";\")`, or name a dialect: built-ins are `\"excel\"` (the default), `\"excel-tab\"` and `\"unix\"` (which ends lines with `\\n` and quotes all fields).\n\nTo reuse settings, register your own: `csv.register_dialect(\"pipes\", delimiter=\"|\", quoting=csv.QUOTE_NONE, escapechar=\"\\\\\")`, then `csv.reader(f, dialect=\"pipes\")`. You can also subclass `csv.Dialect`. `csv.list_dialects()` shows what's registered. Keyword arguments override the dialect's values, so `dialect=\"excel\", delimiter=\";\"` works.",
+   "summary": "Read and write TSV and semicolon-separated files by setting delimiter, quotechar and lineterminator, or by naming a dialect.",
+   "why": "Many exports aren't comma-separated at all: Excel in much of Europe uses semicolons, and many tools use tabs.",
+   "body": "\"CSV\" is really a family of formats. The csv module describes one as a **dialect**: a named set of formatting settings.\n\n- `delimiter`: the field separator, default `\",\"`. Use `\"\\t\"` for **TSV** (tab-separated values), `\";\"` for many European spreadsheet exports, `\"|\"` for some database exports.\n- `quotechar`: the quote character, default `'\"'`.\n- `lineterminator`: used by the **writer** only, default `\"\\r\\n\"`; the reader accepts `\\r`, `\\n` or `\\r\\n` whatever you set.\n- `skipinitialspace=True`: ignore spaces after the delimiter, for files like `a, b, c`.\n- `doublequote`, `escapechar`, `quoting`, `strict`: covered in the quoting lesson.\n\nPass settings directly, `csv.reader(f, delimiter=\";\")`, or name a dialect. The built-in ones are `\"excel\"` (the default), `\"excel-tab\"` and `\"unix\"` (which ends lines with `\\n` and quotes all fields).\n\nTo reuse settings, register your own: `csv.register_dialect(\"pipes\", delimiter=\"|\", quoting=csv.QUOTE_NONE, escapechar=\"\\\\\")`, then `csv.reader(f, dialect=\"pipes\")`. `csv.list_dialects()` shows what's registered. Keyword arguments win over the dialect's values, so `dialect=\"excel\", delimiter=\";\"` works.",
    "code": "import csv, io\n\ntsv = \"name\\tscore\\nAda\\t9.5\\n\"\nprint(list(csv.reader(io.StringIO(tsv), dialect=\"excel-tab\")))\n# [['name', 'score'], ['Ada', '9.5']]\n\neuro = \"name;price\\nTea;3,50\\n\"\nrows = list(csv.reader(io.StringIO(euro), delimiter=\";\"))\nprint(rows[1], float(rows[1][1].replace(\",\", \".\")))  # ['Tea', '3,50'] 3.5\n\nprint(list(csv.reader(io.StringIO(\"a, b, c\"), skipinitialspace=True)))  # [['a', 'b', 'c']]\n\ncsv.register_dialect(\"pipes\", delimiter=\"|\", lineterminator=\"\\n\")\nbuf = io.StringIO()\ncsv.writer(buf, dialect=\"pipes\").writerows([[\"id\", \"msg\"], [1, \"a|b\"]])\nprint(buf.getvalue(), end=\"\")\n# id|msg\n# 1|\"a|b\"\nprint(csv.list_dialects())     # ['excel', 'excel-tab', 'unix', 'pipes']  (order may vary)",
    "code_lang": "python",
    "takeaways": [
@@ -223,6 +297,10 @@
    "docs": "https://docs.python.org/3/library/csv.html#dialects-and-formatting-parameters",
    "requires": [
     "py-csv.writer"
+   ],
+   "defines": [
+    "dialect",
+    "TSV"
    ]
   },
   {
@@ -231,10 +309,10 @@
    "module": "formats",
    "level": 2,
    "minutes": 9,
-   "summary": "Handle UTF-8 BOMs, legacy encodings and Excel's quirks when reading and writing CSV.",
-   "why": "Mojibake column names and broken accents are the most common CSV support tickets.",
-   "body": "CSV files have no way to declare their encoding, so you must know or guess it.\n\n**Reading**:\n- Modern files are usually UTF-8. Files saved by Excel as \"CSV UTF-8\" start with a **byte order mark** (BOM). Opened as `utf-8`, the first header becomes `'\\ufeffname'` and `row[\"name\"]` raises `KeyError`. Use `encoding=\"utf-8-sig\"`, which strips a BOM if present and works fine without one.\n- Older Windows exports may be `cp1252`; some systems produce `latin-1`. A `UnicodeDecodeError` is a strong hint.\n- `errors=\"replace\"` keeps a script running on bad bytes, at the cost of `\\ufffd` characters; log when it happens.\n\n**Writing for Excel**:\n- Write `encoding=\"utf-8-sig\"` so Excel detects UTF-8; without the BOM, Excel on Windows often assumes the local code page and shows accents as garbage.\n- Excel in many European locales expects `;` as the delimiter and `,` as the decimal separator.\n- Excel interprets values: long numbers lose digits, leading zeros vanish, and `2-3` may become a date. That's display-side; the file is fine.\n\n**Security**: a field starting with `=`, `+`, `-` or `@` may be executed as a formula when opened in a spreadsheet (CSV injection). If users supply values for exports, prefix such values with `'`.",
-   "code": "import csv\n\nwith open(\"excel.csv\", \"w\", newline=\"\", encoding=\"utf-8-sig\") as f:   # writes BOM\n    csv.writer(f).writerows([[\"name\", \"city\"], [\"José\", \"Zürich\"]])\n\nprint(open(\"excel.csv\", \"rb\").read()[:4])          # b'\\xef\\xbb\\xbfn'  (BOM + 'n')\n\nwith open(\"excel.csv\", newline=\"\", encoding=\"utf-8\") as f:\n    print(next(csv.DictReader(f)).keys())          # dict_keys(['\\ufeffname', 'city'])\n\nwith open(\"excel.csv\", newline=\"\", encoding=\"utf-8-sig\") as f:\n    print(next(csv.DictReader(f)))                 # {'name': 'José', 'city': 'Zürich'}\n\ndef safe_cell(value: str) -> str:\n    return \"'\" + value if value[:1] in (\"=\", \"+\", \"-\", \"@\") else value\nprint(safe_cell(\"=HYPERLINK(\\\"http://evil\\\")\"))   # '=HYPERLINK(\"http://evil\")",
+   "summary": "Handle Excel's byte order marks, older encodings and Excel's quirks when reading and writing CSV.",
+   "why": "Garbled column names and broken accents are the most common CSV problems people report.",
+   "body": "CSV files have no way to say which encoding they use, so you must know it or guess it.\n\n**Reading**:\n- Modern files are usually UTF-8. Files saved by Excel as \"CSV UTF-8\" start with a **byte order mark** (BOM): three invisible bytes that mark the file as UTF-8. Opened as `utf-8`, the first column name becomes `'\\ufeffname'` and `row[\"name\"]` raises `KeyError`. Use `encoding=\"utf-8-sig\"`, which removes a BOM if there is one and works fine without one.\n- Older Windows exports may use `cp1252`, an older Western European encoding; some systems produce `latin-1`. A `UnicodeDecodeError` (Python failing to turn the bytes into text) is a strong hint.\n- `errors=\"replace\"` keeps a script running on bad bytes by replacing them with `\\ufffd` (the � symbol); print a warning when it happens.\n\n**Writing for Excel**:\n- Write with `encoding=\"utf-8-sig\"` so Excel sees it's UTF-8. Without the BOM, Excel on Windows often assumes an older local encoding and shows accents as garbage.\n- Excel in many European countries (it follows the computer's region settings) expects `;` between fields and `,` as the decimal separator.\n- Excel interprets values: long numbers lose digits, leading zeros vanish, and `2-3` may become a date. That only changes what Excel shows; the file itself is fine.\n\n**Security**: a field starting with `=`, `+`, `-` or `@` may be run as a formula when the file is opened in a spreadsheet. This is called **CSV injection**: someone types a formula into a value that your program later exports. If users supply values for exports, put a `'` in front of such values, which tells the spreadsheet to treat them as text.",
+   "code": "import csv\n\nwith open(\"excel.csv\", \"w\", newline=\"\", encoding=\"utf-8-sig\") as f:   # writes BOM\n    csv.writer(f).writerows([[\"name\", \"city\"], [\"José\", \"Zürich\"]])\n\nprint(open(\"excel.csv\", \"rb\").read()[:4])          # b'\\xef\\xbb\\xbfn'  (BOM + 'n')\n\nwith open(\"excel.csv\", newline=\"\", encoding=\"utf-8\") as f:\n    print(next(csv.DictReader(f)).keys())          # dict_keys(['\\ufeffname', 'city'])\n\nwith open(\"excel.csv\", newline=\"\", encoding=\"utf-8-sig\") as f:\n    print(next(csv.DictReader(f)))                 # {'name': 'José', 'city': 'Zürich'}\n\ndef safe_cell(value):\n    return \"'\" + value if value[:1] in (\"=\", \"+\", \"-\", \"@\") else value\nprint(safe_cell(\"=HYPERLINK(\\\"http://evil\\\")\"))   # '=HYPERLINK(\"http://evil\")",
    "code_lang": "python",
    "takeaways": [
     "Read with utf-8-sig to strip an Excel BOM automatically",
@@ -260,6 +338,10 @@
    "docs": "https://docs.python.org/3/library/csv.html#module-contents",
    "requires": [
     "py-csv.reader"
+   ],
+   "defines": [
+    "byte order mark",
+    "CSV injection"
    ]
   },
   {
@@ -269,13 +351,13 @@
    "level": 3,
    "minutes": 11,
    "summary": "Control quoting with the QUOTE_* constants, including QUOTE_STRINGS and QUOTE_NOTNULL, and use escapechar.",
-   "why": "Interoperating with databases and strict parsers often requires a specific quoting style.",
-   "body": "The `quoting` parameter controls when the writer quotes fields, and how the reader interprets quotes:\n\n- `QUOTE_MINIMAL` (default): only fields containing special characters.\n- `QUOTE_ALL`: every field.\n- `QUOTE_NONNUMERIC`: all non-numeric fields; the reader converts unquoted fields to float.\n- `QUOTE_NONE`: never quote. The writer then needs an `escapechar` to escape delimiters, or it raises `csv.Error`.\n- `QUOTE_STRINGS` (3.12+): quote all strings; `None` is written as an empty, unquoted field. The reader turns unquoted empty fields into `None` and other unquoted fields into floats.\n- `QUOTE_NOTNULL` (3.12+): quote everything except `None`, which is written empty; the reader turns unquoted empty fields into `None`.\n\nThe last two finally let a CSV round trip distinguish `None` (`,,`) from an empty string (`,\"\",`), which databases care about.\n\n**Quote characters inside fields**: with `doublequote=True` (default) a `\"` is written as `\"\"`. With `doublequote=False`, the writer uses `escapechar` instead (`\\\"`).\n\n**Newlines inside fields** are legal when quoted: the reader returns one record spanning several physical lines. Tools that process CSV line by line (`wc -l`, `grep`, naive splitting) miscount such files.",
+   "why": "Swapping files with databases and strict CSV readers often requires a specific quoting style.",
+   "body": "The `quoting` setting controls when the writer puts quotes around fields, and how the reader treats quotes:\n\n- `QUOTE_MINIMAL` (default): only fields containing special characters.\n- `QUOTE_ALL`: every field.\n- `QUOTE_NONNUMERIC`: everything that isn't a number; the reader turns unquoted fields into floats.\n- `QUOTE_NONE`: never quote. The writer then needs an `escapechar` to mark delimiters inside fields, or it raises `csv.Error`.\n- `QUOTE_STRINGS` (3.12+): quote all strings; `None` is written as an empty, unquoted field. The reader turns unquoted empty fields into `None` and other unquoted fields into floats.\n- `QUOTE_NOTNULL` (3.12+): quote everything except `None`, which is written empty; the reader turns unquoted empty fields into `None`.\n\nThe last two finally let a CSV file keep `None` (`,,`) apart from an empty string (`,\"\",`) when you write it and read it back, a difference databases care about.\n\n**Quote marks inside fields**: with `doublequote=True` (the default) a `\"` is written as `\"\"`. With `doublequote=False`, the writer puts the `escapechar` in front of it instead (`\\\"`).\n\n**Line breaks inside fields** are allowed when the field is quoted: the reader returns one record spread over several lines of the file. Tools that work line by line, such as the `wc -l` line-counting command, `grep` or a simple split, miscount such files.",
    "code": "import csv, io\n\ndef write(rows, **kw):\n    buf = io.StringIO()\n    csv.writer(buf, lineterminator=\"\\n\", **kw).writerows(rows)\n    return buf.getvalue()\n\nrows = [[\"id\", \"note\", \"score\"], [1, \"\", None], [2, 'say \"ok\" now', 3.5]]\nprint(write(rows, quoting=csv.QUOTE_ALL), end=\"\")\n# \"id\",\"note\",\"score\" / \"1\",\"\",\"\" / \"2\",\"say \"\"ok\"\" now\",\"3.5\"\nprint(write(rows, quoting=csv.QUOTE_NOTNULL), end=\"\")\n# \"id\",\"note\",\"score\" / \"1\",\"\", / \"2\",\"say \"\"ok\"\" now\",\"3.5\"\nprint(write([[\"a,b\", 'q\"']], quoting=csv.QUOTE_NONE, escapechar=\"\\\\\"), end=\"\")\n# a\\,b,q\\\"\n\nback = csv.reader(io.StringIO('\"x\",\"\",\\n'), quoting=csv.QUOTE_NOTNULL)\nprint(next(back))                                    # ['x', '', None]",
    "code_lang": "python",
    "takeaways": [
     "QUOTE_MINIMAL, ALL, NONNUMERIC, NONE, STRINGS, NOTNULL control quoting",
-    "QUOTE_NOTNULL / QUOTE_STRINGS (3.12) distinguish None from empty strings",
+    "QUOTE_NOTNULL / QUOTE_STRINGS (3.12) tell None apart from empty strings",
     "QUOTE_NONE needs an escapechar for special characters"
    ],
    "pitfalls": [
@@ -305,15 +387,15 @@
    "module": "robust",
    "level": 3,
    "minutes": 8,
-   "summary": "Guess an unknown file's delimiter, quoting and header with csv.Sniffer.",
+   "summary": "Guess an unknown file's delimiter, quoting and header row with csv.Sniffer.",
    "why": "User uploads arrive as commas, semicolons or tabs, and you can't always ask which.",
-   "body": "`csv.Sniffer` inspects a sample of text and guesses the format.\n\n- `Sniffer().sniff(sample, delimiters=None)` returns a `Dialect` class with the detected `delimiter`, `quotechar`, `doublequote` and `skipinitialspace`. Restrict the candidates with `delimiters=\",;\\t|\"` for more reliable results. It raises `csv.Error` (\"Could not determine delimiter\") when it can't decide.\n- `Sniffer().has_header(sample)` guesses whether the first row is a header, using heuristics such as \"the first row's values differ in type or length from the rest\".\n\nTypical use:\n\n```python\nsample = f.read(64 * 1024)\nf.seek(0)\ndialect = csv.Sniffer().sniff(sample, delimiters=\",;\\t\")\nreader = csv.reader(f, dialect)\n```\n\nRead a sample of a few kilobytes that ends near a line boundary, then rewind with `seek(0)`.\n\nThese are **heuristics**. They fail on single-column files, tiny samples, or data where every column is text (then `has_header` can't tell a header from data). Use them for user-facing imports with a fallback (default to `excel`) and, ideally, a preview the user can correct. For files you control, specify the dialect explicitly instead.",
+   "body": "`csv.Sniffer` looks at a sample of text and guesses the format.\n\n- `Sniffer().sniff(sample, delimiters=None)` returns a dialect (a class holding the detected `delimiter`, `quotechar`, `doublequote` and `skipinitialspace`). Limit the candidates with `delimiters=\",;\\t|\"` for more reliable results. It raises `csv.Error` (\"Could not determine delimiter\") when it can't decide.\n- `Sniffer().has_header(sample)` guesses whether the first row is a header, using clues such as \"the first row's values differ in type or length from the rest\".\n\nTypical use:\n\n```python\nsample = f.read(64 * 1024)\nf.seek(0)\ndialect = csv.Sniffer().sniff(sample, delimiters=\",;\\t\")\nreader = csv.reader(f, dialect)\n```\n\nRead a sample of a few kilobytes that ends near the end of a line, then go back to the start of the file with `seek(0)`.\n\nThese are **heuristics**: rules of thumb that are usually right but can be wrong. They fail on single-column files, tiny samples, or data where every column is text (then `has_header` can't tell a header from data). Use them for files users upload, with a fallback (default to `excel`) and ideally a preview the user can correct. For files you control, set the dialect explicitly instead.",
    "code": "import csv, io\n\nfiles = {\n    \"commas\": \"id,name,score\\n1,Ada,9.5\\n2,Bob,7.0\\n\",\n    \"semis\":  \"id;name;score\\n1;Ada;9,5\\n2;Bob;7,0\\n\",\n    \"tabs\":   \"1\\tAda\\t9.5\\n2\\tBob\\t7.0\\n\",\n}\nsniffer = csv.Sniffer()\nfor label, text in files.items():\n    d = sniffer.sniff(text, delimiters=\",;\\t\")\n    print(label, repr(d.delimiter), sniffer.has_header(text),\n          next(csv.reader(io.StringIO(text), d)))\n# commas ',' True ['id', 'name', 'score']\n# semis ';' True ['id', 'name', 'score']\n# tabs '\\t' False ['1', 'Ada', '9.5']\ntry:\n    sniffer.sniff(\"just one column\\nno delimiters\\n\", delimiters=\",;\")\nexcept csv.Error as e:\n    print(\"csv.Error:\", e)          # csv.Error: Could not determine delimiter",
    "code_lang": "python",
    "takeaways": [
     "Sniffer().sniff(sample) returns a dialect with the detected delimiter",
     "has_header() guesses whether the first row is a header",
-    "Restrict delimiters and keep a fallback; sniffing is heuristic"
+    "Limit the delimiters and keep a fallback; sniffing is only a guess"
    ],
    "pitfalls": [
     "Sniffing a sample and forgetting f.seek(0), so the reader starts mid-file."
@@ -334,6 +416,9 @@
    "docs": "https://docs.python.org/3/library/csv.html#csv.Sniffer",
    "requires": [
     "py-csv.dialects"
+   ],
+   "defines": [
+    "heuristic"
    ]
   },
   {
@@ -342,22 +427,22 @@
    "module": "robust",
    "level": 3,
    "minutes": 10,
-   "summary": "Process huge CSV files row by row with generators, and read or write CSV in memory with io.StringIO.",
-   "why": "Exports of millions of rows must not be loaded into memory, and web apps often build CSV without touching disk.",
-   "body": "csv readers and writers work with any file-like object and process one row at a time, which gives you two powerful patterns.\n\n**Streaming pipelines**: chain generators so only one row is in memory at a time.\n\n```python\ndef rows(path):\n    with open(path, newline=\"\", encoding=\"utf-8\") as f:\n        yield from csv.DictReader(f)\nbig = (r for r in rows(\"events.csv\") if r[\"type\"] == \"error\")\nwriter.writerows(big)\n```\n\n`itertools.islice(reader, 10)` previews the first rows; `sum(1 for _ in reader)` counts records (not lines) without storing them. Group rows into fixed-size batches with `itertools.batched(reader, 1000)` (3.12+) for bulk database inserts.\n\n**In memory**: `io.StringIO` is a file-like object backed by a string. Parse CSV that arrived as text, such as an HTTP response body or an upload: `csv.reader(io.StringIO(text))`. Build CSV for a download response by writing into a `StringIO` and calling `getvalue()`. For bytes streams, wrap them with `io.TextIOWrapper(binary, encoding=\"utf-8\", newline=\"\")`.\n\nWriting to `sys.stdout` works too, which makes command-line filters easy (pass `lineterminator=\"\\n\"` if you prefer Unix line endings for pipes).",
+   "summary": "Handle huge CSV files row by row with generators, and read or write CSV held in a string with io.StringIO.",
+   "why": "Exports of millions of rows must not be loaded into memory at once, and web apps often build CSV files without saving them to disk.",
+   "body": "csv readers and writers work with any **file-like object** (anything with the methods of an open file) and handle one row at a time. That gives you two useful patterns.\n\n**Streaming** means handling data piece by piece as it flows through. Chain generators so only one row is in memory at a time:\n\n```python\ndef rows(path):\n    with open(path, newline=\"\", encoding=\"utf-8\") as f:\n        yield from csv.DictReader(f)\nbig = (r for r in rows(\"events.csv\") if r[\"type\"] == \"error\")\nwriter.writerows(big)\n```\n\n`itertools.islice(reader, 10)` previews the first rows; `sum(1 for _ in reader)` counts records (not lines) without storing them. To insert rows into a database many at a time, group them into fixed-size **batches** with `itertools.batched(reader, 1000)` (3.12+).\n\n**In memory**: `io.StringIO` is a file-like object that keeps its contents in a string. Read CSV that arrived as text, such as data downloaded from a web service or a file a user uploaded: `csv.reader(io.StringIO(text))`. To build a CSV file for a user to download, write into a `StringIO` and call `getvalue()`. For data that arrives as bytes, wrap it with `io.TextIOWrapper(binary, encoding=\"utf-8\", newline=\"\")`.\n\nWriting to `sys.stdout` (the program's normal output) works too. That makes it easy to write command-line tools whose output feeds into other commands; pass `lineterminator=\"\\n\"` if you prefer Unix-style line endings.",
    "code": "import csv, io, itertools\n\nwith open(\"events.csv\", \"w\", newline=\"\") as f:\n    w = csv.writer(f)\n    w.writerow([\"id\", \"type\"])\n    w.writerows([i, \"error\" if i % 3 == 0 else \"ok\"] for i in range(1, 100_001))\n\ndef read_rows(path):\n    with open(path, newline=\"\", encoding=\"utf-8\") as f:\n        yield from csv.DictReader(f)\n\nerrors = (r for r in read_rows(\"events.csv\") if r[\"type\"] == \"error\")\nprint([r[\"id\"] for r in itertools.islice(errors, 3)])   # ['3', '6', '9']\n\nbatches = itertools.batched(read_rows(\"events.csv\"), 40_000)\nprint([len(b) for b in batches])                        # [40000, 40000, 20000]\n\nraw = io.BytesIO(\"name\\nZoë\\n\".encode(\"utf-8\"))       # e.g. an uploaded file\ntext = io.TextIOWrapper(raw, encoding=\"utf-8\", newline=\"\")\nprint(list(csv.reader(text)))                           # [['name'], ['Zoë']]",
    "code_lang": "python",
    "takeaways": [
-    "Readers and writers are row-at-a-time; chain generators for constant memory",
-    "io.StringIO handles CSV text in memory; TextIOWrapper adapts byte streams",
-    "itertools.islice and batched help preview and chunk large files"
+    "Readers and writers work a row at a time; chain generators to keep memory use small",
+    "io.StringIO handles CSV text held in a string; TextIOWrapper adapts bytes",
+    "itertools.islice and batched help preview and group large files"
    ],
    "pitfalls": [
     "Calling list(reader) on a multi-gigabyte file and running out of memory."
    ],
    "quiz": [
     {
-     "q": "You received CSV as a str from an HTTP API. What's the simplest way to parse it with csv.reader?",
+     "q": "You downloaded CSV data from a web service and have it as one str. What's the simplest way to read it with csv.reader?",
      "options": [
       "csv.reader(io.StringIO(text))",
       "csv.reader(text)",
@@ -365,13 +450,18 @@
       "csv.reader(open(text))"
      ],
      "answer": 0,
-     "explain": "StringIO wraps the string in a file-like object; passing the str directly would iterate characters."
+     "explain": "StringIO wraps the string in a file-like object; passing the str directly would loop over single characters."
     }
    ],
    "docs": "https://docs.python.org/3/library/csv.html#examples",
    "requires": [
     "py-csv.dict-io",
     "python.iterators-generators"
+   ],
+   "defines": [
+    "file-like object",
+    "stream",
+    "batch"
    ]
   },
   {
@@ -380,13 +470,13 @@
    "module": "robust",
    "level": 4,
    "minutes": 12,
-   "summary": "Detect and report bad rows with strict mode, csv.Error, line numbers, field_size_limit and ragged-row handling.",
-   "why": "Real-world files are messy; a robust importer reports exactly which row failed and why instead of crashing or silently corrupting data.",
-   "body": "The reader is lenient by default: an unbalanced quote may silently swallow the rest of the file into one field, and a stray quote in the middle of a field is kept as text. Make problems visible:\n\n- `strict=True` raises `csv.Error` on bad CSV input, such as a character after a closing quote.\n- A file ending inside a quoted field raises `csv.Error: unexpected end of data` when `strict=True` is on.\n- `reader.line_num` gives the physical line where parsing stopped, so error messages can point at it.\n- `csv.field_size_limit()` (default 131072 characters) guards against a runaway field; exceeding it raises `csv.Error: field larger than field limit`. Raise it deliberately with `csv.field_size_limit(n)` if you have big legitimate fields.\n\n**Ragged rows** (wrong number of fields) aren't CSV syntax errors, so validate them yourself: compare `len(row)` with the header, or use DictReader's `restkey` (extra values) and `restval` (missing values) to detect them.\n\nA robust importer separates concerns: parse with csv (syntax), validate row by row (shape and types), collect errors with line numbers instead of stopping at the first, and decide on a policy: reject the file, skip bad rows, or quarantine them to a separate file.",
+   "summary": "Detect and report bad rows with strict mode, csv.Error, line numbers, field_size_limit and checks for rows of the wrong length.",
+   "why": "Real-world files are messy; a robust import reports exactly which row failed and why, instead of crashing or silently mixing up data.",
+   "body": "The reader is forgiving by default: an unbalanced quote may silently swallow the rest of the file into one field, and a stray quote in the middle of a field is kept as text. Make problems visible:\n\n- `strict=True` raises `csv.Error` on broken CSV, such as a character right after a closing quote.\n- A file ending inside a quoted field raises `csv.Error: unexpected end of data` when `strict=True` is on.\n- `reader.line_num` gives the line of the file where reading stopped, so error messages can point at it.\n- `csv.field_size_limit()` (default 131072 characters) protects against a field that never ends; going over it raises `csv.Error: field larger than field limit`. Raise the limit on purpose with `csv.field_size_limit(n)` if you have big legitimate fields.\n\n**Ragged rows** (rows with the wrong number of fields) are still valid CSV, so check them yourself: compare `len(row)` with the header, or use DictReader's `restkey` (extra values) and `restval` (missing values) to spot them.\n\nA robust import keeps the jobs apart: csv reads the text, then your code checks each row's shape and types (**validation**), collects errors with line numbers instead of stopping at the first, and applies a policy: reject the whole file, skip bad rows, or set them aside in a separate file for a person to look at.",
    "code": "import csv, io\n\ndata = 'id,name,qty\\n1,Ada,3\\n2,\"Bob\"x,5\\n3,Cy\\n4,Di,4,EXTRA\\n'\nerrors, good = [], []\nreader = csv.DictReader(io.StringIO(data), strict=True, restkey=\"_extra\")\nwhile True:\n    try:\n        row = next(reader)\n    except StopIteration:\n        break\n    except csv.Error as e:\n        errors.append((reader.line_num, f\"syntax: {e}\"))\n        continue\n    if row.get(\"_extra\") or None in row.values():\n        errors.append((reader.line_num, \"wrong number of fields\"))\n    else:\n        good.append(row)\n\nprint([r[\"id\"] for r in good])  # ['1']\nfor line, msg in errors:\n    print(line, msg)\n# 2 syntax: ',' expected after '\"'   (line_num = last line fully read)\n# 4 wrong number of fields\n# 5 wrong number of fields",
    "code_lang": "python",
    "takeaways": [
-    "strict=True turns malformed quoting into csv.Error",
+    "strict=True turns broken quoting into csv.Error",
     "reader.line_num locates problems; field_size_limit caps huge fields",
     "Check field counts yourself; restkey/restval reveal ragged rows"
    ],
@@ -410,6 +500,9 @@
    "requires": [
     "py-csv.quoting",
     "py-csv.types"
+   ],
+   "defines": [
+    "validation"
    ]
   },
   {
@@ -418,15 +511,15 @@
    "module": "robust",
    "level": 4,
    "minutes": 11,
-   "summary": "Measure and speed up CSV processing: the C parser, avoiding per-row overhead, reader vs DictReader, and when to switch tools.",
+   "summary": "Measure and speed up CSV processing: the C parser, per-row costs, reader vs DictReader, and when to switch tools.",
    "why": "Turning a 10-minute import into a 1-minute one usually takes a few simple changes.",
-   "body": "The `csv` module's parser is written in C (`_csv`), so parsing itself is fast; most time goes into **your per-row Python code**. Typical speedups:\n\n- **`reader` over `DictReader`**: DictReader builds a dict per row and is noticeably slower. On hot paths, read the header once, look up column indexes, and use plain lists.\n- **Avoid repeated work** inside the loop: precompile regexes, hoist attribute lookups, convert only the columns you need.\n- **Batch I/O**: `writer.writerows(generator)` beats calling `writerow` in a Python loop, and large file buffers (`open(..., buffering=1 << 20)`) cut syscalls.\n- **Batch downstream work**: insert into databases in batches (`executemany`), not row by row.\n- **Parallelism**: CSV parsing is sequential, but CPU-heavy per-row work can be split across processes in chunks.\n\nMeasure first with `time.perf_counter` or `cProfile`.\n\nFor numerical analysis or files of many gigabytes, columnar tools are in another league: `pandas.read_csv` (C or pyarrow engine), `polars.read_csv`/`scan_csv` (multithreaded, lazy), and DuckDB querying CSV directly. Use the csv module for streaming transformations, small-to-medium files and zero-dependency scripts; reach for those when you need aggregation over hundreds of millions of rows.",
+   "body": "The `csv` module's parser is written in C (`_csv`), so reading the text itself is fast; most time goes into **your Python code that runs for every row**. Typical speedups:\n\n- **`reader` over `DictReader`**: DictReader builds a dict for every row and is noticeably slower. In code that runs millions of times, read the header once, look up each column's position, and use plain lists.\n- **Avoid repeated work** inside the loop: prepare **regular expressions** (text patterns) once before the loop, keep values you look up over and over in local variables, and convert only the columns you need.\n- **Write in bulk**: `writer.writerows(generator)` beats calling `writerow` in a Python loop, and a bigger file **buffer** (`open(..., buffering=1 << 20)`) means Python goes to the operating system for data less often.\n\nBeyond the parsing itself:\n\n- **Group database work**: insert into a database many rows at a time (`executemany`), not one by one.\n- **Use more CPU cores**: reading one file is sequential, but heavy per-row work can be split across several processes, a chunk of rows each.\n\nMeasure first with `time.perf_counter` or `cProfile`.\n\nFor number crunching or files of many gigabytes, tools that store and process data column by column are in another league: `pandas.read_csv`, `polars.read_csv`/`scan_csv` (uses several cores and reads only what a query needs) and DuckDB, which runs SQL queries on CSV files directly. Use the csv module for row-by-row changes, small-to-medium files and scripts with no extra installs; reach for those when you need totals and averages over hundreds of millions of rows.",
    "code": "import csv, io, time\n\ntext = \"id,name,qty\\n\" + \"\".join(f\"{i},user{i},{i % 7}\\n\" for i in range(300_000))\n\ndef timed(label, fn):\n    t = time.perf_counter(); result = fn()\n    print(f\"{label:12} {time.perf_counter() - t:.3f}s  total={result}\")\n\ndef with_dictreader():\n    return sum(int(r[\"qty\"]) for r in csv.DictReader(io.StringIO(text)))\n\ndef with_reader():\n    rows = csv.reader(io.StringIO(text))\n    qty = next(rows).index(\"qty\")\n    return sum(int(r[qty]) for r in rows)\n\ntimed(\"DictReader\", with_dictreader)   # e.g. DictReader   0.250s  total=899997\ntimed(\"reader\", with_reader)           # e.g. reader       0.110s  total=899997",
    "code_lang": "python",
    "takeaways": [
-    "Parsing is C-fast; per-row Python work dominates",
-    "Plain reader with column indexes beats DictReader on hot paths",
-    "Switch to pandas, polars or DuckDB for huge analytical workloads"
+    "Parsing runs in fast C code; your per-row Python work dominates",
+    "Plain reader with column positions beats DictReader in code that runs for every row",
+    "Switch to pandas, polars or DuckDB for huge analysis jobs"
    ],
    "pitfalls": [
     "Optimising the parser when the real cost is one database insert per row."
@@ -457,17 +550,17 @@
    "level": 4,
    "minutes": 10,
    "summary": "Know exactly how Python's csv relates to RFC 4180 and Excel: line endings, quoting rules, whitespace and empty lines.",
-   "why": "Interoperability bugs come from small differences between what producers write and what parsers accept.",
-   "body": "There is no single CSV standard. **RFC 4180** (2005) documents the common format: records separated by CRLF, fields separated by commas, fields containing commas, quotes or line breaks enclosed in double quotes, and quotes inside quoted fields doubled. An optional header line has the same format.\n\nPython's default `excel` dialect matches it closely, with deliberate leniencies:\n\n- **Line endings**: the writer emits `\\r\\n`; the reader accepts `\\r\\n`, `\\n` or `\\r`. Inside quoted fields, line breaks are kept exactly, which only works if the file object doesn't translate them, hence `newline=\"\"`.\n- **Whitespace** is significant: `a, b` gives `' b'` unless `skipinitialspace=True`. RFC 4180 agrees: spaces are part of the field.\n- **Empty lines** are returned as empty lists by `reader` and skipped by `DictReader`.\n- **Quotes inside unquoted fields** (`ab\"c`) are kept literally in non-strict mode; RFC 4180 doesn't allow them.\n- **Final line** may or may not end with a newline; both parse the same.\n- RFC 4180 says nothing about encoding (it registers `text/csv` with an optional `charset`), types or nulls, which is why `QUOTE_NOTNULL` / `QUOTE_STRINGS` are Python conventions, not portable semantics.\n\nWhen exchanging data, document dialect, encoding, header and null conventions explicitly.",
+   "why": "Bugs when swapping files between programs come from small differences between what writers produce and what readers accept.",
+   "body": "There is no single official CSV standard. **RFC 4180** (2005), a published internet standards document, describes the common format: records separated by CRLF (the two characters `\\r\\n`), fields separated by commas, fields containing commas, quotes or line breaks wrapped in double quotes, and quote marks inside quoted fields doubled. An optional header line has the same format.\n\nPython's default `excel` dialect matches it closely, but its reader deliberately accepts more:\n\n- **Line endings**: the writer writes `\\r\\n`; the reader accepts `\\r\\n`, `\\n` or `\\r`. Inside quoted fields, line breaks are kept exactly, which only works if the file object doesn't change them, hence `newline=\"\"`.\n- **Spaces** count: `a, b` gives `' b'` unless `skipinitialspace=True`. RFC 4180 agrees: spaces are part of the field.\n- **Empty lines** are returned as empty lists by `reader` and skipped by `DictReader`.\n- **Quotes inside unquoted fields** (`ab\"c`) are kept as they are in non-strict mode; RFC 4180 doesn't allow them.\n- **The last line** may or may not end with a line break; both read the same.\n- RFC 4180 says nothing about encoding (beyond naming the file type `text/csv` with an optional `charset`), types or missing values. That's why `QUOTE_NOTNULL` / `QUOTE_STRINGS` are Python conventions, not something other programs will understand.\n\nWhen exchanging data, write down the dialect, encoding, header and how missing values are shown.",
    "code": "import csv, io\n\ncases = {\n    \"mixed endings\": \"a,b\\r\\nc,d\\ne,f\\rg,h\",\n    \"spaces\":        \"a, b ,c\",\n    \"blank lines\":   \"a\\n\\nb\\n\",\n    \"stray quote\":   'ab\"c,d',\n    \"quoted break\":  '\"line1\\r\\nline2\",x',\n}\nfor name, text in cases.items():\n    print(f\"{name:14}\", list(csv.reader(io.StringIO(text, newline=\"\"))))\n# mixed endings  [['a', 'b'], ['c', 'd'], ['e', 'f'], ['g', 'h']]\n# spaces         [['a', ' b ', 'c']]\n# blank lines    [['a'], [], ['b']]\n# stray quote    [['ab\"c', 'd']]\n# quoted break   [['line1\\r\\nline2', 'x']]\nprint(list(csv.DictReader(io.StringIO(\"h\\n\\n1\\n\"))))    # [{'h': '1'}]  (blank skipped)",
    "code_lang": "python",
    "takeaways": [
-    "Python's excel dialect closely follows RFC 4180, but its reader is more lenient",
-    "Whitespace is data; blank lines give [] in reader and are skipped by DictReader",
-    "Encoding, types and nulls are outside the spec: document them"
+    "Python's excel dialect closely follows RFC 4180, but its reader accepts more",
+    "Spaces are data; blank lines give [] in reader and are skipped by DictReader",
+    "Encoding, types and missing values are outside the standard: write them down"
    ],
    "pitfalls": [
-    "Assuming every producer writes RFC 4180; validate stray quotes and spaces from hand-made files."
+    "Assuming every program writes RFC 4180 CSV; check for stray quotes and spaces in hand-made files."
    ],
    "quiz": [
     {
@@ -486,6 +579,9 @@
    "requires": [
     "py-csv.quoting",
     "py-csv.encodings"
+   ],
+   "defines": [
+    "RFC"
    ]
   }
  ]

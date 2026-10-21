@@ -32,6 +32,7 @@ sys.path.insert(0, str(ROOT))
 import psycopg  # noqa: E402
 
 from app import config  # noqa: E402
+from app.glossary import Glossary  # noqa: E402
 from app.repository import normalize, search_words, words  # noqa: E402
 
 SCHEMA = (ROOT / "app" / "schema.sql").read_text()
@@ -93,6 +94,7 @@ def prepare(docs: List[dict], order: Optional[List[str]] = None) -> Tuple[List[d
             raise ContentError(f"tool {tid} is defined twice")
         t["id"] = tid
         t["modules"] = [{"id": m["id"], "name": m["name"]} for m in doc.get("modules", [])]
+        t["glossary"] = list(doc.get("glossary") or [])
         tools[tid] = t
         for i, c in enumerate(doc.get("concepts", [])):
             cid = str(c.get("id", "")).strip()
@@ -200,6 +202,15 @@ def build(tools: List[dict], lessons: List[dict], edges: List[Tuple[str, str]], 
     prereq_count: Dict[str, int] = defaultdict(int)
     for a, _ in edges:
         prereq_count[a] += 1
+    # Per lesson: terms it uses that the learner hasn't been taught yet, with
+    # their definitions (tap/hover in the app and on the website).
+    by_tool: Dict[str, List[dict]] = defaultdict(list)
+    for c in lessons:
+        by_tool[c["tool"]].append(c)
+    gloss = Glossary(
+        [{"tool": t, "glossary": t.get("glossary") or [], "concepts": by_tool[t["id"]]} for t in tools]
+    )
+    lesson_terms = {c["id"]: gloss.lesson_glossary(c["id"]) for c in lessons}
 
     with psycopg.connect(url, prepare_threshold=None, connect_timeout=30) as conn:
         # One transaction for the whole load: if anything fails (or the process
@@ -245,7 +256,7 @@ def build(tools: List[dict], lessons: List[dict], edges: List[Tuple[str, str]], 
                 with cur.copy(
                     f"""COPY {BUILD}.concepts (pk, slug, tool_pk, module, level, position, minutes, name,
                         name_norm, name_key, search_doc, summary, why, body, code, code_lang, takeaways,
-                        pitfalls, quiz, docs_url, prereq_count) FROM STDIN"""
+                        pitfalls, quiz, docs_url, prereq_count, glossary) FROM STDIN"""
                 ) as cp:
                     for c in lessons:
                         doc = search_words(c["name"]) + search_words(tool_names[c["tool"]])
@@ -256,6 +267,7 @@ def build(tools: List[dict], lessons: List[dict], edges: List[Tuple[str, str]], 
                             c.get("body", ""), c.get("code"), c.get("code_lang"),
                             json.dumps(c.get("takeaways") or []), json.dumps(c.get("pitfalls") or []),
                             json.dumps(c.get("quiz") or []), c.get("docs"), prereq_count[c["id"]],
+                            json.dumps(lesson_terms[c["id"]], ensure_ascii=False),
                         ))
                 with cur.copy(f"COPY {BUILD}.prerequisites (concept_pk, prereq_pk) FROM STDIN") as cp:
                     for a, b in edges:
